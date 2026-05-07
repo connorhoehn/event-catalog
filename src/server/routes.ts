@@ -3,7 +3,8 @@ import type { Registry } from '../registry/index.js';
 import type { MetricsCollector } from './metrics.js';
 import type { MetricsObserver } from './metrics-observer.js';
 import type { SignalTransport } from '../client/signal.js';
-import type { DurableTransport } from '../client/durable.js';
+import { DurableTransport } from '../client/durable.js';
+import type { DLQStore } from './dlq-store.js';
 import type { EventDeclaration } from '../types/index.js';
 
 export interface RoutesDeps {
@@ -12,11 +13,12 @@ export interface RoutesDeps {
   metricsObserver: MetricsObserver;
   signal: SignalTransport;
   durable: DurableTransport;
+  dlqStore: DLQStore;
   startedAt: number;
 }
 
 export function createRoutes(deps: RoutesDeps): Router {
-  const { registry, metrics, metricsObserver, signal, durable, startedAt } = deps;
+  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt } = deps;
   const router = Router();
 
   // List all events
@@ -253,10 +255,50 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json({ queues, total: queues.length });
   });
 
-  // Durable transport dead-letter queue
-  router.get('/transports/durable/dlq', (_req: Request, res: Response) => {
-    const messages = durable.getDLQ();
-    res.json({ messages, total: messages.length });
+  // Durable transport dead-letter queue (persisted)
+  router.get('/transports/durable/dlq', async (req: Request, res: Response) => {
+    const eventName = req.query.eventName as string | undefined;
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+
+    try {
+      const entries = await dlqStore.list({ eventName, limit });
+      res.json({ messages: entries, total: entries.length });
+    } catch (err) {
+      const inMemory = durable.getDLQ();
+      res.json({ messages: inMemory, total: inMemory.length, source: 'in-memory', error: (err as Error).message });
+    }
+  });
+
+  // Delete a single DLQ entry
+  router.delete('/transports/durable/dlq/:id', async (req: Request, res: Response) => {
+    const removed = await dlqStore.remove(req.params.id);
+    if (!removed) {
+      res.status(404).json({ error: `DLQ entry "${req.params.id}" not found` });
+      return;
+    }
+    res.json({ removed: req.params.id });
+  });
+
+  // Replay a DLQ entry: re-publish to durable transport, then delete
+  router.post('/transports/durable/dlq/:id/replay', async (req: Request, res: Response) => {
+    const entry = await dlqStore.findById(req.params.id);
+    if (!entry) {
+      res.status(404).json({ error: `DLQ entry "${req.params.id}" not found` });
+      return;
+    }
+
+    const queueName = DurableTransport.eventNameToQueueName(entry.eventName);
+    try {
+      await durable.publish(queueName, {
+        eventName: entry.eventName,
+        payload: entry.payload,
+        metadata: { id: entry.id, producer: 'dlq-replay', timestamp: Date.now() },
+      });
+      await dlqStore.remove(entry.id);
+      res.json({ replayed: entry.id, eventName: entry.eventName });
+    } catch (err) {
+      res.status(500).json({ error: `Replay failed: ${(err as Error).message}` });
+    }
   });
 
   return router;

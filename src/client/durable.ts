@@ -35,6 +35,8 @@ interface QueueMetrics {
 
 type MessageHandler = (envelope: EventEnvelope) => Promise<void>;
 
+export type DeadLetterCallback = (message: DeadLetteredMessage) => void;
+
 export class DurableTransport {
   private readonly url: string;
   private readonly retryAttempts: number;
@@ -49,6 +51,7 @@ export class DurableTransport {
   private ensuredQueues = new Set<string>();
   private readonly deadLetterMessages: DeadLetteredMessage[] = [];
   private readonly messageAttempts = new Map<string, number>();
+  private deadLetterCallbacks: DeadLetterCallback[] = [];
 
   constructor(config: DurableTransportConfig) {
     this.url = config.url.replace(/\/$/, '');
@@ -208,6 +211,13 @@ export class DurableTransport {
     return messages;
   }
 
+  onDeadLetter(callback: DeadLetterCallback): () => void {
+    this.deadLetterCallbacks.push(callback);
+    return () => {
+      this.deadLetterCallbacks = this.deadLetterCallbacks.filter(cb => cb !== callback);
+    };
+  }
+
   isConnected(): boolean {
     return this.connected;
   }
@@ -306,14 +316,18 @@ export class DurableTransport {
               if (this.deadLetterMessages.length >= this.dlqCapacity) {
                 this.deadLetterMessages.splice(0, this.deadLetterMessages.length - this.dlqCapacity + 1);
               }
-              this.deadLetterMessages.push({
+              const dlqMessage: DeadLetteredMessage = {
                 messageId: msg.message_id,
                 queueName,
                 envelope: envelope ?? { eventName: 'unknown', payload: msg.body, metadata: { id: msg.message_id, producer: 'unknown', timestamp: Date.now() } },
                 error: (err as Error).message,
                 attempts: attemptCount,
                 deadLetteredAt: new Date().toISOString(),
-              });
+              };
+              this.deadLetterMessages.push(dlqMessage);
+              for (const cb of this.deadLetterCallbacks) {
+                try { cb(dlqMessage); } catch { /* ignore callback errors */ }
+              }
               // Delete from source queue so it's not redelivered
               await fetch(
                 `${this.url}/queues/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(msg.receipt_handle)}`,

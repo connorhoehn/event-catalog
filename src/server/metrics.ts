@@ -1,5 +1,14 @@
 import { RateTracker, MetricsRegistry, Counter, Gauge } from 'distributed-core';
+import type { RedisClientType } from 'redis';
 import type { EventStats } from '../types/index.js';
+
+const SNAPSHOT_KEY = 'event-catalog:metrics:snapshot';
+
+interface PersistedEventMetrics {
+  publishCount: number;
+  errorCount: number;
+  lastPublishedAt: string | null;
+}
 
 interface EventMetricHandles {
   publishCounter: Counter;
@@ -85,6 +94,33 @@ export class MetricsCollector {
       this.events.delete(eventName);
     } else {
       this.events.clear();
+    }
+  }
+
+  async snapshotToRedis(redis: RedisClientType): Promise<void> {
+    const data: Record<string, PersistedEventMetrics> = {};
+    for (const [eventName, handles] of this.events) {
+      data[eventName] = {
+        publishCount: handles.publishCounter.get(),
+        errorCount: handles.errorCounter.get(),
+        lastPublishedAt: handles.lastPublishedAt,
+      };
+    }
+    await redis.set(SNAPSHOT_KEY, JSON.stringify(data));
+  }
+
+  async restoreFromRedis(redis: RedisClientType): Promise<void> {
+    const raw = await redis.get(SNAPSHOT_KEY);
+    if (!raw) return;
+
+    const data = JSON.parse(raw) as Record<string, PersistedEventMetrics>;
+    for (const [eventName, persisted] of Object.entries(data)) {
+      const handles = this.getOrCreate(eventName);
+      handles.publishCounter.reset();
+      handles.publishCounter.inc(persisted.publishCount);
+      handles.errorCounter.reset();
+      handles.errorCounter.inc(persisted.errorCount);
+      handles.lastPublishedAt = persisted.lastPublishedAt;
     }
   }
 

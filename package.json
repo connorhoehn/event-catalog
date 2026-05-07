@@ -27,6 +27,8 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1045.0",
+    "@aws-sdk/lib-dynamodb": "^3.1045.0",
     "cors": "^2.8.5",
     "distributed-core": "github:connorhoehn/distributed-core#main",
     "express": "^4.21.0",
