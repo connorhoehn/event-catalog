@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import Chip from '@ui/components/shared/Chip';
+import Banner from '@ui/components/shared/Banner';
+import SkeletonCard from '@ui/components/shared/SkeletonCard';
 import { api, type EventEntry, type EventStats } from '../api';
 
 export function EventDetail() {
@@ -23,7 +26,6 @@ export function EventDetail() {
     }).catch(err => setError(err.message));
   }, [name]);
 
-  // Poll stats every 2s for live updates
   useEffect(() => {
     if (!name) return;
     const decoded = decodeURIComponent(name);
@@ -33,8 +35,16 @@ export function EventDetail() {
     return () => clearInterval(interval);
   }, [name]);
 
-  if (error) return <div className="error">Error: {error}</div>;
-  if (!event) return <div className="loading">Loading...</div>;
+  if (error) return <Banner variant="error" title="Error">{error}</Banner>;
+  if (!event) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <SkeletonCard height={40} />
+        <SkeletonCard height={200} />
+        <SkeletonCard height={200} />
+      </div>
+    );
+  }
 
   return (
     <div className="event-detail">
@@ -44,13 +54,14 @@ export function EventDetail() {
 
       <div className="detail-header">
         <h2>{event.name}</h2>
-        <span className={`badge ${event.transport}`}>{event.transport}</span>
+        <Chip tone={event.transport === 'signal' ? 'info' : 'warning'}>
+          {event.transport}
+        </Chip>
       </div>
 
       {event.description && <p className="description">{event.description}</p>}
 
       <div className="detail-grid">
-        {/* Live Stats */}
         <section className="detail-section">
           <h3>Live Metrics</h3>
           <div className="metrics-grid">
@@ -67,7 +78,7 @@ export function EventDetail() {
               <div className="metric-label">Subscribers</div>
             </div>
             <div className="metric">
-              <div className={`metric-value ${(stats?.errorCount ?? 0) > 0 ? 'text-error' : ''}`}>
+              <div className="metric-value" style={(stats?.errorCount ?? 0) > 0 ? { color: 'var(--error)' } : undefined}>
                 {stats?.errorCount}
               </div>
               <div className="metric-label">Errors</div>
@@ -81,7 +92,6 @@ export function EventDetail() {
           </div>
         </section>
 
-        {/* Schema */}
         <section className="detail-section">
           <h3>Schema</h3>
           <pre className="schema-viewer">
@@ -89,7 +99,6 @@ export function EventDetail() {
           </pre>
         </section>
 
-        {/* Registration Info */}
         <section className="detail-section">
           <h3>Registration</h3>
           <dl className="info-list">
@@ -101,16 +110,19 @@ export function EventDetail() {
             <dd>{new Date(event.metadata.createdAt).toLocaleString()}</dd>
             <dt>Subscribers</dt>
             <dd>{event.subscribers.length > 0 ? event.subscribers.join(', ') : 'None'}</dd>
-            {event.tags && event.tags.length > 0 && (
+            {event.tags && event.tags.length > 0 ? (
               <>
                 <dt>Tags</dt>
-                <dd>{event.tags.map(t => <span key={t} className="tag">{t}</span>)}</dd>
+                <dd>
+                  {event.tags.map(t => (
+                    <Chip key={t} tone="purple" size="xs" style={{ marginRight: 4 }}>{t}</Chip>
+                  ))}
+                </dd>
               </>
-            )}
+            ) : null}
           </dl>
         </section>
 
-        {/* Recent Messages */}
         <section className="detail-section full-width">
           <h3>Recent Messages ({history.length})</h3>
           {history.length === 0 ? (

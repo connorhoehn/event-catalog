@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import Chip from '@ui/components/shared/Chip';
+import Banner from '@ui/components/shared/Banner';
+import SkeletonCard from '@ui/components/shared/SkeletonCard';
 import { api, type EventEntry, type HealthStatus } from '../api';
 
 export function Dashboard() {
   const [events, setEvents] = useState<EventEntry[]>([]);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
@@ -14,10 +18,23 @@ export function Dashboard() {
     ]).then(([eventsRes, healthRes]) => {
       setEvents(eventsRes.events);
       setHealth(healthRes);
-    }).catch(err => setError(err.message));
+    }).catch(err => setError(err.message))
+      .finally(() => setLoading(false));
   }, []);
 
-  if (error) return <div className="error">Failed to load: {error}</div>;
+  if (error) return <Banner variant="error" title="Error">{error}</Banner>;
+  if (loading) {
+    return (
+      <div className="dashboard">
+        <h2>Dashboard</h2>
+        <div className="stats-grid">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <SkeletonCard key={i} height={90} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   const signalEvents = events.filter(e => e.transport === 'signal');
   const durableEvents = events.filter(e => e.transport === 'durable');
@@ -61,11 +78,17 @@ export function Dashboard() {
           <h3>Transport Status</h3>
           <div className="status-row">
             <span className={`status-dot ${health.redis === 'connected' ? 'green' : 'red'}`} />
-            <span>Redis (Signal): {health.redis}</span>
+            <span>Redis (Signal): </span>
+            <Chip tone={health.redis === 'connected' ? 'success' : 'danger'} size="xs">
+              {health.redis}
+            </Chip>
           </div>
           <div className="status-row">
             <span className={`status-dot ${health.messageQueue === 'connected' ? 'green' : 'red'}`} />
-            <span>Message Queue (Durable): {health.messageQueue}</span>
+            <span>Message Queue (Durable): </span>
+            <Chip tone={health.messageQueue === 'connected' ? 'success' : 'danger'} size="xs">
+              {health.messageQueue}
+            </Chip>
           </div>
           <div className="status-row">
             <span>Uptime: {formatUptime(health.uptime)}</span>
@@ -93,9 +116,13 @@ export function Dashboard() {
               .map(e => (
                 <tr key={e.name}>
                   <td><Link to={`/events/${encodeURIComponent(e.name)}`}>{e.name}</Link></td>
-                  <td><span className={`badge ${e.transport}`}>{e.transport}</span></td>
+                  <td>
+                    <Chip tone={e.transport === 'signal' ? 'info' : 'warning'} size="xs">
+                      {e.transport}
+                    </Chip>
+                  </td>
                   <td>{e.producer}</td>
-                  <td>{e.stats?.publishRate.toFixed(1)}/s</td>
+                  <td className="mono">{e.stats?.publishRate.toFixed(1)}/s</td>
                   <td>{e.stats?.lastPublishedAt ? timeAgo(e.stats.lastPublishedAt) : '—'}</td>
                 </tr>
               ))}

@@ -1,4 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
+import Chip from '@ui/components/shared/Chip';
+import EmptyState from '@ui/components/shared/EmptyState';
+import { Button } from '@ui/components/ui/Button';
 import { api, type EventEntry, type EventStats } from '../api';
 
 interface LiveMessage {
@@ -24,7 +27,6 @@ export function LiveInspector() {
     api.getEvents().then(res => setEvents(res.events)).catch(() => {});
   }, []);
 
-  // Poll for new messages from selected signal events
   useEffect(() => {
     if (selectedEvents.size === 0) return;
 
@@ -35,7 +37,6 @@ export function LiveInspector() {
         const metrics = await api.getMetrics();
         setLiveStats(metrics);
 
-        // Fetch recent history from each selected event
         for (const eventName of selectedEvents) {
           const historyRes = await api.getEventHistory(eventName, 5);
           const newMsgs: LiveMessage[] = historyRes.messages.map((msg, i) => ({
@@ -59,7 +60,6 @@ export function LiveInspector() {
     return () => clearInterval(interval);
   }, [selectedEvents, maxMessages]);
 
-  // Auto-scroll
   useEffect(() => {
     if (!paused) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -83,15 +83,16 @@ export function LiveInspector() {
       <div className="page-header">
         <h2>Live Inspector</h2>
         <div className="controls">
-          <button
-            className={`btn ${paused ? 'btn-resume' : 'btn-pause'}`}
+          <Button
+            variant={paused ? 'primary' : 'ghost'}
+            size="sm"
             onClick={() => setPaused(p => !p)}
           >
             {paused ? 'Resume' : 'Pause'}
-          </button>
-          <button className="btn btn-clear" onClick={() => setMessages([])}>
+          </Button>
+          <Button variant="danger" size="sm" onClick={() => setMessages([])}>
             Clear
-          </button>
+          </Button>
           <select value={maxMessages} onChange={e => setMaxMessages(parseInt(e.target.value))}>
             <option value={50}>50 messages</option>
             <option value={100}>100 messages</option>
@@ -101,7 +102,6 @@ export function LiveInspector() {
       </div>
 
       <div className="inspector-layout">
-        {/* Event selector panel */}
         <div className="event-selector">
           <h3>Signal Events (Ephemeral)</h3>
           <div className="event-checkboxes">
@@ -115,7 +115,7 @@ export function LiveInspector() {
                 <span className="event-label">
                   {e.name}
                   {liveStats[e.name] && (
-                    <span className="rate">{liveStats[e.name].publishRate.toFixed(1)}/s</span>
+                    <Chip tone="info" size="xs" mono>{liveStats[e.name].publishRate.toFixed(1)}/s</Chip>
                   )}
                 </span>
               </label>
@@ -135,7 +135,7 @@ export function LiveInspector() {
                 <span className="event-label">
                   {e.name}
                   {liveStats[e.name] && (
-                    <span className="rate">{liveStats[e.name].publishRate.toFixed(1)}/s</span>
+                    <Chip tone="warning" size="xs" mono>{liveStats[e.name].publishRate.toFixed(1)}/s</Chip>
                   )}
                 </span>
               </label>
@@ -144,27 +144,26 @@ export function LiveInspector() {
           </div>
         </div>
 
-        {/* Live message stream */}
         <div className="message-stream">
           {selectedEvents.size === 0 ? (
-            <div className="empty-state center">
-              Select events from the left panel to inspect live messages.
-              <br /><br />
-              Signal events (cursors, presence, typing) update in real-time.
-              <br />
-              Durable events show as they flow through queues.
-            </div>
+            <EmptyState
+              icon="🔍"
+              title="Select events to inspect"
+              body="Choose events from the left panel to see live messages. Signal events (cursors, presence) update in real-time. Durable events show as they flow through queues."
+            />
           ) : (
             <>
               <div className="stream-header">
                 <span>Watching: {[...selectedEvents].join(', ')}</span>
-                <span className="message-count">{messages.length} messages</span>
+                <Chip tone="neutral" size="xs" mono>{messages.length} messages</Chip>
               </div>
               <div className="stream-messages">
                 {messages.map(msg => (
                   <div key={msg.id} className={`stream-message ${msg.transport}`}>
                     <div className="message-header">
-                      <span className={`badge ${msg.transport}`}>{msg.eventName}</span>
+                      <Chip tone={msg.transport === 'signal' ? 'info' : 'warning'} size="xs">
+                        {msg.eventName}
+                      </Chip>
                       <span className="message-time">{new Date(msg.timestamp).toLocaleTimeString()}</span>
                     </div>
                     <pre className="message-payload">{JSON.stringify(msg.payload, null, 2)}</pre>

@@ -1,4 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import Chip from '@ui/components/shared/Chip';
+import EmptyState from '@ui/components/shared/EmptyState';
+import Banner from '@ui/components/shared/Banner';
 import { api, type TopologyGraph } from '../api';
 
 interface NodePosition {
@@ -29,16 +32,17 @@ export function TopologyView() {
     setSelectedNode(prev => prev === id ? null : id);
   }, []);
 
-  if (error) return <div className="error">{error}</div>;
+  if (error) return <Banner variant="error" title="Error">{error}</Banner>;
   if (!topology) return <div className="loading">Loading topology...</div>;
   if (topology.nodes.length === 0) {
     return (
       <div className="topology-view">
         <h2>Event Topology</h2>
-        <div className="empty-state">
-          No events registered yet. Services register their events at startup.
-          The topology graph will show producers, events, and subscribers as connected nodes.
-        </div>
+        <EmptyState
+          icon="🕸️"
+          title="No events registered yet"
+          body="Services register their events at startup. The topology graph will show producers, events, and subscribers as connected nodes."
+        />
       </div>
     );
   }
@@ -63,7 +67,6 @@ export function TopologyView() {
           viewBox="0 0 1000 600"
           className="topology-svg"
         >
-          {/* Edges */}
           {topology.edges.map((edge, i) => {
             const from = positions.find(n => n.id === edge.from);
             const to = positions.find(n => n.id === edge.to);
@@ -84,14 +87,12 @@ export function TopologyView() {
             );
           })}
 
-          {/* Arrow marker */}
           <defs>
             <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
               <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
             </marker>
           </defs>
 
-          {/* Service nodes */}
           {services.map(node => (
             <g
               key={node.id}
@@ -109,7 +110,6 @@ export function TopologyView() {
             </g>
           ))}
 
-          {/* Event nodes */}
           {events.map(node => {
             const transport = (node.metadata.transport as string) ?? 'signal';
             return (
@@ -141,7 +141,7 @@ export function TopologyView() {
             const inEdges = topology.edges.filter(e => e.to === selectedNode);
             return (
               <div>
-                <p>Type: <span className="badge">{node.type}</span></p>
+                <p>Type: <Chip tone={node.type === 'service' ? 'purple' : 'info'}>{node.type}</Chip></p>
                 {outEdges.length > 0 && (
                   <div>
                     <strong>Publishes to:</strong>
@@ -163,18 +163,15 @@ export function TopologyView() {
   );
 }
 
-// Simple force-directed-ish layout: services on left/right, events in middle
 function layoutNodes(topology: TopologyGraph): NodePosition[] {
   const positions: NodePosition[] = [];
   const services = topology.nodes.filter(n => n.type === 'service');
   const events = topology.nodes.filter(n => n.type === 'event');
 
-  // Separate producers from pure subscribers
   const producerIds = new Set(topology.edges.filter(e => e.relation === 'publishes').map(e => e.from));
   const producers = services.filter(s => producerIds.has(s.id));
   const subscribers = services.filter(s => !producerIds.has(s.id));
 
-  // Producers on left column
   producers.forEach((s, i) => {
     positions.push({
       id: s.id,
@@ -185,7 +182,6 @@ function layoutNodes(topology: TopologyGraph): NodePosition[] {
     });
   });
 
-  // Events in center column
   events.forEach((e, i) => {
     positions.push({
       id: e.id,
@@ -196,7 +192,6 @@ function layoutNodes(topology: TopologyGraph): NodePosition[] {
     });
   });
 
-  // Subscribers on right column
   subscribers.forEach((s, i) => {
     positions.push({
       id: s.id,

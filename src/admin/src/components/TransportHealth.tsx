@@ -1,4 +1,9 @@
 import { useEffect, useState } from 'react';
+import Chip from '@ui/components/shared/Chip';
+import Banner from '@ui/components/shared/Banner';
+import EmptyState from '@ui/components/shared/EmptyState';
+import SkeletonCard from '@ui/components/shared/SkeletonCard';
+import { Button } from '@ui/components/ui/Button';
 import { api, type HealthStatus, type ChannelInfo, type QueueInfo } from '../api';
 
 export function TransportHealth() {
@@ -26,17 +31,23 @@ export function TransportHealth() {
     return () => clearInterval(interval);
   }, []);
 
-  if (error) return <div className="error">{error}</div>;
-  if (!health) return <div className="loading">Loading...</div>;
+  if (error) return <Banner variant="error" title="Error">{error}</Banner>;
+  if (!health) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <SkeletonCard height={120} />
+        <SkeletonCard height={120} />
+      </div>
+    );
+  }
 
   return (
     <div className="transport-health">
       <div className="page-header">
         <h2>Transport Health</h2>
-        <button className="btn" onClick={refresh}>Refresh</button>
+        <Button variant="ghost" size="sm" onClick={refresh}>Refresh</Button>
       </div>
 
-      {/* Overall Status */}
       <div className="health-overview">
         <div className={`transport-card ${health.redis === 'connected' ? 'healthy' : 'unhealthy'}`}>
           <div className="transport-icon">
@@ -44,7 +55,7 @@ export function TransportHealth() {
           </div>
           <div className="transport-info">
             <h3>Redis (Signal Transport)</h3>
-            <p>Status: {health.redis}</p>
+            <p>Status: <Chip tone={health.redis === 'connected' ? 'success' : 'danger'} size="xs">{health.redis}</Chip></p>
             <p>Active channels: {channels.length}</p>
             <p>Total publishes: {channels.reduce((s, c) => s + c.publishCount, 0).toLocaleString()}</p>
           </div>
@@ -56,7 +67,7 @@ export function TransportHealth() {
           </div>
           <div className="transport-info">
             <h3>Message Queue (Durable Transport)</h3>
-            <p>Status: {health.messageQueue}</p>
+            <p>Status: <Chip tone={health.messageQueue === 'connected' ? 'success' : 'danger'} size="xs">{health.messageQueue}</Chip></p>
             <p>Active queues: {queues.length}</p>
             <p>Total sent: {queues.reduce((s, q) => s + q.sent, 0).toLocaleString()}</p>
             <p>In flight: {queues.reduce((s, q) => s + q.inFlight, 0)}</p>
@@ -64,11 +75,10 @@ export function TransportHealth() {
         </div>
       </div>
 
-      {/* Signal Channels Detail */}
       <section className="transport-section">
         <h3>Signal Channels (Redis Pub/Sub)</h3>
         {channels.length === 0 ? (
-          <div className="empty-state">No active signal channels</div>
+          <EmptyState icon="📡" title="No active signal channels" />
         ) : (
           <table>
             <thead>
@@ -93,11 +103,10 @@ export function TransportHealth() {
         )}
       </section>
 
-      {/* Durable Queues Detail */}
       <section className="transport-section">
         <h3>Durable Queues (Message Queue)</h3>
         {queues.length === 0 ? (
-          <div className="empty-state">No active durable queues</div>
+          <EmptyState icon="📬" title="No active durable queues" />
         ) : (
           <table>
             <thead>
@@ -124,7 +133,6 @@ export function TransportHealth() {
         )}
       </section>
 
-      {/* System Info */}
       <section className="transport-section">
         <h3>System</h3>
         <dl className="info-list">
