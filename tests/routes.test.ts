@@ -14,11 +14,11 @@ function createMockSignal() {
 
   return {
     isConnected: () => true,
+    healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }),
     getAllMetrics: () => new Map(channelMetrics),
     getHistory: async (channel: string, count = 50) => {
       return (historyStore.get(channel) ?? []).slice(-count);
     },
-    // helpers for test setup
     _setChannelMetrics(channel: string, metrics: { publishCount: number; lastPublishedAt: string | null; subscriberCount: number }) {
       channelMetrics.set(channel, metrics);
     },
@@ -36,8 +36,8 @@ function createMockDurable() {
 
   return {
     isConnected: () => true,
+    healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }),
     getAllMetrics: () => new Map(queueMetrics),
-    // helper for test setup
     _setQueueMetrics(queue: string, metrics: { sent: number; received: number; failed: number; inFlight: number }) {
       queueMetrics.set(queue, metrics);
     },
@@ -330,29 +330,30 @@ describe('Server Routes', () => {
 
       const res = await request(app).get('/api/health');
       expect(res.status).toBe(200);
-      expect(res.body.status).toBe('ok');
-      expect(res.body.redis).toBe('connected');
-      expect(res.body.messageQueue).toBe('connected');
+      expect(res.body.status).toBe('healthy');
+      expect(res.body.redis.status).toBe('connected');
+      expect(res.body.messageQueue.status).toBe('connected');
       expect(res.body.uptime).toBeGreaterThanOrEqual(0);
       expect(res.body.eventCount).toBe(1);
     });
 
     it('reports disconnected state when transports are down', async () => {
-      const disconnectedSignal = { ...signal, isConnected: () => false };
-      const disconnectedDurable = { ...durable, isConnected: () => false };
+      const disconnectedSignal = { ...signal, healthCheck: async () => ({ status: 'disconnected' as const, latencyMs: -1 }) };
+      const disconnectedDurable = { ...durable, healthCheck: async () => ({ status: 'disconnected' as const, latencyMs: -1 }) };
 
       const disconnectedApp = createApp({
         registry,
         metrics,
+        metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
         signal: disconnectedSignal as unknown as RoutesDeps['signal'],
         durable: disconnectedDurable as unknown as RoutesDeps['durable'],
         startedAt: Date.now(),
       });
 
       const res = await request(disconnectedApp).get('/api/health');
-      expect(res.status).toBe(200);
-      expect(res.body.redis).toBe('disconnected');
-      expect(res.body.messageQueue).toBe('disconnected');
+      expect(res.status).toBe(503);
+      expect(res.body.redis.status).toBe('disconnected');
+      expect(res.body.messageQueue.status).toBe('disconnected');
     });
   });
 
