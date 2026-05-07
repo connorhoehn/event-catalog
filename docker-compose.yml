@@ -28,7 +28,9 @@ services:
       retries: 3
 
   event-catalog:
-    build: .
+    build:
+      context: ..
+      dockerfile: event-catalog/Dockerfile
     ports:
       - "3010:3010"
     environment:
