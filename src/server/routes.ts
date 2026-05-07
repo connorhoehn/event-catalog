@@ -57,6 +57,29 @@ export function createRoutes(deps: RoutesDeps): Router {
     });
   });
 
+  // Check schema compatibility without declaring
+  router.get('/events/:name/schema/check', (req: Request, res: Response) => {
+    const entry = registry.get(req.params.name);
+    if (!entry) {
+      res.status(404).json({ error: `Event "${req.params.name}" not found` });
+      return;
+    }
+
+    const schema = req.body?.schema as Record<string, unknown> | undefined;
+    if (!schema) {
+      res.status(400).json({ error: 'schema is required in the request body' });
+      return;
+    }
+
+    const result = registry.checkSchemaCompat(req.params.name, schema);
+    res.json({
+      eventName: req.params.name,
+      currentVersion: entry.version,
+      compatibilityMode: entry.compatibilityMode,
+      ...result,
+    });
+  });
+
   // Get event stats
   router.get('/events/:name/stats', (req: Request, res: Response) => {
     const stats = metrics.getStats(req.params.name);
@@ -88,7 +111,7 @@ export function createRoutes(deps: RoutesDeps): Router {
 
   // Declare/register an event
   router.post('/events', (req: Request, res: Response) => {
-    const { name, schema, transport, producer, description, tags } = req.body as Partial<EventDeclaration>;
+    const { name, schema, transport, producer, description, tags, compatibilityMode } = req.body as Partial<EventDeclaration>;
 
     if (!name || !transport || !producer) {
       res.status(400).json({ error: 'name, transport, and producer are required' });
@@ -100,17 +123,22 @@ export function createRoutes(deps: RoutesDeps): Router {
       return;
     }
 
-    registry.declare({
+    const result = registry.declare({
       name,
       schema: schema ?? {},
       transport,
       producer,
       description,
       tags,
+      compatibilityMode,
     });
 
     metricsObserver.observe(name, transport).catch(() => {});
-    res.status(201).json({ declared: name });
+    const response: Record<string, unknown> = { declared: name, version: result.version, compatible: result.compatible };
+    if (result.violations) {
+      response.violations = result.violations;
+    }
+    res.status(201).json(response);
   });
 
   // Bulk register events (called by services at startup)

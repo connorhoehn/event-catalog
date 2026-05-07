@@ -5,6 +5,7 @@ export { DurableTransport } from './client/durable';
 
 export type {
   TransportType,
+  CompatibilityMode,
   EventDeclaration,
   EventCatalogConfig,
   PublishOptions,
@@ -20,8 +21,11 @@ export type {
   HealthStatus,
   RegistryEntry,
   RegistryFilter,
+  SchemaHistoryEntry,
 } from './types/index';
 
-export type { ValidationResult, IRegistry } from './registry/types';
+export type { ValidationResult, DeclareResult, IRegistry } from './registry/types';
+export type { CompatResult } from './registry/schema-compat';
+export { checkBackwardCompat, checkForwardCompat } from './registry/schema-compat';
 export type { SignalTransportConfig } from './client/signal';
 export type { DurableTransportConfig, DurableSubscribeOptions } from './client/durable';

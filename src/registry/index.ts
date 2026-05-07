@@ -1,7 +1,8 @@
 import { JsonSchemaValidator } from 'distributed-core';
 import type { RedisClientType } from 'redis';
-import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyNode, TopologyEdge } from '../types/index';
-import type { IRegistry, ValidationResult } from './types';
+import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyNode, TopologyEdge, CompatibilityMode } from '../types/index';
+import type { IRegistry, ValidationResult, DeclareResult } from './types';
+import { checkBackwardCompat, checkForwardCompat, type CompatResult } from './schema-compat';
 
 const REDIS_KEY = 'event-catalog:registry';
 
@@ -23,22 +24,50 @@ export class Registry implements IRegistry {
     }
   }
 
-  declare(event: EventDeclaration): void {
+  declare(event: EventDeclaration): DeclareResult {
     const existing = this.events.get(event.name);
 
     if (existing) {
+      const schemaChanged = JSON.stringify(existing.schema) !== JSON.stringify(event.schema);
+      const mode = event.compatibilityMode ?? existing.compatibilityMode;
+      let compatible = true;
+      let violations: string[] | undefined;
+
+      if (schemaChanged && Object.keys(event.schema).length > 0) {
+        const result = this.runCompatCheck(mode, existing.schema, event.schema);
+        compatible = result.compatible;
+        violations = result.violations.length > 0 ? result.violations : undefined;
+
+        existing.schemaHistory.push({
+          version: existing.version,
+          schema: existing.schema,
+          updatedAt: new Date().toISOString(),
+        });
+        if (existing.schemaHistory.length > 5) {
+          existing.schemaHistory = existing.schemaHistory.slice(-5);
+        }
+
+        existing.version += 1;
+      }
+
       existing.schema = event.schema;
       existing.description = event.description;
       existing.tags = event.tags;
+      if (event.compatibilityMode) {
+        existing.compatibilityMode = event.compatibilityMode;
+      }
       if (event.producer && !existing.producer) {
         existing.producer = event.producer;
       }
       this.persist(event.name, existing);
-      return;
+      return { version: existing.version, compatible, violations };
     }
 
     const entry: RegistryEntry = {
       ...event,
+      version: event.version ?? 1,
+      compatibilityMode: event.compatibilityMode ?? 'backward',
+      schemaHistory: [],
       subscribers: [],
       metadata: {
         createdAt: new Date().toISOString(),
@@ -50,6 +79,7 @@ export class Registry implements IRegistry {
 
     this.events.set(event.name, entry);
     this.persist(event.name, entry);
+    return { version: entry.version, compatible: true };
   }
 
   get(name: string): RegistryEntry | undefined {
@@ -161,6 +191,34 @@ export class Registry implements IRegistry {
 
   clear(): void {
     this.events.clear();
+  }
+
+  checkSchemaCompat(eventName: string, proposedSchema: Record<string, unknown>): CompatResult {
+    const entry = this.events.get(eventName);
+    if (!entry) {
+      return { compatible: true, violations: [] };
+    }
+    return this.runCompatCheck(entry.compatibilityMode, entry.schema, proposedSchema);
+  }
+
+  private runCompatCheck(mode: CompatibilityMode, oldSchema: Record<string, unknown>, newSchema: Record<string, unknown>): CompatResult {
+    if (mode === 'none') {
+      return { compatible: true, violations: [] };
+    }
+
+    if (mode === 'backward') {
+      return checkBackwardCompat(oldSchema, newSchema);
+    }
+
+    if (mode === 'forward') {
+      return checkForwardCompat(oldSchema, newSchema);
+    }
+
+    // full — both must pass
+    const backward = checkBackwardCompat(oldSchema, newSchema);
+    const forward = checkForwardCompat(oldSchema, newSchema);
+    const violations = [...backward.violations, ...forward.violations];
+    return { compatible: violations.length === 0, violations };
   }
 
   private persist(name: string, entry: RegistryEntry): void {
