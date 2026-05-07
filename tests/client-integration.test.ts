@@ -1,0 +1,431 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// In-memory Redis pub/sub + streams simulator
+const subscriptions = new Map<string, Set<(message: string, channel: string) => void>>();
+const streams = new Map<string, Array<{ id: string; message: Record<string, string> }>>();
+let streamIdCounter = 0;
+
+function createMockRedisClient() {
+  let connected = false;
+  const eventHandlers = new Map<string, ((...args: unknown[]) => void)[]>();
+
+  return {
+    connect: vi.fn(async () => { connected = true; }),
+    quit: vi.fn(async () => { connected = false; }),
+    on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+      if (!eventHandlers.has(event)) eventHandlers.set(event, []);
+      eventHandlers.get(event)!.push(handler);
+    }),
+    publish: vi.fn(async (channel: string, message: string) => {
+      const handlers = subscriptions.get(channel);
+      if (handlers) {
+        for (const handler of handlers) {
+          handler(message, channel);
+        }
+      }
+      return handlers?.size ?? 0;
+    }),
+    subscribe: vi.fn(async (channel: string, handler: (message: string, channel: string) => void) => {
+      if (!subscriptions.has(channel)) subscriptions.set(channel, new Set());
+      subscriptions.get(channel)!.add(handler);
+    }),
+    unsubscribe: vi.fn(async (channel: string) => {
+      subscriptions.delete(channel);
+    }),
+    xAdd: vi.fn(async (key: string, id: string, fields: Record<string, string>, _opts?: unknown) => {
+      if (!streams.has(key)) streams.set(key, []);
+      const entryId = `${++streamIdCounter}-0`;
+      streams.get(key)!.push({ id: entryId, message: fields });
+      return entryId;
+    }),
+    xRange: vi.fn(async (key: string, _start: string, _end: string) => {
+      return streams.get(key) ?? [];
+    }),
+  };
+}
+
+// Mock the redis module at the top level
+vi.mock('redis', () => ({
+  createClient: vi.fn(() => createMockRedisClient()),
+}));
+
+// Mock global fetch for durable transport and registry sync
+const fetchMock = vi.fn();
+vi.stubGlobal('fetch', fetchMock);
+
+import { EventCatalog } from '../src/client/index.js';
+
+function makeConfig(overrides?: { registryUrl?: string }) {
+  return {
+    redis: { url: 'redis://localhost:6379' },
+    messageQueue: { url: 'http://localhost:3004' },
+    serviceName: 'test-service',
+    ...overrides,
+  };
+}
+
+describe('EventCatalog Client Integration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    subscriptions.clear();
+    streams.clear();
+    streamIdCounter = 0;
+
+    // Default fetch mock: healthy durable transport
+    fetchMock.mockImplementation(async (url: string | URL | Request, opts?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('/health')) {
+        return new Response('ok', { status: 200 });
+      }
+      if (urlStr.includes('/queues') && opts?.method === 'POST' && !urlStr.includes('/messages')) {
+        return new Response(JSON.stringify({ queue_name: 'test' }), { status: 201 });
+      }
+      if (urlStr.includes('/messages') && opts?.method === 'POST') {
+        return new Response(JSON.stringify({ message_id: 'msg-1' }), { status: 200 });
+      }
+      if (urlStr.includes('/api/events')) {
+        return new Response('ok', { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+  });
+
+  describe('Signal round-trip', () => {
+    it('Client publishes signal event and subscriber receives it', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'test.signal',
+        schema: { type: 'object', properties: { msg: { type: 'string' } } },
+        transport: 'signal',
+        producer: 'test-service',
+      });
+
+      await catalog.connect();
+
+      const received: unknown[] = [];
+      const sub = catalog.subscribe('test.signal', (envelope) => {
+        received.push(envelope.payload);
+      });
+
+      // Allow subscription setup to complete
+      await new Promise(r => setTimeout(r, 10));
+
+      await catalog.publish('test.signal', { msg: 'hello' });
+
+      expect(received).toHaveLength(1);
+      expect(received[0]).toEqual({ msg: 'hello' });
+
+      await sub.unsubscribe();
+      await catalog.disconnect();
+    });
+  });
+
+  describe('Declare + topology', () => {
+    it('after declaring events, the registry shows them in topology', () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'user.created',
+        schema: { type: 'object', properties: { userId: { type: 'string' } } },
+        transport: 'signal',
+        producer: 'auth-service',
+        description: 'Fired when a new user signs up',
+        tags: ['auth', 'user'],
+      });
+
+      catalog.declare({
+        name: 'order.placed',
+        schema: { type: 'object', properties: { orderId: { type: 'string' } } },
+        transport: 'durable',
+        producer: 'order-service',
+        description: 'Fired when an order is placed',
+      });
+
+      const registry = catalog.getRegistry();
+      const topology = registry.getTopology();
+
+      // Should have event nodes
+      const eventNodes = topology.nodes.filter(n => n.type === 'event');
+      expect(eventNodes).toHaveLength(2);
+      expect(eventNodes.map(n => n.id)).toContain('user.created');
+      expect(eventNodes.map(n => n.id)).toContain('order.placed');
+
+      // Should have service nodes
+      const serviceNodes = topology.nodes.filter(n => n.type === 'service');
+      expect(serviceNodes.map(n => n.id)).toContain('auth-service');
+      expect(serviceNodes.map(n => n.id)).toContain('order-service');
+
+      // Should have publishes edges
+      const publishEdges = topology.edges.filter(e => e.relation === 'publishes');
+      expect(publishEdges).toHaveLength(2);
+      expect(publishEdges).toContainEqual({ from: 'auth-service', to: 'user.created', relation: 'publishes' });
+      expect(publishEdges).toContainEqual({ from: 'order-service', to: 'order.placed', relation: 'publishes' });
+    });
+  });
+
+  describe('Schema validation on publish', () => {
+    it('throws when payload does not match declared schema', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'typed.event',
+        schema: {
+          type: 'object',
+          properties: { count: { type: 'number' } },
+          required: ['count'],
+        },
+        transport: 'signal',
+        producer: 'test-service',
+      });
+
+      await catalog.connect();
+
+      // Publishing with invalid payload (string instead of number)
+      await expect(
+        catalog.publish('typed.event', { count: 'not-a-number' }),
+      ).rejects.toThrow(/payload validation failed/);
+
+      await catalog.disconnect();
+    });
+
+    it('allows publish when payload matches schema', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'typed.event',
+        schema: {
+          type: 'object',
+          properties: { count: { type: 'number' } },
+          required: ['count'],
+        },
+        transport: 'signal',
+        producer: 'test-service',
+      });
+
+      await catalog.connect();
+
+      await expect(
+        catalog.publish('typed.event', { count: 42 }),
+      ).resolves.not.toThrow();
+
+      await catalog.disconnect();
+    });
+  });
+
+  describe('Subscribe returns Subscription with unsubscribe', () => {
+    it('after unsubscribe, handler is no longer called', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'unsub.test',
+        schema: {},
+        transport: 'signal',
+        producer: 'test-service',
+      });
+
+      await catalog.connect();
+
+      const received: unknown[] = [];
+      const sub = catalog.subscribe('unsub.test', (envelope) => {
+        received.push(envelope.payload);
+      });
+
+      // Allow subscription setup
+      await new Promise(r => setTimeout(r, 10));
+
+      await catalog.publish('unsub.test', { before: true });
+      expect(received).toHaveLength(1);
+
+      await sub.unsubscribe();
+
+      await catalog.publish('unsub.test', { after: true });
+      // Should still only have 1 message since handler was unsubscribed
+      expect(received).toHaveLength(1);
+
+      await catalog.disconnect();
+    });
+  });
+
+  describe('Multiple subscribers', () => {
+    it('two subscribers both receive published messages', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'multi.sub',
+        schema: {},
+        transport: 'signal',
+        producer: 'test-service',
+      });
+
+      await catalog.connect();
+
+      const receivedA: unknown[] = [];
+      const receivedB: unknown[] = [];
+
+      const subA = catalog.subscribe('multi.sub', (envelope) => {
+        receivedA.push(envelope.payload);
+      });
+      const subB = catalog.subscribe('multi.sub', (envelope) => {
+        receivedB.push(envelope.payload);
+      });
+
+      // Allow subscription setup
+      await new Promise(r => setTimeout(r, 10));
+
+      await catalog.publish('multi.sub', { value: 1 });
+
+      expect(receivedA).toHaveLength(1);
+      expect(receivedA[0]).toEqual({ value: 1 });
+      expect(receivedB).toHaveLength(1);
+      expect(receivedB[0]).toEqual({ value: 1 });
+
+      await subA.unsubscribe();
+      await subB.unsubscribe();
+      await catalog.disconnect();
+    });
+  });
+
+  describe('Durable publish', () => {
+    it('verifies durable transport calls message-queue via HTTP', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'durable.event',
+        schema: { type: 'object', properties: { id: { type: 'string' } } },
+        transport: 'durable',
+        producer: 'test-service',
+      });
+
+      await catalog.connect();
+
+      await catalog.publish('durable.event', { id: 'abc-123' });
+
+      // Verify fetch was called with the correct queue messages endpoint
+      const messageCalls = fetchMock.mock.calls.filter(
+        ([url, opts]: [string | URL | Request, RequestInit | undefined]) => {
+          const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+          return urlStr.includes('/messages') && opts?.method === 'POST';
+        },
+      );
+
+      expect(messageCalls).toHaveLength(1);
+      const [callUrl, callOpts] = messageCalls[0];
+      const urlStr = typeof callUrl === 'string' ? callUrl : callUrl instanceof URL ? callUrl.toString() : callUrl.url;
+      expect(urlStr).toContain('/queues/durable-event/messages');
+
+      const body = JSON.parse(callOpts.body as string);
+      const envelope = JSON.parse(body.message_body);
+      expect(envelope.eventName).toBe('durable.event');
+      expect(envelope.payload).toEqual({ id: 'abc-123' });
+
+      await catalog.disconnect();
+    });
+  });
+
+  describe('Connect/disconnect lifecycle', () => {
+    it('connect() establishes connections, disconnect() cleans up', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      expect(catalog.isConnected()).toBe(false);
+
+      await catalog.connect();
+      expect(catalog.isConnected()).toBe(true);
+
+      // Signal transport should be connected
+      expect(catalog.getSignalTransport().isConnected()).toBe(true);
+      // Durable transport should be connected
+      expect(catalog.getDurableTransport().isConnected()).toBe(true);
+
+      await catalog.disconnect();
+      expect(catalog.isConnected()).toBe(false);
+      expect(catalog.getSignalTransport().isConnected()).toBe(false);
+      expect(catalog.getDurableTransport().isConnected()).toBe(false);
+    });
+
+    it('connect() is idempotent', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      await catalog.connect();
+      await catalog.connect(); // second call should be a no-op
+
+      expect(catalog.isConnected()).toBe(true);
+
+      await catalog.disconnect();
+    });
+
+    it('disconnect() is idempotent', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      await catalog.connect();
+      await catalog.disconnect();
+      await catalog.disconnect(); // second call should be a no-op
+
+      expect(catalog.isConnected()).toBe(false);
+    });
+  });
+
+  describe('registryUrl sync', () => {
+    it('connect() POSTs declarations to remote registry when registryUrl is set', async () => {
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://localhost:9000' }));
+
+      catalog.declare({
+        name: 'sync.event',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'test-service',
+        description: 'Synced event',
+        tags: ['sync'],
+      });
+
+      await catalog.connect();
+
+      // Verify POST was made to the bulk events endpoint
+      const syncCalls = fetchMock.mock.calls.filter(
+        ([url, opts]: [string | URL | Request, RequestInit | undefined]) => {
+          const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+          return urlStr.includes('/api/events/bulk') && opts?.method === 'POST';
+        },
+      );
+
+      expect(syncCalls).toHaveLength(1);
+      const [, syncOpts] = syncCalls[0];
+      const body = JSON.parse(syncOpts.body as string);
+      expect(body.serviceName).toBe('test-service');
+      expect(body.events).toHaveLength(1);
+      expect(body.events[0].name).toBe('sync.event');
+      expect(body.events[0].description).toBe('Synced event');
+      expect(body.events[0].tags).toEqual(['sync']);
+
+      await catalog.disconnect();
+    });
+
+    it('connect() does not POST when registryUrl is not set', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'local.event',
+        schema: {},
+        transport: 'signal',
+        producer: 'test-service',
+      });
+
+      await catalog.connect();
+
+      const syncCalls = fetchMock.mock.calls.filter(
+        ([url]: [string | URL | Request]) => {
+          const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+          return urlStr.includes('/api/events/bulk');
+        },
+      );
+
+      expect(syncCalls).toHaveLength(0);
+
+      await catalog.disconnect();
+    });
+  });
+});
