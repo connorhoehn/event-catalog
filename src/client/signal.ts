@@ -1,5 +1,5 @@
 import { createClient, type RedisClientType } from 'redis';
-import type { EventEnvelope } from '../types/index.js';
+import type { EventEnvelope } from '../types/index';
 
 export interface SignalTransportConfig {
   url: string;

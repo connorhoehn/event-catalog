@@ -1,4 +1,4 @@
-import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph } from '../types/index.js';
+import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph } from '../types/index';
 
 export interface ValidationResult {
   valid: boolean;

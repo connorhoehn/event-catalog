@@ -1,7 +1,7 @@
 import { ulid } from 'ulid';
-import { Registry } from '../registry/index.js';
-import { SignalTransport } from './signal.js';
-import { DurableTransport } from './durable.js';
+import { Registry } from '../registry/index';
+import { SignalTransport } from './signal';
+import { DurableTransport } from './durable';
 import type {
   EventCatalogConfig,
   EventDeclaration,
@@ -11,7 +11,7 @@ import type {
   PublishOptions,
   Subscription,
   SubscribeOptions,
-} from '../types/index.js';
+} from '../types/index';
 
 export class EventCatalog {
   private readonly config: EventCatalogConfig;

@@ -1,7 +1,7 @@
-export { EventCatalog } from './client/index.js';
-export { Registry } from './registry/index.js';
-export { SignalTransport } from './client/signal.js';
-export { DurableTransport } from './client/durable.js';
+export { EventCatalog } from './client/index';
+export { Registry } from './registry/index';
+export { SignalTransport } from './client/signal';
+export { DurableTransport } from './client/durable';
 
 export type {
   TransportType,
@@ -20,8 +20,8 @@ export type {
   HealthStatus,
   RegistryEntry,
   RegistryFilter,
-} from './types/index.js';
+} from './types/index';
 
-export type { ValidationResult, IRegistry } from './registry/types.js';
-export type { SignalTransportConfig } from './client/signal.js';
-export type { DurableTransportConfig, DurableSubscribeOptions } from './client/durable.js';
+export type { ValidationResult, IRegistry } from './registry/types';
+export type { SignalTransportConfig } from './client/signal';
+export type { DurableTransportConfig, DurableSubscribeOptions } from './client/durable';

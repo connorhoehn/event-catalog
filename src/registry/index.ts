@@ -1,6 +1,6 @@
 import Ajv from 'ajv';
-import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyNode, TopologyEdge } from '../types/index.js';
-import type { IRegistry, ValidationResult } from './types.js';
+import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyNode, TopologyEdge } from '../types/index';
+import type { IRegistry, ValidationResult } from './types';
 
 export class Registry implements IRegistry {
   private events = new Map<string, RegistryEntry>();

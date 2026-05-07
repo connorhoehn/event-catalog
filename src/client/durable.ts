@@ -1,4 +1,4 @@
-import type { EventEnvelope } from '../types/index.js';
+import type { EventEnvelope } from '../types/index';
 
 export interface DurableTransportConfig {
   url: string;
