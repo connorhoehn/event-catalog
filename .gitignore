@@ -1,0 +1,7 @@
+node_modules/
+dist/
+src/admin/dist/
+src/admin/node_modules/
+*.tsbuildinfo
+.env
+coverage/
