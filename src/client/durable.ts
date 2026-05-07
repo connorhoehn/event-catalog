@@ -5,6 +5,17 @@ export interface DurableTransportConfig {
   url: string;
   retryAttempts?: number;
   retryBaseMs?: number;
+  /** Max processing attempts before a message is dead-lettered. Default: 3 */
+  maxProcessingAttempts?: number;
+}
+
+export interface DeadLetteredMessage {
+  messageId: string;
+  queueName: string;
+  envelope: EventEnvelope;
+  error: string;
+  attempts: number;
+  deadLetteredAt: string;
 }
 
 export interface DurableSubscribeOptions {
@@ -26,16 +37,21 @@ export class DurableTransport {
   private readonly url: string;
   private readonly retryAttempts: number;
   private readonly retryBaseMs: number;
+  private readonly maxProcessingAttempts: number;
   private readonly retryManager: RetryManager;
+  private readonly pollRetryManager: RetryManager;
   private connected = false;
   private activePollers = new Map<string, AbortController>();
   private queueMetrics = new Map<string, QueueMetrics>();
   private ensuredQueues = new Set<string>();
+  private readonly deadLetterMessages: DeadLetteredMessage[] = [];
+  private readonly messageAttempts = new Map<string, number>();
 
   constructor(config: DurableTransportConfig) {
     this.url = config.url.replace(/\/$/, '');
     this.retryAttempts = config.retryAttempts ?? 3;
     this.retryBaseMs = config.retryBaseMs ?? 100;
+    this.maxProcessingAttempts = config.maxProcessingAttempts ?? 3;
     this.retryManager = new RetryManager({
       maxRetries: this.retryAttempts - 1, // RetryManager does initial attempt + retries
       baseDelay: this.retryBaseMs,
@@ -43,6 +59,14 @@ export class DurableTransport {
       jitter: false,
       enableLogging: false,
       name: 'durable-transport',
+    });
+    this.pollRetryManager = new RetryManager({
+      maxRetries: 2, // 3 total attempts (1 initial + 2 retries)
+      baseDelay: 1000,
+      backoffFactor: 2,
+      jitter: false,
+      enableLogging: false,
+      name: 'durable-poll',
     });
   }
 
@@ -170,6 +194,10 @@ export class DurableTransport {
     return new Map(this.queueMetrics);
   }
 
+  getDLQ(): DeadLetteredMessage[] {
+    return [...this.deadLetterMessages];
+  }
+
   isConnected(): boolean {
     return this.connected;
   }
@@ -188,18 +216,29 @@ export class DurableTransport {
 
     while (!signal.aborted) {
       try {
-        const res = await fetch(
-          `${this.url}/queues/${encodeURIComponent(queueName)}/messages?` +
-          `max_messages=${batchSize}&visibility_timeout=${visibilityTimeout}`,
-          { signal },
-        );
+        // Wrap the poll fetch in RetryManager for backoff on transient failures
+        let data: { messages?: Array<{ message_id: string; body: string; receipt_handle: string }> };
+        try {
+          data = await this.pollRetryManager.execute(async () => {
+            const res = await fetch(
+              `${this.url}/queues/${encodeURIComponent(queueName)}/messages?` +
+              `max_messages=${batchSize}&visibility_timeout=${visibilityTimeout}`,
+              { signal },
+            );
 
-        if (!res.ok) {
+            if (!res.ok) {
+              throw new Error(`message-queue returned ${res.status}`);
+            }
+
+            return await res.json() as { messages?: Array<{ message_id: string; body: string; receipt_handle: string }> };
+          });
+        } catch (pollErr) {
+          if (signal.aborted) return;
+          console.error(`[durable-transport] poll failed for "${queueName}" after retries:`, (pollErr as Error).message);
           await this.sleep(pollingInterval, signal);
           continue;
         }
 
-        const data = await res.json() as { messages?: Array<{ message_id: string; body: string; receipt_handle: string }> };
         const messages = data.messages ?? [];
 
         for (const msg of messages) {
@@ -209,7 +248,7 @@ export class DurableTransport {
             const envelope = JSON.parse(msg.body) as EventEnvelope;
             await handler(envelope);
 
-            // Delete on success
+            // Delete on success — processing succeeded
             await fetch(
               `${this.url}/queues/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(msg.receipt_handle)}`,
               { method: 'DELETE' },
@@ -217,8 +256,35 @@ export class DurableTransport {
 
             this.incrementMetric(queueName, 'received');
             this.decrementInFlight(queueName);
+            // Clear attempt counter on success
+            this.messageAttempts.delete(msg.message_id);
           } catch (err) {
-            console.error(`[durable-transport] handler error for "${queueName}":`, (err as Error).message);
+            const attemptCount = (this.messageAttempts.get(msg.message_id) ?? 0) + 1;
+            this.messageAttempts.set(msg.message_id, attemptCount);
+
+            if (attemptCount >= this.maxProcessingAttempts) {
+              // Dead-letter this message
+              let envelope: EventEnvelope | undefined;
+              try { envelope = JSON.parse(msg.body) as EventEnvelope; } catch { /* use undefined */ }
+              this.deadLetterMessages.push({
+                messageId: msg.message_id,
+                queueName,
+                envelope: envelope ?? { eventName: 'unknown', payload: msg.body, metadata: { id: msg.message_id, producer: 'unknown', timestamp: Date.now() } },
+                error: (err as Error).message,
+                attempts: attemptCount,
+                deadLetteredAt: new Date().toISOString(),
+              });
+              // Delete from source queue so it's not redelivered
+              await fetch(
+                `${this.url}/queues/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(msg.receipt_handle)}`,
+                { method: 'DELETE' },
+              ).catch(() => { /* best-effort cleanup */ });
+              this.messageAttempts.delete(msg.message_id);
+              console.error(`[durable-transport] message ${msg.message_id} dead-lettered after ${attemptCount} attempts in "${queueName}"`);
+            } else {
+              console.warn(`[durable-transport] handler error for "${queueName}" (attempt ${attemptCount}/${this.maxProcessingAttempts}):`, (err as Error).message);
+            }
+
             this.decrementInFlight(queueName);
             this.incrementMetric(queueName, 'failed');
           }

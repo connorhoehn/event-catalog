@@ -233,5 +233,11 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json({ queues, total: queues.length });
   });
 
+  // Durable transport dead-letter queue
+  router.get('/transports/durable/dlq', (_req: Request, res: Response) => {
+    const messages = durable.getDLQ();
+    res.json({ messages, total: messages.length });
+  });
+
   return router;
 }
