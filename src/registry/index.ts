@@ -1,13 +1,26 @@
 import { JsonSchemaValidator } from 'distributed-core';
+import type { RedisClientType } from 'redis';
 import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyNode, TopologyEdge } from '../types/index';
 import type { IRegistry, ValidationResult } from './types';
+
+const REDIS_KEY = 'event-catalog:registry';
 
 export class Registry implements IRegistry {
   private events = new Map<string, RegistryEntry>();
   private readonly schemaValidator: JsonSchemaValidator;
+  private readonly redis: RedisClientType | null;
 
-  constructor() {
+  constructor(redis?: RedisClientType) {
     this.schemaValidator = new JsonSchemaValidator({ mode: 'auto' });
+    this.redis = redis ?? null;
+  }
+
+  async load(): Promise<void> {
+    if (!this.redis) return;
+    const entries = await this.redis.hGetAll(REDIS_KEY);
+    for (const [name, json] of Object.entries(entries)) {
+      this.events.set(name, JSON.parse(json) as RegistryEntry);
+    }
   }
 
   declare(event: EventDeclaration): void {
@@ -20,6 +33,7 @@ export class Registry implements IRegistry {
       if (event.producer && !existing.producer) {
         existing.producer = event.producer;
       }
+      this.persist(event.name, existing);
       return;
     }
 
@@ -35,6 +49,7 @@ export class Registry implements IRegistry {
     };
 
     this.events.set(event.name, entry);
+    this.persist(event.name, entry);
   }
 
   get(name: string): RegistryEntry | undefined {
@@ -81,7 +96,11 @@ export class Registry implements IRegistry {
   }
 
   remove(eventName: string): boolean {
-    return this.events.delete(eventName);
+    const deleted = this.events.delete(eventName);
+    if (deleted && this.redis) {
+      this.redis.hDel(REDIS_KEY, eventName).catch(() => {});
+    }
+    return deleted;
   }
 
   getTopology(): TopologyGraph {
@@ -142,5 +161,10 @@ export class Registry implements IRegistry {
 
   clear(): void {
     this.events.clear();
+  }
+
+  private persist(name: string, entry: RegistryEntry): void {
+    if (!this.redis) return;
+    this.redis.hSet(REDIS_KEY, name, JSON.stringify(entry)).catch(() => {});
   }
 }

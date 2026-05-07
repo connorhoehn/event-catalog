@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import type { Registry } from '../registry/index.js';
 import type { MetricsCollector } from './metrics.js';
+import type { MetricsObserver } from './metrics-observer.js';
 import type { SignalTransport } from '../client/signal.js';
 import type { DurableTransport } from '../client/durable.js';
 import type { EventDeclaration } from '../types/index.js';
@@ -8,13 +9,14 @@ import type { EventDeclaration } from '../types/index.js';
 export interface RoutesDeps {
   registry: Registry;
   metrics: MetricsCollector;
+  metricsObserver: MetricsObserver;
   signal: SignalTransport;
   durable: DurableTransport;
   startedAt: number;
 }
 
 export function createRoutes(deps: RoutesDeps): Router {
-  const { registry, metrics, signal, durable, startedAt } = deps;
+  const { registry, metrics, metricsObserver, signal, durable, startedAt } = deps;
   const router = Router();
 
   // List all events
@@ -105,6 +107,7 @@ export function createRoutes(deps: RoutesDeps): Router {
       tags,
     });
 
+    metricsObserver.observe(name, transport).catch(() => {});
     res.status(201).json({ declared: name });
   });
 
@@ -134,6 +137,7 @@ export function createRoutes(deps: RoutesDeps): Router {
         tags: event.tags,
       });
 
+      metricsObserver.observe(event.name, event.transport).catch(() => {});
       declared.push(event.name);
     }
 
@@ -188,12 +192,28 @@ export function createRoutes(deps: RoutesDeps): Router {
   });
 
   // Health check
-  router.get('/health', (_req: Request, res: Response) => {
+  router.get('/health', async (_req: Request, res: Response) => {
+    const [redisHealth, mqHealth] = await Promise.all([
+      signal.healthCheck(),
+      durable.healthCheck(),
+    ]);
+
+    let status: 'healthy' | 'degraded' | 'unhealthy';
+    if (redisHealth.status === 'disconnected' || mqHealth.status === 'disconnected') {
+      status = 'unhealthy';
+    } else if (redisHealth.status === 'degraded' || mqHealth.status === 'degraded') {
+      status = 'degraded';
+    } else {
+      status = 'healthy';
+    }
+
+    const httpStatus = status === 'unhealthy' ? 503 : 200;
     const uptimeMs = Date.now() - startedAt;
-    res.json({
-      status: 'ok',
-      redis: signal.isConnected() ? 'connected' : 'disconnected',
-      messageQueue: durable.isConnected() ? 'connected' : 'disconnected',
+
+    res.status(httpStatus).json({
+      status,
+      redis: redisHealth,
+      messageQueue: mqHealth,
       uptime: Math.floor(uptimeMs / 1000),
       eventCount: registry.size(),
     });

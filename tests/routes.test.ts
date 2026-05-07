@@ -67,6 +67,7 @@ describe('Server Routes', () => {
     app = createApp({
       registry,
       metrics,
+      metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
       signal: signal as unknown as RoutesDeps['signal'],
       durable: durable as unknown as RoutesDeps['durable'],
       startedAt: Date.now(),

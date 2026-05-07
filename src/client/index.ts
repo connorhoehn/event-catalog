@@ -1,4 +1,5 @@
 import { ulid } from 'ulid';
+import { RetryManager } from 'distributed-core/dist/transport/RetryManager';
 import { Registry } from '../registry/index';
 import { SignalTransport } from './signal';
 import { DurableTransport } from './durable';
@@ -18,13 +19,23 @@ export class EventCatalog {
   private readonly registry: Registry;
   private readonly signal: SignalTransport;
   private readonly durable: DurableTransport;
+  private readonly syncRetryManager: RetryManager;
   private connected = false;
+  private resyncInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: EventCatalogConfig) {
     this.config = config;
     this.registry = new Registry();
     this.signal = new SignalTransport({ url: config.redis.url });
     this.durable = new DurableTransport({ url: config.messageQueue.url });
+    this.syncRetryManager = new RetryManager({
+      maxRetries: 2,
+      baseDelay: 1000,
+      backoffFactor: 2,
+      jitter: false,
+      enableLogging: false,
+      name: 'catalog-registry-sync',
+    });
   }
 
   async connect(): Promise<void> {
@@ -37,16 +48,29 @@ export class EventCatalog {
 
     this.connected = true;
 
-    // Register all declared events with remote catalog if configured
     if (this.config.registryUrl) {
-      await this.syncToRemoteRegistry().catch(err => {
-        console.warn('[event-catalog] failed to sync to remote registry:', (err as Error).message);
-      });
+      try {
+        await this.syncRetryManager.execute(() => this.syncToRemoteRegistry());
+      } catch {
+        console.warn('[event-catalog] registry sync failed after retries, scheduling background retry');
+        this.scheduleBackgroundSync();
+      }
+
+      this.resyncInterval = setInterval(() => {
+        this.syncToRemoteRegistry().catch(err => {
+          console.warn('[event-catalog] periodic re-sync failed:', (err as Error).message);
+        });
+      }, 60_000);
     }
   }
 
   async disconnect(): Promise<void> {
     if (!this.connected) return;
+
+    if (this.resyncInterval) {
+      clearInterval(this.resyncInterval);
+      this.resyncInterval = null;
+    }
 
     await Promise.all([
       this.signal.disconnect(),
@@ -181,6 +205,20 @@ export class EventCatalog {
 
   isConnected(): boolean {
     return this.connected;
+  }
+
+  private scheduleBackgroundSync(): void {
+    const attempt = (delay: number): void => {
+      setTimeout(() => {
+        if (!this.connected || !this.config.registryUrl) return;
+        this.syncToRemoteRegistry().catch(() => {
+          const nextDelay = Math.min(delay * 2, 60_000);
+          console.warn(`[event-catalog] background sync retry failed, next attempt in ${nextDelay}ms`);
+          attempt(nextDelay);
+        });
+      }, delay);
+    };
+    attempt(5_000);
   }
 
   private async syncToRemoteRegistry(): Promise<void> {

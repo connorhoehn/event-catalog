@@ -7,6 +7,8 @@ export interface DurableTransportConfig {
   retryBaseMs?: number;
   /** Max processing attempts before a message is dead-lettered. Default: 3 */
   maxProcessingAttempts?: number;
+  /** Maximum number of dead-lettered messages to retain in memory. Default: 10000 */
+  dlqCapacity?: number;
 }
 
 export interface DeadLetteredMessage {
@@ -38,6 +40,7 @@ export class DurableTransport {
   private readonly retryAttempts: number;
   private readonly retryBaseMs: number;
   private readonly maxProcessingAttempts: number;
+  private readonly dlqCapacity: number;
   private readonly retryManager: RetryManager;
   private readonly pollRetryManager: RetryManager;
   private connected = false;
@@ -52,6 +55,7 @@ export class DurableTransport {
     this.retryAttempts = config.retryAttempts ?? 3;
     this.retryBaseMs = config.retryBaseMs ?? 100;
     this.maxProcessingAttempts = config.maxProcessingAttempts ?? 3;
+    this.dlqCapacity = config.dlqCapacity ?? 10_000;
     this.retryManager = new RetryManager({
       maxRetries: this.retryAttempts - 1, // RetryManager does initial attempt + retries
       baseDelay: this.retryBaseMs,
@@ -198,8 +202,41 @@ export class DurableTransport {
     return [...this.deadLetterMessages];
   }
 
+  drainDLQ(): DeadLetteredMessage[] {
+    const messages = [...this.deadLetterMessages];
+    this.deadLetterMessages.length = 0;
+    return messages;
+  }
+
   isConnected(): boolean {
     return this.connected;
+  }
+
+  async healthCheck(): Promise<{ status: 'connected' | 'degraded' | 'disconnected'; latencyMs: number }> {
+    if (!this.connected) {
+      return { status: 'disconnected', latencyMs: 0 };
+    }
+
+    const start = performance.now();
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+
+      const res = await fetch(`${this.url}/health`, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      const latencyMs = Math.round(performance.now() - start);
+      if (res.ok) {
+        return { status: 'connected', latencyMs };
+      }
+      return { status: 'degraded', latencyMs };
+    } catch (err) {
+      const latencyMs = Math.round(performance.now() - start);
+      if ((err as Error).name === 'AbortError') {
+        return { status: 'degraded', latencyMs };
+      }
+      return { status: 'disconnected', latencyMs };
+    }
   }
 
   private async pollLoop(
@@ -266,6 +303,9 @@ export class DurableTransport {
               // Dead-letter this message
               let envelope: EventEnvelope | undefined;
               try { envelope = JSON.parse(msg.body) as EventEnvelope; } catch { /* use undefined */ }
+              if (this.deadLetterMessages.length >= this.dlqCapacity) {
+                this.deadLetterMessages.splice(0, this.deadLetterMessages.length - this.dlqCapacity + 1);
+              }
               this.deadLetterMessages.push({
                 messageId: msg.message_id,
                 queueName,

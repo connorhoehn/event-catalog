@@ -191,6 +191,33 @@ export class SignalTransport {
     return this.connected;
   }
 
+  async healthCheck(): Promise<{ status: 'connected' | 'degraded' | 'disconnected'; latencyMs: number }> {
+    if (!this.connected || !this.publishClient) {
+      return { status: 'disconnected', latencyMs: 0 };
+    }
+
+    const start = performance.now();
+    try {
+      const result = await Promise.race([
+        this.publishClient.ping(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 2000)
+        ),
+      ]);
+      const latencyMs = Math.round(performance.now() - start);
+      if (result === 'PONG') {
+        return { status: 'connected', latencyMs };
+      }
+      return { status: 'degraded', latencyMs };
+    } catch (err) {
+      const latencyMs = Math.round(performance.now() - start);
+      if ((err as Error).message === 'timeout') {
+        return { status: 'degraded', latencyMs };
+      }
+      return { status: 'disconnected', latencyMs };
+    }
+  }
+
   private incrementMetrics(channel: string): void {
     let metrics = this.channelMetrics.get(channel);
     if (!metrics) {
