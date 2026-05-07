@@ -121,8 +121,9 @@ export function EventDetail() {
                 <details key={i} className="message-item">
                   <summary>
                     Message #{history.length - i}
-                    {(msg as Record<string, unknown>).metadata &&
-                      ` — ${new Date(((msg as Record<string, unknown>).metadata as Record<string, unknown>).timestamp as number).toLocaleTimeString()}`
+                    {(msg as Record<string, unknown>).metadata
+                      ? ` — ${new Date(((msg as Record<string, unknown>).metadata as Record<string, unknown>).timestamp as number).toLocaleTimeString()}`
+                      : null
                     }
                   </summary>
                   <pre>{JSON.stringify(msg, null, 2)}</pre>
