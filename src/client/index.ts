@@ -119,6 +119,11 @@ export class EventCatalog {
 
     this.registry.addSubscriber(eventName, this.config.serviceName);
 
+    // Notify remote catalog (non-blocking, fault-tolerant)
+    this.registerSubscriberRemote(eventName).catch(err => {
+      console.warn(`[event-catalog] failed to register subscriber with remote registry for "${eventName}":`, (err as Error).message);
+    });
+
     if (entry.transport === 'signal') {
       let unsubFn: (() => Promise<void>) | null = null;
 
@@ -129,9 +134,12 @@ export class EventCatalog {
       });
 
       return {
-        async unsubscribe() {
+        unsubscribe: async () => {
           await setupPromise;
           if (unsubFn) await unsubFn();
+          this.deregisterSubscriberRemote(eventName).catch(err => {
+            console.warn(`[event-catalog] failed to deregister subscriber from remote registry for "${eventName}":`, (err as Error).message);
+          });
         },
       };
     } else {
@@ -149,8 +157,11 @@ export class EventCatalog {
       );
 
       return {
-        async unsubscribe() {
+        unsubscribe: async () => {
           cancel();
+          this.deregisterSubscriberRemote(eventName).catch(err => {
+            console.warn(`[event-catalog] failed to deregister subscriber from remote registry for "${eventName}":`, (err as Error).message);
+          });
         },
       };
     }
@@ -193,5 +204,35 @@ export class EventCatalog {
         })),
       }),
     });
+  }
+
+  private async registerSubscriberRemote(eventName: string): Promise<void> {
+    if (!this.config.registryUrl) return;
+
+    const url = `${this.config.registryUrl}/api/events/${encodeURIComponent(eventName)}/subscribers`;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serviceName: this.config.serviceName }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+  }
+
+  private async deregisterSubscriberRemote(eventName: string): Promise<void> {
+    if (!this.config.registryUrl) return;
+
+    const url = `${this.config.registryUrl}/api/events/${encodeURIComponent(eventName)}/subscribers/${encodeURIComponent(this.config.serviceName)}`;
+
+    const res = await fetch(url, {
+      method: 'DELETE',
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
   }
 }

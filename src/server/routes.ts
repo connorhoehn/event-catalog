@@ -140,6 +140,37 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.status(201).json({ declared, count: declared.length });
   });
 
+  // Register a subscriber for an event
+  router.post('/events/:name/subscribers', (req: Request, res: Response) => {
+    const { serviceName } = req.body as { serviceName?: string };
+
+    if (!serviceName) {
+      res.status(400).json({ error: 'serviceName is required' });
+      return;
+    }
+
+    const entry = registry.get(req.params.name);
+    if (!entry) {
+      res.status(404).json({ error: `Event "${req.params.name}" not found` });
+      return;
+    }
+
+    registry.addSubscriber(req.params.name, serviceName);
+    res.status(201).json({ event: req.params.name, subscriber: serviceName });
+  });
+
+  // Remove a subscriber from an event
+  router.delete('/events/:name/subscribers/:serviceName', (req: Request, res: Response) => {
+    const entry = registry.get(req.params.name);
+    if (!entry) {
+      res.status(404).json({ error: `Event "${req.params.name}" not found` });
+      return;
+    }
+
+    registry.removeSubscriber(req.params.name, req.params.serviceName);
+    res.json({ event: req.params.name, removedSubscriber: req.params.serviceName });
+  });
+
   // Delete an event declaration
   router.delete('/events/:name', (req: Request, res: Response) => {
     const removed = registry.remove(req.params.name);
