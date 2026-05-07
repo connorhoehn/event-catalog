@@ -10,6 +10,7 @@ import { MetricsCollector } from './metrics.js';
 import { MetricsObserver } from './metrics-observer.js';
 import { AlertManager } from './alerting.js';
 import { DLQStore } from './dlq-store.js';
+import { ensureTable } from './dynamo-setup.js';
 import { createRoutes } from './routes.js';
 
 export interface ServerConfig {
@@ -57,6 +58,10 @@ export async function startServer(config: ServerConfig = {}): Promise<{
 
   await durable.connect().catch(err => {
     console.warn('[server] message-queue connection failed:', (err as Error).message);
+  });
+
+  await ensureTable().catch(err => {
+    console.warn('[server] DLQ table auto-provision failed:', (err as Error).message);
   });
 
   const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
