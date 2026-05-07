@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "distributed-core": "file:../distributed-core",
+    "distributed-core": "github:connorhoehn/distributed-core#main",
     "express": "^4.21.0",
     "redis": "^4.7.0",
     "ulid": "^2.3.0"
@@ -37,12 +37,14 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.14.0",
+    "@types/supertest": "^7.2.0",
+    "supertest": "^7.2.2",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   },
   "peerDependencies": {
-    "@connorhoehn/message-queue": "file:../message-queue"
+    "@connorhoehn/message-queue": "github:connorhoehnslalom/message-queue#main"
   },
   "peerDependenciesMeta": {
     "@connorhoehn/message-queue": {
