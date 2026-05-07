@@ -1,14 +1,13 @@
-import Ajv from 'ajv';
+import { JsonSchemaValidator } from 'distributed-core';
 import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyNode, TopologyEdge } from '../types/index';
 import type { IRegistry, ValidationResult } from './types';
 
 export class Registry implements IRegistry {
   private events = new Map<string, RegistryEntry>();
-  private ajv: Ajv;
-  private validators = new Map<string, ReturnType<Ajv['compile']>>();
+  private readonly schemaValidator: JsonSchemaValidator;
 
   constructor() {
-    this.ajv = new Ajv({ strict: false, allErrors: true });
+    this.schemaValidator = new JsonSchemaValidator({ mode: 'auto' });
   }
 
   declare(event: EventDeclaration): void {
@@ -21,7 +20,6 @@ export class Registry implements IRegistry {
       if (event.producer && !existing.producer) {
         existing.producer = event.producer;
       }
-      this.validators.delete(event.name);
       return;
     }
 
@@ -83,7 +81,6 @@ export class Registry implements IRegistry {
   }
 
   remove(eventName: string): boolean {
-    this.validators.delete(eventName);
     return this.events.delete(eventName);
   }
 
@@ -128,22 +125,12 @@ export class Registry implements IRegistry {
       return { valid: true };
     }
 
-    let validateFn = this.validators.get(eventName);
-    if (!validateFn) {
-      try {
-        validateFn = this.ajv.compile(entry.schema);
-        this.validators.set(eventName, validateFn);
-      } catch (err) {
-        return { valid: false, errors: [{ message: `Invalid schema: ${(err as Error).message}` }] };
-      }
-    }
+    const result = this.schemaValidator.validate(entry.schema, payload);
+    if (result.ok) return { valid: true };
 
-    const valid = validateFn(payload);
-    if (valid) return { valid: true };
-
-    const errors = (validateFn.errors ?? []).map(e => ({
-      message: e.message ?? 'validation error',
-      path: e.instancePath || undefined,
+    const errors = (result.errors ?? []).map(e => ({
+      message: e.message,
+      path: e.path || undefined,
     }));
 
     return { valid: false, errors };
@@ -155,6 +142,5 @@ export class Registry implements IRegistry {
 
   clear(): void {
     this.events.clear();
-    this.validators.clear();
   }
 }

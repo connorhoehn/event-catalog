@@ -1,74 +1,78 @@
+import { RateTracker, MetricsRegistry, Counter, Gauge } from 'distributed-core';
 import type { EventStats } from '../types/index.js';
 
-interface InternalMetrics {
-  publishCount: number;
-  errorCount: number;
-  subscriberCount: number;
+interface EventMetricHandles {
+  publishCounter: Counter;
+  errorCounter: Counter;
+  subscriberGauge: Gauge;
+  queueDepthGauge: Gauge;
+  messagesInFlightGauge: Gauge;
+  oldestMessageAgeGauge: Gauge;
+  rateTracker: RateTracker;
   lastPublishedAt: string | null;
-  publishTimestamps: number[];
-  queueDepth?: number;
-  messagesInFlight?: number;
-  oldestMessageAge?: number;
 }
 
 export class MetricsCollector {
-  private counters = new Map<string, InternalMetrics>();
-  private readonly rateWindowMs: number;
+  private events = new Map<string, EventMetricHandles>();
+  private readonly registry: MetricsRegistry;
+  private readonly rateWindowSeconds: number;
 
   constructor(rateWindowSeconds = 60) {
-    this.rateWindowMs = rateWindowSeconds * 1000;
+    this.rateWindowSeconds = rateWindowSeconds;
+    this.registry = new MetricsRegistry('event-catalog', { namespace: 'event_catalog' });
   }
 
   recordPublish(eventName: string): void {
-    const metrics = this.getOrCreate(eventName);
-    metrics.publishCount++;
-    metrics.lastPublishedAt = new Date().toISOString();
-    metrics.publishTimestamps.push(Date.now());
-    this.pruneTimestamps(metrics);
+    const handles = this.getOrCreate(eventName);
+    handles.publishCounter.inc();
+    handles.lastPublishedAt = new Date().toISOString();
+    handles.rateTracker.record();
   }
 
   recordError(eventName: string): void {
-    const metrics = this.getOrCreate(eventName);
-    metrics.errorCount++;
+    const handles = this.getOrCreate(eventName);
+    handles.errorCounter.inc();
   }
 
   setSubscriberCount(eventName: string, count: number): void {
-    const metrics = this.getOrCreate(eventName);
-    metrics.subscriberCount = count;
+    const handles = this.getOrCreate(eventName);
+    handles.subscriberGauge.set(count);
   }
 
   updateDurableStats(
     eventName: string,
     stats: { queueDepth?: number; messagesInFlight?: number; oldestMessageAge?: number },
   ): void {
-    const metrics = this.getOrCreate(eventName);
-    if (stats.queueDepth !== undefined) metrics.queueDepth = stats.queueDepth;
-    if (stats.messagesInFlight !== undefined) metrics.messagesInFlight = stats.messagesInFlight;
-    if (stats.oldestMessageAge !== undefined) metrics.oldestMessageAge = stats.oldestMessageAge;
+    const handles = this.getOrCreate(eventName);
+    if (stats.queueDepth !== undefined) handles.queueDepthGauge.set(stats.queueDepth);
+    if (stats.messagesInFlight !== undefined) handles.messagesInFlightGauge.set(stats.messagesInFlight);
+    if (stats.oldestMessageAge !== undefined) handles.oldestMessageAgeGauge.set(stats.oldestMessageAge);
   }
 
   getStats(eventName: string): EventStats | null {
-    const metrics = this.counters.get(eventName);
-    if (!metrics) return null;
+    const handles = this.events.get(eventName);
+    if (!handles) return null;
 
-    this.pruneTimestamps(metrics);
+    const queueDepth = handles.queueDepthGauge.get();
+    const messagesInFlight = handles.messagesInFlightGauge.get();
+    const oldestMessageAge = handles.oldestMessageAgeGauge.get();
 
     return {
-      publishCount: metrics.publishCount,
-      publishRate: this.calculateRate(metrics),
-      lastPublishedAt: metrics.lastPublishedAt,
-      errorCount: metrics.errorCount,
-      subscriberCount: metrics.subscriberCount,
-      ...(metrics.queueDepth !== undefined ? { queueDepth: metrics.queueDepth } : {}),
-      ...(metrics.messagesInFlight !== undefined ? { messagesInFlight: metrics.messagesInFlight } : {}),
-      ...(metrics.oldestMessageAge !== undefined ? { oldestMessageAge: metrics.oldestMessageAge } : {}),
+      publishCount: handles.publishCounter.get(),
+      publishRate: handles.rateTracker.rate(),
+      lastPublishedAt: handles.lastPublishedAt,
+      errorCount: handles.errorCounter.get(),
+      subscriberCount: handles.subscriberGauge.get(),
+      ...(queueDepth !== 0 ? { queueDepth } : {}),
+      ...(messagesInFlight !== 0 ? { messagesInFlight } : {}),
+      ...(oldestMessageAge !== 0 ? { oldestMessageAge } : {}),
     };
   }
 
   snapshot(): Record<string, EventStats> {
     const result: Record<string, EventStats> = {};
 
-    for (const [eventName] of this.counters) {
+    for (const [eventName] of this.events) {
       const stats = this.getStats(eventName);
       if (stats) result[eventName] = stats;
     }
@@ -78,36 +82,28 @@ export class MetricsCollector {
 
   reset(eventName?: string): void {
     if (eventName) {
-      this.counters.delete(eventName);
+      this.events.delete(eventName);
     } else {
-      this.counters.clear();
+      this.events.clear();
     }
   }
 
-  private getOrCreate(eventName: string): InternalMetrics {
-    let metrics = this.counters.get(eventName);
-    if (!metrics) {
-      metrics = {
-        publishCount: 0,
-        errorCount: 0,
-        subscriberCount: 0,
+  private getOrCreate(eventName: string): EventMetricHandles {
+    let handles = this.events.get(eventName);
+    if (!handles) {
+      const labels = { event: eventName };
+      handles = {
+        publishCounter: this.registry.counter('publish_total', labels),
+        errorCounter: this.registry.counter('error_total', labels),
+        subscriberGauge: this.registry.gauge('subscriber_count', labels),
+        queueDepthGauge: this.registry.gauge('queue_depth', labels),
+        messagesInFlightGauge: this.registry.gauge('messages_in_flight', labels),
+        oldestMessageAgeGauge: this.registry.gauge('oldest_message_age', labels),
+        rateTracker: new RateTracker(this.rateWindowSeconds),
         lastPublishedAt: null,
-        publishTimestamps: [],
       };
-      this.counters.set(eventName, metrics);
+      this.events.set(eventName, handles);
     }
-    return metrics;
-  }
-
-  private pruneTimestamps(metrics: InternalMetrics): void {
-    const cutoff = Date.now() - this.rateWindowMs;
-    while (metrics.publishTimestamps.length > 0 && metrics.publishTimestamps[0] < cutoff) {
-      metrics.publishTimestamps.shift();
-    }
-  }
-
-  private calculateRate(metrics: InternalMetrics): number {
-    if (metrics.publishTimestamps.length === 0) return 0;
-    return metrics.publishTimestamps.length / (this.rateWindowMs / 1000);
+    return handles;
   }
 }

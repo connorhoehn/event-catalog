@@ -1,4 +1,5 @@
 import { createClient, type RedisClientType } from 'redis';
+import { CircuitBreaker } from 'distributed-core/dist/transport/CircuitBreaker';
 import type { EventEnvelope } from '../types/index';
 
 export interface SignalTransportConfig {
@@ -22,30 +23,40 @@ export class SignalTransport {
   private connected = false;
   private subscriptions = new Map<string, Set<MessageHandler>>();
   private channelMetrics = new Map<string, ChannelMetrics>();
+  private readonly circuitBreaker: CircuitBreaker;
 
   constructor(config: SignalTransportConfig) {
     this.url = config.url;
     this.ringBufferSize = config.ringBufferSize ?? 100;
+    this.circuitBreaker = new CircuitBreaker({
+      failureThreshold: 5,
+      resetTimeout: 30000,
+      timeout: 10000,
+      enableLogging: false,
+      name: 'signal-redis',
+    });
   }
 
   async connect(): Promise<void> {
     if (this.connected) return;
 
-    this.publishClient = createClient({ url: this.url }) as RedisClientType;
-    this.subscribeClient = createClient({ url: this.url }) as RedisClientType;
+    await this.circuitBreaker.execute(async () => {
+      this.publishClient = createClient({ url: this.url }) as RedisClientType;
+      this.subscribeClient = createClient({ url: this.url }) as RedisClientType;
 
-    this.publishClient.on('error', (err: Error) => {
-      console.warn('[signal-transport] publish client error:', err.message);
+      this.publishClient.on('error', (err: Error) => {
+        console.warn('[signal-transport] publish client error:', err.message);
+      });
+
+      this.subscribeClient.on('error', (err: Error) => {
+        console.warn('[signal-transport] subscribe client error:', err.message);
+      });
+
+      await Promise.all([
+        this.publishClient.connect(),
+        this.subscribeClient.connect(),
+      ]);
     });
-
-    this.subscribeClient.on('error', (err: Error) => {
-      console.warn('[signal-transport] subscribe client error:', err.message);
-    });
-
-    await Promise.all([
-      this.publishClient.connect(),
-      this.subscribeClient.connect(),
-    ]);
 
     this.connected = true;
   }
@@ -78,18 +89,20 @@ export class SignalTransport {
       return;
     }
 
-    const serialized = JSON.stringify(envelope);
+    await this.circuitBreaker.execute(async () => {
+      const serialized = JSON.stringify(envelope);
 
-    await this.publishClient.publish(channel, serialized);
+      await this.publishClient!.publish(channel, serialized);
 
-    // Write to ring buffer (Redis Stream) for history inspection
-    await this.publishClient.xAdd(
-      `${channel}:history`,
-      '*',
-      { payload: serialized },
-      { TRIM: { strategy: 'MAXLEN', strategyModifier: '~', threshold: this.ringBufferSize } },
-    ).catch((err: Error) => {
-      console.warn(`[signal-transport] ring buffer write failed for ${channel}:`, err.message);
+      // Write to ring buffer (Redis Stream) for history inspection
+      await this.publishClient!.xAdd(
+        `${channel}:history`,
+        '*',
+        { payload: serialized },
+        { TRIM: { strategy: 'MAXLEN', strategyModifier: '~', threshold: this.ringBufferSize } },
+      ).catch((err: Error) => {
+        console.warn(`[signal-transport] ring buffer write failed for ${channel}:`, err.message);
+      });
     });
 
     this.incrementMetrics(channel);

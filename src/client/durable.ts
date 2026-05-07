@@ -1,3 +1,4 @@
+import { RetryManager } from 'distributed-core/dist/transport/RetryManager';
 import type { EventEnvelope } from '../types/index';
 
 export interface DurableTransportConfig {
@@ -25,6 +26,7 @@ export class DurableTransport {
   private readonly url: string;
   private readonly retryAttempts: number;
   private readonly retryBaseMs: number;
+  private readonly retryManager: RetryManager;
   private connected = false;
   private activePollers = new Map<string, AbortController>();
   private queueMetrics = new Map<string, QueueMetrics>();
@@ -34,6 +36,14 @@ export class DurableTransport {
     this.url = config.url.replace(/\/$/, '');
     this.retryAttempts = config.retryAttempts ?? 3;
     this.retryBaseMs = config.retryBaseMs ?? 100;
+    this.retryManager = new RetryManager({
+      maxRetries: this.retryAttempts - 1, // RetryManager does initial attempt + retries
+      baseDelay: this.retryBaseMs,
+      backoffFactor: 2,
+      jitter: false,
+      enableLogging: false,
+      name: 'durable-transport',
+    });
   }
 
   async connect(): Promise<void> {
@@ -92,34 +102,24 @@ export class DurableTransport {
       message_body: JSON.stringify(envelope),
     });
 
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt < this.retryAttempts; attempt++) {
-      try {
+    try {
+      await this.retryManager.execute(async () => {
         const res = await fetch(`${this.url}/queues/${encodeURIComponent(queueName)}/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body,
         });
 
-        if (res.ok) {
-          this.incrementMetric(queueName, 'sent');
-          return;
+        if (!res.ok) {
+          throw new Error(`message-queue returned ${res.status}`);
         }
+      });
 
-        lastError = new Error(`message-queue returned ${res.status}`);
-      } catch (err) {
-        lastError = err as Error;
-      }
-
-      if (attempt < this.retryAttempts - 1) {
-        const delay = this.retryBaseMs * Math.pow(2, attempt);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
+      this.incrementMetric(queueName, 'sent');
+    } catch (err) {
+      this.incrementMetric(queueName, 'failed');
+      throw new Error(`[durable-transport] publish to "${queueName}" failed after ${this.retryAttempts} attempts: ${(err as Error).message}`);
     }
-
-    this.incrementMetric(queueName, 'failed');
-    throw new Error(`[durable-transport] publish to "${queueName}" failed after ${this.retryAttempts} attempts: ${lastError?.message}`);
   }
 
   subscribe(
