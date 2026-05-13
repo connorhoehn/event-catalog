@@ -7,6 +7,7 @@ class DurableTransport {
     retryAttempts;
     retryBaseMs;
     maxProcessingAttempts;
+    dlqCapacity;
     retryManager;
     pollRetryManager;
     connected = false;
@@ -15,11 +16,13 @@ class DurableTransport {
     ensuredQueues = new Set();
     deadLetterMessages = [];
     messageAttempts = new Map();
+    deadLetterCallbacks = [];
     constructor(config) {
         this.url = config.url.replace(/\/$/, '');
         this.retryAttempts = config.retryAttempts ?? 3;
         this.retryBaseMs = config.retryBaseMs ?? 100;
         this.maxProcessingAttempts = config.maxProcessingAttempts ?? 3;
+        this.dlqCapacity = config.dlqCapacity ?? 10_000;
         this.retryManager = new RetryManager_1.RetryManager({
             maxRetries: this.retryAttempts - 1, // RetryManager does initial attempt + retries
             baseDelay: this.retryBaseMs,
@@ -144,8 +147,43 @@ class DurableTransport {
     getDLQ() {
         return [...this.deadLetterMessages];
     }
+    drainDLQ() {
+        const messages = [...this.deadLetterMessages];
+        this.deadLetterMessages.length = 0;
+        return messages;
+    }
+    onDeadLetter(callback) {
+        this.deadLetterCallbacks.push(callback);
+        return () => {
+            this.deadLetterCallbacks = this.deadLetterCallbacks.filter(cb => cb !== callback);
+        };
+    }
     isConnected() {
         return this.connected;
+    }
+    async healthCheck() {
+        if (!this.connected) {
+            return { status: 'disconnected', latencyMs: 0 };
+        }
+        const start = performance.now();
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 2000);
+            const res = await fetch(`${this.url}/health`, { signal: controller.signal });
+            clearTimeout(timeout);
+            const latencyMs = Math.round(performance.now() - start);
+            if (res.ok) {
+                return { status: 'connected', latencyMs };
+            }
+            return { status: 'degraded', latencyMs };
+        }
+        catch (err) {
+            const latencyMs = Math.round(performance.now() - start);
+            if (err.name === 'AbortError') {
+                return { status: 'degraded', latencyMs };
+            }
+            return { status: 'disconnected', latencyMs };
+        }
     }
     async pollLoop(queueName, handler, opts) {
         const { pollingInterval, batchSize, visibilityTimeout, signal } = opts;
@@ -193,14 +231,24 @@ class DurableTransport {
                                 envelope = JSON.parse(msg.body);
                             }
                             catch { /* use undefined */ }
-                            this.deadLetterMessages.push({
+                            if (this.deadLetterMessages.length >= this.dlqCapacity) {
+                                this.deadLetterMessages.splice(0, this.deadLetterMessages.length - this.dlqCapacity + 1);
+                            }
+                            const dlqMessage = {
                                 messageId: msg.message_id,
                                 queueName,
                                 envelope: envelope ?? { eventName: 'unknown', payload: msg.body, metadata: { id: msg.message_id, producer: 'unknown', timestamp: Date.now() } },
                                 error: err.message,
                                 attempts: attemptCount,
                                 deadLetteredAt: new Date().toISOString(),
-                            });
+                            };
+                            this.deadLetterMessages.push(dlqMessage);
+                            for (const cb of this.deadLetterCallbacks) {
+                                try {
+                                    cb(dlqMessage);
+                                }
+                                catch { /* ignore callback errors */ }
+                            }
                             // Delete from source queue so it's not redelivered
                             await fetch(`${this.url}/queues/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(msg.receipt_handle)}`, { method: 'DELETE' }).catch(() => { });
                             this.messageAttempts.delete(msg.message_id);

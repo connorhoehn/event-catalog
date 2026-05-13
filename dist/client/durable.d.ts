@@ -5,6 +5,8 @@ export interface DurableTransportConfig {
     retryBaseMs?: number;
     /** Max processing attempts before a message is dead-lettered. Default: 3 */
     maxProcessingAttempts?: number;
+    /** Maximum number of dead-lettered messages to retain in memory. Default: 10000 */
+    dlqCapacity?: number;
 }
 export interface DeadLetteredMessage {
     messageId: string;
@@ -26,11 +28,13 @@ interface QueueMetrics {
     inFlight: number;
 }
 type MessageHandler = (envelope: EventEnvelope) => Promise<void>;
+export type DeadLetterCallback = (message: DeadLetteredMessage) => void;
 export declare class DurableTransport {
     private readonly url;
     private readonly retryAttempts;
     private readonly retryBaseMs;
     private readonly maxProcessingAttempts;
+    private readonly dlqCapacity;
     private readonly retryManager;
     private readonly pollRetryManager;
     private connected;
@@ -39,6 +43,7 @@ export declare class DurableTransport {
     private ensuredQueues;
     private readonly deadLetterMessages;
     private readonly messageAttempts;
+    private deadLetterCallbacks;
     constructor(config: DurableTransportConfig);
     connect(): Promise<void>;
     disconnect(): Promise<void>;
@@ -49,7 +54,13 @@ export declare class DurableTransport {
     getMetrics(queueName?: string): Map<string, QueueMetrics> | QueueMetrics | undefined;
     getAllMetrics(): Map<string, QueueMetrics>;
     getDLQ(): DeadLetteredMessage[];
+    drainDLQ(): DeadLetteredMessage[];
+    onDeadLetter(callback: DeadLetterCallback): () => void;
     isConnected(): boolean;
+    healthCheck(): Promise<{
+        status: 'connected' | 'degraded' | 'disconnected';
+        latencyMs: number;
+    }>;
     private pollLoop;
     private sleep;
     private incrementMetric;

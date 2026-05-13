@@ -7,7 +7,9 @@ export declare class EventCatalog {
     private readonly registry;
     private readonly signal;
     private readonly durable;
+    private readonly syncRetryManager;
     private connected;
+    private resyncInterval;
     constructor(config: EventCatalogConfig);
     connect(): Promise<void>;
     disconnect(): Promise<void>;
@@ -18,6 +20,7 @@ export declare class EventCatalog {
     getSignalTransport(): SignalTransport;
     getDurableTransport(): DurableTransport;
     isConnected(): boolean;
+    private scheduleBackgroundSync;
     private syncToRemoteRegistry;
     private registerSubscriberRemote;
     private deregisterSubscriberRemote;

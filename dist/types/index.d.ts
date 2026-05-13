@@ -1,4 +1,5 @@
 export type TransportType = 'signal' | 'durable';
+export type CompatibilityMode = 'backward' | 'forward' | 'full' | 'none';
 export interface EventDeclaration {
     name: string;
     schema: Record<string, unknown>;
@@ -6,6 +7,13 @@ export interface EventDeclaration {
     producer: string;
     description?: string;
     tags?: string[];
+    version?: number;
+    compatibilityMode?: CompatibilityMode;
+}
+export interface SchemaHistoryEntry {
+    version: number;
+    schema: Record<string, unknown>;
+    updatedAt: string;
 }
 export interface EventCatalogConfig {
     redis: {
@@ -74,6 +82,9 @@ export interface HealthStatus {
     eventCount: number;
 }
 export interface RegistryEntry extends EventDeclaration {
+    version: number;
+    compatibilityMode: CompatibilityMode;
+    schemaHistory: SchemaHistoryEntry[];
     subscribers: string[];
     metadata: {
         createdAt: string;

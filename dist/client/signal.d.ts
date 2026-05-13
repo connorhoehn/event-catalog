@@ -27,6 +27,10 @@ export declare class SignalTransport {
     getMetrics(channel?: string): Map<string, ChannelMetrics> | ChannelMetrics | undefined;
     getAllMetrics(): Map<string, ChannelMetrics>;
     isConnected(): boolean;
+    healthCheck(): Promise<{
+        status: 'connected' | 'degraded' | 'disconnected';
+        latencyMs: number;
+    }>;
     private incrementMetrics;
     private updateSubscriberCount;
 }

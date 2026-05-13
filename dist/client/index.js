@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventCatalog = void 0;
 const ulid_1 = require("ulid");
+const RetryManager_1 = require("distributed-core/dist/transport/RetryManager");
 const index_1 = require("../registry/index");
 const signal_1 = require("./signal");
 const durable_1 = require("./durable");
@@ -10,12 +11,22 @@ class EventCatalog {
     registry;
     signal;
     durable;
+    syncRetryManager;
     connected = false;
+    resyncInterval = null;
     constructor(config) {
         this.config = config;
         this.registry = new index_1.Registry();
         this.signal = new signal_1.SignalTransport({ url: config.redis.url });
         this.durable = new durable_1.DurableTransport({ url: config.messageQueue.url });
+        this.syncRetryManager = new RetryManager_1.RetryManager({
+            maxRetries: 2,
+            baseDelay: 1000,
+            backoffFactor: 2,
+            jitter: false,
+            enableLogging: false,
+            name: 'catalog-registry-sync',
+        });
     }
     async connect() {
         if (this.connected)
@@ -25,16 +36,28 @@ class EventCatalog {
             this.durable.connect(),
         ]);
         this.connected = true;
-        // Register all declared events with remote catalog if configured
         if (this.config.registryUrl) {
-            await this.syncToRemoteRegistry().catch(err => {
-                console.warn('[event-catalog] failed to sync to remote registry:', err.message);
-            });
+            try {
+                await this.syncRetryManager.execute(() => this.syncToRemoteRegistry());
+            }
+            catch {
+                console.warn('[event-catalog] registry sync failed after retries, scheduling background retry');
+                this.scheduleBackgroundSync();
+            }
+            this.resyncInterval = setInterval(() => {
+                this.syncToRemoteRegistry().catch(err => {
+                    console.warn('[event-catalog] periodic re-sync failed:', err.message);
+                });
+            }, 60_000);
         }
     }
     async disconnect() {
         if (!this.connected)
             return;
+        if (this.resyncInterval) {
+            clearInterval(this.resyncInterval);
+            this.resyncInterval = null;
+        }
         await Promise.all([
             this.signal.disconnect(),
             this.durable.disconnect(),
@@ -145,6 +168,20 @@ class EventCatalog {
     }
     isConnected() {
         return this.connected;
+    }
+    scheduleBackgroundSync() {
+        const attempt = (delay) => {
+            setTimeout(() => {
+                if (!this.connected || !this.config.registryUrl)
+                    return;
+                this.syncToRemoteRegistry().catch(() => {
+                    const nextDelay = Math.min(delay * 2, 60_000);
+                    console.warn(`[event-catalog] background sync retry failed, next attempt in ${nextDelay}ms`);
+                    attempt(nextDelay);
+                });
+            }, delay);
+        };
+        attempt(5_000);
     }
     async syncToRemoteRegistry() {
         const entries = this.registry.list();
