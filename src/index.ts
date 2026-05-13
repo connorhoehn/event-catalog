@@ -18,6 +18,7 @@ export type {
   TopologyNode,
   TopologyEdge,
   TopologyGraph,
+  TopologyFilter,
   HealthStatus,
   RegistryEntry,
   RegistryFilter,

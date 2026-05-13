@@ -143,6 +143,79 @@ describe('Registry', () => {
       const subscribeEdges = topology.edges.filter(e => e.relation === 'subscribes');
       expect(subscribeEdges).toHaveLength(2);
     });
+
+    describe('filter (Phase E4.3)', () => {
+      beforeEach(() => {
+        // Seed three events with overlapping producers/consumers/transports
+        // so each filter dimension has both a hit and a miss to verify.
+        registry.declare({ name: 'user:created', schema: {}, transport: 'durable', producer: 'auth-service' });
+        registry.declare({ name: 'cursor:move', schema: {}, transport: 'signal', producer: 'editor-service' });
+        registry.declare({ name: 'session:closed', schema: {}, transport: 'durable', producer: 'auth-service' });
+        registry.addSubscriber('user:created', 'notification-service');
+        registry.addSubscriber('user:created', 'analytics-service');
+        registry.addSubscriber('cursor:move', 'collab-service');
+        registry.addSubscriber('session:closed', 'analytics-service');
+      });
+
+      it('filters by producer — returns only that service\'s events', () => {
+        const topology = registry.getTopology({ producer: 'auth-service' });
+        const eventNodes = topology.nodes.filter(n => n.type === 'event');
+        expect(eventNodes.map(n => n.id).sort()).toEqual(['session:closed', 'user:created']);
+        // cursor:move and editor-service must NOT appear
+        expect(topology.nodes.map(n => n.id)).not.toContain('cursor:move');
+        expect(topology.nodes.map(n => n.id)).not.toContain('editor-service');
+      });
+
+      it('filters by consumer — returns only events that service subscribes to', () => {
+        const topology = registry.getTopology({ consumer: 'analytics-service' });
+        const eventNodes = topology.nodes.filter(n => n.type === 'event');
+        expect(eventNodes.map(n => n.id).sort()).toEqual(['session:closed', 'user:created']);
+        expect(topology.nodes.map(n => n.id)).not.toContain('cursor:move');
+      });
+
+      it('filters by eventType — returns exactly that event and its services', () => {
+        const topology = registry.getTopology({ eventType: 'cursor:move' });
+        const eventNodes = topology.nodes.filter(n => n.type === 'event');
+        expect(eventNodes).toHaveLength(1);
+        expect(eventNodes[0].id).toBe('cursor:move');
+        expect(topology.nodes.map(n => n.id).sort()).toEqual(
+          ['collab-service', 'cursor:move', 'editor-service'].sort(),
+        );
+      });
+
+      it('filters by transport — partitions signal from durable', () => {
+        const signalTopo = registry.getTopology({ transport: 'signal' });
+        const durableTopo = registry.getTopology({ transport: 'durable' });
+        expect(signalTopo.nodes.filter(n => n.type === 'event').map(n => n.id)).toEqual(['cursor:move']);
+        expect(durableTopo.nodes.filter(n => n.type === 'event').map(n => n.id).sort())
+          .toEqual(['session:closed', 'user:created']);
+      });
+
+      it('AND-combines multiple filters — both must match', () => {
+        // auth-service produces both user:created (notification + analytics)
+        // and session:closed (analytics only). Filtering by producer=auth-service
+        // AND consumer=notification-service narrows to just user:created.
+        const topology = registry.getTopology({
+          producer: 'auth-service',
+          consumer: 'notification-service',
+        });
+        const eventNodes = topology.nodes.filter(n => n.type === 'event');
+        expect(eventNodes).toHaveLength(1);
+        expect(eventNodes[0].id).toBe('user:created');
+      });
+
+      it('returns empty graph when no events match', () => {
+        const topology = registry.getTopology({ producer: 'no-such-service' });
+        expect(topology.nodes).toEqual([]);
+        expect(topology.edges).toEqual([]);
+      });
+
+      it('returns full topology when filter is undefined (back-compat)', () => {
+        const full = registry.getTopology();
+        const eventNodes = full.nodes.filter(n => n.type === 'event');
+        expect(eventNodes).toHaveLength(3);
+      });
+    });
   });
 
   describe('remove', () => {

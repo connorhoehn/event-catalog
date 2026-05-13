@@ -1,4 +1,4 @@
-import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph } from '../types/index';
+import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyFilter } from '../types/index';
 import type { CompatResult } from './schema-compat';
 
 export interface ValidationResult {
@@ -20,7 +20,7 @@ export interface IRegistry {
   removeSubscriber(eventName: string, serviceName: string): void;
   updateStats(eventName: string, stats: Partial<RegistryEntry['metadata']>): void;
   remove(eventName: string): boolean;
-  getTopology(): TopologyGraph;
+  getTopology(filter?: TopologyFilter): TopologyGraph;
   validate(eventName: string, payload: unknown): ValidationResult;
   checkSchemaCompat(eventName: string, proposedSchema: Record<string, unknown>): CompatResult;
   size(): number;

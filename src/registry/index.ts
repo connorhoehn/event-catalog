@@ -1,6 +1,6 @@
 import { JsonSchemaValidator } from 'distributed-core';
 import type { RedisClientType } from 'redis';
-import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyNode, TopologyEdge, CompatibilityMode } from '../types/index';
+import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyNode, TopologyEdge, TopologyFilter, CompatibilityMode } from '../types/index';
 import type { IRegistry, ValidationResult, DeclareResult } from './types';
 import { checkBackwardCompat, checkForwardCompat, type CompatResult } from './schema-compat';
 
@@ -9,6 +9,20 @@ const REDIS_KEY = 'event-catalog:registry';
 /** Normalize EventDeclaration.producer to an always-array form. */
 function producerList(producer: string | string[]): string[] {
   return Array.isArray(producer) ? producer : [producer];
+}
+
+/**
+ * AND-combine TopologyFilter predicates against a single registry entry.
+ * Empty/missing filter returns true (no filter ⇒ include everything).
+ * Each predicate is exact-match on the relevant field.
+ */
+function matchesTopologyFilter(entry: RegistryEntry, filter?: TopologyFilter): boolean {
+  if (!filter) return true;
+  if (filter.eventType && entry.name !== filter.eventType) return false;
+  if (filter.transport && entry.transport !== filter.transport) return false;
+  if (filter.producer && !producerList(entry.producer).includes(filter.producer)) return false;
+  if (filter.consumer && !entry.subscribers.includes(filter.consumer)) return false;
+  return true;
 }
 
 export class Registry implements IRegistry {
@@ -138,12 +152,14 @@ export class Registry implements IRegistry {
     return deleted;
   }
 
-  getTopology(): TopologyGraph {
+  getTopology(filter?: TopologyFilter): TopologyGraph {
     const nodes: TopologyNode[] = [];
     const edges: TopologyEdge[] = [];
     const servicesSeen = new Set<string>();
 
     for (const entry of this.events.values()) {
+      if (!matchesTopologyFilter(entry, filter)) continue;
+
       nodes.push({
         id: entry.name,
         type: 'event',

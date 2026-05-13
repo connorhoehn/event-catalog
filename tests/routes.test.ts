@@ -320,6 +320,70 @@ describe('Server Routes', () => {
       expect(res.body.nodes).toEqual([]);
       expect(res.body.edges).toEqual([]);
     });
+
+    // ─── Phase E4.3 — query-param filtering ─────────────────────────────
+    describe('filtering via query params (Phase E4.3)', () => {
+      beforeEach(() => {
+        registry.declare({ name: 'user:created', schema: {}, transport: 'durable', producer: 'auth-service' });
+        registry.declare({ name: 'cursor:move', schema: {}, transport: 'signal', producer: 'editor-service' });
+        registry.addSubscriber('user:created', 'notification-service');
+        registry.addSubscriber('cursor:move', 'collab-service');
+      });
+
+      it('?producer=auth-service narrows to that service\'s events', async () => {
+        const res = await request(app).get('/api/topology').query({ producer: 'auth-service' });
+        expect(res.status).toBe(200);
+        const eventNames = res.body.nodes
+          .filter((n: { type: string }) => n.type === 'event')
+          .map((n: { id: string }) => n.id);
+        expect(eventNames).toEqual(['user:created']);
+      });
+
+      it('?consumer=collab-service narrows to events that service subscribes to', async () => {
+        const res = await request(app).get('/api/topology').query({ consumer: 'collab-service' });
+        expect(res.status).toBe(200);
+        const eventNames = res.body.nodes
+          .filter((n: { type: string }) => n.type === 'event')
+          .map((n: { id: string }) => n.id);
+        expect(eventNames).toEqual(['cursor:move']);
+      });
+
+      it('?eventType=user:created returns exactly that event subgraph', async () => {
+        const res = await request(app).get('/api/topology').query({ eventType: 'user:created' });
+        expect(res.status).toBe(200);
+        const eventNames = res.body.nodes
+          .filter((n: { type: string }) => n.type === 'event')
+          .map((n: { id: string }) => n.id);
+        expect(eventNames).toEqual(['user:created']);
+      });
+
+      it('?transport=signal partitions by transport', async () => {
+        const res = await request(app).get('/api/topology').query({ transport: 'signal' });
+        expect(res.status).toBe(200);
+        const eventNames = res.body.nodes
+          .filter((n: { type: string }) => n.type === 'event')
+          .map((n: { id: string }) => n.id);
+        expect(eventNames).toEqual(['cursor:move']);
+      });
+
+      it('combined filters AND-narrow the result', async () => {
+        const res = await request(app)
+          .get('/api/topology')
+          .query({ producer: 'auth-service', consumer: 'notification-service' });
+        expect(res.status).toBe(200);
+        const eventNames = res.body.nodes
+          .filter((n: { type: string }) => n.type === 'event')
+          .map((n: { id: string }) => n.id);
+        expect(eventNames).toEqual(['user:created']);
+      });
+
+      it('ignores unrelated query params and returns full topology', async () => {
+        const res = await request(app).get('/api/topology').query({ foo: 'bar' });
+        expect(res.status).toBe(200);
+        const eventNodes = res.body.nodes.filter((n: { type: string }) => n.type === 'event');
+        expect(eventNodes).toHaveLength(2);
+      });
+    });
   });
 
   // ─── GET /api/health ─────────────────────────────────────────────────

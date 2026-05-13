@@ -246,9 +246,20 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json({ removed: req.params.name });
   });
 
-  // Topology graph
-  router.get('/topology', (_req: Request, res: Response) => {
-    const topology = registry.getTopology();
+  // Topology graph — optional ?producer=, ?consumer=, ?eventType=, ?transport=
+  // filters AND-combine to restrict which events (and induced services) appear
+  // in the returned subgraph. No filter ⇒ full topology.
+  router.get('/topology', (req: Request, res: Response) => {
+    const q = req.query as Record<string, unknown>;
+    const filter = {
+      producer: typeof q.producer === 'string' ? q.producer : undefined,
+      consumer: typeof q.consumer === 'string' ? q.consumer : undefined,
+      eventType: typeof q.eventType === 'string' ? q.eventType : undefined,
+      transport: typeof q.transport === 'string' ? q.transport : undefined,
+    };
+    const anyFilter =
+      filter.producer || filter.consumer || filter.eventType || filter.transport;
+    const topology = registry.getTopology(anyFilter ? filter : undefined);
     res.json(topology);
   });
 

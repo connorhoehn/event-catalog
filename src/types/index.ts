@@ -150,6 +150,22 @@ export interface TopologyGraph {
   edges: TopologyEdge[];
 }
 
+// Optional filter passed to `getTopology()`. Filters are AND-combined: an
+// event is included only when every supplied predicate matches. Empty/unset
+// filter returns the full graph. The result is "induced" — nodes referenced
+// by surviving events (their producers + subscribers) come along for free,
+// but their unrelated events do not.
+export interface TopologyFilter {
+  /** Include only events published by this service. */
+  producer?: string;
+  /** Include only events subscribed by this service. */
+  consumer?: string;
+  /** Include only this exact event name. */
+  eventType?: string;
+  /** Include only events on this transport. */
+  transport?: string;
+}
+
 export interface HealthStatus {
   redis: 'connected' | 'disconnected';
   messageQueue: 'connected' | 'disconnected';
