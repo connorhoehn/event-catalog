@@ -61,32 +61,102 @@ class DurableTransport {
         this.activePollers.clear();
         this.connected = false;
     }
-    async ensureQueue(queueName) {
+    /**
+     * Idempotent queue ensure via PUT (message-queue Phase 4.1 contract).
+     * Maps event-catalog's declared queue config (retention/fifo/dlqAfterAttempts)
+     * onto message-queue's QueueConfiguration shape. Three response codes
+     * are handled distinctly:
+     *
+     *   201 — created with the requested config.
+     *   200 — already existed with matching config (no change).
+     *   409 — already existed with DIFFERING config; conflict body logged
+     *         at warn level. The publish path still proceeds — operator
+     *         must decide whether to delete-and-recreate or accept the
+     *         drift. We do NOT auto-mutate the existing queue.
+     *
+     * When `dlqAfterAttempts` is declared, the paired DLQ queue is
+     * auto-created first under the name `${queueName}-dlq` (conventional;
+     * mirrors AWS SQS-redrive naming). If the DLQ ensure fails the main
+     * queue is still attempted without redrive_policy — better to land
+     * messages on the live queue than to refuse delivery.
+     */
+    async ensureQueue(queueName, options) {
         if (this.ensuredQueues.has(queueName))
             return;
-        try {
-            const res = await fetch(`${this.url}/queues`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ queue_name: queueName }),
-            });
-            // 201 = created, 409 = already exists — both fine
-            if (res.ok || res.status === 409) {
-                this.ensuredQueues.add(queueName);
-                return;
+        // Step 1 — if dlqAfterAttempts is declared, ensure the paired DLQ
+        // exists first. Auto-name is "{queueName}-dlq" unless the caller
+        // overrides via options.dlqQueueName.
+        let dlqArn;
+        if (options?.dlqAfterAttempts && options.dlqAfterAttempts > 0) {
+            const dlqName = options.dlqQueueName ?? `${queueName}-dlq`;
+            const dlqOk = await this.putQueue(dlqName, {});
+            if (dlqOk) {
+                dlqArn = `arn:message-queue:queue:${dlqName}`;
             }
-            const body = await res.text().catch(() => 'unknown');
-            console.warn(`[durable-transport] ensureQueue "${queueName}" failed: ${res.status} ${body}`);
+            else {
+                console.warn(`[durable-transport] DLQ ensure for "${dlqName}" failed; main queue "${queueName}" will be created WITHOUT redrive_policy`);
+            }
+        }
+        // Step 2 — build the QueueConfiguration body from declared options.
+        const configuration = this.buildQueueConfig(options, dlqArn);
+        const ok = await this.putQueue(queueName, configuration);
+        if (ok)
+            this.ensuredQueues.add(queueName);
+    }
+    /**
+     * Map an event-catalog declaration's queue-config fields to
+     * message-queue's snake_case QueueConfiguration shape.
+     */
+    buildQueueConfig(options, dlqArn) {
+        const config = {};
+        if (options?.retention !== undefined) {
+            config.message_retention_period_seconds = options.retention;
+        }
+        if (options?.fifo !== undefined) {
+            config.fifo_queue = options.fifo;
+        }
+        if (dlqArn && options?.dlqAfterAttempts) {
+            config.redrive_policy = {
+                dead_letter_target_arn: dlqArn,
+                max_receive_count: options.dlqAfterAttempts,
+            };
+        }
+        return config;
+    }
+    /**
+     * Single PUT to /queues/{name}. Returns true on 200/201, false on 409
+     * (logs the conflict diff) or any other status / network error.
+     */
+    async putQueue(queueName, configuration) {
+        try {
+            const res = await fetch(`${this.url}/queues/${encodeURIComponent(queueName)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ configuration }),
+            });
+            if (res.status === 200 || res.status === 201) {
+                return true;
+            }
+            if (res.status === 409) {
+                const body = await res.json().catch(() => ({}));
+                console.warn(`[durable-transport] queue "${queueName}" exists with differing config — accepting drift:`, JSON.stringify(body.conflicts ?? body));
+                // Drift is not a fatal error; the queue exists and we can publish.
+                return true;
+            }
+            const text = await res.text().catch(() => 'unknown');
+            console.warn(`[durable-transport] ensureQueue "${queueName}" failed: ${res.status} ${text}`);
+            return false;
         }
         catch (err) {
             console.warn(`[durable-transport] ensureQueue "${queueName}" error:`, err.message);
+            return false;
         }
     }
-    async publish(queueName, envelope) {
+    async publish(queueName, envelope, queueOptions) {
         if (!this.connected) {
             throw new Error('[durable-transport] not connected');
         }
-        await this.ensureQueue(queueName);
+        await this.ensureQueue(queueName, queueOptions);
         const body = JSON.stringify({
             message_body: JSON.stringify(envelope),
         });

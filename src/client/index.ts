@@ -151,12 +151,19 @@ export class EventCatalog {
       // parallel. Failure of either propagates after both are attempted so
       // partial deliveries are not silently masked.
       const queueName = entry.queue ?? DurableTransport.eventNameToQueueName(eventName);
+      // Phase 4.2 — thread the declared durable-side config so
+      // DurableTransport.ensureQueue can PUT the right shape on first publish.
+      const queueOptions = {
+        retention: entry.retention,
+        fifo: entry.fifo,
+        dlqAfterAttempts: entry.dlqAfterAttempts,
+      };
       const sends: Array<Promise<void>> = [];
       if (entry.transport === 'signal' || entry.transport === 'both') {
         sends.push(this.signal.publish(eventName, envelope as EventEnvelope));
       }
       if (entry.transport === 'durable' || entry.transport === 'both') {
-        sends.push(this.durable.publish(queueName, envelope as EventEnvelope));
+        sends.push(this.durable.publish(queueName, envelope as EventEnvelope, queueOptions));
       }
       const results = await Promise.allSettled(sends);
       const rejection = results.find((r) => r.status === 'rejected');

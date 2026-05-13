@@ -30,7 +30,7 @@ export type { ValidationResult, DeclareResult, IRegistry } from './registry/type
 export type { CompatResult } from './registry/schema-compat';
 export { checkBackwardCompat, checkForwardCompat } from './registry/schema-compat';
 export type { SignalTransportConfig } from './client/signal';
-export type { DurableTransportConfig, DurableSubscribeOptions } from './client/durable';
+export type { DurableTransportConfig, DurableSubscribeOptions, EnsureQueueOptions } from './client/durable';
 
 // Wire envelopes (Phase 55 — single source of truth for channel_message shape).
 export {
