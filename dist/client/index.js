@@ -78,6 +78,19 @@ class EventCatalog {
             const msgs = validation.errors?.map(e => e.message).join(', ') ?? 'unknown error';
             throw new Error(`[event-catalog] payload validation failed for "${eventName}": ${msgs}`);
         }
+        // Discriminator validation (Phase E3.6) — when a declaration carries
+        // `discriminator: { field, values }`, the payload's value at `field`
+        // must be one of the declared values. Catches sub-type drift at
+        // publish time, e.g. ingest:progress carries 10 sub-shapes via
+        // payload.type.
+        if (entry.discriminator) {
+            const { field, values } = entry.discriminator;
+            const actual = payload?.[field];
+            if (typeof actual !== 'string' || !values.includes(actual)) {
+                throw new Error(`[event-catalog] discriminator validation failed for "${eventName}": `
+                    + `payload.${field}=${JSON.stringify(actual)} is not in declared values [${values.join(', ')}]`);
+            }
+        }
         const metadata = {
             id: (0, ulid_1.ulid)(),
             producer: this.config.serviceName,
@@ -91,12 +104,21 @@ class EventCatalog {
             metadata,
         };
         try {
-            if (entry.transport === 'signal') {
-                await this.signal.publish(eventName, envelope);
+            // Phase E3.4 — 'both' fan-out: publish to signal AND durable in
+            // parallel. Failure of either propagates after both are attempted so
+            // partial deliveries are not silently masked.
+            const queueName = entry.queue ?? durable_1.DurableTransport.eventNameToQueueName(eventName);
+            const sends = [];
+            if (entry.transport === 'signal' || entry.transport === 'both') {
+                sends.push(this.signal.publish(eventName, envelope));
             }
-            else {
-                const queueName = durable_1.DurableTransport.eventNameToQueueName(eventName);
-                await this.durable.publish(queueName, envelope);
+            if (entry.transport === 'durable' || entry.transport === 'both') {
+                sends.push(this.durable.publish(queueName, envelope));
+            }
+            const results = await Promise.allSettled(sends);
+            const rejection = results.find((r) => r.status === 'rejected');
+            if (rejection && rejection.status === 'rejected') {
+                throw rejection.reason;
             }
             this.registry.updateStats(eventName, {
                 lastPublishedAt: new Date().toISOString(),

@@ -22,6 +22,8 @@ export type {
   RegistryEntry,
   RegistryFilter,
   SchemaHistoryEntry,
+  EventDiscriminator,
+  EventAlias,
 } from './types/index';
 
 export type { ValidationResult, DeclareResult, IRegistry } from './registry/types';

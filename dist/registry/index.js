@@ -4,6 +4,10 @@ exports.Registry = void 0;
 const distributed_core_1 = require("distributed-core");
 const schema_compat_1 = require("./schema-compat");
 const REDIS_KEY = 'event-catalog:registry';
+/** Normalize EventDeclaration.producer to an always-array form. */
+function producerList(producer) {
+    return Array.isArray(producer) ? producer : [producer];
+}
 class Registry {
     events = new Map();
     schemaValidator;
@@ -79,7 +83,7 @@ class Registry {
             entries = entries.filter(e => e.transport === filter.transport);
         }
         if (filter?.producer) {
-            entries = entries.filter(e => e.producer === filter.producer);
+            entries = entries.filter(e => producerList(e.producer).includes(filter.producer));
         }
         if (filter?.subscriber) {
             entries = entries.filter(e => e.subscribers.includes(filter.subscriber));
@@ -126,11 +130,13 @@ class Registry {
                 type: 'event',
                 metadata: { transport: entry.transport, description: entry.description },
             });
-            if (!servicesSeen.has(entry.producer)) {
-                servicesSeen.add(entry.producer);
-                nodes.push({ id: entry.producer, type: 'service', metadata: {} });
+            for (const producer of producerList(entry.producer)) {
+                if (!servicesSeen.has(producer)) {
+                    servicesSeen.add(producer);
+                    nodes.push({ id: producer, type: 'service', metadata: {} });
+                }
+                edges.push({ from: producer, to: entry.name, relation: 'publishes' });
             }
-            edges.push({ from: entry.producer, to: entry.name, relation: 'publishes' });
             for (const sub of entry.subscribers) {
                 if (!servicesSeen.has(sub)) {
                     servicesSeen.add(sub);

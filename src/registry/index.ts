@@ -6,6 +6,11 @@ import { checkBackwardCompat, checkForwardCompat, type CompatResult } from './sc
 
 const REDIS_KEY = 'event-catalog:registry';
 
+/** Normalize EventDeclaration.producer to an always-array form. */
+function producerList(producer: string | string[]): string[] {
+  return Array.isArray(producer) ? producer : [producer];
+}
+
 export class Registry implements IRegistry {
   private events = new Map<string, RegistryEntry>();
   private readonly schemaValidator: JsonSchemaValidator;
@@ -93,7 +98,7 @@ export class Registry implements IRegistry {
       entries = entries.filter(e => e.transport === filter.transport);
     }
     if (filter?.producer) {
-      entries = entries.filter(e => e.producer === filter.producer);
+      entries = entries.filter(e => producerList(e.producer).includes(filter.producer!));
     }
     if (filter?.subscriber) {
       entries = entries.filter(e => e.subscribers.includes(filter.subscriber!));
@@ -145,12 +150,13 @@ export class Registry implements IRegistry {
         metadata: { transport: entry.transport, description: entry.description },
       });
 
-      if (!servicesSeen.has(entry.producer)) {
-        servicesSeen.add(entry.producer);
-        nodes.push({ id: entry.producer, type: 'service', metadata: {} });
+      for (const producer of producerList(entry.producer)) {
+        if (!servicesSeen.has(producer)) {
+          servicesSeen.add(producer);
+          nodes.push({ id: producer, type: 'service', metadata: {} });
+        }
+        edges.push({ from: producer, to: entry.name, relation: 'publishes' });
       }
-
-      edges.push({ from: entry.producer, to: entry.name, relation: 'publishes' });
 
       for (const sub of entry.subscribers) {
         if (!servicesSeen.has(sub)) {
