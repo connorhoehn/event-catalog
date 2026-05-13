@@ -13,7 +13,16 @@ export declare class EventCatalog {
     constructor(config: EventCatalogConfig);
     connect(): Promise<void>;
     disconnect(): Promise<void>;
+    /**
+     * Register an event with the local registry. In strict mode
+     * (`config.strict === true` or `EVENT_CATALOG_STRICT=true`), throws
+     * when the new schema breaks compatibility against the registered
+     * history. Otherwise the violation is non-fatal — callers may inspect
+     * the catalog's logs or the server's `GET /api/events/:name/schema/check`
+     * endpoint.
+     */
     declare(event: EventDeclaration): void;
+    private isStrict;
     publish<T = unknown>(eventName: string, payload: T, options?: PublishOptions): Promise<void>;
     subscribe<T = unknown>(eventName: string, handler: EventHandler<T>, options?: SubscribeOptions): Subscription;
     getRegistry(): Registry;

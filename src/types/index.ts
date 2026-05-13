@@ -82,6 +82,12 @@ export interface EventCatalogConfig {
   messageQueue: { url: string };
   serviceName: string;
   registryUrl?: string;
+  /**
+   * Phase E4.1 — when true, `EventCatalog.declare()` throws on schema
+   * incompatibility instead of logging advisory violations. Defaults to
+   * the value of the `EVENT_CATALOG_STRICT` env var (`'true'` enables).
+   */
+  strict?: boolean;
 }
 
 export interface PublishOptions {

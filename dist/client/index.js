@@ -64,8 +64,25 @@ class EventCatalog {
         ]);
         this.connected = false;
     }
+    /**
+     * Register an event with the local registry. In strict mode
+     * (`config.strict === true` or `EVENT_CATALOG_STRICT=true`), throws
+     * when the new schema breaks compatibility against the registered
+     * history. Otherwise the violation is non-fatal — callers may inspect
+     * the catalog's logs or the server's `GET /api/events/:name/schema/check`
+     * endpoint.
+     */
     declare(event) {
-        this.registry.declare(event);
+        const result = this.registry.declare(event);
+        if (this.isStrict() && !result.compatible) {
+            const violations = result.violations?.join('; ') ?? 'unknown';
+            throw new Error(`[event-catalog] declare("${event.name}") rejected by strict mode: ${violations}`);
+        }
+    }
+    isStrict() {
+        if (typeof this.config.strict === 'boolean')
+            return this.config.strict;
+        return process.env.EVENT_CATALOG_STRICT === 'true';
     }
     async publish(eventName, payload, options) {
         const entry = this.registry.get(eventName);

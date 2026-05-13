@@ -111,15 +111,19 @@ export function createRoutes(deps: RoutesDeps): Router {
 
   // Declare/register an event
   router.post('/events', (req: Request, res: Response) => {
-    const { name, schema, transport, producer, description, tags, compatibilityMode } = req.body as Partial<EventDeclaration>;
+    const {
+      name, schema, transport, producer, description, tags, compatibilityMode,
+      // E3 fields:
+      channel, discriminator, queue, retention, fifo, dlqAfterAttempts, aliases,
+    } = req.body as Partial<EventDeclaration>;
 
     if (!name || !transport || !producer) {
       res.status(400).json({ error: 'name, transport, and producer are required' });
       return;
     }
 
-    if (transport !== 'signal' && transport !== 'durable') {
-      res.status(400).json({ error: 'transport must be "signal" or "durable"' });
+    if (transport !== 'signal' && transport !== 'durable' && transport !== 'both') {
+      res.status(400).json({ error: 'transport must be "signal", "durable", or "both"' });
       return;
     }
 
@@ -131,9 +135,36 @@ export function createRoutes(deps: RoutesDeps): Router {
       description,
       tags,
       compatibilityMode,
+      // Pass through E3 fields when present. `channel` and `partitionKey`
+      // can be functions which don't serialize over HTTP, so only the
+      // string form of `channel` is accepted here.
+      ...(typeof channel === 'string' ? { channel } : {}),
+      ...(discriminator ? { discriminator } : {}),
+      ...(queue ? { queue } : {}),
+      ...(typeof retention === 'number' ? { retention } : {}),
+      ...(typeof fifo === 'boolean' ? { fifo } : {}),
+      ...(typeof dlqAfterAttempts === 'number' ? { dlqAfterAttempts } : {}),
+      ...(aliases ? { aliases } : {}),
     });
 
     metricsObserver.observe(name, transport).catch(() => {});
+
+    // Phase E4.2 — strict mode: reject compat-breaking declarations with
+    // 409. Triggered by env var (server-wide) or per-request header
+    // `x-event-catalog-strict: true`.
+    const strict =
+      process.env.EVENT_CATALOG_STRICT === 'true'
+      || req.header('x-event-catalog-strict') === 'true';
+    if (strict && !result.compatible) {
+      res.status(409).json({
+        error: 'compatibility violation',
+        name,
+        violations: result.violations ?? [],
+        version: result.version,
+      });
+      return;
+    }
+
     const response: Record<string, unknown> = { declared: name, version: result.version, compatible: result.compatible };
     if (result.violations) {
       response.violations = result.violations;
