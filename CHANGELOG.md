@@ -7,6 +7,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.3.1] - 2026-05-14
+
+Fixup release for `0.3.0` — ship missing `dist/declarations/` compiled
+output. `v0.3.0` was tagged without the declaration JS committed, so
+downstream consumers got `Cannot find module './declarations/index'`
+at require time. Tag `v0.3.0` left in place but consumers should pin
+`v0.3.1` or later.
+
+### Fixed
+
+- Commit `dist/declarations/` (was untracked) so git-pin consumers
+  resolve the `pipelineDeclarations` + `pipelineP1Declarations`
+  exports.
+
 ## [0.3.0] - 2026-05-14
 
 First release pinnable from downstream consumers as a real git tag (replacing
