@@ -69,6 +69,12 @@ export {
   pipelineJoinWaiting,
   pipelineJoinFired,
   pipelineP2Declarations,
+  pipelineRaftRunStarted,
+  pipelineRaftRunUpdated,
+  pipelineRaftRunSynthesized,
+  pipelineRaftRunCheckpointed,
+  pipelineRaftRunTerminated,
+  pipelineRaftDeclarations,
 } from './declarations/index';
 
 // Shared MQ queue-name constants (wave7-d — single source of truth).

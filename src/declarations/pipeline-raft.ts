@@ -1,0 +1,200 @@
+// src/declarations/pipeline-raft.ts
+//
+// Wave 9 / track 9d — pipeline:raft:run:* signal declarations.
+//
+// These events are emitted by PipelineRaftStateMachine (inside platform-api)
+// on its per-replica Node EventEmitter. They are DISTINCT from DC's
+// PipelineExecutor events (`pipeline:run:*`) which carry different payloads
+// and are produced by `distributed-core`:
+//
+//   - DC executor:        pipeline:run:started  (producer: distributed-core)
+//   - Raft SM:            pipeline:raft:run:started (producer: platform-api)
+//
+// Transport is `signal` (in-process). These events never cross the gateway
+// bridge — they exist for in-process consumers (MultiRaft coordinator,
+// postmortem aggregators, SM unit test suite).
+//
+// Payload shape: every event carries `{ runId: string, slot: RaftSlot }`.
+// `slot` is the full or partial Raft slot record as it exists after the
+// command is applied. `terminated` additionally restricts `status` to the
+// three terminal values.
+//
+// Previously declared inline via `catalog.declare()` in
+// `platform-api/src/lib/event-catalog.ts`. Moved here in wave9-d so they
+// ship to all consumers automatically without local re-declaration.
+
+import type { EventDeclaration } from '../types/index';
+
+const PRODUCER = 'platform-api';
+const TAGS_BASE = ['producer:platform-api', 'pipeline', 'raft'];
+
+// Common slot sub-schema (base fields present on every Raft slot record).
+const slotBase = {
+    type: 'object',
+    properties: {
+        runId: { type: 'string' },
+        status: { type: 'string' },
+        lastEvent: { type: 'string' },
+        lastEventAt: { type: 'string' },
+        lastAppliedIndex: { type: 'number' },
+    },
+    required: ['runId', 'status', 'lastAppliedIndex'],
+    additionalProperties: true,
+};
+
+// ---------------------------------------------------------------------------
+// pipeline:raft:run:started
+// ---------------------------------------------------------------------------
+
+export const pipelineRaftRunStarted: EventDeclaration = {
+    name: 'pipeline:raft:run:started',
+    transport: 'signal',
+    producer: PRODUCER,
+    description:
+        'Emitted by PipelineRaftStateMachine when a run-started command applies. '
+        + 'Distinct from DC executor\'s `pipeline:run:started` (which has a different '
+        + 'payload + producer). Payload is the full Raft slot record.',
+    tags: TAGS_BASE,
+    schema: {
+        type: 'object',
+        properties: {
+            runId: { type: 'string' },
+            slot: {
+                ...slotBase,
+                properties: {
+                    ...slotBase.properties,
+                    pipelineId: { type: 'string' },
+                    pipelineVersion: { type: 'number' },
+                    ownerNodeId: { type: 'string' },
+                    checkpoint: { type: 'object', additionalProperties: true },
+                },
+            },
+        },
+        required: ['runId', 'slot'],
+    },
+};
+
+// ---------------------------------------------------------------------------
+// pipeline:raft:run:updated
+// ---------------------------------------------------------------------------
+
+export const pipelineRaftRunUpdated: EventDeclaration = {
+    name: 'pipeline:raft:run:updated',
+    transport: 'signal',
+    producer: PRODUCER,
+    description:
+        'Emitted by PipelineRaftStateMachine when a run-updated command transitions '
+        + 'an existing run\'s status. Payload is the full Raft slot record after '
+        + 'mutation.',
+    tags: TAGS_BASE,
+    schema: {
+        type: 'object',
+        properties: {
+            runId: { type: 'string' },
+            slot: slotBase,
+        },
+        required: ['runId', 'slot'],
+    },
+};
+
+// ---------------------------------------------------------------------------
+// pipeline:raft:run:synthesized
+// ---------------------------------------------------------------------------
+
+export const pipelineRaftRunSynthesized: EventDeclaration = {
+    name: 'pipeline:raft:run:synthesized',
+    transport: 'signal',
+    producer: PRODUCER,
+    description:
+        'Emitted by PipelineRaftStateMachine when a run-updated command arrives for '
+        + 'a runId with no existing slot (proposer\'s view of its own run-started '
+        + 'commit lagged). A placeholder slot is synthesized rather than dropping '
+        + 'the command. Operators should surface this as a warning.',
+    tags: TAGS_BASE,
+    schema: {
+        type: 'object',
+        properties: {
+            runId: { type: 'string' },
+            slot: slotBase,
+        },
+        required: ['runId', 'slot'],
+    },
+};
+
+// ---------------------------------------------------------------------------
+// pipeline:raft:run:checkpointed
+// ---------------------------------------------------------------------------
+
+export const pipelineRaftRunCheckpointed: EventDeclaration = {
+    name: 'pipeline:raft:run:checkpointed',
+    transport: 'signal',
+    producer: PRODUCER,
+    description:
+        'Emitted by PipelineRaftStateMachine when a run-checkpointed command lands. '
+        + 'Payload is the full Raft slot record with the new checkpoint blob.',
+    tags: TAGS_BASE,
+    schema: {
+        type: 'object',
+        properties: {
+            runId: { type: 'string' },
+            slot: {
+                ...slotBase,
+                properties: {
+                    ...slotBase.properties,
+                    checkpoint: { type: 'object', additionalProperties: true },
+                },
+                required: [...slotBase.required, 'checkpoint'],
+            },
+        },
+        required: ['runId', 'slot'],
+    },
+};
+
+// ---------------------------------------------------------------------------
+// pipeline:raft:run:terminated
+// ---------------------------------------------------------------------------
+
+export const pipelineRaftRunTerminated: EventDeclaration = {
+    name: 'pipeline:raft:run:terminated',
+    transport: 'signal',
+    producer: PRODUCER,
+    description:
+        'Emitted by PipelineRaftStateMachine when a run-terminated command lands '
+        + '(completed | failed | cancelled). Terminal status is sticky — subsequent '
+        + 'terminations on the same runId are no-ops and DO NOT re-emit.',
+    tags: TAGS_BASE,
+    schema: {
+        type: 'object',
+        properties: {
+            runId: { type: 'string' },
+            slot: {
+                ...slotBase,
+                properties: {
+                    ...slotBase.properties,
+                    status: { type: 'string', enum: ['completed', 'failed', 'cancelled'] },
+                    checkpoint: { type: 'object', additionalProperties: true },
+                },
+            },
+        },
+        required: ['runId', 'slot'],
+    },
+};
+
+// ---------------------------------------------------------------------------
+// Aggregate
+// ---------------------------------------------------------------------------
+
+/**
+ * All pipeline:raft:run:* signal declarations (wave9-d).
+ *
+ * Consumers may iterate this list to bulk-register, or import individual
+ * constants for selective use. These events are produced by platform-api's
+ * PipelineRaftStateMachine — not by distributed-core's PipelineExecutor.
+ */
+export const pipelineRaftDeclarations: EventDeclaration[] = [
+    pipelineRaftRunStarted,
+    pipelineRaftRunUpdated,
+    pipelineRaftRunSynthesized,
+    pipelineRaftRunCheckpointed,
+    pipelineRaftRunTerminated,
+];

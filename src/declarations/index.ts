@@ -33,3 +33,12 @@ export {
   pipelineJoinFired,
   pipelineP2Declarations,
 } from './pipeline-p2';
+
+export {
+  pipelineRaftRunStarted,
+  pipelineRaftRunUpdated,
+  pipelineRaftRunSynthesized,
+  pipelineRaftRunCheckpointed,
+  pipelineRaftRunTerminated,
+  pipelineRaftDeclarations,
+} from './pipeline-raft';
