@@ -1,4 +1,4 @@
-import { JsonSchemaValidator } from 'distributed-core/dist/messaging-queue';
+import { JsonSchemaValidator } from 'distributed-core/messaging-queue';
 import type { RedisClientType } from 'redis';
 import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyNode, TopologyEdge, TopologyFilter, CompatibilityMode } from '../types/index';
 import type { IRegistry, ValidationResult, DeclareResult } from './types';
