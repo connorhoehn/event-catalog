@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SignalTransport = void 0;
 const redis_1 = require("redis");
-const CircuitBreaker_1 = require("distributed-core/dist/transport/CircuitBreaker");
+const transport_1 = require("distributed-core/transport");
 const envelopes_1 = require("../types/envelopes");
 class SignalTransport {
     publishClient = null;
@@ -16,7 +16,7 @@ class SignalTransport {
     constructor(config) {
         this.url = config.url;
         this.ringBufferSize = config.ringBufferSize ?? 100;
-        this.circuitBreaker = new CircuitBreaker_1.CircuitBreaker({
+        this.circuitBreaker = new transport_1.CircuitBreaker({
             failureThreshold: 5,
             resetTimeout: 30000,
             timeout: 10000,

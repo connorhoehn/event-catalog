@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DurableTransport = void 0;
-const RetryManager_1 = require("distributed-core/dist/transport/RetryManager");
+const transport_1 = require("distributed-core/transport");
 class DurableTransport {
     url;
     retryAttempts;
@@ -23,7 +23,7 @@ class DurableTransport {
         this.retryBaseMs = config.retryBaseMs ?? 100;
         this.maxProcessingAttempts = config.maxProcessingAttempts ?? 3;
         this.dlqCapacity = config.dlqCapacity ?? 10_000;
-        this.retryManager = new RetryManager_1.RetryManager({
+        this.retryManager = new transport_1.RetryManager({
             maxRetries: this.retryAttempts - 1, // RetryManager does initial attempt + retries
             baseDelay: this.retryBaseMs,
             backoffFactor: 2,
@@ -31,7 +31,7 @@ class DurableTransport {
             enableLogging: false,
             name: 'durable-transport',
         });
-        this.pollRetryManager = new RetryManager_1.RetryManager({
+        this.pollRetryManager = new transport_1.RetryManager({
             maxRetries: 2, // 3 total attempts (1 initial + 2 retries)
             baseDelay: 1000,
             backoffFactor: 2,

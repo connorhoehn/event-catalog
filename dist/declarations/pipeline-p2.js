@@ -45,7 +45,7 @@
 //   - `pipeline:run:orphaned` and `:reassigned` are emitted by the
 //     ResourceRouter (still part of DC), not the PipelineExecutor itself.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = void 0;
+exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunResumeFromStep = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = void 0;
 const PRODUCER = 'distributed-core';
 const TAGS_BASE = ['pipeline', 'producer:distributed-core'];
 /** Common envelope-shape builder for events whose payload follows the
@@ -129,6 +129,29 @@ exports.pipelineRunResumedFromStep = {
     }, ['fromNodeId']),
 };
 // ---------------------------------------------------------------------------
+// Resume-from-step request stub (wave10-e / gateway-local path)
+// ---------------------------------------------------------------------------
+//
+// Emitted by the websocket-gateway's `handleResumeFromStep` fallback when no
+// PipelineModule is wired in. This is a gateway-synthesised stub event — it
+// carries the same intent (resume from a specific node) but is NOT the DC
+// PipelineExecutor's past-tense completion event (`pipeline:run:resumed-from-step`).
+//
+// Future: once the gateway is always wired to a real PipelineModule this event
+// will only appear in dev/test environments.
+//
+// Producer: websocket-gateway (local EventEmitter fallback, not DC).
+exports.pipelineRunResumeFromStep = {
+    name: 'pipeline:run:resumeFromStep',
+    transport: 'signal',
+    producer: 'websocket-gateway',
+    description: 'Gateway-local stub event emitted when handleResumeFromStep is invoked without a PipelineModule. Signals intent to resume a run from `fromNodeId`. For the DC-sourced completion event see `pipeline:run:resumed-from-step`.',
+    tags: [...TAGS_BASE, 'run-lifecycle', 'resume', 'gateway-stub'],
+    schema: pipelineSchema({
+        fromNodeId: { type: 'string' },
+    }, ['fromNodeId']),
+};
+// ---------------------------------------------------------------------------
 // Stuck-run detection
 // ---------------------------------------------------------------------------
 exports.pipelineRunStuck = {
@@ -208,6 +231,7 @@ exports.pipelineP2Declarations = [
     exports.pipelineRunReassigned,
     // resume
     exports.pipelineRunResumedFromStep,
+    exports.pipelineRunResumeFromStep,
     // stuck-run
     exports.pipelineRunStuck,
     // debug

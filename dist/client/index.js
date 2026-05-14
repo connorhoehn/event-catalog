@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventCatalog = void 0;
 const ulid_1 = require("ulid");
-const RetryManager_1 = require("distributed-core/dist/transport/RetryManager");
+const transport_1 = require("distributed-core/transport");
 const index_1 = require("../registry/index");
 const signal_1 = require("./signal");
 const durable_1 = require("./durable");
@@ -20,7 +20,7 @@ class EventCatalog {
         this.registry = new index_1.Registry();
         this.signal = new signal_1.SignalTransport({ url: config.redis.url });
         this.durable = new durable_1.DurableTransport({ url: config.messageQueue.url });
-        this.syncRetryManager = new RetryManager_1.RetryManager({
+        this.syncRetryManager = new transport_1.RetryManager({
             maxRetries: 2,
             baseDelay: 1000,
             backoffFactor: 2,

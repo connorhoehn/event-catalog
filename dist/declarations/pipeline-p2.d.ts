@@ -5,6 +5,7 @@ export declare const pipelineRunFailed: EventDeclaration;
 export declare const pipelineRunOrphaned: EventDeclaration;
 export declare const pipelineRunReassigned: EventDeclaration;
 export declare const pipelineRunResumedFromStep: EventDeclaration;
+export declare const pipelineRunResumeFromStep: EventDeclaration;
 export declare const pipelineRunStuck: EventDeclaration;
 export declare const pipelineStepBreakpoint: EventDeclaration;
 export declare const pipelineJoinWaiting: EventDeclaration;
