@@ -47,3 +47,14 @@ export type {
   BuildChannelMessageEnvelopeArgs,
   BuildSignalMessageArgs,
 } from './types/envelopes';
+
+// Canonical cross-service event declarations (wave1-ec-1+) for events
+// produced by libraries (e.g. distributed-core) that have no single
+// owning runtime service. Service-owned events still live in the
+// producing service's source tree.
+export {
+  pipelineApprovalRequested,
+  pipelineApprovalRecorded,
+  pipelineRunCheckpoint,
+  pipelineDeclarations,
+} from './declarations/index';
