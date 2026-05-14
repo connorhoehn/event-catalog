@@ -70,3 +70,7 @@ export {
   pipelineJoinFired,
   pipelineP2Declarations,
 } from './declarations/index';
+
+// Shared MQ queue-name constants (wave7-d — single source of truth).
+export { MQ_QUEUE_NAMES } from './queue-names';
+export type { MQQueueName } from './queue-names';
