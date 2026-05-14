@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = exports.channelNodesRedisKey = exports.channelMessageRedisChannel = exports.isChannelMessageEnvelope = exports.buildSignalMessage = exports.buildChannelMessageEnvelope = exports.checkForwardCompat = exports.checkBackwardCompat = exports.DurableTransport = exports.SignalTransport = exports.Registry = exports.EventCatalog = void 0;
+exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = exports.channelNodesRedisKey = exports.channelMessageRedisChannel = exports.isChannelMessageEnvelope = exports.buildSignalMessage = exports.buildChannelMessageEnvelope = exports.checkForwardCompat = exports.checkBackwardCompat = exports.DurableTransport = exports.SignalTransport = exports.Registry = exports.EventCatalog = void 0;
 var index_1 = require("./client/index");
 Object.defineProperty(exports, "EventCatalog", { enumerable: true, get: function () { return index_1.EventCatalog; } });
 var index_2 = require("./registry/index");
@@ -29,4 +29,15 @@ Object.defineProperty(exports, "pipelineApprovalRecorded", { enumerable: true, g
 Object.defineProperty(exports, "pipelineRunCheckpoint", { enumerable: true, get: function () { return index_3.pipelineRunCheckpoint; } });
 Object.defineProperty(exports, "pipelineDeclarations", { enumerable: true, get: function () { return index_3.pipelineDeclarations; } });
 Object.defineProperty(exports, "pipelineP1Declarations", { enumerable: true, get: function () { return index_3.pipelineP1Declarations; } });
+Object.defineProperty(exports, "pipelineRunStarted", { enumerable: true, get: function () { return index_3.pipelineRunStarted; } });
+Object.defineProperty(exports, "pipelineRunCompleted", { enumerable: true, get: function () { return index_3.pipelineRunCompleted; } });
+Object.defineProperty(exports, "pipelineRunFailed", { enumerable: true, get: function () { return index_3.pipelineRunFailed; } });
+Object.defineProperty(exports, "pipelineRunOrphaned", { enumerable: true, get: function () { return index_3.pipelineRunOrphaned; } });
+Object.defineProperty(exports, "pipelineRunReassigned", { enumerable: true, get: function () { return index_3.pipelineRunReassigned; } });
+Object.defineProperty(exports, "pipelineRunResumedFromStep", { enumerable: true, get: function () { return index_3.pipelineRunResumedFromStep; } });
+Object.defineProperty(exports, "pipelineRunStuck", { enumerable: true, get: function () { return index_3.pipelineRunStuck; } });
+Object.defineProperty(exports, "pipelineStepBreakpoint", { enumerable: true, get: function () { return index_3.pipelineStepBreakpoint; } });
+Object.defineProperty(exports, "pipelineJoinWaiting", { enumerable: true, get: function () { return index_3.pipelineJoinWaiting; } });
+Object.defineProperty(exports, "pipelineJoinFired", { enumerable: true, get: function () { return index_3.pipelineJoinFired; } });
+Object.defineProperty(exports, "pipelineP2Declarations", { enumerable: true, get: function () { return index_3.pipelineP2Declarations; } });
 //# sourceMappingURL=index.js.map

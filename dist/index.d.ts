@@ -10,5 +10,5 @@ export type { SignalTransportConfig } from './client/signal';
 export type { DurableTransportConfig, DurableSubscribeOptions, EnsureQueueOptions } from './client/durable';
 export { buildChannelMessageEnvelope, buildSignalMessage, isChannelMessageEnvelope, channelMessageRedisChannel, channelNodesRedisKey, } from './types/envelopes';
 export type { ChannelMessageEnvelope, SignalMessage, BuildChannelMessageEnvelopeArgs, BuildSignalMessageArgs, } from './types/envelopes';
-export { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpoint, pipelineDeclarations, pipelineP1Declarations, } from './declarations/index';
+export { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpoint, pipelineDeclarations, pipelineP1Declarations, pipelineRunStarted, pipelineRunCompleted, pipelineRunFailed, pipelineRunOrphaned, pipelineRunReassigned, pipelineRunResumedFromStep, pipelineRunStuck, pipelineStepBreakpoint, pipelineJoinWaiting, pipelineJoinFired, pipelineP2Declarations, } from './declarations/index';
 //# sourceMappingURL=index.d.ts.map

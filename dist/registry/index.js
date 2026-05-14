@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Registry = void 0;
-const distributed_core_1 = require("distributed-core");
+const messaging_queue_1 = require("distributed-core/dist/messaging-queue");
 const schema_compat_1 = require("./schema-compat");
 const REDIS_KEY = 'event-catalog:registry';
 /** Normalize EventDeclaration.producer to an always-array form. */
@@ -31,7 +31,7 @@ class Registry {
     schemaValidator;
     redis;
     constructor(redis) {
-        this.schemaValidator = new distributed_core_1.JsonSchemaValidator({ mode: 'auto' });
+        this.schemaValidator = new messaging_queue_1.JsonSchemaValidator({ mode: 'auto' });
         this.redis = redis ?? null;
     }
     async load() {
