@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
+import { PromMetrics } from '../src/server/prom-metrics.js';
 import { createRoutes, type RoutesDeps } from '../src/server/routes.js';
 
 /**
@@ -133,6 +134,150 @@ describe('Server Routes', () => {
       const res = await request(app).get('/api/events/nonexistent');
       expect(res.status).toBe(404);
       expect(res.body.error).toContain('not found');
+    });
+  });
+
+  // ─── GET /api/events/:name schema-fetch contract (wave3-ec-6) ────────
+  //
+  // Same route as the admin endpoint above, but exercised against the
+  // downstream-validator contract: response carries
+  // `{ name, version, schema, validationMode, producer, transport }`,
+  // supports `?version=N`, and ticks the schema_fetches_total counter
+  // when promMetrics is wired.
+
+  describe('GET /api/events/:name schema-fetch (wave3-ec-6)', () => {
+    let prom: PromMetrics;
+    let appWithProm: ReturnType<typeof express>;
+
+    beforeEach(() => {
+      prom = new PromMetrics();
+      appWithProm = createApp({
+        registry,
+        metrics,
+        metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
+        signal: signal as unknown as RoutesDeps['signal'],
+        durable: durable as unknown as RoutesDeps['durable'],
+        dlqStore: { list: async () => [], remove: async () => true, findById: async () => null, put: async () => ({}) } as unknown as RoutesDeps['dlqStore'],
+        startedAt: Date.now(),
+        promMetrics: prom,
+      });
+    });
+
+    it('returns 200 with name/version/schema/validationMode/producer/transport', async () => {
+      registry.declare({
+        name: 'activity:recorded',
+        schema: { type: 'object', properties: { userId: { type: 'string' } } },
+        transport: 'durable',
+        producer: 'platform-api',
+      });
+
+      const res = await request(appWithProm).get('/api/events/activity:recorded');
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('activity:recorded');
+      expect(res.body.version).toBe(1);
+      expect(res.body.schema).toEqual({ type: 'object', properties: { userId: { type: 'string' } } });
+      expect(res.body.validationMode).toBe('off');
+      expect(res.body.producer).toBe('platform-api');
+      expect(res.body.transport).toBe('durable');
+    });
+
+    it('?version=N returns the historical schema for that version', async () => {
+      registry.declare({
+        name: 'activity:recorded',
+        schema: { type: 'object', properties: { userId: { type: 'string' } } },
+        transport: 'durable',
+        producer: 'platform-api',
+        compatibilityMode: 'none', // allow arbitrary schema changes
+      });
+      // Bump version with a new schema; previous goes into history.
+      registry.declare({
+        name: 'activity:recorded',
+        schema: { type: 'object', properties: { userId: { type: 'string' }, action: { type: 'string' } } },
+        transport: 'durable',
+        producer: 'platform-api',
+        compatibilityMode: 'none',
+      });
+
+      const latest = await request(appWithProm).get('/api/events/activity:recorded');
+      expect(latest.status).toBe(200);
+      expect(latest.body.version).toBe(2);
+      expect((latest.body.schema as { properties: Record<string, unknown> }).properties.action).toBeDefined();
+
+      const v1 = await request(appWithProm).get('/api/events/activity:recorded').query({ version: '1' });
+      expect(v1.status).toBe(200);
+      expect(v1.body.version).toBe(1);
+      expect((v1.body.schema as { properties: Record<string, unknown> }).properties.action).toBeUndefined();
+      expect(v1.body.producer).toBe('platform-api');
+    });
+
+    it('returns 404 when event is undeclared', async () => {
+      const res = await request(appWithProm).get('/api/events/never:declared');
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('not found');
+    });
+
+    it('returns 400 when version query is malformed', async () => {
+      registry.declare({
+        name: 'activity:recorded',
+        schema: { type: 'object' },
+        transport: 'durable',
+        producer: 'platform-api',
+      });
+
+      const nan = await request(appWithProm).get('/api/events/activity:recorded').query({ version: 'abc' });
+      expect(nan.status).toBe(400);
+      expect(nan.body.error).toContain('positive integer');
+
+      const zero = await request(appWithProm).get('/api/events/activity:recorded').query({ version: '0' });
+      expect(zero.status).toBe(400);
+
+      const neg = await request(appWithProm).get('/api/events/activity:recorded').query({ version: '-1' });
+      expect(neg.status).toBe(400);
+    });
+
+    it('returns 404 when version is well-formed but absent from history', async () => {
+      registry.declare({
+        name: 'activity:recorded',
+        schema: { type: 'object' },
+        transport: 'durable',
+        producer: 'platform-api',
+      });
+
+      const res = await request(appWithProm).get('/api/events/activity:recorded').query({ version: '99' });
+      expect(res.status).toBe(404);
+      expect(res.body.error).toMatch(/Version 99 not found in history/);
+    });
+
+    it('ticks event_catalog_schema_fetches_total on each successful fetch', async () => {
+      registry.declare({
+        name: 'activity:recorded',
+        schema: { type: 'object' },
+        transport: 'durable',
+        producer: 'platform-api',
+      });
+
+      await request(appWithProm).get('/api/events/activity:recorded').expect(200);
+      await request(appWithProm).get('/api/events/activity:recorded').expect(200);
+      await request(appWithProm).get('/api/events/activity:recorded').expect(200);
+
+      const text = prom.renderProm();
+      expect(text).toContain('event_catalog_schema_fetches_total');
+      expect(text).toMatch(/event_catalog_schema_fetches_total\{[^}]*event="activity:recorded"[^}]*\} 3/);
+    });
+
+    it('does NOT tick the counter when ?version is malformed (400)', async () => {
+      registry.declare({
+        name: 'activity:recorded',
+        schema: { type: 'object' },
+        transport: 'durable',
+        producer: 'platform-api',
+      });
+
+      await request(appWithProm).get('/api/events/activity:recorded').query({ version: 'bad' }).expect(400);
+
+      const text = prom.renderProm();
+      // No event= sample for this event yet.
+      expect(text).not.toMatch(/event_catalog_schema_fetches_total\{[^}]*event="activity:recorded"/);
     });
   });
 

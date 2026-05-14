@@ -46,7 +46,14 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json({ events: enriched, total: enriched.length });
   });
 
-  // Get single event
+  // Get single event — also serves as the schema-fetch endpoint for
+  // downstream validators (Wave 3 EC-6).
+  //
+  // Optional `?version=N` selects a historical version from
+  // schemaHistory; otherwise the latest schema is returned. Response
+  // is the full RegistryEntry plus stats for backwards compatibility
+  // with the admin UI, plus an explicit `validationMode` field that
+  // defaults to `off` system-wide (per-event overrides arrive in EC-7).
   router.get('/events/:name', (req: Request, res: Response) => {
     const entry = registry.get(req.params.name);
     if (!entry) {
@@ -54,12 +61,48 @@ export function createRoutes(deps: RoutesDeps): Router {
       return;
     }
 
+    // Parse + validate ?version=N before counting the fetch — a 400
+    // shouldn't bump the consumer-pull counter.
+    let selectedVersion = entry.version;
+    let selectedSchema = entry.schema;
+    const rawVersion = req.query.version;
+    if (rawVersion !== undefined) {
+      const parsed = Number(rawVersion);
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        res.status(400).json({
+          error: `version must be a positive integer, got "${String(rawVersion)}"`,
+        });
+        return;
+      }
+      if (parsed !== entry.version) {
+        const historical = entry.schemaHistory.find(h => h.version === parsed);
+        if (!historical) {
+          res.status(404).json({
+            error: `Version ${parsed} not found in history for "${entry.name}"`,
+          });
+          return;
+        }
+        selectedVersion = historical.version;
+        selectedSchema = historical.schema;
+      }
+    }
+
     // Every GET on an event's declaration counts as a schema fetch —
     // surfaces consumer-pull demand in /metrics.
     promMetrics?.recordSchemaFetch(entry.name);
 
+    // EC-6: validation mode defaults to `off` system-wide so MQ rollout
+    // stays safe; per-event overrides land in EC-7.
+    const validationMode: 'off' | 'warn' | 'strict' = 'off';
+
     res.json({
       ...entry,
+      // Override version + schema when ?version=N selected a historical
+      // entry. Other fields (producer, transport, etc.) reflect the
+      // current declaration.
+      version: selectedVersion,
+      schema: selectedSchema,
+      validationMode,
       stats: metrics.getStats(entry.name),
     });
   });
