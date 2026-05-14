@@ -57,4 +57,5 @@ export {
   pipelineApprovalRecorded,
   pipelineRunCheckpoint,
   pipelineDeclarations,
+  pipelineP1Declarations,
 } from './declarations/index';

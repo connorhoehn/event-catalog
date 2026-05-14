@@ -15,3 +15,7 @@ export {
   pipelineRunCheckpoint,
   pipelineDeclarations,
 } from './pipeline';
+
+export {
+  pipelineP1Declarations,
+} from './pipeline-p1';
