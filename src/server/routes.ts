@@ -6,6 +6,7 @@ import type { SignalTransport } from '../client/signal.js';
 import { DurableTransport } from '../client/durable.js';
 import type { DLQStore } from './dlq-store.js';
 import type { EventDeclaration } from '../types/index.js';
+import type { PromMetrics } from './prom-metrics.js';
 
 export interface RoutesDeps {
   registry: Registry;
@@ -15,10 +16,12 @@ export interface RoutesDeps {
   durable: DurableTransport;
   dlqStore: DLQStore;
   startedAt: number;
+  /** Optional prom-format metric surface; injected by startServer. */
+  promMetrics?: PromMetrics;
 }
 
 export function createRoutes(deps: RoutesDeps): Router {
-  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt } = deps;
+  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics } = deps;
   const router = Router();
 
   // List all events
@@ -50,6 +53,10 @@ export function createRoutes(deps: RoutesDeps): Router {
       res.status(404).json({ error: `Event "${req.params.name}" not found` });
       return;
     }
+
+    // Every GET on an event's declaration counts as a schema fetch —
+    // surfaces consumer-pull demand in /metrics.
+    promMetrics?.recordSchemaFetch(entry.name);
 
     res.json({
       ...entry,

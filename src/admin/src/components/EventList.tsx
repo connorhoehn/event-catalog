@@ -20,7 +20,7 @@ export function EventList() {
       .finally(() => setLoading(false));
   }, [filter]);
 
-  const producers = [...new Set(events.map(e => e.producer))];
+  const producers = [...new Set(events.flatMap(e => Array.isArray(e.producer) ? e.producer : [e.producer]))];
 
   return (
     <div className="event-list">
@@ -85,7 +85,7 @@ export function EventList() {
                     {event.transport}
                   </Chip>
                 </td>
-                <td>{event.producer}</td>
+                <td>{Array.isArray(event.producer) ? event.producer.join(', ') : event.producer}</td>
                 <td>{event.subscribers.length}</td>
                 <td className="mono">{event.stats?.publishRate.toFixed(2)}/s</td>
                 <td className="mono">{event.stats?.publishCount.toLocaleString() ?? '0'}</td>

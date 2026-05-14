@@ -12,14 +12,30 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function requestText(path: string): Promise<string> {
+  const res = await fetch(path);
+  if (!res.ok) {
+    throw new Error(`API ${res.status}`);
+  }
+  return res.text();
+}
+
 // Types matching the server API responses
+export interface SchemaHistoryEntry {
+  version: number;
+  schema: Record<string, unknown>;
+  updatedAt: string;
+}
+
 export interface EventEntry {
   name: string;
   transport: 'signal' | 'durable';
-  producer: string;
+  producer: string | string[];
   description?: string;
   tags?: string[];
   schema: Record<string, unknown>;
+  version?: number;
+  schemaHistory?: SchemaHistoryEntry[];
   subscribers: string[];
   metadata: {
     createdAt: string;
@@ -114,6 +130,11 @@ export const api = {
     return request<Record<string, EventStats>>('/metrics');
   },
 
+  /** Raw Prometheus-format metrics from the root /metrics endpoint. */
+  getPromMetrics() {
+    return requestText('/metrics');
+  },
+
   getSignalChannels() {
     return request<{ channels: ChannelInfo[]; total: number }>('/transports/signal/channels');
   },
@@ -121,4 +142,28 @@ export const api = {
   getDurableQueues() {
     return request<{ queues: QueueInfo[]; total: number }>('/transports/durable/queues');
   },
+
+  getDLQ(eventName?: string, limit = 100) {
+    const params = new URLSearchParams();
+    if (eventName) params.set('eventName', eventName);
+    params.set('limit', String(limit));
+    return request<{ messages: DLQEntry[]; total: number; source?: string }>(`/transports/durable/dlq?${params.toString()}`);
+  },
+
+  replayDLQ(id: string) {
+    return request<{ replayed: string; eventName: string }>(`/transports/durable/dlq/${encodeURIComponent(id)}/replay`, { method: 'POST' });
+  },
+
+  deleteDLQ(id: string) {
+    return request<{ removed: string }>(`/transports/durable/dlq/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
 };
+
+export interface DLQEntry {
+  id: string;
+  eventName: string;
+  payload: unknown;
+  error: string;
+  attempts: number;
+  deadAt: string | number;
+}

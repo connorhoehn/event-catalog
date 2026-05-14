@@ -103,7 +103,7 @@ export function EventDetail() {
           <h3>Registration</h3>
           <dl className="info-list">
             <dt>Producer</dt>
-            <dd>{event.producer}</dd>
+            <dd>{Array.isArray(event.producer) ? event.producer.join(', ') : event.producer}</dd>
             <dt>Transport</dt>
             <dd>{event.transport === 'signal' ? 'Signal (Redis Pub/Sub — Ephemeral)' : 'Durable (Message Queue — At-Least-Once)'}</dd>
             <dt>Registered</dt>

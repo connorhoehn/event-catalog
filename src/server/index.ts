@@ -12,6 +12,19 @@ import { AlertManager } from './alerting.js';
 import { DLQStore } from './dlq-store.js';
 import { ensureTable } from './dynamo-setup.js';
 import { createRoutes } from './routes.js';
+import { makeHealthHandler } from './health.js';
+import { PromMetrics } from './prom-metrics.js';
+import { readFileSync } from 'node:fs';
+
+function readServiceVersion(): string {
+  try {
+    const pkgPath = new URL('../../package.json', import.meta.url).pathname;
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
 export interface ServerConfig {
   port?: number;
@@ -85,13 +98,79 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     console.warn('[server] metrics observer start failed:', (err as Error).message);
   });
 
+  const promMetrics = new PromMetrics();
+  const serviceVersion = readServiceVersion();
+
+  // Bridge: original DLQ deadLetter hook also bumps the prom gauge.
+  durable.onDeadLetter((message) => {
+    promMetrics.recordFailure(message.envelope.eventName, 'transport');
+  });
+
   // Build Express app
   const app = express();
   app.use(cors({ origin: corsOrigin }));
   app.use(express.json({ limit: '1mb' }));
 
+  // Tri-state /health endpoint at root (service-runtime shape)
+  app.get('/health', makeHealthHandler({
+    service: 'event-catalog',
+    version: serviceVersion,
+    checks: [
+      {
+        id: 'redis',
+        check: async () => {
+          const h = await signal.healthCheck();
+          if (h.status === 'connected') {
+            return { status: 'healthy', details: { latencyMs: h.latencyMs } };
+          }
+          if (h.status === 'degraded') {
+            return { status: 'degraded', details: { latencyMs: h.latencyMs } };
+          }
+          return { status: 'unhealthy', details: { latencyMs: h.latencyMs } };
+        },
+      },
+      {
+        id: 'message-queue',
+        check: async () => {
+          const h = await durable.healthCheck();
+          if (h.status === 'connected') {
+            return { status: 'healthy', details: { latencyMs: h.latencyMs } };
+          }
+          if (h.status === 'degraded') {
+            return { status: 'degraded', details: { latencyMs: h.latencyMs } };
+          }
+          return { status: 'unhealthy', details: { latencyMs: h.latencyMs } };
+        },
+      },
+      {
+        id: 'registry',
+        check: async () => ({ status: 'healthy', details: { eventCount: registry.size() } }),
+      },
+    ],
+  }));
+
+  // Prometheus-formatted /metrics endpoint at root
+  app.get('/metrics', async (_req, res) => {
+    try {
+      // Refresh DLQ gauges by scanning the DLQ store. Best-effort —
+      // if DDB is down we still want /metrics to respond.
+      const dlqEntries = await dlqStore.list({ limit: 1000 }).catch(() => []);
+      const counts = new Map<string, number>();
+      for (const entry of dlqEntries) {
+        counts.set(entry.eventName, (counts.get(entry.eventName) ?? 0) + 1);
+      }
+      for (const [event, count] of counts) {
+        promMetrics.setDLQEntries(event, count);
+      }
+    } catch {
+      // swallow; gauges may be stale but text rendering still works
+    }
+    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(promMetrics.renderProm());
+  });
+
   // Admin API
-  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt });
+  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics });
   app.use('/api', routes);
 
   // Static admin UI (production)
