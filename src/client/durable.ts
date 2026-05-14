@@ -1,4 +1,4 @@
-import { RetryManager } from 'distributed-core/dist/transport/RetryManager';
+import { RetryManager } from 'distributed-core/transport';
 import type { EventEnvelope } from '../types/index';
 
 export interface DurableTransportConfig {

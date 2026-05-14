@@ -1,5 +1,5 @@
 import { ulid } from 'ulid';
-import { RetryManager } from 'distributed-core/dist/transport/RetryManager';
+import { RetryManager } from 'distributed-core/transport';
 import { Registry } from '../registry/index';
 import { SignalTransport } from './signal';
 import { DurableTransport } from './durable';

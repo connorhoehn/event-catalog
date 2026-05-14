@@ -1,5 +1,5 @@
 import { createClient, type RedisClientType } from 'redis';
-import { CircuitBreaker } from 'distributed-core/dist/transport/CircuitBreaker';
+import { CircuitBreaker } from 'distributed-core/transport';
 import type { EventEnvelope } from '../types/index';
 import {
   channelMessageRedisChannel,
