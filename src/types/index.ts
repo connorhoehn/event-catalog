@@ -43,6 +43,22 @@ export interface EventDeclaration {
   tags?: string[];
   version?: number;
   compatibilityMode?: CompatibilityMode;
+  /**
+   * Phase EC-7 — per-event enforcement override for the server-side
+   * compat gate on `POST /api/events`. Orthogonal to `compatibilityMode`
+   * (which governs the evolution semantics: backward/forward/full/none).
+   *
+   *  - `'off'`    — accept any update, no warning.
+   *  - `'warn'`   — accept breaking update, log advisory + return
+   *                 violations in the 201 response.
+   *  - `'strict'` — reject breaking update with HTTP 409 + structured
+   *                 `COMPAT_VIOLATION` error.
+   *
+   * When unset, falls back to the per-request `x-event-catalog-strict`
+   * header (`'true'` ⇒ strict) and then the `EVENT_CATALOG_STRICT` env
+   * var (`'true'` ⇒ strict, default `'off'` / `'warn'`-ish).
+   */
+  compatMode?: 'off' | 'warn' | 'strict';
 
   // --- signal-only (transport === 'signal' | 'both') ---
   /**

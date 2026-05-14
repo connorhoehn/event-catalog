@@ -20,6 +20,29 @@ export interface RoutesDeps {
   promMetrics?: PromMetrics;
 }
 
+/**
+ * EC-7 — resolve the effective compat-gate enforcement level for a POST
+ * /events request. Precedence:
+ *   1. incoming declaration's `compatMode` (operator changing it for this
+ *      registration, including the first one)
+ *   2. existing registry entry's `compatMode` (sticky from prior decl)
+ *   3. per-request header `x-event-catalog-strict: true` ⇒ 'strict'
+ *   4. env var `EVENT_CATALOG_STRICT=true` ⇒ 'strict'
+ *   5. fallback: 'off'
+ */
+function resolveCompatMode(
+  incoming: 'off' | 'warn' | 'strict' | undefined,
+  existing: 'off' | 'warn' | 'strict' | undefined,
+  headerStrict: boolean,
+  envStrict: boolean,
+): 'off' | 'warn' | 'strict' {
+  if (incoming) return incoming;
+  if (existing) return existing;
+  if (headerStrict) return 'strict';
+  if (envStrict) return 'strict';
+  return 'off';
+}
+
 export function createRoutes(deps: RoutesDeps): Router {
   const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics } = deps;
   const router = Router();
@@ -162,7 +185,7 @@ export function createRoutes(deps: RoutesDeps): Router {
   // Declare/register an event
   router.post('/events', (req: Request, res: Response) => {
     const {
-      name, schema, transport, producer, description, tags, compatibilityMode,
+      name, schema, transport, producer, description, tags, compatibilityMode, compatMode,
       // E3 fields:
       channel, discriminator, queue, retention, fifo, dlqAfterAttempts, aliases,
     } = req.body as Partial<EventDeclaration>;
@@ -177,6 +200,41 @@ export function createRoutes(deps: RoutesDeps): Router {
       return;
     }
 
+    // EC-7 — resolve enforcement BEFORE mutating the registry, then run
+    // the same compat check the library uses against the prior version.
+    // If strict and breaking, return 409 without applying the update so
+    // the registry stays on the prior valid schema.
+    const existing = registry.get(name);
+    const headerStrict = req.header('x-event-catalog-strict') === 'true';
+    const envStrict = process.env.EVENT_CATALOG_STRICT === 'true';
+    const effectiveMode = resolveCompatMode(
+      compatMode,
+      existing?.compatMode,
+      headerStrict,
+      envStrict,
+    );
+
+    if (existing && schema && Object.keys(schema).length > 0 && effectiveMode !== 'off') {
+      const compat = registry.checkSchemaCompat(name, schema);
+      if (!compat.compatible) {
+        if (effectiveMode === 'strict') {
+          res.status(409).json({
+            error: {
+              code: 'COMPAT_VIOLATION',
+              eventName: name,
+              violations: compat.violations,
+            },
+          });
+          return;
+        }
+        // 'warn' — fall through to declare, but log advisory. The
+        // violations are also surfaced on the 201 response below.
+        console.warn(
+          `[event-catalog] compat-warn for "${name}": ${compat.violations.join('; ')}`,
+        );
+      }
+    }
+
     const result = registry.declare({
       name,
       schema: schema ?? {},
@@ -185,6 +243,7 @@ export function createRoutes(deps: RoutesDeps): Router {
       description,
       tags,
       compatibilityMode,
+      ...(compatMode ? { compatMode } : {}),
       // Pass through E3 fields when present. `channel` and `partitionKey`
       // can be functions which don't serialize over HTTP, so only the
       // string form of `channel` is accepted here.
@@ -198,22 +257,6 @@ export function createRoutes(deps: RoutesDeps): Router {
     });
 
     metricsObserver.observe(name, transport).catch(() => {});
-
-    // Phase E4.2 — strict mode: reject compat-breaking declarations with
-    // 409. Triggered by env var (server-wide) or per-request header
-    // `x-event-catalog-strict: true`.
-    const strict =
-      process.env.EVENT_CATALOG_STRICT === 'true'
-      || req.header('x-event-catalog-strict') === 'true';
-    if (strict && !result.compatible) {
-      res.status(409).json({
-        error: 'compatibility violation',
-        name,
-        violations: result.violations ?? [],
-        version: result.version,
-      });
-      return;
-    }
 
     const response: Record<string, unknown> = { declared: name, version: result.version, compatible: result.compatible };
     if (result.violations) {

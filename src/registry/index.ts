@@ -75,6 +75,11 @@ export class Registry implements IRegistry {
       if (event.compatibilityMode) {
         existing.compatibilityMode = event.compatibilityMode;
       }
+      // EC-7 — per-event enforcement override is sticky once set; an
+      // incoming declaration may upgrade/downgrade it explicitly.
+      if (event.compatMode) {
+        existing.compatMode = event.compatMode;
+      }
       if (event.producer && !existing.producer) {
         existing.producer = event.producer;
       }

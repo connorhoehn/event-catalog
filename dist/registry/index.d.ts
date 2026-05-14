@@ -1,5 +1,5 @@
 import type { RedisClientType } from 'redis';
-import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph } from '../types/index';
+import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyFilter } from '../types/index';
 import type { IRegistry, ValidationResult, DeclareResult } from './types';
 import { type CompatResult } from './schema-compat';
 export declare class Registry implements IRegistry {
@@ -15,7 +15,7 @@ export declare class Registry implements IRegistry {
     removeSubscriber(eventName: string, serviceName: string): void;
     updateStats(eventName: string, stats: Partial<RegistryEntry['metadata']>): void;
     remove(eventName: string): boolean;
-    getTopology(): TopologyGraph;
+    getTopology(filter?: TopologyFilter): TopologyGraph;
     validate(eventName: string, payload: unknown): ValidationResult;
     size(): number;
     clear(): void;

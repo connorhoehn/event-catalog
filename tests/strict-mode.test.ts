@@ -184,9 +184,12 @@ describe('POST /api/events strict mode (Phase E4.2)', () => {
         required: ['a', 'b'],
       },
     }).expect(409);
-    expect(res.body.error).toBe('compatibility violation');
-    expect(res.body.name).toBe('svc:evt');
-    expect(Array.isArray(res.body.violations)).toBe(true);
+    // EC-7 structured error shape:
+    //   { error: { code: 'COMPAT_VIOLATION', eventName, violations: [...] } }
+    expect(res.body.error.code).toBe('COMPAT_VIOLATION');
+    expect(res.body.error.eventName).toBe('svc:evt');
+    expect(Array.isArray(res.body.error.violations)).toBe(true);
+    expect(res.body.error.violations.length).toBeGreaterThan(0);
   });
 
   it('strict OFF (default): returns 201 with violations array', async () => {
@@ -256,5 +259,166 @@ describe('POST /api/events strict mode (Phase E4.2)', () => {
     expect(entry!.dlqAfterAttempts).toBe(3);
     expect(entry!.discriminator).toEqual({ field: 'kind', values: ['a', 'b'] });
     expect(entry!.aliases).toEqual([{ name: 'old.name', deprecated: true }]);
+  });
+});
+
+// EC-7 — compat-gate strict mode + per-event override on POST /api/events
+describe('POST /api/events compat-gate (wave3-ec-7)', () => {
+  const ORIG_ENV = process.env.EVENT_CATALOG_STRICT;
+  afterEach(() => {
+    if (ORIG_ENV === undefined) delete process.env.EVENT_CATALOG_STRICT;
+    else process.env.EVENT_CATALOG_STRICT = ORIG_ENV;
+  });
+
+  function makeApp() {
+    const registry = new Registry();
+    const stub = (() => ({})) as unknown;
+    const app = express();
+    app.use(express.json());
+    app.use(createRoutes({
+      registry,
+      metrics: stub as never,
+      metricsObserver: { observe: vi.fn(async () => {}) } as never,
+      signal: stub as never,
+      durable: stub as never,
+      dlqStore: stub as never,
+      startedAt: Date.now(),
+    }));
+    return { app, registry };
+  }
+
+  const baseSchema = {
+    type: 'object',
+    properties: { a: { type: 'string' } },
+    required: ['a'],
+  };
+  const breakingSchema = {
+    type: 'object',
+    properties: { a: { type: 'string' }, b: { type: 'string' } },
+    required: ['a', 'b'],
+  };
+  // Backward-compatible additive change: new optional field, no required-list change.
+  const additiveSchema = {
+    type: 'object',
+    properties: { a: { type: 'string' }, b: { type: 'string' } },
+    required: ['a'],
+  };
+
+  it('strict mode: 409 carries structured COMPAT_VIOLATION error shape', async () => {
+    process.env.EVENT_CATALOG_STRICT = 'true';
+    const { app, registry } = makeApp();
+    await request(app).post('/events').send({
+      name: 'ec7:evt', transport: 'signal', producer: 'svc', schema: baseSchema,
+    }).expect(201);
+    const v1 = registry.get('ec7:evt')!.version;
+
+    const res = await request(app).post('/events').send({
+      name: 'ec7:evt', transport: 'signal', producer: 'svc', schema: breakingSchema,
+    }).expect(409);
+
+    expect(res.body).toEqual({
+      error: {
+        code: 'COMPAT_VIOLATION',
+        eventName: 'ec7:evt',
+        violations: expect.any(Array),
+      },
+    });
+    expect(res.body.error.violations.length).toBeGreaterThan(0);
+
+    // Critical: registry must NOT have mutated on rejection.
+    const after = registry.get('ec7:evt')!;
+    expect(after.version).toBe(v1);
+    expect(after.schema).toEqual(baseSchema);
+  });
+
+  it('strict mode: 201 on additive (backward-compatible) update', async () => {
+    process.env.EVENT_CATALOG_STRICT = 'true';
+    const { app } = makeApp();
+    await request(app).post('/events').send({
+      name: 'ec7:additive', transport: 'signal', producer: 'svc', schema: baseSchema,
+    }).expect(201);
+
+    const res = await request(app).post('/events').send({
+      name: 'ec7:additive', transport: 'signal', producer: 'svc', schema: additiveSchema,
+    }).expect(201);
+
+    expect(res.body.compatible).toBe(true);
+    expect(res.body.version).toBe(2);
+  });
+
+  it('off mode (env unset, no per-event): 201 on breaking change, no error shape', async () => {
+    delete process.env.EVENT_CATALOG_STRICT;
+    const { app } = makeApp();
+    await request(app).post('/events').send({
+      name: 'ec7:off', transport: 'signal', producer: 'svc', schema: baseSchema,
+    }).expect(201);
+
+    const res = await request(app).post('/events').send({
+      name: 'ec7:off', transport: 'signal', producer: 'svc', schema: breakingSchema,
+    }).expect(201);
+
+    expect(res.body.compatible).toBe(false);
+    expect(Array.isArray(res.body.violations)).toBe(true);
+  });
+
+  it('per-event compatMode: "off" overrides env=strict (event accepts breaking change)', async () => {
+    process.env.EVENT_CATALOG_STRICT = 'true';
+    const { app } = makeApp();
+    // Declare with explicit per-event compatMode=off — registry sticks it.
+    await request(app).post('/events').send({
+      name: 'ec7:override-off', transport: 'signal', producer: 'svc',
+      schema: baseSchema, compatMode: 'off',
+    }).expect(201);
+
+    // Second registration would normally be rejected by env strict, but
+    // the per-event override wins.
+    const res = await request(app).post('/events').send({
+      name: 'ec7:override-off', transport: 'signal', producer: 'svc',
+      schema: breakingSchema,
+    }).expect(201);
+
+    expect(res.body.compatible).toBe(false);
+  });
+
+  it('per-event compatMode: "strict" overrides env=off (event rejects breaking change)', async () => {
+    delete process.env.EVENT_CATALOG_STRICT;
+    const { app } = makeApp();
+    await request(app).post('/events').send({
+      name: 'ec7:override-strict', transport: 'signal', producer: 'svc',
+      schema: baseSchema, compatMode: 'strict',
+    }).expect(201);
+
+    const res = await request(app).post('/events').send({
+      name: 'ec7:override-strict', transport: 'signal', producer: 'svc',
+      schema: breakingSchema,
+    }).expect(409);
+
+    expect(res.body.error.code).toBe('COMPAT_VIOLATION');
+    expect(res.body.error.eventName).toBe('ec7:override-strict');
+  });
+
+  it('per-event compatMode: "warn" accepts breaking change with violations on 201', async () => {
+    delete process.env.EVENT_CATALOG_STRICT;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { app } = makeApp();
+      await request(app).post('/events').send({
+        name: 'ec7:warn', transport: 'signal', producer: 'svc',
+        schema: baseSchema, compatMode: 'warn',
+      }).expect(201);
+
+      const res = await request(app).post('/events').send({
+        name: 'ec7:warn', transport: 'signal', producer: 'svc',
+        schema: breakingSchema,
+      }).expect(201);
+
+      expect(res.body.compatible).toBe(false);
+      expect(Array.isArray(res.body.violations)).toBe(true);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('compat-warn for "ec7:warn"'),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

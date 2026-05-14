@@ -8,6 +8,24 @@ const REDIS_KEY = 'event-catalog:registry';
 function producerList(producer) {
     return Array.isArray(producer) ? producer : [producer];
 }
+/**
+ * AND-combine TopologyFilter predicates against a single registry entry.
+ * Empty/missing filter returns true (no filter ⇒ include everything).
+ * Each predicate is exact-match on the relevant field.
+ */
+function matchesTopologyFilter(entry, filter) {
+    if (!filter)
+        return true;
+    if (filter.eventType && entry.name !== filter.eventType)
+        return false;
+    if (filter.transport && entry.transport !== filter.transport)
+        return false;
+    if (filter.producer && !producerList(entry.producer).includes(filter.producer))
+        return false;
+    if (filter.consumer && !entry.subscribers.includes(filter.consumer))
+        return false;
+    return true;
+}
 class Registry {
     events = new Map();
     schemaValidator;
@@ -50,6 +68,11 @@ class Registry {
             existing.tags = event.tags;
             if (event.compatibilityMode) {
                 existing.compatibilityMode = event.compatibilityMode;
+            }
+            // EC-7 — per-event enforcement override is sticky once set; an
+            // incoming declaration may upgrade/downgrade it explicitly.
+            if (event.compatMode) {
+                existing.compatMode = event.compatMode;
             }
             if (event.producer && !existing.producer) {
                 existing.producer = event.producer;
@@ -120,11 +143,13 @@ class Registry {
         }
         return deleted;
     }
-    getTopology() {
+    getTopology(filter) {
         const nodes = [];
         const edges = [];
         const servicesSeen = new Set();
         for (const entry of this.events.values()) {
+            if (!matchesTopologyFilter(entry, filter))
+                continue;
             nodes.push({
                 id: entry.name,
                 type: 'event',

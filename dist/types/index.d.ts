@@ -40,6 +40,22 @@ export interface EventDeclaration {
     version?: number;
     compatibilityMode?: CompatibilityMode;
     /**
+     * Phase EC-7 — per-event enforcement override for the server-side
+     * compat gate on `POST /api/events`. Orthogonal to `compatibilityMode`
+     * (which governs the evolution semantics: backward/forward/full/none).
+     *
+     *  - `'off'`    — accept any update, no warning.
+     *  - `'warn'`   — accept breaking update, log advisory + return
+     *                 violations in the 201 response.
+     *  - `'strict'` — reject breaking update with HTTP 409 + structured
+     *                 `COMPAT_VIOLATION` error.
+     *
+     * When unset, falls back to the per-request `x-event-catalog-strict`
+     * header (`'true'` ⇒ strict) and then the `EVENT_CATALOG_STRICT` env
+     * var (`'true'` ⇒ strict, default `'off'` / `'warn'`-ish).
+     */
+    compatMode?: 'off' | 'warn' | 'strict';
+    /**
      * Redis channel pattern producers publish to. May be a static string or
      * a function of the payload. Optional — when unset the catalog falls back
      * to its default channel-naming convention.
@@ -130,6 +146,16 @@ export interface TopologyEdge {
 export interface TopologyGraph {
     nodes: TopologyNode[];
     edges: TopologyEdge[];
+}
+export interface TopologyFilter {
+    /** Include only events published by this service. */
+    producer?: string;
+    /** Include only events subscribed by this service. */
+    consumer?: string;
+    /** Include only this exact event name. */
+    eventType?: string;
+    /** Include only events on this transport. */
+    transport?: string;
 }
 export interface HealthStatus {
     redis: 'connected' | 'disconnected';
