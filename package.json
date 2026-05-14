@@ -1,6 +1,6 @@
 {
   "name": "@connorhoehn/event-catalog",
-  "version": "0.1.1",
+  "version": "0.3.0",
   "description": "Unified event registry and transport layer — schema enforcement, metrics, and admin UI over Redis pub/sub and message-queue",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
