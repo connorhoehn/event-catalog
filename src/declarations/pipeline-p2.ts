@@ -161,6 +161,34 @@ export const pipelineRunResumedFromStep: EventDeclaration = {
 };
 
 // ---------------------------------------------------------------------------
+// Resume-from-step request stub (wave10-e / gateway-local path)
+// ---------------------------------------------------------------------------
+//
+// Emitted by the websocket-gateway's `handleResumeFromStep` fallback when no
+// PipelineModule is wired in. This is a gateway-synthesised stub event — it
+// carries the same intent (resume from a specific node) but is NOT the DC
+// PipelineExecutor's past-tense completion event (`pipeline:run:resumed-from-step`).
+//
+// Future: once the gateway is always wired to a real PipelineModule this event
+// will only appear in dev/test environments.
+//
+// Producer: websocket-gateway (local EventEmitter fallback, not DC).
+
+export const pipelineRunResumeFromStep: EventDeclaration = {
+    name: 'pipeline:run:resumeFromStep',
+    transport: 'signal',
+    producer: 'websocket-gateway',
+    description: 'Gateway-local stub event emitted when handleResumeFromStep is invoked without a PipelineModule. Signals intent to resume a run from `fromNodeId`. For the DC-sourced completion event see `pipeline:run:resumed-from-step`.',
+    tags: [...TAGS_BASE, 'run-lifecycle', 'resume', 'gateway-stub'],
+    schema: pipelineSchema(
+        {
+            fromNodeId: { type: 'string' },
+        },
+        ['fromNodeId'],
+    ),
+};
+
+// ---------------------------------------------------------------------------
 // Stuck-run detection
 // ---------------------------------------------------------------------------
 
@@ -257,6 +285,7 @@ export const pipelineP2Declarations: EventDeclaration[] = [
     pipelineRunReassigned,
     // resume
     pipelineRunResumedFromStep,
+    pipelineRunResumeFromStep,
     // stuck-run
     pipelineRunStuck,
     // debug

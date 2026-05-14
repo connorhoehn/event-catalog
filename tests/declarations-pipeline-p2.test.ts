@@ -24,7 +24,9 @@ describe('pipeline-p2 declarations (wave4-ec-10)', () => {
         // Every declaration is signal-transport from distributed-core.
         const all = registry.list();
         expect(all.every((e) => e.transport === 'signal')).toBe(true);
-        expect(all.every((e) => e.producer === 'distributed-core')).toBe(true);
+        // All events are signal-transport; producers are either distributed-core
+        // or websocket-gateway (for the gateway-local resumeFromStep stub).
+        expect(all.every((e) => ['distributed-core', 'websocket-gateway'].includes(e.producer))).toBe(true);
     });
 
     it('declares unique event names with the expected cluster prefixes', () => {
@@ -46,7 +48,7 @@ describe('pipeline-p2 declarations (wave4-ec-10)', () => {
         }
     });
 
-    it('covers the expected EC-10 event list (10 names)', () => {
+    it('covers the expected EC-10 event list (11 names)', () => {
         const expected = new Set([
             'pipeline:run:started',
             'pipeline:run:completed',
@@ -54,6 +56,7 @@ describe('pipeline-p2 declarations (wave4-ec-10)', () => {
             'pipeline:run:orphaned',
             'pipeline:run:reassigned',
             'pipeline:run:resumed-from-step',
+            'pipeline:run:resumeFromStep',
             'pipeline:run:stuck',
             'pipeline:step:breakpoint',
             'pipeline:join:waiting',
