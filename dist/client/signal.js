@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SignalTransport = void 0;
 const redis_1 = require("redis");
 const CircuitBreaker_1 = require("distributed-core/dist/transport/CircuitBreaker");
+const envelopes_1 = require("../types/envelopes");
 class SignalTransport {
     publishClient = null;
     subscribeClient = null;
@@ -76,6 +77,38 @@ class SignalTransport {
             });
         });
         this.incrementMetrics(channel);
+    }
+    /**
+     * Gateway-compatible channel-message publish (wave1-ec-3).
+     *
+     * Unlike `publish(channel, EventEnvelope)`, which is the generic
+     * pub/sub primitive and writes to a per-channel history ring buffer,
+     * this method publishes the websocket-gateway's `ChannelMessageEnvelope`
+     * shape on `websocket:route:{channelId}` and looks up the target gateway
+     * nodes from `websocket:channel:{channelId}:nodes` (set populated by
+     * the gateway's NodeManager).
+     *
+     * Skips the publish when no nodes are subscribed (returns 0).
+     * Does NOT write to ring buffer — the gateway has its own history.
+     *
+     * Returns the number of target nodes the envelope was addressed to.
+     */
+    async publishChannelMessage(channelId, envelope) {
+        if (!this.connected || !this.publishClient) {
+            console.warn(`[signal-transport] not connected, skipping channel-message publish to ${channelId}`);
+            return 0;
+        }
+        return this.circuitBreaker.execute(async () => {
+            const targetNodes = await this.publishClient.sMembers((0, envelopes_1.channelNodesRedisKey)(channelId));
+            if (targetNodes.length === 0)
+                return 0;
+            // Populate targetNodes on the envelope if the caller didn't already.
+            const finalEnvelope = envelope.targetNodes && envelope.targetNodes.length > 0
+                ? envelope
+                : { ...envelope, targetNodes };
+            await this.publishClient.publish((0, envelopes_1.channelMessageRedisChannel)(channelId), JSON.stringify(finalEnvelope));
+            return targetNodes.length;
+        });
     }
     async subscribe(channel, handler) {
         if (!this.connected || !this.subscribeClient) {

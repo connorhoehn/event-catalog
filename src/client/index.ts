@@ -3,6 +3,10 @@ import { RetryManager } from 'distributed-core/dist/transport/RetryManager';
 import { Registry } from '../registry/index';
 import { SignalTransport } from './signal';
 import { DurableTransport } from './durable';
+import {
+  buildChannelMessageEnvelope,
+  buildSignalMessage,
+} from '../types/envelopes';
 import type {
   EventCatalogConfig,
   EventDeclaration,
@@ -181,6 +185,93 @@ export class EventCatalog {
       });
       throw err;
     }
+  }
+
+  /**
+   * Channel-scoped signal publish for the websocket-gateway broadcast path
+   * (wave1-ec-3).
+   *
+   * Differs from `publish(eventName, payload)` in two ways:
+   *   1. Targets a specific channel (room/document/etc.) rather than the
+   *      bare event-name as a pub/sub channel. The envelope is published
+   *      to `websocket:route:{channelId}` and addressed to the gateway
+   *      nodes registered in `websocket:channel:{channelId}:nodes`.
+   *   2. Wraps the payload in the gateway's `ChannelMessageEnvelope` /
+   *      `SignalMessage` shape so the gateway's MessageRouter can fan it
+   *      out to local WebSocket subscribers without reshaping.
+   *
+   * Schema enforcement (wave1-ec-3 P0):
+   *   - If the event IS declared, payload is validated against the
+   *     declared JSON schema. Validation failures throw — same as
+   *     `publish()`. This is the whole point of routing through the
+   *     catalog instead of writing directly to Redis.
+   *   - If the event is NOT declared, a warning is logged but the
+   *     publish proceeds. Strict-mode rejection of undeclared events is
+   *     deferred to a later wave (MQ-7 / EC-7 strict mode).
+   *
+   * @returns number of gateway nodes the envelope was addressed to (0
+   *   when no listeners are registered).
+   */
+  async publishSignal<T = unknown>(
+    channelId: string,
+    eventName: string,
+    payload: T,
+    options?: PublishOptions,
+  ): Promise<number> {
+    const entry = this.registry.get(eventName);
+
+    if (entry) {
+      const validation = this.registry.validate(eventName, payload);
+      if (!validation.valid) {
+        const msgs = validation.errors?.map((e) => e.message).join(', ') ?? 'unknown error';
+        throw new Error(
+          `[event-catalog] publishSignal payload validation failed for "${eventName}": ${msgs}`,
+        );
+      }
+
+      if (entry.discriminator) {
+        const { field, values } = entry.discriminator;
+        const actual = (payload as Record<string, unknown> | null)?.[field];
+        if (typeof actual !== 'string' || !values.includes(actual)) {
+          throw new Error(
+            `[event-catalog] publishSignal discriminator validation failed for "${eventName}": `
+            + `payload.${field}=${JSON.stringify(actual)} is not in declared values [${values.join(', ')}]`,
+          );
+        }
+      }
+    } else {
+      console.warn(
+        `[event-catalog] publishSignal called with undeclared event "${eventName}" — `
+        + `emitting without schema validation. Declare it via catalog.declare() to enforce schema.`,
+      );
+    }
+
+    const timestamp = options?.timestamp !== undefined
+      ? new Date(options.timestamp).toISOString()
+      : new Date().toISOString();
+
+    const envelope = buildChannelMessageEnvelope({
+      channel: channelId,
+      message: buildSignalMessage({
+        eventName,
+        channel: channelId,
+        payload,
+        timestamp,
+      }),
+      fromNode: this.config.serviceName,
+      timestamp,
+    });
+
+    const delivered = await this.signal.publishChannelMessage(channelId, envelope);
+
+    if (entry) {
+      this.registry.updateStats(eventName, {
+        lastPublishedAt: new Date().toISOString(),
+        publishCount: (entry.metadata.publishCount ?? 0) + 1,
+      });
+    }
+
+    return delivered;
   }
 
   subscribe<T = unknown>(

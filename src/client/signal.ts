@@ -1,6 +1,11 @@
 import { createClient, type RedisClientType } from 'redis';
 import { CircuitBreaker } from 'distributed-core/dist/transport/CircuitBreaker';
 import type { EventEnvelope } from '../types/index';
+import {
+  channelMessageRedisChannel,
+  channelNodesRedisKey,
+  type ChannelMessageEnvelope,
+} from '../types/envelopes';
 
 export interface SignalTransportConfig {
   url: string;
@@ -106,6 +111,48 @@ export class SignalTransport {
     });
 
     this.incrementMetrics(channel);
+  }
+
+  /**
+   * Gateway-compatible channel-message publish (wave1-ec-3).
+   *
+   * Unlike `publish(channel, EventEnvelope)`, which is the generic
+   * pub/sub primitive and writes to a per-channel history ring buffer,
+   * this method publishes the websocket-gateway's `ChannelMessageEnvelope`
+   * shape on `websocket:route:{channelId}` and looks up the target gateway
+   * nodes from `websocket:channel:{channelId}:nodes` (set populated by
+   * the gateway's NodeManager).
+   *
+   * Skips the publish when no nodes are subscribed (returns 0).
+   * Does NOT write to ring buffer — the gateway has its own history.
+   *
+   * Returns the number of target nodes the envelope was addressed to.
+   */
+  async publishChannelMessage(
+    channelId: string,
+    envelope: ChannelMessageEnvelope,
+  ): Promise<number> {
+    if (!this.connected || !this.publishClient) {
+      console.warn(`[signal-transport] not connected, skipping channel-message publish to ${channelId}`);
+      return 0;
+    }
+
+    return this.circuitBreaker.execute(async () => {
+      const targetNodes = await this.publishClient!.sMembers(channelNodesRedisKey(channelId));
+      if (targetNodes.length === 0) return 0;
+
+      // Populate targetNodes on the envelope if the caller didn't already.
+      const finalEnvelope: ChannelMessageEnvelope =
+        envelope.targetNodes && envelope.targetNodes.length > 0
+          ? envelope
+          : { ...envelope, targetNodes };
+
+      await this.publishClient!.publish(
+        channelMessageRedisChannel(channelId),
+        JSON.stringify(finalEnvelope),
+      );
+      return targetNodes.length;
+    });
   }
 
   async subscribe(channel: string, handler: MessageHandler): Promise<() => Promise<void>> {
