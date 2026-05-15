@@ -400,6 +400,55 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json(manifest);
   });
 
+  // Phase 21-g — server-side freshness comparator. Mirror of the
+  // client-side `catalog.checkAllSchemaFreshness()` helper for thin
+  // consumers (lambdas, batch jobs, sidecars) that don't want to
+  // instantiate the full EventCatalog client just to detect drift.
+  //
+  //   POST /api/freshness
+  //   { "events": [
+  //       { "name": "pipeline.run.started", "fingerprint": "abc..." },
+  //       { "name": "missing.event",        "fingerprint": "xyz..." }
+  //   ] }
+  //
+  //   → 200 OK
+  //   { "reports": [
+  //       { "name": "pipeline.run.started", "status": "fresh", "localFingerprint": "abc...", "remoteFingerprint": "abc..." },
+  //       { "name": "missing.event",        "status": "unknown", "localFingerprint": "xyz...", "remoteFingerprint": null }
+  //   ] }
+  router.post('/freshness', (req: Request, res: Response) => {
+    const events = req.body?.events;
+    if (!Array.isArray(events)) {
+      res.status(400).json({ error: 'body.events must be an array of { name, fingerprint }' });
+      return;
+    }
+    const reports = events.map((evt: { name?: unknown; fingerprint?: unknown }) => {
+      const name = typeof evt?.name === 'string' ? evt.name : null;
+      const localFp = typeof evt?.fingerprint === 'string' ? evt.fingerprint : null;
+      if (!name || !localFp) {
+        return {
+          name: name ?? '',
+          status: 'invalid' as const,
+          error: 'each event needs a string name + fingerprint',
+        };
+      }
+      const entry = registry.get(name);
+      const remoteFp = entry?.schemaFingerprint ?? null;
+      const status: 'fresh' | 'stale' | 'unknown' = remoteFp === null
+        ? 'unknown'
+        : remoteFp === localFp
+          ? 'fresh'
+          : 'stale';
+      return {
+        name,
+        status,
+        localFingerprint: localFp,
+        remoteFingerprint: remoteFp,
+      };
+    });
+    res.json({ reports });
+  });
+
   // Phase E8 — live flow tap (SSE). Subscribers stream every observed
   // event publish through the catalog's MetricsObserver, optionally
   // filtered. Sample knob (`?sample=N`) emits 1-in-N events for high-

@@ -452,6 +452,59 @@ paths:
                   type: string
                   pattern: '^[0-9a-f]{64}$'
 
+  /api/freshness:
+    post:
+      tags: [events]
+      summary: Server-side fingerprint comparator
+      description: |
+        Phase 21-g — mirror of the client-side `checkAllSchemaFreshness`
+        helper. Thin consumers (lambdas, batch jobs) POST a list of
+        `{name, fingerprint}` pairs and receive a per-event drift
+        report without having to instantiate the full EventCatalog
+        client.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, fingerprint]
+                    properties:
+                      name: { type: string }
+                      fingerprint: { type: string, pattern: '^[0-9a-f]{64}$' }
+      responses:
+        '200':
+          description: Per-event freshness report
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reports]
+                properties:
+                  reports:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        status:
+                          type: string
+                          enum: [fresh, stale, unknown, invalid]
+                        localFingerprint: { type: string }
+                        remoteFingerprint: { type: [string, 'null'] }
+                        error: { type: string }
+        '400':
+          description: Body missing events[]
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /api/topology:
     get:
       tags: [topology]

@@ -737,6 +737,61 @@ describe('Server Routes', () => {
     });
   });
 
+  // ─── POST /api/freshness (wave21-g) ──────────────────────────────────
+
+  describe('POST /api/freshness', () => {
+    it('reports fresh / stale / unknown per supplied event', async () => {
+      registry.declare({ name: 'pipeline.run.started', schema: { type: 'object' }, transport: 'signal', producer: 'dc' });
+      registry.declare({ name: 'sfu.stream.started', schema: { type: 'object' }, transport: 'signal', producer: 'sfu' });
+      const localFresh = registry.get('pipeline.run.started')!.schemaFingerprint;
+
+      const res = await request(app).post('/api/freshness').send({
+        events: [
+          { name: 'pipeline.run.started', fingerprint: localFresh },                     // fresh
+          { name: 'sfu.stream.started', fingerprint: 'feedface'.padEnd(64, '0') },       // stale
+          { name: 'unknown.event', fingerprint: 'aaaa'.padEnd(64, '0') },                // unknown
+        ],
+      });
+
+      expect(res.status).toBe(200);
+      const byName = Object.fromEntries(res.body.reports.map((r: { name: string }) => [r.name, r]));
+      expect(byName['pipeline.run.started'].status).toBe('fresh');
+      expect(byName['pipeline.run.started'].remoteFingerprint).toBe(localFresh);
+      expect(byName['sfu.stream.started'].status).toBe('stale');
+      expect(byName['sfu.stream.started'].remoteFingerprint).not.toBe('feedface'.padEnd(64, '0'));
+      expect(byName['unknown.event'].status).toBe('unknown');
+      expect(byName['unknown.event'].remoteFingerprint).toBeNull();
+    });
+
+    it('marks malformed entries `invalid` without aborting the batch', async () => {
+      registry.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
+      const localFp = registry.get('a.x')!.schemaFingerprint;
+      const res = await request(app).post('/api/freshness').send({
+        events: [
+          { name: 'a.x', fingerprint: localFp },        // ok
+          { name: 'b.y' },                              // missing fingerprint
+          { fingerprint: 'whatever' },                  // missing name
+        ],
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.reports[0].status).toBe('fresh');
+      expect(res.body.reports[1].status).toBe('invalid');
+      expect(res.body.reports[2].status).toBe('invalid');
+    });
+
+    it('rejects body without events[] with 400', async () => {
+      const res = await request(app).post('/api/freshness').send({});
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('events must be an array');
+    });
+
+    it('handles an empty events[] (returns empty reports)', async () => {
+      const res = await request(app).post('/api/freshness').send({ events: [] });
+      expect(res.status).toBe(200);
+      expect(res.body.reports).toEqual([]);
+    });
+  });
+
   // ─── POST /api/transports/durable/dlq/replay (Phase E5.2) ────────────
 
   describe('POST /api/transports/durable/dlq/replay', () => {
