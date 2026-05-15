@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import type { Registry } from '../registry/index.js';
 import { computeSchemaFingerprint } from '../registry/fingerprint.js';
+import { tapEmitter, matchesTapFilter, type TapEvent } from './tap-emitter.js';
 import type { MetricsCollector } from './metrics.js';
 import type { MetricsObserver } from './metrics-observer.js';
 import type { SignalTransport } from '../client/signal.js';
@@ -381,6 +382,55 @@ export function createRoutes(deps: RoutesDeps): Router {
       filter.producer || filter.consumer || filter.eventType || filter.transport || filter.namespace;
     const topology = registry.getTopology(anyFilter ? filter : undefined);
     res.json(topology);
+  });
+
+  // Phase E8 — live flow tap (SSE). Subscribers stream every observed
+  // event publish through the catalog's MetricsObserver, optionally
+  // filtered. Sample knob (`?sample=N`) emits 1-in-N events for high-
+  // volume namespaces; default is unfiltered.
+  router.get('/flow', (req: Request, res: Response) => {
+    const filter = {
+      eventName: typeof req.query.eventName === 'string' ? req.query.eventName : undefined,
+      transport:
+        req.query.transport === 'signal' || req.query.transport === 'durable'
+          ? req.query.transport
+          : undefined,
+      producer: typeof req.query.producer === 'string' ? req.query.producer : undefined,
+      namespace: typeof req.query.namespace === 'string' ? req.query.namespace : undefined,
+    };
+    const sampleN = Math.max(1, parseInt(String(req.query.sample ?? '1'), 10) || 1);
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    // Defeat nginx / proxies that otherwise buffer SSE responses.
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    // Opening comment lets clients know the stream is live even before
+    // the first event arrives.
+    res.write(`: connected; filter=${JSON.stringify(filter)}; sample=${sampleN}\n\n`);
+
+    let counter = 0;
+    const handler = (event: TapEvent): void => {
+      if (!matchesTapFilter(event, filter)) return;
+      counter += 1;
+      if (counter % sampleN !== 0) return;
+      // SSE frame; one event per data line.
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    tapEmitter.on('publish', handler);
+
+    // Heartbeat every 30s to prevent intermediaries from idle-timing out.
+    const heartbeat = setInterval(() => {
+      res.write(`: heartbeat ${new Date().toISOString()}\n\n`);
+    }, 30_000);
+
+    req.on('close', () => {
+      tapEmitter.off('publish', handler);
+      clearInterval(heartbeat);
+    });
   });
 
   // Health check

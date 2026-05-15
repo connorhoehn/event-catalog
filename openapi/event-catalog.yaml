@@ -454,6 +454,55 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TopologyGraph' }
 
+  /api/flow:
+    get:
+      tags: [transports]
+      summary: Live event flow (SSE)
+      description: |
+        Phase E8 — Server-Sent Events stream of every event observed
+        flowing through the catalog. Powered by the process-internal
+        `tapEmitter`; populated by `MetricsObserver`'s existing signal
+        subscriptions plus the durable poll loop.
+
+        Filters AND-combine. `sample=N` emits only every Nth event
+        (sane for high-volume namespaces). The stream opens with a
+        `: connected;` comment and includes 30-second heartbeats.
+
+        Auth: the admin server is currently unauthenticated (private/
+        in-cluster surface); harden behind a reverse proxy in prod.
+
+        Event frame example:
+        ```
+        data: {"eventName":"pipeline.run.started","namespace":"pipeline",
+        "producer":"distributed-core","transport":"signal",
+        "timestamp":"2026-05-15T14:00:00.000Z","channel":"pipeline.run.started",
+        "envelope":{...}}
+        ```
+      parameters:
+        - in: query
+          name: eventName
+          schema: { type: string }
+          description: Exact-match on the canonical event name.
+        - in: query
+          name: transport
+          schema: { type: string, enum: [signal, durable] }
+        - in: query
+          name: producer
+          schema: { type: string }
+        - in: query
+          name: namespace
+          schema: { type: string }
+        - in: query
+          name: sample
+          schema: { type: integer, minimum: 1, default: 1 }
+          description: Emit 1-in-N events. 1 = unfiltered.
+      responses:
+        '200':
+          description: SSE stream (long-lived)
+          content:
+            text/event-stream:
+              schema: { type: string, description: SSE-formatted event frames }
+
   /api/transports/signal/channels:
     get:
       tags: [transports]

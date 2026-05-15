@@ -2,6 +2,7 @@ import type { Registry } from '../registry/index.js';
 import type { SignalTransport } from '../client/signal.js';
 import type { DurableTransport } from '../client/durable.js';
 import type { MetricsCollector } from './metrics.js';
+import { tapEmitter } from './tap-emitter.js';
 
 export class MetricsObserver {
   private readonly registry: Registry;
@@ -61,8 +62,23 @@ export class MetricsObserver {
     if (!this.signal.isConnected()) return;
 
     try {
-      const unsub = await this.signal.subscribe(eventName, (_envelope) => {
+      const unsub = await this.signal.subscribe(eventName, (envelope) => {
         this.metrics.recordPublish(eventName);
+        // Phase E8 — also surface the observation on the live-flow tap.
+        // No back-pressure: subscribers (SSE clients) consume async and
+        // apply their own sample knob.
+        const entry = this.registry.get(eventName);
+        if (entry) {
+          tapEmitter.publish({
+            eventName,
+            namespace: entry.namespace,
+            producer: Array.isArray(entry.producer) ? entry.producer[0]! : entry.producer,
+            transport: 'signal',
+            timestamp: new Date().toISOString(),
+            channel: typeof entry.channel === 'string' ? entry.channel : eventName,
+            envelope,
+          });
+        }
       });
       this.signalUnsubscribes.set(eventName, unsub);
       this.metrics.setSubscriberCount(
@@ -95,8 +111,21 @@ export class MetricsObserver {
         { sent: number; received: number; failed: number; inFlight: number } | undefined;
 
       if (transportMetrics) {
-        for (let i = 0; i < transportMetrics.sent - (this.metrics.getStats(entry.name)?.publishCount ?? 0); i++) {
+        const seenBefore = this.metrics.getStats(entry.name)?.publishCount ?? 0;
+        const newSends = transportMetrics.sent - seenBefore;
+        for (let i = 0; i < newSends; i++) {
           this.metrics.recordPublish(entry.name);
+          // Phase E8 — durable taps are coarse: one tap event per
+          // observed publish delta. No envelope visibility on this
+          // path (we only see the queue's sent counter rise).
+          tapEmitter.publish({
+            eventName: entry.name,
+            namespace: entry.namespace,
+            producer: Array.isArray(entry.producer) ? entry.producer[0]! : entry.producer,
+            transport: 'durable',
+            timestamp: new Date().toISOString(),
+            queue: queueName,
+          });
         }
         for (let i = 0; i < transportMetrics.failed - (this.metrics.getStats(entry.name)?.errorCount ?? 0); i++) {
           this.metrics.recordError(entry.name);
