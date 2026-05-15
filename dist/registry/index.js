@@ -4,6 +4,7 @@ exports.Registry = void 0;
 const messaging_queue_1 = require("distributed-core/messaging-queue");
 const schema_compat_1 = require("./schema-compat");
 const fingerprint_1 = require("./fingerprint");
+const namespace_1 = require("./namespace");
 const REDIS_KEY = 'event-catalog:registry';
 /** Normalize EventDeclaration.producer to an always-array form. */
 function producerList(producer) {
@@ -24,6 +25,9 @@ function matchesTopologyFilter(entry, filter) {
     if (filter.producer && !producerList(entry.producer).includes(filter.producer))
         return false;
     if (filter.consumer && !entry.subscribers.includes(filter.consumer))
+        return false;
+    // Phase E7 — namespace filter on the topology graph.
+    if (filter.namespace && entry.namespace !== filter.namespace)
         return false;
     return true;
 }
@@ -98,6 +102,9 @@ class Registry {
             // bulk-registration entries that lack a schema) gets the fingerprint
             // of `{}` so the field is always present.
             schemaFingerprint: (0, fingerprint_1.computeSchemaFingerprint)(event.schema ?? {}),
+            // Phase E7 — namespace is auto-derived from the event name when not
+            // explicitly declared. Always populated on RegistryEntry.
+            namespace: (0, namespace_1.resolveNamespace)(event.name, event.namespace),
             compatibilityMode: event.compatibilityMode ?? 'backward',
             schemaHistory: [],
             subscribers: [],
@@ -152,6 +159,10 @@ class Registry {
         }
         if (filter?.tag) {
             entries = entries.filter(e => e.tags?.includes(filter.tag) ?? false);
+        }
+        // Phase E7 — namespace filter (exact match).
+        if (filter?.namespace) {
+            entries = entries.filter(e => e.namespace === filter.namespace);
         }
         return entries;
     }

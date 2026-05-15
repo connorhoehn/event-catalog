@@ -31,6 +31,14 @@ export interface EventAlias {
 
 export interface EventDeclaration {
   name: string;
+  /**
+   * Phase E7 — domain namespace this event belongs to (e.g. `pipeline`,
+   * `ws`, `sfu`, `social`). When omitted, auto-derived from the event
+   * name's dotted prefix (or colon prefix for legacy colon-form names).
+   * Becomes required in v0.5; the auto-derive bridge is the soft
+   * migration window.
+   */
+  namespace?: string;
   schema: Record<string, unknown>;
   transport: TransportType;
   /**
@@ -187,6 +195,8 @@ export interface TopologyFilter {
   eventType?: string;
   /** Include only events on this transport. */
   transport?: string;
+  /** Phase E7 — include only events in this namespace. */
+  namespace?: string;
 }
 
 export interface HealthStatus {
@@ -196,7 +206,12 @@ export interface HealthStatus {
   eventCount: number;
 }
 
-export interface RegistryEntry extends EventDeclaration {
+export interface RegistryEntry extends Omit<EventDeclaration, 'namespace'> {
+  /**
+   * Phase E7 — always populated by the Registry, either from the
+   * declaration's explicit `namespace` field or auto-derived from `name`.
+   */
+  namespace: string;
   version: number;
   /**
    * Phase E6 — deterministic sha256 of the canonical (sorted-key) schema
@@ -220,4 +235,6 @@ export interface RegistryFilter {
   producer?: string;
   subscriber?: string;
   tag?: string;
+  /** Phase E7 — restrict to events in this namespace. */
+  namespace?: string;
 }

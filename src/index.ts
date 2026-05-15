@@ -33,6 +33,11 @@ export { checkBackwardCompat, checkForwardCompat } from './registry/schema-compa
 // Phase E6 — fingerprint helpers exposed for downstream consumers that
 // want to compute fingerprints locally (cache-key derivation, CI gates).
 export { stableStringify, computeSchemaFingerprint } from './registry/fingerprint';
+// Phase E7 — namespace derivation helpers for downstream consumers that
+// want to mirror the registry's auto-derive logic (e.g. CI lint that
+// flags declarations whose explicit namespace doesn't match the
+// derived one).
+export { deriveNamespace, resolveNamespace } from './registry/namespace';
 export type { SignalTransportConfig } from './client/signal';
 export type { DurableTransportConfig, DurableSubscribeOptions, EnsureQueueOptions } from './client/durable';
 

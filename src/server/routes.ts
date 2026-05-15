@@ -54,12 +54,15 @@ export function createRoutes(deps: RoutesDeps): Router {
     const producer = _req.query.producer as string | undefined;
     const subscriber = _req.query.subscriber as string | undefined;
     const tag = _req.query.tag as string | undefined;
+    // Phase E7 — namespace filter.
+    const namespace = _req.query.namespace as string | undefined;
 
     const entries = registry.list({
       transport: transport as 'signal' | 'durable' | undefined,
       producer,
       subscriber,
       tag,
+      namespace,
     });
 
     const enriched = entries.map(entry => ({
@@ -189,6 +192,8 @@ export function createRoutes(deps: RoutesDeps): Router {
       name, schema, transport, producer, description, tags, compatibilityMode, compatMode,
       // E3 fields:
       channel, discriminator, queue, retention, fifo, dlqAfterAttempts, dlqRetention, aliases,
+      // E7 — explicit namespace (auto-derived if absent).
+      namespace,
     } = req.body as Partial<EventDeclaration>;
 
     if (!name || !transport || !producer) {
@@ -249,6 +254,7 @@ export function createRoutes(deps: RoutesDeps): Router {
       description,
       tags,
       compatibilityMode,
+      ...(typeof namespace === 'string' && namespace.length > 0 ? { namespace } : {}),
       ...(compatMode ? { compatMode } : {}),
       // Pass through E3 fields when present. `channel` and `partitionKey`
       // can be functions which don't serialize over HTTP, so only the
@@ -303,6 +309,11 @@ export function createRoutes(deps: RoutesDeps): Router {
         producer: event.producer ?? serviceName,
         description: event.description,
         tags: event.tags,
+        // Phase E7 — pass through explicit namespace if provided; the
+        // Registry auto-derives from the event name otherwise.
+        ...(typeof event.namespace === 'string' && event.namespace.length > 0
+          ? { namespace: event.namespace }
+          : {}),
       });
 
       metricsObserver.observe(event.name, event.transport).catch(() => {});
@@ -363,9 +374,11 @@ export function createRoutes(deps: RoutesDeps): Router {
       consumer: typeof q.consumer === 'string' ? q.consumer : undefined,
       eventType: typeof q.eventType === 'string' ? q.eventType : undefined,
       transport: typeof q.transport === 'string' ? q.transport : undefined,
+      // Phase E7 — namespace filter on the topology subgraph.
+      namespace: typeof q.namespace === 'string' ? q.namespace : undefined,
     };
     const anyFilter =
-      filter.producer || filter.consumer || filter.eventType || filter.transport;
+      filter.producer || filter.consumer || filter.eventType || filter.transport || filter.namespace;
     const topology = registry.getTopology(anyFilter ? filter : undefined);
     res.json(topology);
   });

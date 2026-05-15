@@ -4,6 +4,7 @@ import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, To
 import type { IRegistry, ValidationResult, DeclareResult } from './types';
 import { checkBackwardCompat, checkForwardCompat, type CompatResult } from './schema-compat';
 import { computeSchemaFingerprint } from './fingerprint';
+import { resolveNamespace } from './namespace';
 
 const REDIS_KEY = 'event-catalog:registry';
 
@@ -23,6 +24,8 @@ function matchesTopologyFilter(entry: RegistryEntry, filter?: TopologyFilter): b
   if (filter.transport && entry.transport !== filter.transport) return false;
   if (filter.producer && !producerList(entry.producer).includes(filter.producer)) return false;
   if (filter.consumer && !entry.subscribers.includes(filter.consumer)) return false;
+  // Phase E7 — namespace filter on the topology graph.
+  if (filter.namespace && entry.namespace !== filter.namespace) return false;
   return true;
 }
 
@@ -105,6 +108,9 @@ export class Registry implements IRegistry {
       // bulk-registration entries that lack a schema) gets the fingerprint
       // of `{}` so the field is always present.
       schemaFingerprint: computeSchemaFingerprint(event.schema ?? {}),
+      // Phase E7 — namespace is auto-derived from the event name when not
+      // explicitly declared. Always populated on RegistryEntry.
+      namespace: resolveNamespace(event.name, event.namespace),
       compatibilityMode: event.compatibilityMode ?? 'backward',
       schemaHistory: [],
       subscribers: [],
@@ -165,6 +171,10 @@ export class Registry implements IRegistry {
     }
     if (filter?.tag) {
       entries = entries.filter(e => e.tags?.includes(filter.tag!) ?? false);
+    }
+    // Phase E7 — namespace filter (exact match).
+    if (filter?.namespace) {
+      entries = entries.filter(e => e.namespace === filter.namespace);
     }
 
     return entries;

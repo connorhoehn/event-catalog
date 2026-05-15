@@ -86,6 +86,10 @@ paths:
         - in: query
           name: tag
           schema: { type: string }
+        - in: query
+          name: namespace
+          schema: { type: string }
+          description: Phase E7 — restrict to events in this namespace.
       responses:
         '200':
           description: Filtered or full list
@@ -439,6 +443,10 @@ paths:
         - in: query
           name: transport
           schema: { type: string, enum: [signal, durable, both] }
+        - in: query
+          name: namespace
+          schema: { type: string }
+          description: Phase E7 — restrict the induced subgraph to one namespace.
       responses:
         '200':
           description: Topology graph
@@ -644,6 +652,13 @@ components:
         name:
           type: string
           description: Canonical dot-form event name.
+        namespace:
+          type: string
+          description: |
+            Phase E7 — domain namespace for this event (e.g. `pipeline`,
+            `ws`, `sfu`). Optional in v0.4; auto-derived from the event
+            name's dotted/colon prefix when omitted. Becomes required in
+            v0.5.
         schema:
           type: object
           description: JSON Schema (draft-07). Validated via Ajv on publish.
@@ -709,8 +724,14 @@ components:
       allOf:
         - $ref: '#/components/schemas/EventDeclarationInput'
         - type: object
-          required: [version, schemaFingerprint, compatibilityMode, schemaHistory, subscribers, metadata]
+          required: [version, schemaFingerprint, namespace, compatibilityMode, schemaHistory, subscribers, metadata]
           properties:
+            namespace:
+              type: string
+              description: |
+                Phase E7 — always populated by the registry, either from
+                the declaration's explicit `namespace` or auto-derived
+                from `name`.
             version: { type: integer }
             schemaFingerprint:
               type: string

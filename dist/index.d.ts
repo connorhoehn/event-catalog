@@ -7,6 +7,7 @@ export type { ValidationResult, DeclareResult, IRegistry } from './registry/type
 export type { CompatResult } from './registry/schema-compat';
 export { checkBackwardCompat, checkForwardCompat } from './registry/schema-compat';
 export { stableStringify, computeSchemaFingerprint } from './registry/fingerprint';
+export { deriveNamespace, resolveNamespace } from './registry/namespace';
 export type { SignalTransportConfig } from './client/signal';
 export type { DurableTransportConfig, DurableSubscribeOptions, EnsureQueueOptions } from './client/durable';
 export { buildChannelMessageEnvelope, buildSignalMessage, isChannelMessageEnvelope, channelMessageRedisChannel, channelNodesRedisKey, signalMessageSchema, channelMessageEnvelopeSchema, buildDirectMessageEnvelope, directMessageRedisChannel, directMessageEnvelopeSchema, buildBroadcastEnvelope, broadcastRedisChannel, broadcastEnvelopeSchema, } from './types/envelopes';
