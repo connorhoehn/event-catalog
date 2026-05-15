@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import type { Registry } from '../registry/index.js';
 import { computeSchemaFingerprint } from '../registry/fingerprint.js';
 import { tapEmitter, matchesTapFilter, type TapEvent } from './tap-emitter.js';
+import { auditEmitter, matchesAuditFilter, type AuditEvent } from './audit-emitter.js';
 import type { MetricsCollector } from './metrics.js';
 import type { MetricsObserver } from './metrics-observer.js';
 import type { SignalTransport } from '../client/signal.js';
@@ -247,6 +248,11 @@ export function createRoutes(deps: RoutesDeps): Router {
       }
     }
 
+    // Snapshot the prior version BEFORE Registry.declare runs (it
+    // mutates `existing` in place, so reading existing.version
+    // afterwards gives us the new value).
+    const priorVersion = existing?.version;
+
     const result = registry.declare({
       name,
       schema: schema ?? {},
@@ -271,6 +277,23 @@ export function createRoutes(deps: RoutesDeps): Router {
     });
 
     metricsObserver.observe(name, transport).catch(() => {});
+
+    // wave22-d — audit emit. priorVersion was captured above before
+    // Registry.declare mutated existing in place.
+    const after = registry.get(name);
+    if (after) {
+      auditEmitter.publish({
+        kind: priorVersion !== undefined && after.version > priorVersion
+          ? 'event.version.bumped'
+          : 'event.declared',
+        timestamp: new Date().toISOString(),
+        eventName: after.name,
+        namespace: after.namespace,
+        version: after.version,
+        fingerprint: after.schemaFingerprint,
+        violations: result.violations,
+      });
+    }
 
     const response: Record<string, unknown> = {
       declared: name,
@@ -303,6 +326,9 @@ export function createRoutes(deps: RoutesDeps): Router {
     for (const event of events) {
       if (!event.name || !event.transport) continue;
 
+      // Snapshot the prior version BEFORE declare mutates `before` in
+      // place (same gotcha as the singleton route above).
+      const priorVersion = registry.get(event.name)?.version;
       registry.declare({
         name: event.name,
         schema: event.schema ?? {},
@@ -316,6 +342,21 @@ export function createRoutes(deps: RoutesDeps): Router {
           ? { namespace: event.namespace }
           : {}),
       });
+
+      // wave22-d — emit one audit record per declared event in the bulk.
+      const after = registry.get(event.name);
+      if (after) {
+        auditEmitter.publish({
+          kind: priorVersion !== undefined && after.version > priorVersion
+            ? 'event.version.bumped'
+            : 'event.declared',
+          timestamp: new Date().toISOString(),
+          eventName: after.name,
+          namespace: after.namespace,
+          version: after.version,
+          fingerprint: after.schemaFingerprint,
+        });
+      }
 
       metricsObserver.observe(event.name, event.transport).catch(() => {});
       declared.push(event.name);
@@ -340,6 +381,13 @@ export function createRoutes(deps: RoutesDeps): Router {
     }
 
     registry.addSubscriber(req.params.name, serviceName);
+    auditEmitter.publish({
+      kind: 'subscriber.added',
+      timestamp: new Date().toISOString(),
+      eventName: req.params.name,
+      namespace: entry.namespace,
+      serviceName,
+    });
     res.status(201).json({ event: req.params.name, subscriber: serviceName });
   });
 
@@ -352,15 +400,32 @@ export function createRoutes(deps: RoutesDeps): Router {
     }
 
     registry.removeSubscriber(req.params.name, req.params.serviceName);
+    auditEmitter.publish({
+      kind: 'subscriber.removed',
+      timestamp: new Date().toISOString(),
+      eventName: req.params.name,
+      namespace: entry.namespace,
+      serviceName: req.params.serviceName,
+    });
     res.json({ event: req.params.name, removedSubscriber: req.params.serviceName });
   });
 
   // Delete an event declaration
   router.delete('/events/:name', (req: Request, res: Response) => {
+    const before = registry.get(req.params.name);
     const removed = registry.remove(req.params.name);
     if (!removed) {
       res.status(404).json({ error: `Event "${req.params.name}" not found` });
       return;
+    }
+    if (before) {
+      auditEmitter.publish({
+        kind: 'event.removed',
+        timestamp: new Date().toISOString(),
+        eventName: before.name,
+        namespace: before.namespace,
+        version: before.version,
+      });
     }
     res.json({ removed: req.params.name });
   });
@@ -382,6 +447,42 @@ export function createRoutes(deps: RoutesDeps): Router {
       filter.producer || filter.consumer || filter.eventType || filter.transport || filter.namespace;
     const topology = registry.getTopology(anyFilter ? filter : undefined);
     res.json(topology);
+  });
+
+  // wave22-d — registry-mutation audit SSE. Mirror of /api/flow for
+  // the slow path: every time the registry mutates (declare, version-
+  // bump, removal, subscriber add/remove), a structured AuditEvent
+  // is streamed to subscribers. Powers admin UI "registry changes"
+  // panels and live audit dashboards.
+  router.get('/audit', (req: Request, res: Response) => {
+    const filter = {
+      kind: typeof req.query.kind === 'string' ? (req.query.kind as AuditEvent['kind']) : undefined,
+      eventName: typeof req.query.eventName === 'string' ? req.query.eventName : undefined,
+      namespace: typeof req.query.namespace === 'string' ? req.query.namespace : undefined,
+      serviceName: typeof req.query.serviceName === 'string' ? req.query.serviceName : undefined,
+    };
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+    res.write(`: connected; filter=${JSON.stringify(filter)}\n\n`);
+
+    const handler = (event: AuditEvent): void => {
+      if (!matchesAuditFilter(event, filter)) return;
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+    auditEmitter.on('audit', handler);
+
+    const heartbeat = setInterval(() => {
+      res.write(`: heartbeat ${new Date().toISOString()}\n\n`);
+    }, 30_000);
+
+    req.on('close', () => {
+      auditEmitter.off('audit', handler);
+      clearInterval(heartbeat);
+    });
   });
 
   // Phase 21-e — flat fingerprint manifest. Returns

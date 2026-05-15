@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
@@ -692,6 +692,69 @@ describe('Server Routes', () => {
       const res = await request(app).delete('/api/events/nonexistent/subscribers/some-service');
       expect(res.status).toBe(404);
       expect(res.body.error).toContain('not found');
+    });
+  });
+
+  // ─── Audit emit on registry mutations (wave22-d) ─────────────────────
+
+  describe('audit emission via routes', () => {
+    let seen: import('../src/server/audit-emitter.js').AuditEvent[];
+    let off: () => void;
+    beforeEach(async () => {
+      const { auditEmitter } = await import('../src/server/audit-emitter.js');
+      auditEmitter.removeAllListeners('audit');
+      seen = [];
+      const handler = (e: import('../src/server/audit-emitter.js').AuditEvent) => {
+        seen.push(e);
+      };
+      auditEmitter.on('audit', handler);
+      off = () => auditEmitter.off('audit', handler);
+    });
+    afterEach(() => off());
+
+    it('POST /api/events emits event.declared on first registration', async () => {
+      await request(app).post('/api/events').send({
+        name: 'orders.created', schema: { type: 'object' }, transport: 'durable', producer: 'orders',
+      });
+      const declared = seen.filter((e) => e.kind === 'event.declared');
+      expect(declared).toHaveLength(1);
+      expect(declared[0]!.eventName).toBe('orders.created');
+      expect(declared[0]!.namespace).toBe('orders');
+      expect(declared[0]!.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('POST /api/events on existing event with new schema emits event.version.bumped', async () => {
+      await request(app).post('/api/events').send({
+        name: 'orders.created', schema: { type: 'object' }, transport: 'durable', producer: 'orders',
+        compatibilityMode: 'none',
+      });
+      seen.length = 0;
+
+      await request(app).post('/api/events').send({
+        name: 'orders.created', schema: { type: 'object', properties: { id: { type: 'string' } } },
+        transport: 'durable', producer: 'orders', compatibilityMode: 'none',
+      });
+      const bumps = seen.filter((e) => e.kind === 'event.version.bumped');
+      expect(bumps).toHaveLength(1);
+      expect(bumps[0]!.version).toBe(2);
+    });
+
+    it('POST /api/events/:name/subscribers emits subscriber.added', async () => {
+      registry.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
+      seen.length = 0;
+      await request(app).post('/api/events/a.x/subscribers').send({ serviceName: 'consumer-1' });
+      const added = seen.filter((e) => e.kind === 'subscriber.added');
+      expect(added).toHaveLength(1);
+      expect(added[0]!.serviceName).toBe('consumer-1');
+    });
+
+    it('DELETE /api/events/:name emits event.removed', async () => {
+      registry.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
+      seen.length = 0;
+      await request(app).delete('/api/events/a.x');
+      const removed = seen.filter((e) => e.kind === 'event.removed');
+      expect(removed).toHaveLength(1);
+      expect(removed[0]!.eventName).toBe('a.x');
     });
   });
 

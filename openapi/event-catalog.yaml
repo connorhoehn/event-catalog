@@ -537,6 +537,46 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TopologyGraph' }
 
+  /api/audit:
+    get:
+      tags: [events]
+      summary: Live registry-mutation audit (SSE)
+      description: |
+        wave22-d — Server-Sent Events stream of structured AuditEvents
+        emitted whenever the registry mutates: declarations land
+        (`event.declared` / `event.version.bumped`), declarations are
+        removed (`event.removed`), or subscribers are added/removed
+        (`subscriber.added` / `subscriber.removed`).
+
+        Mirror of `/api/flow` (which streams the *fast path* — every
+        message flowing through the catalog) for the *slow path* —
+        every change to the registered contracts. Powers admin UI
+        "registry changes" panels and live audit dashboards.
+
+        Filters AND-combine. Stream opens with a `: connected;` comment
+        and includes 30-second heartbeats.
+      parameters:
+        - in: query
+          name: kind
+          schema:
+            type: string
+            enum: [event.declared, event.version.bumped, event.removed, subscriber.added, subscriber.removed]
+        - in: query
+          name: eventName
+          schema: { type: string }
+        - in: query
+          name: namespace
+          schema: { type: string }
+        - in: query
+          name: serviceName
+          schema: { type: string }
+      responses:
+        '200':
+          description: SSE stream (long-lived)
+          content:
+            text/event-stream:
+              schema: { type: string, description: SSE-formatted AuditEvent frames }
+
   /api/flow:
     get:
       tags: [transports]
