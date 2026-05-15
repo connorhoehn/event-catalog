@@ -646,6 +646,39 @@ export function createRoutes(deps: RoutesDeps): Router {
     });
   }
 
+  // wave24-b — refresh subscriber lastSeenAt timestamps. Body:
+  //   { serviceName: 'svc-1', events?: ['a.x', 'b.y'] }
+  // When `events` is omitted, refreshes every event the service is
+  // currently subscribed to. Returns the events that were actually
+  // refreshed (a service may have been pruned in the meantime).
+  router.post('/heartbeat', (req: Request, res: Response) => {
+    const { serviceName, events } = req.body as { serviceName?: unknown; events?: unknown };
+    if (typeof serviceName !== 'string' || serviceName.length === 0) {
+      res.status(400).json({ error: 'serviceName is required' });
+      return;
+    }
+    const eventNames = Array.isArray(events) && events.every((e) => typeof e === 'string')
+      ? (events as string[])
+      : undefined;
+    const refreshed = registry.heartbeat(serviceName, eventNames);
+    res.json({ serviceName, refreshed, count: refreshed.length });
+  });
+
+  // wave24-b — list every subscriber + its lastSeenAt. Optional
+  // `?staleAfter=<seconds>` filter returns only subscribers older
+  // than the threshold (useful for "who's overdue?" dashboards).
+  router.get('/subscribers', (req: Request, res: Response) => {
+    const all = registry.listSubscriberHeartbeats();
+    const staleAfter = parseInt(String(req.query.staleAfter ?? ''), 10);
+    if (Number.isFinite(staleAfter) && staleAfter > 0) {
+      const cutoff = Date.now() - staleAfter * 1000;
+      const stale = all.filter((s) => Date.parse(s.lastSeenAt) < cutoff);
+      res.json({ subscribers: stale, total: stale.length, filter: { staleAfter } });
+      return;
+    }
+    res.json({ subscribers: all, total: all.length });
+  });
+
   // Phase 21-e — flat fingerprint manifest. Returns
   // `{ <eventName>: <schemaFingerprint> }` for every declared event
   // (or every event in a namespace when filtered). Designed for CI:

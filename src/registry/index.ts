@@ -30,10 +30,20 @@ function matchesTopologyFilter(entry: RegistryEntry, filter?: TopologyFilter): b
   return true;
 }
 
+/**
+ * wave24-b — composite key for the heartbeat map. Subscribers are
+ * unique per (eventName, serviceName), not per serviceName alone.
+ */
+function heartbeatKey(eventName: string, serviceName: string): string {
+  return `${eventName}\x00${serviceName}`;
+}
+
 export class Registry implements IRegistry {
   private events = new Map<string, RegistryEntry>();
   private readonly schemaValidator: JsonSchemaValidator;
   private readonly redis: RedisClientType | null;
+  /** wave24-b — map keyed by `${eventName}\x00${serviceName}` → epoch ms. */
+  private subscriberHeartbeats = new Map<string, number>();
 
   constructor(redis?: RedisClientType) {
     this.schemaValidator = new JsonSchemaValidator({ mode: 'auto' });
@@ -204,12 +214,92 @@ export class Registry implements IRegistry {
     if (!entry.subscribers.includes(serviceName)) {
       entry.subscribers.push(serviceName);
     }
+    // wave24-b — also stamp a heartbeat so the sweeper has a baseline
+    // for "when did we last hear from this consumer?"
+    this.touchHeartbeat(eventName, serviceName);
   }
 
   removeSubscriber(eventName: string, serviceName: string): void {
     const entry = this.events.get(eventName);
     if (!entry) return;
     entry.subscribers = entry.subscribers.filter(s => s !== serviceName);
+    this.subscriberHeartbeats.delete(heartbeatKey(eventName, serviceName));
+  }
+
+  /**
+   * wave24-b — refresh a subscriber's lastSeenAt for one event or all
+   * events it currently subscribes to (when `eventNames` is omitted).
+   * Used by POST /api/heartbeat. Returns the list of events that were
+   * actually refreshed (skipping any the consumer wasn't subscribed to).
+   */
+  heartbeat(serviceName: string, eventNames?: string[]): string[] {
+    const refreshed: string[] = [];
+    const targets = eventNames ?? this.eventsSubscribedBy(serviceName);
+    for (const name of targets) {
+      const entry = this.events.get(name);
+      if (!entry || !entry.subscribers.includes(serviceName)) continue;
+      this.touchHeartbeat(name, serviceName);
+      refreshed.push(name);
+    }
+    return refreshed;
+  }
+
+  /** wave24-b — list events a service currently subscribes to. */
+  eventsSubscribedBy(serviceName: string): string[] {
+    const out: string[] = [];
+    for (const entry of this.events.values()) {
+      if (entry.subscribers.includes(serviceName)) out.push(entry.name);
+    }
+    return out;
+  }
+
+  /**
+   * wave24-b — return all subscriber records with their last-seen
+   * timestamps. Each entry is `{ eventName, serviceName, lastSeenAt }`.
+   * For the admin UI's "Subscribers" view + the GET /api/subscribers
+   * surface.
+   */
+  listSubscriberHeartbeats(): Array<{ eventName: string; serviceName: string; lastSeenAt: string }> {
+    const out: Array<{ eventName: string; serviceName: string; lastSeenAt: string }> = [];
+    for (const entry of this.events.values()) {
+      for (const s of entry.subscribers) {
+        const ts = this.subscriberHeartbeats.get(heartbeatKey(entry.name, s));
+        out.push({
+          eventName: entry.name,
+          serviceName: s,
+          lastSeenAt: ts ? new Date(ts).toISOString() : '1970-01-01T00:00:00.000Z',
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * wave24-b — remove subscriber records older than `ttlMs`.
+   * Returns the list of `{ eventName, serviceName }` pairs that were
+   * pruned so callers can audit / log / emit.
+   */
+  pruneStaleSubscribers(ttlMs: number, nowMs: number = Date.now()): Array<{ eventName: string; serviceName: string }> {
+    const pruned: Array<{ eventName: string; serviceName: string }> = [];
+    const cutoff = nowMs - ttlMs;
+    for (const entry of this.events.values()) {
+      const stillSubscribed: string[] = [];
+      for (const s of entry.subscribers) {
+        const ts = this.subscriberHeartbeats.get(heartbeatKey(entry.name, s)) ?? 0;
+        if (ts < cutoff) {
+          pruned.push({ eventName: entry.name, serviceName: s });
+          this.subscriberHeartbeats.delete(heartbeatKey(entry.name, s));
+        } else {
+          stillSubscribed.push(s);
+        }
+      }
+      entry.subscribers = stillSubscribed;
+    }
+    return pruned;
+  }
+
+  private touchHeartbeat(eventName: string, serviceName: string): void {
+    this.subscriberHeartbeats.set(heartbeatKey(eventName, serviceName), Date.now());
   }
 
   updateStats(eventName: string, stats: Partial<RegistryEntry['metadata']>): void {

@@ -34,7 +34,7 @@ EXAMPLES
   event-catalog manifest pin --catalog-url=https://catalog \\
       --consumer=audit-worker --snapshot=current.json
 
-The default subcommand (`server`) is the long-running HTTP service.
+The default subcommand (\`server\`) is the long-running HTTP service.
 All other subcommands are short-lived CI / ops utilities and exit
 non-zero when they detect a problem (lint shape errors, drift, etc.).
 `;

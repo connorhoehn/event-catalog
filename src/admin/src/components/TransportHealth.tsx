@@ -49,25 +49,25 @@ export function TransportHealth() {
       </div>
 
       <div className="health-overview">
-        <div className={`transport-card ${health.redis === 'connected' ? 'healthy' : 'unhealthy'}`}>
+        <div className={`transport-card ${health.redis.status === 'healthy' ? 'healthy' : 'unhealthy'}`}>
           <div className="transport-icon">
-            <span className={`status-dot large ${health.redis === 'connected' ? 'green' : 'red'}`} />
+            <span className={`status-dot large ${health.redis.status === 'healthy' ? 'green' : 'red'}`} />
           </div>
           <div className="transport-info">
             <h3>Redis (Signal Transport)</h3>
-            <p>Status: <Chip tone={health.redis === 'connected' ? 'success' : 'danger'} size="xs">{health.redis}</Chip></p>
+            <p>Status: <Chip tone={health.redis.status === 'healthy' ? 'success' : 'danger'} size="xs">{health.redis.status}</Chip>{health.redis.latencyMs != null && <> · {health.redis.latencyMs}ms</>}</p>
             <p>Active channels: {channels.length}</p>
             <p>Total publishes: {channels.reduce((s, c) => s + c.publishCount, 0).toLocaleString()}</p>
           </div>
         </div>
 
-        <div className={`transport-card ${health.messageQueue === 'connected' ? 'healthy' : 'unhealthy'}`}>
+        <div className={`transport-card ${health.messageQueue.status === 'healthy' ? 'healthy' : 'unhealthy'}`}>
           <div className="transport-icon">
-            <span className={`status-dot large ${health.messageQueue === 'connected' ? 'green' : 'red'}`} />
+            <span className={`status-dot large ${health.messageQueue.status === 'healthy' ? 'green' : 'red'}`} />
           </div>
           <div className="transport-info">
             <h3>Message Queue (Durable Transport)</h3>
-            <p>Status: <Chip tone={health.messageQueue === 'connected' ? 'success' : 'danger'} size="xs">{health.messageQueue}</Chip></p>
+            <p>Status: <Chip tone={health.messageQueue.status === 'healthy' ? 'success' : 'danger'} size="xs">{health.messageQueue.status}</Chip>{health.messageQueue.latencyMs != null && <> · {health.messageQueue.latencyMs}ms</>}</p>
             <p>Active queues: {queues.length}</p>
             <p>Total sent: {queues.reduce((s, q) => s + q.sent, 0).toLocaleString()}</p>
             <p>In flight: {queues.reduce((s, q) => s + q.inFlight, 0)}</p>

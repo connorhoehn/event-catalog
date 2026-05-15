@@ -601,6 +601,81 @@ paths:
             text/event-stream:
               schema: { type: string, description: SSE-formatted AuditEvent frames }
 
+  /api/heartbeat:
+    post:
+      tags: [subscribers]
+      summary: Refresh subscriber lastSeenAt timestamps (wave24-b)
+      description: |
+        Subscribers POST here periodically to keep their registrations
+        alive. The server tracks `lastSeenAt` per (event, service) pair
+        and a background sweeper prunes pairs older than
+        `SUBSCRIBER_TTL_SECONDS` (default 1800 = 30 min). Without
+        heartbeats, dead consumers would pollute /api/topology.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [serviceName]
+              properties:
+                serviceName: { type: string }
+                events:
+                  type: array
+                  description: |
+                    Optional — when omitted, every event the service
+                    currently subscribes to is refreshed.
+                  items: { type: string }
+      responses:
+        '200':
+          description: Refreshed subscriptions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  serviceName: { type: string }
+                  refreshed:
+                    type: array
+                    items: { type: string }
+                  count: { type: integer }
+        '400':
+          description: Missing serviceName
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/subscribers:
+    get:
+      tags: [subscribers]
+      summary: List every subscriber + lastSeenAt (wave24-b)
+      parameters:
+        - in: query
+          name: staleAfter
+          schema: { type: integer, minimum: 1 }
+          description: Seconds — return only subscribers older than the threshold.
+      responses:
+        '200':
+          description: Subscribers + heartbeat timestamps
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subscribers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        eventName: { type: string }
+                        serviceName: { type: string }
+                        lastSeenAt: { type: string, format: date-time }
+                  total: { type: integer }
+                  filter:
+                    type: object
+                    properties:
+                      staleAfter: { type: integer }
+
   /api/manifests:
     get:
       tags: [events]

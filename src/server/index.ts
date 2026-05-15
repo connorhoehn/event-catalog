@@ -280,6 +280,36 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     });
   }, 60_000);
 
+  // wave24-b — subscriber heartbeat sweeper. Every 60s, prune
+  // subscribers we haven't heard from in SUBSCRIBER_TTL_SECONDS
+  // (default 1800 = 30 minutes). Configurable via env var; set to 0
+  // to disable. Pruned removals fire audit events so the admin UI
+  // sees consumers drop off /topology in real time.
+  const subscriberTtlSeconds = parseInt(process.env.SUBSCRIBER_TTL_SECONDS ?? '1800', 10);
+  const subscriberSweepInterval = subscriberTtlSeconds > 0
+    ? setInterval(() => {
+        try {
+          const pruned = registry.pruneStaleSubscribers(subscriberTtlSeconds * 1000);
+          for (const p of pruned) {
+            const entry = registry.get(p.eventName);
+            // Reuse the audit-emit shape from routes.ts.
+            // Lazy-import to avoid a top-level cycle.
+            void import('./audit-emitter.js').then(({ auditEmitter }) => {
+              auditEmitter.publish({
+                kind: 'subscriber.removed',
+                timestamp: new Date().toISOString(),
+                eventName: p.eventName,
+                namespace: entry?.namespace,
+                serviceName: p.serviceName,
+              });
+            });
+          }
+        } catch (err) {
+          console.warn('[server] subscriber sweep failed:', (err as Error).message);
+        }
+      }, 60_000)
+    : null;
+
   const alertManager = new AlertManager();
 
   // Periodic background health probe
@@ -330,6 +360,7 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     console.log('[event-catalog] shutting down...');
     clearInterval(healthInterval);
     clearInterval(metricsSnapshotInterval);
+    if (subscriberSweepInterval) clearInterval(subscriberSweepInterval);
     auditLog.stop();
     await metrics.snapshotToRedis(redisClient).catch(() => {});
     server.close();

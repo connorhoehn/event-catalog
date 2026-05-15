@@ -77,17 +77,17 @@ export function Dashboard() {
         <div className="transport-status">
           <h3>Transport Status</h3>
           <div className="status-row">
-            <span className={`status-dot ${health.redis === 'connected' ? 'green' : 'red'}`} />
+            <span className={`status-dot ${health.redis.status === 'healthy' ? 'green' : 'red'}`} />
             <span>Redis (Signal): </span>
-            <Chip tone={health.redis === 'connected' ? 'success' : 'danger'} size="xs">
-              {health.redis}
+            <Chip tone={health.redis.status === 'healthy' ? 'success' : 'danger'} size="xs">
+              {health.redis.status}
             </Chip>
           </div>
           <div className="status-row">
-            <span className={`status-dot ${health.messageQueue === 'connected' ? 'green' : 'red'}`} />
+            <span className={`status-dot ${health.messageQueue.status === 'healthy' ? 'green' : 'red'}`} />
             <span>Message Queue (Durable): </span>
-            <Chip tone={health.messageQueue === 'connected' ? 'success' : 'danger'} size="xs">
-              {health.messageQueue}
+            <Chip tone={health.messageQueue.status === 'healthy' ? 'success' : 'danger'} size="xs">
+              {health.messageQueue.status}
             </Chip>
           </div>
           <div className="status-row">

@@ -68,10 +68,15 @@ export interface TopologyGraph {
   edges: Array<{ from: string; to: string; relation: 'publishes' | 'subscribes' }>;
 }
 
+export interface ComponentHealth {
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'disconnected';
+  latencyMs?: number;
+}
+
 export interface HealthStatus {
-  status: string;
-  redis: string;
-  messageQueue: string;
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  redis: ComponentHealth;
+  messageQueue: ComponentHealth;
   uptime: number;
   eventCount: number;
 }
