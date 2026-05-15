@@ -18,6 +18,42 @@ import type {
   SubscribeOptions,
 } from '../types/index';
 
+/**
+ * Phase E3.3 — resolve the Redis channel an event publishes on.
+ *
+ *   - `undefined` channel → default to the event name (preserves v0.1 behavior).
+ *   - `string` channel    → literal pattern.
+ *   - `function` channel  → call with the payload (per-publish destinations,
+ *     e.g. `p => \`document:${p.documentId}\``).
+ */
+function resolveSignalChannel(
+  declared: string | ((payload: unknown) => string) | undefined,
+  eventName: string,
+  payload: unknown,
+): string {
+  if (declared === undefined) return eventName;
+  if (typeof declared === 'string') return declared;
+  return declared(payload);
+}
+
+/**
+ * Subscribe-side resolver. Static channels only — a function-typed `channel`
+ * means the destination is per-payload, which `subscribe()` cannot honor
+ * without a payload to evaluate against.
+ */
+function resolveStaticSignalChannel(
+  declared: string | ((payload: unknown) => string) | undefined,
+  eventName: string,
+): string {
+  if (declared === undefined) return eventName;
+  if (typeof declared === 'string') return declared;
+  throw new Error(
+    `[event-catalog] cannot subscribe to "${eventName}": its declared channel is a function `
+    + `(per-payload). Declare a static channel string, or subscribe directly via the `
+    + `SignalTransport with a Redis pattern subscription.`,
+  );
+}
+
 export class EventCatalog {
   private readonly config: EventCatalogConfig;
   private readonly registry: Registry;
@@ -164,7 +200,10 @@ export class EventCatalog {
       };
       const sends: Array<Promise<void>> = [];
       if (entry.transport === 'signal' || entry.transport === 'both') {
-        sends.push(this.signal.publish(eventName, envelope as EventEnvelope));
+        // Phase E3.3 — resolve declared `channel` (string, function of
+        // payload, or fall back to event name).
+        const signalChannel = resolveSignalChannel(entry.channel, eventName, payload);
+        sends.push(this.signal.publish(signalChannel, envelope as EventEnvelope));
       }
       if (entry.transport === 'durable' || entry.transport === 'both') {
         sends.push(this.durable.publish(queueName, envelope as EventEnvelope, queueOptions));
@@ -294,7 +333,13 @@ export class EventCatalog {
     if (entry.transport === 'signal') {
       let unsubFn: (() => Promise<void>) | null = null;
 
-      const setupPromise = this.signal.subscribe(eventName, (envelope) => {
+      // Phase E3.3 — subscribe() needs a static channel. If the declaration's
+      // `channel` is a function (dynamic per payload), the subscriber has no
+      // payload to resolve from. Reject with a clear error rather than silently
+      // subscribing to the wrong channel.
+      const signalChannel = resolveStaticSignalChannel(entry.channel, eventName);
+
+      const setupPromise = this.signal.subscribe(signalChannel, (envelope) => {
         handler(envelope as EventEnvelope<T>);
       }).then(unsub => {
         unsubFn = unsub;

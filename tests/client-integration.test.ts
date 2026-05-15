@@ -125,6 +125,97 @@ describe('EventCatalog Client Integration', () => {
     });
   });
 
+  describe('Phase E3.3 — declared signal channel', () => {
+    it('publishes to a literal-string declared channel, not the event name', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'doc.comment.added',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'test-service',
+        channel: 'documents:comments',
+      });
+
+      await catalog.connect();
+
+      const received: string[] = [];
+      subscriptions.set('documents:comments', new Set([(msg) => received.push(msg)]));
+
+      await catalog.publish('doc.comment.added', { docId: 'd1' });
+
+      expect(received).toHaveLength(1);
+      expect(subscriptions.has('doc.comment.added')).toBe(false);
+
+      await catalog.disconnect();
+    });
+
+    it('resolves a function-typed channel against the payload at publish time', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'doc.update',
+        schema: { type: 'object', properties: { docId: { type: 'string' } } },
+        transport: 'signal',
+        producer: 'test-service',
+        channel: (p) => `documents:${(p as { docId: string }).docId}`,
+      });
+
+      await catalog.connect();
+
+      const received: string[] = [];
+      subscriptions.set('documents:42', new Set([(msg) => received.push(msg)]));
+
+      await catalog.publish('doc.update', { docId: '42' });
+
+      expect(received).toHaveLength(1);
+
+      await catalog.disconnect();
+    });
+
+    it('falls back to the event name as the channel when channel is undeclared', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'plain.event',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'test-service',
+      });
+
+      await catalog.connect();
+
+      const received: string[] = [];
+      subscriptions.set('plain.event', new Set([(msg) => received.push(msg)]));
+
+      await catalog.publish('plain.event', { x: 1 });
+
+      expect(received).toHaveLength(1);
+
+      await catalog.disconnect();
+    });
+
+    it('subscribe() throws on function-typed channels (no payload to resolve from)', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'doc.update',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'test-service',
+        channel: (p) => `documents:${(p as { docId: string }).docId}`,
+      });
+
+      await catalog.connect();
+
+      expect(() => catalog.subscribe('doc.update', () => {})).toThrow(
+        /channel is a function/,
+      );
+
+      await catalog.disconnect();
+    });
+  });
+
   describe('Declare + topology', () => {
     it('after declaring events, the registry shows them in topology', () => {
       const catalog = new EventCatalog(makeConfig());
