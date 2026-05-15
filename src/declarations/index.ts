@@ -42,3 +42,5 @@ export {
   pipelineRaftRunTerminated,
   pipelineRaftDeclarations,
 } from './pipeline-raft';
+
+export { gatewaySignalDeclarations } from './gateway-signal';
