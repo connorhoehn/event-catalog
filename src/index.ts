@@ -26,6 +26,7 @@ export type {
   EventDiscriminator,
   EventAlias,
   PublishHook,
+  NamespacePolicy,
 } from './types/index';
 
 export type { ValidationResult, DeclareResult, IRegistry, ResolveResult } from './registry/types';

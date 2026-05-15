@@ -7,6 +7,7 @@ const index_1 = require("../registry/index");
 const signal_1 = require("./signal");
 const durable_1 = require("./durable");
 const envelopes_1 = require("../types/envelopes");
+const namespace_1 = require("../registry/namespace");
 /**
  * Phase E3.3 — resolve the Redis channel an event publishes on.
  *
@@ -35,6 +36,43 @@ function resolveStaticSignalChannel(declared, eventName) {
     throw new Error(`[event-catalog] cannot subscribe to "${eventName}": its declared channel is a function `
         + `(per-payload). Declare a static channel string, or subscribe directly via the `
         + `SignalTransport with a Redis pattern subscription.`);
+}
+/**
+ * Phase 20-h — merge a namespace policy's defaults into a declaration
+ * for any field the declaration didn't set explicitly. Per-event values
+ * always win. Returns a new declaration object (does not mutate the
+ * input — important for callers that re-use shared declaration arrays).
+ *
+ * If no policy is registered for the event's namespace, returns the
+ * input unchanged.
+ */
+function applyNamespacePolicy(event, policies) {
+    if (!policies || Object.keys(policies).length === 0)
+        return event;
+    const ns = (0, namespace_1.resolveNamespace)(event.name, event.namespace);
+    const policy = policies[ns];
+    if (!policy)
+        return event;
+    const merged = { ...event };
+    if (merged.compatibilityMode === undefined && policy.compatibilityMode !== undefined) {
+        merged.compatibilityMode = policy.compatibilityMode;
+    }
+    if (merged.retention === undefined && policy.retention !== undefined) {
+        merged.retention = policy.retention;
+    }
+    if (merged.dlqRetention === undefined && policy.dlqRetention !== undefined) {
+        merged.dlqRetention = policy.dlqRetention;
+    }
+    if (merged.dlqAfterAttempts === undefined && policy.dlqAfterAttempts !== undefined) {
+        merged.dlqAfterAttempts = policy.dlqAfterAttempts;
+    }
+    if (policy.tags && policy.tags.length > 0) {
+        const existingTags = new Set(merged.tags ?? []);
+        for (const t of policy.tags)
+            existingTags.add(t);
+        merged.tags = [...existingTags];
+    }
+    return merged;
 }
 class EventCatalog {
     config;
@@ -105,11 +143,18 @@ class EventCatalog {
      * endpoint.
      */
     declare(event) {
-        const result = this.registry.declare(event);
+        // Phase 20-h — apply namespace policy defaults to fields the
+        // declaration didn't set explicitly. Per-event values always win.
+        const merged = applyNamespacePolicy(event, this.config.namespacePolicies);
+        const result = this.registry.declare(merged);
         if (this.isStrict() && !result.compatible) {
             const violations = result.violations?.join('; ') ?? 'unknown';
             throw new Error(`[event-catalog] declare("${event.name}") rejected by strict mode: ${violations}`);
         }
+    }
+    /** Phase 20-h — public access to the merged namespace policy for a name. */
+    getNamespacePolicy(namespace) {
+        return this.config.namespacePolicies?.[namespace];
     }
     /**
      * Phase 20-b — bulk-declare convenience. Equivalent to looping

@@ -116,6 +116,26 @@ export interface SchemaHistoryEntry {
   updatedAt: string;
 }
 
+/**
+ * Phase 20-h — per-namespace defaults inheritance.
+ *
+ * Operators register a NamespacePolicy per namespace; declarations
+ * inherit any field they don't explicitly set. Reduces repetition for
+ * "every pipeline.* event needs `compatibilityMode: 'full'` and 30d
+ * retention" patterns. Per-event values always win when present.
+ */
+export interface NamespacePolicy {
+  compatibilityMode?: CompatibilityMode;
+  /** Default queue message retention for durable events. */
+  retention?: number;
+  /** Default DLQ retention. */
+  dlqRetention?: number;
+  /** Default DLQ-after-N-attempts. */
+  dlqAfterAttempts?: number;
+  /** Default tags merged with per-event tags (deduplicated). */
+  tags?: string[];
+}
+
 export interface EventCatalogConfig {
   redis: { url: string };
   messageQueue: { url: string };
@@ -127,6 +147,12 @@ export interface EventCatalogConfig {
    * the value of the `EVENT_CATALOG_STRICT` env var (`'true'` enables).
    */
   strict?: boolean;
+  /**
+   * Phase 20-h — per-namespace defaults. When a declaration omits a
+   * policy field, the namespace's policy fills it in. Per-event
+   * values always override the policy default.
+   */
+  namespacePolicies?: Record<string, NamespacePolicy>;
   /**
    * Phase 20-c — publish-path middleware. Hooks run in array order.
    * `beforePublish` may mutate `envelope.metadata.headers` (inject

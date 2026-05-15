@@ -2,7 +2,7 @@ export { EventCatalog } from './client/index';
 export { Registry } from './registry/index';
 export { SignalTransport } from './client/signal';
 export { DurableTransport } from './client/durable';
-export type { TransportType, CompatibilityMode, EventDeclaration, EventCatalogConfig, PublishOptions, SubscribeOptions, EventMetadata, EventEnvelope, EventHandler, Subscription, EventStats, TopologyNode, TopologyEdge, TopologyGraph, TopologyFilter, HealthStatus, RegistryEntry, RegistryFilter, SchemaHistoryEntry, EventDiscriminator, EventAlias, PublishHook, } from './types/index';
+export type { TransportType, CompatibilityMode, EventDeclaration, EventCatalogConfig, PublishOptions, SubscribeOptions, EventMetadata, EventEnvelope, EventHandler, Subscription, EventStats, TopologyNode, TopologyEdge, TopologyGraph, TopologyFilter, HealthStatus, RegistryEntry, RegistryFilter, SchemaHistoryEntry, EventDiscriminator, EventAlias, PublishHook, NamespacePolicy, } from './types/index';
 export type { ValidationResult, DeclareResult, IRegistry, ResolveResult } from './registry/types';
 export type { CompatResult } from './registry/schema-compat';
 export { checkBackwardCompat, checkForwardCompat } from './registry/schema-compat';

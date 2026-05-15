@@ -1,7 +1,7 @@
 import { Registry } from '../registry/index';
 import { SignalTransport } from './signal';
 import { DurableTransport } from './durable';
-import type { EventCatalogConfig, EventDeclaration, EventHandler, PublishOptions, Subscription, SubscribeOptions } from '../types/index';
+import type { EventCatalogConfig, EventDeclaration, EventHandler, NamespacePolicy, PublishOptions, Subscription, SubscribeOptions } from '../types/index';
 import type { ResolveResult } from '../registry/types';
 export declare class EventCatalog {
     private readonly config;
@@ -25,6 +25,8 @@ export declare class EventCatalog {
      * endpoint.
      */
     declare(event: EventDeclaration): void;
+    /** Phase 20-h — public access to the merged namespace policy for a name. */
+    getNamespacePolicy(namespace: string): NamespacePolicy | undefined;
     /**
      * Phase 20-b — bulk-declare convenience. Equivalent to looping
      * `declare()` per event but documents intent at the call site (most
