@@ -1,0 +1,18 @@
+# Redocly config — scopes the lint rules for the event-catalog admin API.
+#
+# The admin server has no authentication: it's a local-dev / in-cluster
+# service reached via service-mesh policy, not a public surface. We
+# disable the `security-defined` rule rather than declare fake
+# securitySchemes that don't reflect reality.
+
+extends:
+  - recommended
+
+rules:
+  security-defined: off
+  # Internal API — every op having an operationId / info.contact is noise.
+  operation-operationId: off
+  info-license-strict: off
+  info-contact: off
+  no-server-example.com: off
+  tag-description: off

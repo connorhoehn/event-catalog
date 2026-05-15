@@ -1,0 +1,795 @@
+openapi: 3.1.0
+info:
+  title: event-catalog admin API
+  description: |
+    HTTP surface of the event-catalog service tier. Used by services
+    (bulk-declare, subscriber registration), by operators (admin UI,
+    topology, DLQ), and by Kubernetes / Prometheus (`/health`, `/metrics`).
+
+    This spec is for **documentation and tooling**. SDK generation is a
+    non-goal per ROADMAP.md §5 ("Out of scope"). The library half
+    (`@connorhoehn/event-catalog`) is what producers actually publish
+    through; this admin surface is the slow path.
+
+    Source of truth for shapes: `src/server/routes.ts` and
+    `src/types/index.ts`.
+  version: 0.3.5
+  license:
+    name: UNLICENSED
+servers:
+  - url: http://localhost:3010
+    description: Local dev (docker compose)
+  - url: http://event-catalog:3010
+    description: In-cluster
+
+tags:
+  - name: events
+    description: Event declarations + schema history
+  - name: subscribers
+    description: Per-event subscriber registration
+  - name: topology
+    description: Producer → event → consumer graph
+  - name: transports
+    description: Per-transport runtime introspection (signal channels, durable queues, DLQ)
+  - name: ops
+    description: Health, metrics, root endpoints
+
+paths:
+  /health:
+    get:
+      tags: [ops]
+      summary: Tri-state health probe (Kubernetes-compatible)
+      description: |
+        Returns 200 when healthy or degraded, 503 when unhealthy. Body
+        carries per-dependency status for Redis and message-queue.
+      responses:
+        '200':
+          description: Healthy or degraded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+        '503':
+          description: Unhealthy — at least one dependency is disconnected
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+
+  /metrics:
+    get:
+      tags: [ops]
+      summary: Prometheus exposition (text/plain)
+      description: |
+        OpenMetrics / Prometheus text format. Counters for declares,
+        publishes, schema fetches, compat violations, plus per-transport
+        gauges. Scraped by the cluster's Prometheus instance.
+      responses:
+        '200':
+          description: Metrics text
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /api/events:
+    get:
+      tags: [events]
+      summary: List event declarations
+      parameters:
+        - in: query
+          name: transport
+          schema: { type: string, enum: [signal, durable, both] }
+        - in: query
+          name: producer
+          schema: { type: string }
+        - in: query
+          name: subscriber
+          schema: { type: string }
+        - in: query
+          name: tag
+          schema: { type: string }
+      responses:
+        '200':
+          description: Filtered or full list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, total]
+                properties:
+                  events:
+                    type: array
+                    items: { $ref: '#/components/schemas/RegistryEntry' }
+                  total: { type: integer }
+    post:
+      tags: [events]
+      summary: Declare an event (with optional compat gate)
+      description: |
+        Idempotent: re-declaring an existing event with a changed schema
+        bumps the version and appends the prior schema to `schemaHistory`
+        (capped at 5 entries).
+
+        **Compat gate**: when `compatMode` is `strict` (per-event), or the
+        request carries `x-event-catalog-strict: true`, or the
+        `EVENT_CATALOG_STRICT=true` env var is set, a compat-violating
+        update returns **409** without mutating the registry.
+
+        `channel` may be a string here; the function form is library-only
+        (functions don't serialize over HTTP).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventDeclarationInput' }
+      parameters:
+        - in: header
+          name: x-event-catalog-strict
+          required: false
+          schema: { type: string, enum: ['true', 'false'] }
+          description: Per-request strict-mode override (`true` enables strict).
+      responses:
+        '201':
+          description: Declared
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [declared, version, compatible]
+                properties:
+                  declared: { type: string }
+                  version: { type: integer }
+                  compatible: { type: boolean }
+                  violations:
+                    type: array
+                    items: { type: string }
+                    description: Present when an evolution had compat violations (warn mode).
+        '400':
+          description: Missing required field or invalid `transport`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Compat violation under strict mode
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompatViolationError' }
+
+  /api/events/bulk:
+    post:
+      tags: [events]
+      summary: Bulk-declare from a service (called once at startup)
+      description: |
+        Used by `syncToRemoteRegistry()` in the library on `connect()` and
+        on its 60-second periodic re-sync.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [serviceName, events]
+              properties:
+                serviceName: { type: string }
+                events:
+                  type: array
+                  items: { $ref: '#/components/schemas/EventDeclarationInput' }
+      responses:
+        '201':
+          description: Bulk declare succeeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  declared:
+                    type: array
+                    items: { type: string }
+                  count: { type: integer }
+        '400':
+          description: Missing serviceName or events
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/events/{name}:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    get:
+      tags: [events]
+      summary: Fetch one event declaration (with optional historical version)
+      description: |
+        Also serves as the schema-fetch endpoint for downstream validators.
+        Bumps the per-event schema-fetch counter on success.
+
+        `?version=N` selects an entry from `schemaHistory`. Out-of-range
+        versions return 404.
+      parameters:
+        - in: query
+          name: version
+          schema: { type: integer, minimum: 1 }
+          description: Optional historical version selector.
+      responses:
+        '200':
+          description: Full registry entry with stats
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/RegistryEntry'
+                  - type: object
+                    properties:
+                      validationMode:
+                        type: string
+                        enum: [off, warn, strict]
+        '400':
+          description: Invalid `?version=` value
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Event not declared, or version not in history
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [events]
+      summary: Remove an event declaration
+      responses:
+        '200':
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  removed: { type: string }
+        '404':
+          description: Not declared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/events/{name}/schema/check:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    get:
+      tags: [events]
+      summary: Dry-run schema compat check (no mutation)
+      description: |
+        Checks a proposed schema against the registered schema's
+        `compatibilityMode` without applying. Useful for CI gates that
+        want to fail before merge.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [schema]
+              properties:
+                schema: { type: object, description: JSON Schema (draft-07) }
+      responses:
+        '200':
+          description: Compat result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompatCheckResponse' }
+        '400':
+          description: Missing schema in body
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Event not declared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/events/{name}/stats:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    get:
+      tags: [events]
+      summary: Live publish-rate / error counters for one event
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventStats' }
+        '404':
+          description: No stats recorded for this event yet
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/events/{name}/history:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    get:
+      tags: [events]
+      summary: Recent message history (signal events only)
+      description: |
+        For signal events, returns the last N envelopes from the
+        per-channel Redis ring buffer. Durable events return an empty
+        array with a `note` (message-queue peek not yet implemented).
+      parameters:
+        - in: query
+          name: count
+          schema: { type: integer, default: 50, minimum: 1 }
+      responses:
+        '200':
+          description: History (may be empty)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items: { $ref: '#/components/schemas/EventEnvelope' }
+                  transport: { type: string, enum: [signal, durable] }
+                  note: { type: string }
+        '404':
+          description: Event not declared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/events/{name}/subscribers:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    post:
+      tags: [subscribers]
+      summary: Register a service as a subscriber to an event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [serviceName]
+              properties:
+                serviceName: { type: string }
+      responses:
+        '201':
+          description: Subscriber registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event: { type: string }
+                  subscriber: { type: string }
+        '400':
+          description: Missing serviceName
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Event not declared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/events/{name}/subscribers/{serviceName}:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+      - in: path
+        name: serviceName
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [subscribers]
+      summary: Deregister a subscriber
+      responses:
+        '200':
+          description: Subscriber removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event: { type: string }
+                  removedSubscriber: { type: string }
+        '404':
+          description: Event not declared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/topology:
+    get:
+      tags: [topology]
+      summary: Producer → event → consumer graph
+      description: |
+        Filters AND-combine. Empty filters returns the full graph. The
+        result is "induced" — referenced services come along but their
+        unrelated events do not.
+      parameters:
+        - in: query
+          name: producer
+          schema: { type: string }
+        - in: query
+          name: consumer
+          schema: { type: string }
+        - in: query
+          name: eventType
+          schema: { type: string }
+        - in: query
+          name: transport
+          schema: { type: string, enum: [signal, durable, both] }
+      responses:
+        '200':
+          description: Topology graph
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TopologyGraph' }
+
+  /api/transports/signal/channels:
+    get:
+      tags: [transports]
+      summary: Per-channel signal publish counts and subscriber counts
+      responses:
+        '200':
+          description: Channel list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        channel: { type: string }
+                        publishCount: { type: integer }
+                        lastPublishedAt:
+                          type: [string, 'null']
+                        subscriberCount: { type: integer }
+                  total: { type: integer }
+
+  /api/transports/durable/queues:
+    get:
+      tags: [transports]
+      summary: Per-queue durable publish / receive / failure counts
+      responses:
+        '200':
+          description: Queue list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queues:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        queue: { type: string }
+                        sent: { type: integer }
+                        received: { type: integer }
+                        failed: { type: integer }
+                        inFlight: { type: integer }
+                  total: { type: integer }
+
+  /api/transports/durable/dlq:
+    get:
+      tags: [transports]
+      summary: List dead-letter queue entries
+      description: |
+        Backed by the DDB-based `DlqStore`. On DDB error, falls back to
+        the in-memory mirror and reports `source: "in-memory"`.
+      parameters:
+        - in: query
+          name: eventName
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: DLQ entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items: { $ref: '#/components/schemas/DlqEntry' }
+                  total: { type: integer }
+                  source: { type: string, enum: [in-memory] }
+                  error: { type: string }
+
+  /api/transports/durable/dlq/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [transports]
+      summary: Drop a single DLQ entry without replay
+      responses:
+        '200':
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  removed: { type: string }
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/transports/durable/dlq/{id}/replay:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [transports]
+      summary: Redrive a DLQ entry back into its source queue
+      description: |
+        Re-publishes the entry's envelope to the original event's queue
+        (derived from `entry.eventName`), then drops the DLQ row on
+        success. Idempotency keys are reused so partial-failure retries
+        don't duplicate delivery downstream.
+      responses:
+        '200':
+          description: Replay succeeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  replayed: { type: string }
+                  eventName: { type: string }
+        '404':
+          description: DLQ entry not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '500':
+          description: Replay failed (publish error)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  schemas:
+    EventDeclarationInput:
+      type: object
+      required: [name, transport, producer]
+      properties:
+        name:
+          type: string
+          description: Canonical dot-form event name.
+        schema:
+          type: object
+          description: JSON Schema (draft-07). Validated via Ajv on publish.
+        transport:
+          type: string
+          enum: [signal, durable, both]
+        producer:
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: string }
+        description: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        compatibilityMode:
+          type: string
+          enum: [backward, forward, full, none]
+          default: backward
+        compatMode:
+          type: string
+          enum: [off, warn, strict]
+          description: Per-event override for the server compat gate.
+        channel:
+          type: string
+          description: Signal-only. Literal channel pattern (function form is library-only).
+        discriminator:
+          type: object
+          required: [field, values]
+          properties:
+            field: { type: string }
+            values:
+              type: array
+              items: { type: string }
+        queue:
+          type: string
+          description: Durable-only. Override default queue-name derivation.
+        retention:
+          type: integer
+          description: Durable-only. Retention in seconds.
+        fifo:
+          type: boolean
+          description: Durable-only. FIFO ordering (requires partitionKey on the library side).
+        dlqAfterAttempts:
+          type: integer
+          description: Durable-only. Auto-DLQ after this many delivery attempts.
+        aliases:
+          type: array
+          items:
+            type: object
+            required: [name, deprecated]
+            properties:
+              name: { type: string }
+              deprecated:
+                type: boolean
+                const: true
+              until: { type: string, format: date-time }
+
+    RegistryEntry:
+      allOf:
+        - $ref: '#/components/schemas/EventDeclarationInput'
+        - type: object
+          required: [version, compatibilityMode, schemaHistory, subscribers, metadata]
+          properties:
+            version: { type: integer }
+            schemaHistory:
+              type: array
+              items:
+                type: object
+                properties:
+                  version: { type: integer }
+                  schema: { type: object }
+                  updatedAt: { type: string, format: date-time }
+            subscribers:
+              type: array
+              items: { type: string }
+            metadata:
+              type: object
+              properties:
+                createdAt: { type: string, format: date-time }
+                lastPublishedAt:
+                  type: [string, 'null']
+                  format: date-time
+                publishCount: { type: integer }
+                errorCount: { type: integer }
+            stats:
+              $ref: '#/components/schemas/EventStats'
+
+    EventEnvelope:
+      type: object
+      required: [eventName, payload, metadata]
+      properties:
+        eventName: { type: string }
+        payload: {}
+        metadata:
+          type: object
+          required: [id, producer, timestamp]
+          properties:
+            id: { type: string, description: ULID }
+            producer: { type: string }
+            timestamp: { type: integer, description: ms since epoch }
+            correlationId: { type: string }
+            headers:
+              type: object
+              additionalProperties: { type: string }
+
+    EventStats:
+      type: object
+      properties:
+        publishCount: { type: integer }
+        publishRate: { type: number }
+        lastPublishedAt:
+          type: [string, 'null']
+        errorCount: { type: integer }
+        subscriberCount: { type: integer }
+        queueDepth: { type: integer }
+        messagesInFlight: { type: integer }
+        oldestMessageAge: { type: integer }
+
+    TopologyGraph:
+      type: object
+      required: [nodes, edges]
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            required: [id, type]
+            properties:
+              id: { type: string }
+              type: { type: string, enum: [service, event] }
+              metadata: { type: object }
+        edges:
+          type: array
+          items:
+            type: object
+            required: [from, to, relation]
+            properties:
+              from: { type: string }
+              to: { type: string }
+              relation: { type: string, enum: [publishes, subscribes] }
+
+    HealthResponse:
+      type: object
+      required: [status, redis, messageQueue, uptime, eventCount]
+      properties:
+        status: { type: string, enum: [healthy, degraded, unhealthy] }
+        redis:
+          type: object
+          properties:
+            status: { type: string, enum: [connected, degraded, disconnected] }
+        messageQueue:
+          type: object
+          properties:
+            status: { type: string, enum: [connected, degraded, disconnected] }
+        uptime: { type: integer, description: seconds since process start }
+        eventCount: { type: integer }
+
+    CompatCheckResponse:
+      type: object
+      required: [eventName, currentVersion, compatibilityMode, compatible, violations]
+      properties:
+        eventName: { type: string }
+        currentVersion: { type: integer }
+        compatibilityMode:
+          type: string
+          enum: [backward, forward, full, none]
+        compatible: { type: boolean }
+        violations:
+          type: array
+          items: { type: string }
+
+    DlqEntry:
+      type: object
+      required: [id, eventName, payload]
+      properties:
+        id: { type: string }
+        eventName: { type: string }
+        payload: {}
+        error: { type: string }
+        attempts: { type: integer }
+        firstSeenAt: { type: string, format: date-time }
+        lastAttemptAt: { type: string, format: date-time }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          oneOf:
+            - type: string
+            - type: object
+
+    CompatViolationError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, eventName, violations]
+          properties:
+            code: { type: string, enum: [COMPAT_VIOLATION] }
+            eventName: { type: string }
+            violations:
+              type: array
+              items: { type: string }
