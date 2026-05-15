@@ -186,6 +186,16 @@ export const api = {
   deleteDLQ(id: string) {
     return request<{ removed: string }>(`/transports/durable/dlq/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
+
+  /** wave24-b — list subscribers with their lastSeenAt timestamps. */
+  getSubscribers(staleAfterSeconds?: number) {
+    const qs = staleAfterSeconds && staleAfterSeconds > 0 ? `?staleAfter=${staleAfterSeconds}` : '';
+    return request<{
+      subscribers: Array<{ eventName: string; serviceName: string; lastSeenAt: string }>;
+      total: number;
+      filter?: { staleAfter: number };
+    }>(`/subscribers${qs}`);
+  },
 };
 
 export interface DLQEntry {

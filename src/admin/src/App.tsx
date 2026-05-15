@@ -25,6 +25,7 @@ export function App() {
           <li><NavLink to="/topology">Topology</NavLink></li>
           <li><NavLink to="/flow">Flow</NavLink></li>
           <li><NavLink to="/audit">Audit</NavLink></li>
+          <li><NavLink to="/subscribers">Subscribers</NavLink></li>
           <li><NavLink to="/live">Live Inspector</NavLink></li>
           <li><NavLink to="/dlq">DLQ</NavLink></li>
           <li><NavLink to="/health">Transports</NavLink></li>
@@ -39,6 +40,7 @@ export function App() {
           <Route path="/topology" element={<TopologyView />} />
           <Route path="/flow" element={<FlowView />} />
           <Route path="/audit" element={<AuditView />} />
+          <Route path="/subscribers" element={<SubscribersView />} />
           <Route path="/live" element={<LiveInspector />} />
           <Route path="/dlq" element={<DLQBrowser />} />
           <Route path="/health" element={<TransportHealth />} />
