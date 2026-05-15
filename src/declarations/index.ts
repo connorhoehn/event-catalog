@@ -44,3 +44,7 @@ export {
 } from './pipeline-raft';
 
 export { gatewaySignalDeclarations } from './gateway-signal';
+
+export {
+  pipelineEventDeclarations,
+} from './pipeline-events';

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MQ_QUEUE_NAMES = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = exports.broadcastEnvelopeSchema = exports.broadcastRedisChannel = exports.buildBroadcastEnvelope = exports.directMessageEnvelopeSchema = exports.directMessageRedisChannel = exports.buildDirectMessageEnvelope = exports.channelMessageEnvelopeSchema = exports.signalMessageSchema = exports.channelNodesRedisKey = exports.channelMessageRedisChannel = exports.isChannelMessageEnvelope = exports.buildSignalMessage = exports.buildChannelMessageEnvelope = exports.checkForwardCompat = exports.checkBackwardCompat = exports.DurableTransport = exports.SignalTransport = exports.Registry = exports.EventCatalog = void 0;
+exports.MQ_QUEUE_NAMES = exports.pipelineEventDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = exports.broadcastEnvelopeSchema = exports.broadcastRedisChannel = exports.buildBroadcastEnvelope = exports.directMessageEnvelopeSchema = exports.directMessageRedisChannel = exports.buildDirectMessageEnvelope = exports.channelMessageEnvelopeSchema = exports.signalMessageSchema = exports.channelNodesRedisKey = exports.channelMessageRedisChannel = exports.isChannelMessageEnvelope = exports.buildSignalMessage = exports.buildChannelMessageEnvelope = exports.computeSchemaFingerprint = exports.stableStringify = exports.checkForwardCompat = exports.checkBackwardCompat = exports.DurableTransport = exports.SignalTransport = exports.Registry = exports.EventCatalog = void 0;
 var index_1 = require("./client/index");
 Object.defineProperty(exports, "EventCatalog", { enumerable: true, get: function () { return index_1.EventCatalog; } });
 var index_2 = require("./registry/index");
@@ -12,6 +12,11 @@ Object.defineProperty(exports, "DurableTransport", { enumerable: true, get: func
 var schema_compat_1 = require("./registry/schema-compat");
 Object.defineProperty(exports, "checkBackwardCompat", { enumerable: true, get: function () { return schema_compat_1.checkBackwardCompat; } });
 Object.defineProperty(exports, "checkForwardCompat", { enumerable: true, get: function () { return schema_compat_1.checkForwardCompat; } });
+// Phase E6 — fingerprint helpers exposed for downstream consumers that
+// want to compute fingerprints locally (cache-key derivation, CI gates).
+var fingerprint_1 = require("./registry/fingerprint");
+Object.defineProperty(exports, "stableStringify", { enumerable: true, get: function () { return fingerprint_1.stableStringify; } });
+Object.defineProperty(exports, "computeSchemaFingerprint", { enumerable: true, get: function () { return fingerprint_1.computeSchemaFingerprint; } });
 // Wire envelopes (Phase 55 — single source of truth for channel_message shape).
 var envelopes_1 = require("./types/envelopes");
 Object.defineProperty(exports, "buildChannelMessageEnvelope", { enumerable: true, get: function () { return envelopes_1.buildChannelMessageEnvelope; } });
@@ -56,6 +61,8 @@ Object.defineProperty(exports, "pipelineRaftRunSynthesized", { enumerable: true,
 Object.defineProperty(exports, "pipelineRaftRunCheckpointed", { enumerable: true, get: function () { return index_3.pipelineRaftRunCheckpointed; } });
 Object.defineProperty(exports, "pipelineRaftRunTerminated", { enumerable: true, get: function () { return index_3.pipelineRaftRunTerminated; } });
 Object.defineProperty(exports, "pipelineRaftDeclarations", { enumerable: true, get: function () { return index_3.pipelineRaftDeclarations; } });
+// wave19-a — consolidated P0+P1 aggregate for bulk-registration.
+Object.defineProperty(exports, "pipelineEventDeclarations", { enumerable: true, get: function () { return index_3.pipelineEventDeclarations; } });
 // Shared MQ queue-name constants (wave7-d — single source of truth).
 var queue_names_1 = require("./queue-names");
 Object.defineProperty(exports, "MQ_QUEUE_NAMES", { enumerable: true, get: function () { return queue_names_1.MQ_QUEUE_NAMES; } });

@@ -30,6 +30,9 @@ export type {
 export type { ValidationResult, DeclareResult, IRegistry } from './registry/types';
 export type { CompatResult } from './registry/schema-compat';
 export { checkBackwardCompat, checkForwardCompat } from './registry/schema-compat';
+// Phase E6 — fingerprint helpers exposed for downstream consumers that
+// want to compute fingerprints locally (cache-key derivation, CI gates).
+export { stableStringify, computeSchemaFingerprint } from './registry/fingerprint';
 export type { SignalTransportConfig } from './client/signal';
 export type { DurableTransportConfig, DurableSubscribeOptions, EnsureQueueOptions } from './client/durable';
 
@@ -89,6 +92,8 @@ export {
   pipelineRaftRunCheckpointed,
   pipelineRaftRunTerminated,
   pipelineRaftDeclarations,
+  // wave19-a — consolidated P0+P1 aggregate for bulk-registration.
+  pipelineEventDeclarations,
 } from './declarations/index';
 
 // Shared MQ queue-name constants (wave7-d — single source of truth).

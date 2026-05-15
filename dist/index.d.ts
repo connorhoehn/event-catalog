@@ -6,11 +6,12 @@ export type { TransportType, CompatibilityMode, EventDeclaration, EventCatalogCo
 export type { ValidationResult, DeclareResult, IRegistry } from './registry/types';
 export type { CompatResult } from './registry/schema-compat';
 export { checkBackwardCompat, checkForwardCompat } from './registry/schema-compat';
+export { stableStringify, computeSchemaFingerprint } from './registry/fingerprint';
 export type { SignalTransportConfig } from './client/signal';
 export type { DurableTransportConfig, DurableSubscribeOptions, EnsureQueueOptions } from './client/durable';
 export { buildChannelMessageEnvelope, buildSignalMessage, isChannelMessageEnvelope, channelMessageRedisChannel, channelNodesRedisKey, signalMessageSchema, channelMessageEnvelopeSchema, buildDirectMessageEnvelope, directMessageRedisChannel, directMessageEnvelopeSchema, buildBroadcastEnvelope, broadcastRedisChannel, broadcastEnvelopeSchema, } from './types/envelopes';
 export type { ChannelMessageEnvelope, SignalMessage, BuildChannelMessageEnvelopeArgs, BuildSignalMessageArgs, DirectMessageEnvelope, BuildDirectMessageEnvelopeArgs, BroadcastEnvelope, BuildBroadcastEnvelopeArgs, } from './types/envelopes';
-export { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpoint, pipelineDeclarations, pipelineP1Declarations, pipelineRunStarted, pipelineRunCompleted, pipelineRunFailed, pipelineRunOrphaned, pipelineRunReassigned, pipelineRunResumedFromStep, pipelineRunStuck, pipelineStepBreakpoint, pipelineJoinWaiting, pipelineJoinFired, pipelineP2Declarations, pipelineRaftRunStarted, pipelineRaftRunUpdated, pipelineRaftRunSynthesized, pipelineRaftRunCheckpointed, pipelineRaftRunTerminated, pipelineRaftDeclarations, } from './declarations/index';
+export { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpoint, pipelineDeclarations, pipelineP1Declarations, pipelineRunStarted, pipelineRunCompleted, pipelineRunFailed, pipelineRunOrphaned, pipelineRunReassigned, pipelineRunResumedFromStep, pipelineRunStuck, pipelineStepBreakpoint, pipelineJoinWaiting, pipelineJoinFired, pipelineP2Declarations, pipelineRaftRunStarted, pipelineRaftRunUpdated, pipelineRaftRunSynthesized, pipelineRaftRunCheckpointed, pipelineRaftRunTerminated, pipelineRaftDeclarations, pipelineEventDeclarations, } from './declarations/index';
 export { MQ_QUEUE_NAMES } from './queue-names';
 export type { MQQueueName } from './queue-names';
 //# sourceMappingURL=index.d.ts.map
