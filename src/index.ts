@@ -86,6 +86,7 @@ export {
   pipelineRunOrphaned,
   pipelineRunReassigned,
   pipelineRunResumedFromStep,
+  pipelineRunRetry,
   pipelineRunStuck,
   pipelineStepBreakpoint,
   pipelineJoinWaiting,
@@ -97,7 +98,10 @@ export {
   pipelineRaftRunCheckpointed,
   pipelineRaftRunTerminated,
   pipelineRaftDeclarations,
+  // wave20-a — Raft state-machine transition subset (excludes :started).
+  pipelineRaftStateMachineDeclarations,
   // wave19-a — consolidated P0+P1 aggregate for bulk-registration.
+  // wave20-a — expanded to include P2 events.
   pipelineEventDeclarations,
 } from './declarations/index';
 

@@ -12,4 +12,17 @@ export declare const pipelineRaftRunTerminated: EventDeclaration;
  * PipelineRaftStateMachine — not by distributed-core's PipelineExecutor.
  */
 export declare const pipelineRaftDeclarations: EventDeclaration[];
+/**
+ * The four state-machine transition events emitted by PipelineRaftStateMachine
+ * (wave20-a). Excludes `pipeline:raft:run:started` which is a slot-creation
+ * event. Consumers that only care about post-create state transitions should
+ * register from this list.
+ *
+ * Corresponds to the 4 Raft SM events listed in the wave20 task spec:
+ *   - pipeline:raft:run:synthesized
+ *   - pipeline:raft:run:updated
+ *   - pipeline:raft:run:checkpointed
+ *   - pipeline:raft:run:terminated
+ */
+export declare const pipelineRaftStateMachineDeclarations: EventDeclaration[];
 //# sourceMappingURL=pipeline-raft.d.ts.map

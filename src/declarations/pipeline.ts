@@ -30,6 +30,7 @@ import type { EventDeclaration } from '../types/index';
  * canonical contract declared here.
  */
 export const pipelineApprovalRequested: EventDeclaration = {
+  namespace: 'pipeline',
   name: 'pipeline.approval.requested',
   description:
     'A pipeline approval node has been entered and is awaiting one or more '
@@ -69,6 +70,7 @@ export const pipelineApprovalRequested: EventDeclaration = {
  * `{ runId, stepId, userId, decision, comment?, reason?, at }`.
  */
 export const pipelineApprovalRecorded: EventDeclaration = {
+  namespace: 'pipeline',
   name: 'pipeline.approval.recorded',
   description:
     'An approver has recorded a decision against a pending pipeline '
@@ -108,6 +110,7 @@ export const pipelineApprovalRecorded: EventDeclaration = {
  * ISO-8601 timestamp string (not a number) on the colon-form side.
  */
 export const pipelineRunCheckpoint: EventDeclaration = {
+  namespace: 'pipeline',
   name: 'pipeline.run.checkpoint',
   description:
     'A periodic snapshot of a running pipeline\'s execution context + '

@@ -56,6 +56,7 @@ function wsSchema(
 
 /** Sent to the joining client after they successfully join a chat channel. */
 export const wsChatJoined: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.chat.joined',
     transport: 'signal',
     producer: PRODUCER,
@@ -69,6 +70,7 @@ export const wsChatJoined: EventDeclaration = {
 
 /** Sent to the leaving client after they successfully leave a chat channel. */
 export const wsChatLeft: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.chat.left',
     transport: 'signal',
     producer: PRODUCER,
@@ -82,6 +84,7 @@ export const wsChatLeft: EventDeclaration = {
 
 /** Broadcast to all channel subscribers when a new chat message is posted. */
 export const wsChatMessage: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.chat.message',
     transport: 'signal',
     producer: PRODUCER,
@@ -96,6 +99,7 @@ export const wsChatMessage: EventDeclaration = {
 
 /** Confirmation sent to the message sender after their message is stored+broadcast. */
 export const wsChatSent: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.chat.sent',
     transport: 'signal',
     producer: PRODUCER,
@@ -110,6 +114,7 @@ export const wsChatSent: EventDeclaration = {
 
 /** Recent message history delivered to a client on join or explicit history request. */
 export const wsChatHistory: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.chat.history',
     transport: 'signal',
     producer: PRODUCER,
@@ -128,6 +133,7 @@ export const wsChatHistory: EventDeclaration = {
 
 /** Subscription confirmation + current snapshot of all cursors in the channel. */
 export const wsCursorSubscribed: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.cursor.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -142,6 +148,7 @@ export const wsCursorSubscribed: EventDeclaration = {
 
 /** Unsubscription confirmation. */
 export const wsCursorUnsubscribed: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.cursor.unsubscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -155,6 +162,7 @@ export const wsCursorUnsubscribed: EventDeclaration = {
 
 /** Broadcast when a client moves their cursor (throttled). */
 export const wsCursorUpdate: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.cursor.update',
     transport: 'signal',
     producer: PRODUCER,
@@ -169,6 +177,7 @@ export const wsCursorUpdate: EventDeclaration = {
 
 /** Broadcast when a client disconnects and their cursor should be removed. */
 export const wsCursorRemove: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.cursor.remove',
     transport: 'signal',
     producer: PRODUCER,
@@ -183,6 +192,7 @@ export const wsCursorRemove: EventDeclaration = {
 
 /** Current cursor list for a channel, sent in response to a `get` request. */
 export const wsCursorList: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.cursor.cursors',
     transport: 'signal',
     producer: PRODUCER,
@@ -197,6 +207,7 @@ export const wsCursorList: EventDeclaration = {
 
 /** Supported cursor modes (freeform, table, text, canvas). */
 export const wsCursorModes: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.cursor.modes',
     transport: 'signal',
     producer: PRODUCER,
@@ -214,6 +225,7 @@ export const wsCursorModes: EventDeclaration = {
 
 /** Subscription confirmation for an activity channel. */
 export const wsActivitySubscribed: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.activity.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -227,6 +239,7 @@ export const wsActivitySubscribed: EventDeclaration = {
 
 /** Unsubscription confirmation for an activity channel. */
 export const wsActivityUnsubscribed: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.activity.unsubscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -240,6 +253,7 @@ export const wsActivityUnsubscribed: EventDeclaration = {
 
 /** Confirmation sent to the publishing client after their activity event is broadcast. */
 export const wsActivityPublished: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.activity.published',
     transport: 'signal',
     producer: PRODUCER,
@@ -253,6 +267,7 @@ export const wsActivityPublished: EventDeclaration = {
 
 /** History response for an activity channel. */
 export const wsActivityHistory: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.activity.history',
     transport: 'signal',
     producer: PRODUCER,
@@ -270,6 +285,7 @@ export const wsActivityHistory: EventDeclaration = {
  * Note: this frame uses type `activity:event`, not `activity`.
  */
 export const wsActivityEvent: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.activity.event',
     transport: 'signal',
     producer: PRODUCER,
@@ -297,6 +313,7 @@ export const wsActivityEvent: EventDeclaration = {
 
 /** Subscription confirmation after a client subscribes to a CRDT channel. */
 export const wsCrdtSubscribed: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.crdt.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -310,6 +327,7 @@ export const wsCrdtSubscribed: EventDeclaration = {
 
 /** Unsubscription confirmation after a client leaves a CRDT channel. */
 export const wsCrdtUnsubscribed: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.crdt.unsubscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -326,6 +344,7 @@ export const wsCrdtUnsubscribed: EventDeclaration = {
  * Note: frame type is `crdt:snapshot`.
  */
 export const wsCrdtSnapshot: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.crdt.snapshot',
     transport: 'signal',
     producer: PRODUCER,
@@ -342,6 +361,7 @@ export const wsCrdtSnapshot: EventDeclaration = {
  * Note: frame type is `crdt:update`.
  */
 export const wsCrdtUpdate: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.crdt.update',
     transport: 'signal',
     producer: PRODUCER,
@@ -358,6 +378,7 @@ export const wsCrdtUpdate: EventDeclaration = {
  * Note: frame type is `crdt:doc-replaced`.
  */
 export const wsCrdtDocReplaced: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.crdt.doc-replaced',
     transport: 'signal',
     producer: PRODUCER,
@@ -375,6 +396,7 @@ export const wsCrdtDocReplaced: EventDeclaration = {
 
 /** Sent to the client when their presence is successfully set/updated. */
 export const wsPresenceSet: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.presence.set',
     transport: 'signal',
     producer: PRODUCER,
@@ -388,6 +410,7 @@ export const wsPresenceSet: EventDeclaration = {
 
 /** Broadcast to channel subscribers when a client's presence changes. */
 export const wsPresenceUpdate: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.presence.update',
     transport: 'signal',
     producer: PRODUCER,
@@ -401,6 +424,7 @@ export const wsPresenceUpdate: EventDeclaration = {
 
 /** Subscription confirmation + current presence snapshot for the channel. */
 export const wsPresenceSubscribed: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.presence.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -415,6 +439,7 @@ export const wsPresenceSubscribed: EventDeclaration = {
 
 /** Unsubscription confirmation from a presence channel. */
 export const wsPresenceUnsubscribed: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.presence.unsubscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -428,6 +453,7 @@ export const wsPresenceUnsubscribed: EventDeclaration = {
 
 /** Presence data response to a get request (specific client or channel). */
 export const wsPresenceData: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.presence.data',
     transport: 'signal',
     producer: PRODUCER,
@@ -441,6 +467,7 @@ export const wsPresenceData: EventDeclaration = {
 
 /** Broadcast when a client goes offline (disconnects or times out). */
 export const wsPresenceOffline: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.presence.offline',
     transport: 'signal',
     producer: PRODUCER,
@@ -458,6 +485,7 @@ export const wsPresenceOffline: EventDeclaration = {
 
 /** Sent when a client subscribes to reactions in a channel. */
 export const wsReactionSubscribed: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.reaction.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -478,6 +506,7 @@ export const wsReactionSubscribed: EventDeclaration = {
 
 /** Broadcast to all channel subscribers when a reaction is sent. */
 export const wsReactionReceived: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.reaction.received',
     transport: 'signal',
     producer: PRODUCER,
@@ -502,6 +531,7 @@ export const wsReactionReceived: EventDeclaration = {
 
 /** Confirmation sent to the sender after their reaction is broadcast. */
 export const wsReactionSent: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.reaction.sent',
     transport: 'signal',
     producer: PRODUCER,
@@ -537,6 +567,7 @@ function callSchema(action: string): Record<string, unknown> {
 }
 
 export const wsCallInvite: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.call.invite',
     transport: 'signal',
     producer: PRODUCER,
@@ -546,6 +577,7 @@ export const wsCallInvite: EventDeclaration = {
 };
 
 export const wsCallAccepted: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.call.accepted',
     transport: 'signal',
     producer: PRODUCER,
@@ -555,6 +587,7 @@ export const wsCallAccepted: EventDeclaration = {
 };
 
 export const wsCallDeclined: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.call.declined',
     transport: 'signal',
     producer: PRODUCER,
@@ -564,6 +597,7 @@ export const wsCallDeclined: EventDeclaration = {
 };
 
 export const wsCallCancelled: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.call.cancelled',
     transport: 'signal',
     producer: PRODUCER,
@@ -573,6 +607,7 @@ export const wsCallCancelled: EventDeclaration = {
 };
 
 export const wsCallEnded: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.call.ended',
     transport: 'signal',
     producer: PRODUCER,
@@ -590,6 +625,7 @@ export const wsCallEnded: EventDeclaration = {
 
 /** Subscription confirmation for a pipeline channel. */
 export const wsPipelineSubscribed: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.pipeline.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -603,6 +639,7 @@ export const wsPipelineSubscribed: EventDeclaration = {
 
 /** Unsubscription confirmation for a pipeline channel. */
 export const wsPipelineUnsubscribed: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.pipeline.unsubscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -620,6 +657,7 @@ export const wsPipelineUnsubscribed: EventDeclaration = {
  * Note: frame type is `pipeline:ack`.
  */
 export const wsPipelineAck: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.pipeline.ack',
     transport: 'signal',
     producer: PRODUCER,
@@ -637,6 +675,7 @@ export const wsPipelineAck: EventDeclaration = {
  * Note: frame type is `pipeline:snapshot`.
  */
 export const wsPipelineSnapshot: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.pipeline.snapshot',
     transport: 'signal',
     producer: PRODUCER,
@@ -654,6 +693,7 @@ export const wsPipelineSnapshot: EventDeclaration = {
  * Note: frame type is `pipeline:history`.
  */
 export const wsPipelineHistory: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.pipeline.history',
     transport: 'signal',
     producer: PRODUCER,
@@ -672,6 +712,7 @@ export const wsPipelineHistory: EventDeclaration = {
  * Note: frame type is `pipeline:event`.
  */
 export const wsPipelineEvent: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.pipeline.event',
     transport: 'signal',
     producer: PRODUCER,
@@ -693,6 +734,7 @@ export const wsPipelineEvent: EventDeclaration = {
 
 /** Generic error frame sent when any service encounters a client-visible error. */
 export const wsError: EventDeclaration = {
+    namespace: 'ws',
     name: 'ws.error',
     transport: 'signal',
     producer: PRODUCER,

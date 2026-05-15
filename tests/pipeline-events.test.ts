@@ -32,9 +32,9 @@ import {
 // Aggregate shape tests
 // ---------------------------------------------------------------------------
 
-describe('pipelineEventDeclarations aggregate (wave19-a)', () => {
-    it('exports exactly 14 declarations', () => {
-        expect(pipelineEventDeclarations).toHaveLength(14);
+describe('pipelineEventDeclarations aggregate (wave19-a / wave20-a)', () => {
+    it('exports exactly 23 declarations (P0:3 + P1:11 + P2:9)', () => {
+        expect(pipelineEventDeclarations).toHaveLength(23);
     });
 
     it('has no duplicate names', () => {

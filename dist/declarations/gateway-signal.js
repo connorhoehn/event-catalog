@@ -48,6 +48,7 @@ function wsSchema(typeLiteral, extra = {}, required = []) {
 // ===========================================================================
 /** Sent to the joining client after they successfully join a chat channel. */
 exports.wsChatJoined = {
+    namespace: 'ws',
     name: 'ws.chat.joined',
     transport: 'signal',
     producer: PRODUCER,
@@ -60,6 +61,7 @@ exports.wsChatJoined = {
 };
 /** Sent to the leaving client after they successfully leave a chat channel. */
 exports.wsChatLeft = {
+    namespace: 'ws',
     name: 'ws.chat.left',
     transport: 'signal',
     producer: PRODUCER,
@@ -72,6 +74,7 @@ exports.wsChatLeft = {
 };
 /** Broadcast to all channel subscribers when a new chat message is posted. */
 exports.wsChatMessage = {
+    namespace: 'ws',
     name: 'ws.chat.message',
     transport: 'signal',
     producer: PRODUCER,
@@ -85,6 +88,7 @@ exports.wsChatMessage = {
 };
 /** Confirmation sent to the message sender after their message is stored+broadcast. */
 exports.wsChatSent = {
+    namespace: 'ws',
     name: 'ws.chat.sent',
     transport: 'signal',
     producer: PRODUCER,
@@ -98,6 +102,7 @@ exports.wsChatSent = {
 };
 /** Recent message history delivered to a client on join or explicit history request. */
 exports.wsChatHistory = {
+    namespace: 'ws',
     name: 'ws.chat.history',
     transport: 'signal',
     producer: PRODUCER,
@@ -114,6 +119,7 @@ exports.wsChatHistory = {
 // ===========================================================================
 /** Subscription confirmation + current snapshot of all cursors in the channel. */
 exports.wsCursorSubscribed = {
+    namespace: 'ws',
     name: 'ws.cursor.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -127,6 +133,7 @@ exports.wsCursorSubscribed = {
 };
 /** Unsubscription confirmation. */
 exports.wsCursorUnsubscribed = {
+    namespace: 'ws',
     name: 'ws.cursor.unsubscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -139,6 +146,7 @@ exports.wsCursorUnsubscribed = {
 };
 /** Broadcast when a client moves their cursor (throttled). */
 exports.wsCursorUpdate = {
+    namespace: 'ws',
     name: 'ws.cursor.update',
     transport: 'signal',
     producer: PRODUCER,
@@ -152,6 +160,7 @@ exports.wsCursorUpdate = {
 };
 /** Broadcast when a client disconnects and their cursor should be removed. */
 exports.wsCursorRemove = {
+    namespace: 'ws',
     name: 'ws.cursor.remove',
     transport: 'signal',
     producer: PRODUCER,
@@ -165,6 +174,7 @@ exports.wsCursorRemove = {
 };
 /** Current cursor list for a channel, sent in response to a `get` request. */
 exports.wsCursorList = {
+    namespace: 'ws',
     name: 'ws.cursor.cursors',
     transport: 'signal',
     producer: PRODUCER,
@@ -178,6 +188,7 @@ exports.wsCursorList = {
 };
 /** Supported cursor modes (freeform, table, text, canvas). */
 exports.wsCursorModes = {
+    namespace: 'ws',
     name: 'ws.cursor.modes',
     transport: 'signal',
     producer: PRODUCER,
@@ -193,6 +204,7 @@ exports.wsCursorModes = {
 // ===========================================================================
 /** Subscription confirmation for an activity channel. */
 exports.wsActivitySubscribed = {
+    namespace: 'ws',
     name: 'ws.activity.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -205,6 +217,7 @@ exports.wsActivitySubscribed = {
 };
 /** Unsubscription confirmation for an activity channel. */
 exports.wsActivityUnsubscribed = {
+    namespace: 'ws',
     name: 'ws.activity.unsubscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -217,6 +230,7 @@ exports.wsActivityUnsubscribed = {
 };
 /** Confirmation sent to the publishing client after their activity event is broadcast. */
 exports.wsActivityPublished = {
+    namespace: 'ws',
     name: 'ws.activity.published',
     transport: 'signal',
     producer: PRODUCER,
@@ -229,6 +243,7 @@ exports.wsActivityPublished = {
 };
 /** History response for an activity channel. */
 exports.wsActivityHistory = {
+    namespace: 'ws',
     name: 'ws.activity.history',
     transport: 'signal',
     producer: PRODUCER,
@@ -245,6 +260,7 @@ exports.wsActivityHistory = {
  * Note: this frame uses type `activity:event`, not `activity`.
  */
 exports.wsActivityEvent = {
+    namespace: 'ws',
     name: 'ws.activity.event',
     transport: 'signal',
     producer: PRODUCER,
@@ -270,6 +286,7 @@ exports.wsActivityEvent = {
 // ===========================================================================
 /** Subscription confirmation after a client subscribes to a CRDT channel. */
 exports.wsCrdtSubscribed = {
+    namespace: 'ws',
     name: 'ws.crdt.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -282,6 +299,7 @@ exports.wsCrdtSubscribed = {
 };
 /** Unsubscription confirmation after a client leaves a CRDT channel. */
 exports.wsCrdtUnsubscribed = {
+    namespace: 'ws',
     name: 'ws.crdt.unsubscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -297,6 +315,7 @@ exports.wsCrdtUnsubscribed = {
  * Note: frame type is `crdt:snapshot`.
  */
 exports.wsCrdtSnapshot = {
+    namespace: 'ws',
     name: 'ws.crdt.snapshot',
     transport: 'signal',
     producer: PRODUCER,
@@ -312,6 +331,7 @@ exports.wsCrdtSnapshot = {
  * Note: frame type is `crdt:update`.
  */
 exports.wsCrdtUpdate = {
+    namespace: 'ws',
     name: 'ws.crdt.update',
     transport: 'signal',
     producer: PRODUCER,
@@ -327,6 +347,7 @@ exports.wsCrdtUpdate = {
  * Note: frame type is `crdt:doc-replaced`.
  */
 exports.wsCrdtDocReplaced = {
+    namespace: 'ws',
     name: 'ws.crdt.doc-replaced',
     transport: 'signal',
     producer: PRODUCER,
@@ -342,6 +363,7 @@ exports.wsCrdtDocReplaced = {
 // ===========================================================================
 /** Sent to the client when their presence is successfully set/updated. */
 exports.wsPresenceSet = {
+    namespace: 'ws',
     name: 'ws.presence.set',
     transport: 'signal',
     producer: PRODUCER,
@@ -354,6 +376,7 @@ exports.wsPresenceSet = {
 };
 /** Broadcast to channel subscribers when a client's presence changes. */
 exports.wsPresenceUpdate = {
+    namespace: 'ws',
     name: 'ws.presence.update',
     transport: 'signal',
     producer: PRODUCER,
@@ -366,6 +389,7 @@ exports.wsPresenceUpdate = {
 };
 /** Subscription confirmation + current presence snapshot for the channel. */
 exports.wsPresenceSubscribed = {
+    namespace: 'ws',
     name: 'ws.presence.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -379,6 +403,7 @@ exports.wsPresenceSubscribed = {
 };
 /** Unsubscription confirmation from a presence channel. */
 exports.wsPresenceUnsubscribed = {
+    namespace: 'ws',
     name: 'ws.presence.unsubscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -391,6 +416,7 @@ exports.wsPresenceUnsubscribed = {
 };
 /** Presence data response to a get request (specific client or channel). */
 exports.wsPresenceData = {
+    namespace: 'ws',
     name: 'ws.presence.data',
     transport: 'signal',
     producer: PRODUCER,
@@ -403,6 +429,7 @@ exports.wsPresenceData = {
 };
 /** Broadcast when a client goes offline (disconnects or times out). */
 exports.wsPresenceOffline = {
+    namespace: 'ws',
     name: 'ws.presence.offline',
     transport: 'signal',
     producer: PRODUCER,
@@ -418,6 +445,7 @@ exports.wsPresenceOffline = {
 // ===========================================================================
 /** Sent when a client subscribes to reactions in a channel. */
 exports.wsReactionSubscribed = {
+    namespace: 'ws',
     name: 'ws.reaction.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -437,6 +465,7 @@ exports.wsReactionSubscribed = {
 };
 /** Broadcast to all channel subscribers when a reaction is sent. */
 exports.wsReactionReceived = {
+    namespace: 'ws',
     name: 'ws.reaction.received',
     transport: 'signal',
     producer: PRODUCER,
@@ -460,6 +489,7 @@ exports.wsReactionReceived = {
 };
 /** Confirmation sent to the sender after their reaction is broadcast. */
 exports.wsReactionSent = {
+    namespace: 'ws',
     name: 'ws.reaction.sent',
     transport: 'signal',
     producer: PRODUCER,
@@ -492,6 +522,7 @@ function callSchema(action) {
     }, ['action']);
 }
 exports.wsCallInvite = {
+    namespace: 'ws',
     name: 'ws.call.invite',
     transport: 'signal',
     producer: PRODUCER,
@@ -500,6 +531,7 @@ exports.wsCallInvite = {
     schema: callSchema('invite'),
 };
 exports.wsCallAccepted = {
+    namespace: 'ws',
     name: 'ws.call.accepted',
     transport: 'signal',
     producer: PRODUCER,
@@ -508,6 +540,7 @@ exports.wsCallAccepted = {
     schema: callSchema('accepted'),
 };
 exports.wsCallDeclined = {
+    namespace: 'ws',
     name: 'ws.call.declined',
     transport: 'signal',
     producer: PRODUCER,
@@ -516,6 +549,7 @@ exports.wsCallDeclined = {
     schema: callSchema('declined'),
 };
 exports.wsCallCancelled = {
+    namespace: 'ws',
     name: 'ws.call.cancelled',
     transport: 'signal',
     producer: PRODUCER,
@@ -524,6 +558,7 @@ exports.wsCallCancelled = {
     schema: callSchema('cancelled'),
 };
 exports.wsCallEnded = {
+    namespace: 'ws',
     name: 'ws.call.ended',
     transport: 'signal',
     producer: PRODUCER,
@@ -539,6 +574,7 @@ exports.wsCallEnded = {
 // ===========================================================================
 /** Subscription confirmation for a pipeline channel. */
 exports.wsPipelineSubscribed = {
+    namespace: 'ws',
     name: 'ws.pipeline.subscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -551,6 +587,7 @@ exports.wsPipelineSubscribed = {
 };
 /** Unsubscription confirmation for a pipeline channel. */
 exports.wsPipelineUnsubscribed = {
+    namespace: 'ws',
     name: 'ws.pipeline.unsubscribed',
     transport: 'signal',
     producer: PRODUCER,
@@ -567,6 +604,7 @@ exports.wsPipelineUnsubscribed = {
  * Note: frame type is `pipeline:ack`.
  */
 exports.wsPipelineAck = {
+    namespace: 'ws',
     name: 'ws.pipeline.ack',
     transport: 'signal',
     producer: PRODUCER,
@@ -583,6 +621,7 @@ exports.wsPipelineAck = {
  * Note: frame type is `pipeline:snapshot`.
  */
 exports.wsPipelineSnapshot = {
+    namespace: 'ws',
     name: 'ws.pipeline.snapshot',
     transport: 'signal',
     producer: PRODUCER,
@@ -599,6 +638,7 @@ exports.wsPipelineSnapshot = {
  * Note: frame type is `pipeline:history`.
  */
 exports.wsPipelineHistory = {
+    namespace: 'ws',
     name: 'ws.pipeline.history',
     transport: 'signal',
     producer: PRODUCER,
@@ -616,6 +656,7 @@ exports.wsPipelineHistory = {
  * Note: frame type is `pipeline:event`.
  */
 exports.wsPipelineEvent = {
+    namespace: 'ws',
     name: 'ws.pipeline.event',
     transport: 'signal',
     producer: PRODUCER,
@@ -635,6 +676,7 @@ exports.wsPipelineEvent = {
 // ===========================================================================
 /** Generic error frame sent when any service encounters a client-visible error. */
 exports.wsError = {
+    namespace: 'ws',
     name: 'ws.error',
     transport: 'signal',
     producer: PRODUCER,

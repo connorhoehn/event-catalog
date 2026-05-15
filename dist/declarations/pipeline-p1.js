@@ -42,6 +42,7 @@ function pipelineSchema(extra, required) {
 // Run lifecycle (cancelled, paused, resumed)
 // ---------------------------------------------------------------------------
 exports.pipelineRunCancelled = {
+    namespace: 'pipeline',
     name: 'pipeline:run:cancelled',
     transport: 'signal',
     producer: PRODUCER,
@@ -50,6 +51,7 @@ exports.pipelineRunCancelled = {
     schema: pipelineSchema({}, []),
 };
 exports.pipelineRunPaused = {
+    namespace: 'pipeline',
     name: 'pipeline:run:paused',
     transport: 'signal',
     producer: PRODUCER,
@@ -58,6 +60,7 @@ exports.pipelineRunPaused = {
     schema: pipelineSchema({ atStepIds: { type: 'array', items: { type: 'string' } } }, ['atStepIds']),
 };
 exports.pipelineRunResumed = {
+    namespace: 'pipeline',
     name: 'pipeline:run:resumed',
     transport: 'signal',
     producer: PRODUCER,
@@ -70,6 +73,7 @@ exports.pipelineRunResumed = {
 // attempt:started, attempt:failed)
 // ---------------------------------------------------------------------------
 exports.pipelineStepStarted = {
+    namespace: 'pipeline',
     name: 'pipeline:step:started',
     transport: 'signal',
     producer: PRODUCER,
@@ -81,6 +85,7 @@ exports.pipelineStepStarted = {
     }, ['stepId', 'nodeType']),
 };
 exports.pipelineStepCompleted = {
+    namespace: 'pipeline',
     name: 'pipeline:step:completed',
     transport: 'signal',
     producer: PRODUCER,
@@ -93,6 +98,7 @@ exports.pipelineStepCompleted = {
     }, ['stepId', 'durationMs']),
 };
 exports.pipelineStepFailed = {
+    namespace: 'pipeline',
     name: 'pipeline:step:failed',
     transport: 'signal',
     producer: PRODUCER,
@@ -104,6 +110,7 @@ exports.pipelineStepFailed = {
     }, ['stepId', 'error']),
 };
 exports.pipelineStepSkipped = {
+    namespace: 'pipeline',
     name: 'pipeline:step:skipped',
     transport: 'signal',
     producer: PRODUCER,
@@ -115,6 +122,7 @@ exports.pipelineStepSkipped = {
     }, ['stepId', 'reason']),
 };
 exports.pipelineStepCancelled = {
+    namespace: 'pipeline',
     name: 'pipeline:step:cancelled',
     transport: 'signal',
     producer: PRODUCER,
@@ -123,6 +131,7 @@ exports.pipelineStepCancelled = {
     schema: pipelineSchema({ stepId: { type: 'string' } }, ['stepId']),
 };
 exports.pipelineStepHeartbeat = {
+    namespace: 'pipeline',
     name: 'pipeline:step:heartbeat',
     transport: 'signal',
     producer: PRODUCER,
@@ -131,6 +140,7 @@ exports.pipelineStepHeartbeat = {
     schema: pipelineSchema({ stepId: { type: 'string' } }, ['stepId']),
 };
 exports.pipelineStepAttemptStarted = {
+    namespace: 'pipeline',
     name: 'pipeline:step:attempt:started',
     transport: 'signal',
     producer: PRODUCER,
@@ -149,6 +159,7 @@ exports.pipelineStepAttemptStarted = {
     },
 };
 exports.pipelineStepAttemptFailed = {
+    namespace: 'pipeline',
     name: 'pipeline:step:attempt:failed',
     transport: 'signal',
     producer: PRODUCER,
@@ -172,6 +183,7 @@ exports.pipelineStepAttemptFailed = {
 // LLM observability (prompt, token, response, stream:opened)
 // ---------------------------------------------------------------------------
 exports.pipelineLlmPrompt = {
+    namespace: 'pipeline',
     name: 'pipeline:llm:prompt',
     transport: 'signal',
     producer: PRODUCER,
@@ -184,6 +196,7 @@ exports.pipelineLlmPrompt = {
     }, ['stepId', 'model', 'prompt']),
 };
 exports.pipelineLlmToken = {
+    namespace: 'pipeline',
     name: 'pipeline:llm:token',
     transport: 'signal',
     producer: PRODUCER,
@@ -195,6 +208,7 @@ exports.pipelineLlmToken = {
     }, ['stepId', 'token']),
 };
 exports.pipelineLlmResponse = {
+    namespace: 'pipeline',
     name: 'pipeline:llm:response',
     transport: 'signal',
     producer: PRODUCER,
@@ -208,6 +222,7 @@ exports.pipelineLlmResponse = {
     }, ['stepId', 'response', 'tokensIn', 'tokensOut']),
 };
 exports.pipelineLlmStreamOpened = {
+    namespace: 'pipeline',
     name: 'pipeline:llm:stream:opened',
     transport: 'signal',
     producer: PRODUCER,
@@ -229,6 +244,7 @@ exports.pipelineLlmStreamOpened = {
 // Context mutations (edit-and-continue at breakpoints — hub#2226)
 // ---------------------------------------------------------------------------
 exports.pipelineContextPatched = {
+    namespace: 'pipeline',
     name: 'pipeline:step:context.patched',
     transport: 'signal',
     producer: PRODUCER,
@@ -241,6 +257,7 @@ exports.pipelineContextPatched = {
     }, ['stepId', 'patchId', 'mode']),
 };
 exports.pipelineContextPatchedUnvalidated = {
+    namespace: 'pipeline',
     name: 'pipeline:step:context.patched-unvalidated',
     transport: 'signal',
     producer: PRODUCER,
@@ -253,6 +270,7 @@ exports.pipelineContextPatchedUnvalidated = {
     }, ['stepId', 'patchId', 'mode']),
 };
 exports.pipelineContextPatchReverted = {
+    namespace: 'pipeline',
     name: 'pipeline:step:context.patch-reverted',
     transport: 'signal',
     producer: PRODUCER,

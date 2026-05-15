@@ -34,7 +34,7 @@
 // constants here — add them to the appropriate module and then include
 // them in the list below.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pipelineEventDeclarations = exports.pipelineLlmResponse = exports.pipelineLlmPrompt = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineStepBreakpoint = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunStuck = exports.pipelineRunCancelled = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
+exports.pipelineEventDeclarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineLlmResponse = exports.pipelineLlmPrompt = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineStepBreakpoint = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunStuck = exports.pipelineRunCancelled = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
 const pipeline_1 = require("./pipeline");
 Object.defineProperty(exports, "pipelineApprovalRequested", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRequested; } });
 Object.defineProperty(exports, "pipelineApprovalRecorded", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRecorded; } });
@@ -50,15 +50,25 @@ Object.defineProperty(exports, "pipelineContextPatched", { enumerable: true, get
 Object.defineProperty(exports, "pipelineContextPatchedUnvalidated", { enumerable: true, get: function () { return pipeline_p1_1.pipelineContextPatchedUnvalidated; } });
 Object.defineProperty(exports, "pipelineContextPatchReverted", { enumerable: true, get: function () { return pipeline_p1_1.pipelineContextPatchReverted; } });
 const pipeline_p2_1 = require("./pipeline-p2");
+Object.defineProperty(exports, "pipelineRunStarted", { enumerable: true, get: function () { return pipeline_p2_1.pipelineRunStarted; } });
+Object.defineProperty(exports, "pipelineRunCompleted", { enumerable: true, get: function () { return pipeline_p2_1.pipelineRunCompleted; } });
+Object.defineProperty(exports, "pipelineRunFailed", { enumerable: true, get: function () { return pipeline_p2_1.pipelineRunFailed; } });
+Object.defineProperty(exports, "pipelineRunOrphaned", { enumerable: true, get: function () { return pipeline_p2_1.pipelineRunOrphaned; } });
+Object.defineProperty(exports, "pipelineRunReassigned", { enumerable: true, get: function () { return pipeline_p2_1.pipelineRunReassigned; } });
+Object.defineProperty(exports, "pipelineRunResumedFromStep", { enumerable: true, get: function () { return pipeline_p2_1.pipelineRunResumedFromStep; } });
+Object.defineProperty(exports, "pipelineRunRetry", { enumerable: true, get: function () { return pipeline_p2_1.pipelineRunRetry; } });
 Object.defineProperty(exports, "pipelineRunStuck", { enumerable: true, get: function () { return pipeline_p2_1.pipelineRunStuck; } });
 Object.defineProperty(exports, "pipelineStepBreakpoint", { enumerable: true, get: function () { return pipeline_p2_1.pipelineStepBreakpoint; } });
+Object.defineProperty(exports, "pipelineJoinWaiting", { enumerable: true, get: function () { return pipeline_p2_1.pipelineJoinWaiting; } });
+Object.defineProperty(exports, "pipelineJoinFired", { enumerable: true, get: function () { return pipeline_p2_1.pipelineJoinFired; } });
 /**
- * Consolidated list of 14 P0+P1 pipeline event declarations for
+ * Consolidated list of P0+P1+P2 pipeline event declarations for
  * bulk-registration by consumers.
  *
  * Includes:
- *   - 2 approval events (transport: 'both' — signal + durable)
+ *   - 3 P0 events: 2 approval events (transport: 'both') + 1 checkpoint
  *   - 12 P1 lifecycle/observability signal events
+ *   - 9 P2 run lifecycle + join signal events (wave20-a)
  *
  * Note: `pipeline:approval:requested` and `pipeline:approval:recorded`
  * are exposed via aliases on the canonical dot-form declarations. The
@@ -92,5 +102,16 @@ exports.pipelineEventDeclarations = [
     // P1 — LLM observability
     pipeline_p1_1.pipelineLlmPrompt,
     pipeline_p1_1.pipelineLlmResponse,
+    // P2 — run lifecycle (wave20-a)
+    pipeline_p2_1.pipelineRunStarted,
+    pipeline_p2_1.pipelineRunCompleted,
+    pipeline_p2_1.pipelineRunFailed,
+    pipeline_p2_1.pipelineRunOrphaned,
+    pipeline_p2_1.pipelineRunReassigned,
+    pipeline_p2_1.pipelineRunResumedFromStep,
+    pipeline_p2_1.pipelineRunRetry,
+    // P2 — join bookkeeping (wave20-a)
+    pipeline_p2_1.pipelineJoinWaiting,
+    pipeline_p2_1.pipelineJoinFired,
 ];
 //# sourceMappingURL=pipeline-events.js.map

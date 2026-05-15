@@ -4,6 +4,7 @@ import {
     pipelineP2Declarations,
     pipelineRunStarted,
     pipelineRunFailed,
+    pipelineRunRetry,
     pipelineRunStuck,
     pipelineRunResumedFromStep,
     pipelineJoinWaiting,
@@ -12,6 +13,14 @@ import {
 } from '../src/declarations/pipeline-p2';
 import { pipelineP1Declarations } from '../src/declarations/pipeline-p1';
 import { pipelineDeclarations } from '../src/declarations/pipeline';
+import {
+    pipelineRaftStateMachineDeclarations,
+    pipelineRaftRunSynthesized,
+    pipelineRaftRunUpdated,
+    pipelineRaftRunCheckpointed,
+    pipelineRaftRunTerminated,
+} from '../src/declarations/pipeline-raft';
+import { pipelineEventDeclarations } from '../src/declarations/pipeline-events';
 
 describe('pipeline-p2 declarations (wave4-ec-10)', () => {
     it('bulk-registers every P2 pipeline event in a fresh registry', () => {
@@ -48,7 +57,7 @@ describe('pipeline-p2 declarations (wave4-ec-10)', () => {
         }
     });
 
-    it('covers the expected EC-10 event list (11 names)', () => {
+    it('covers the expected EC-10 event list (12 names)', () => {
         const expected = new Set([
             'pipeline:run:started',
             'pipeline:run:completed',
@@ -57,6 +66,7 @@ describe('pipeline-p2 declarations (wave4-ec-10)', () => {
             'pipeline:run:reassigned',
             'pipeline:run:resumed-from-step',
             'pipeline:run:resumeFromStep',
+            'pipeline:run:retry',
             'pipeline:run:stuck',
             'pipeline:step:breakpoint',
             'pipeline:join:waiting',
@@ -186,5 +196,145 @@ describe('pipeline-p2 declarations (wave4-ec-10)', () => {
                 at: '2026-05-14T12:00:00.000Z',
             }).valid,
         ).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// wave20-a additions
+// ---------------------------------------------------------------------------
+
+describe('pipeline:run:retry declaration (wave20-a)', () => {
+    it('has signal transport + distributed-core producer', () => {
+        expect(pipelineRunRetry.name).toBe('pipeline:run:retry');
+        expect(pipelineRunRetry.transport).toBe('signal');
+        expect(pipelineRunRetry.producer).toBe('distributed-core');
+    });
+
+    it('validates { runId, attempt, at }', () => {
+        const registry = new Registry();
+        registry.declare(pipelineRunRetry);
+
+        expect(
+            registry.validate('pipeline:run:retry', {
+                runId: 'r1',
+                attempt: 2,
+                at: '2026-05-20T10:00:00.000Z',
+            }).valid,
+        ).toBe(true);
+    });
+
+    it('rejects when attempt is missing', () => {
+        const registry = new Registry();
+        registry.declare(pipelineRunRetry);
+
+        expect(
+            registry.validate('pipeline:run:retry', {
+                runId: 'r1',
+                at: '2026-05-20T10:00:00.000Z',
+            }).valid,
+        ).toBe(false);
+    });
+
+    it('rejects when runId is missing', () => {
+        const registry = new Registry();
+        registry.declare(pipelineRunRetry);
+
+        expect(
+            registry.validate('pipeline:run:retry', {
+                attempt: 1,
+                at: '2026-05-20T10:00:00.000Z',
+            }).valid,
+        ).toBe(false);
+    });
+});
+
+describe('pipelineRaftStateMachineDeclarations (wave20-a)', () => {
+    it('exports exactly 4 SM transition declarations', () => {
+        expect(pipelineRaftStateMachineDeclarations).toHaveLength(4);
+    });
+
+    it('contains synthesized, updated, checkpointed, terminated — NOT started', () => {
+        const names = pipelineRaftStateMachineDeclarations.map((d) => d.name);
+        expect(names).toContain('pipeline:raft:run:synthesized');
+        expect(names).toContain('pipeline:raft:run:updated');
+        expect(names).toContain('pipeline:raft:run:checkpointed');
+        expect(names).toContain('pipeline:raft:run:terminated');
+        expect(names).not.toContain('pipeline:raft:run:started');
+    });
+
+    it('all SM declarations have signal transport + platform-api producer', () => {
+        for (const decl of pipelineRaftStateMachineDeclarations) {
+            expect(decl.transport).toBe('signal');
+            expect(decl.producer).toBe('platform-api');
+        }
+    });
+
+    it('bulk-registers in a fresh registry without errors', () => {
+        const registry = new Registry();
+        for (const decl of pipelineRaftStateMachineDeclarations) {
+            const result = registry.declare(decl);
+            expect(result.compatible).toBe(true);
+        }
+        expect(registry.size()).toBe(4);
+    });
+
+    it('validates pipeline:raft:run:synthesized with { runId, slot }', () => {
+        const registry = new Registry();
+        registry.declare(pipelineRaftRunSynthesized);
+
+        const validSlot = { runId: 'run_01', status: 'running', lastAppliedIndex: 1 };
+        expect(registry.validate('pipeline:raft:run:synthesized', { runId: 'run_01', slot: validSlot }).valid).toBe(true);
+        expect(registry.validate('pipeline:raft:run:synthesized', { runId: 'run_01' }).valid).toBe(false);
+    });
+
+    it('validates pipeline:raft:run:updated with { runId, slot }', () => {
+        const registry = new Registry();
+        registry.declare(pipelineRaftRunUpdated);
+
+        const validSlot = { runId: 'run_01', status: 'running', lastAppliedIndex: 2 };
+        expect(registry.validate('pipeline:raft:run:updated', { runId: 'run_01', slot: validSlot }).valid).toBe(true);
+    });
+
+    it('validates pipeline:raft:run:checkpointed requires checkpoint in slot', () => {
+        const registry = new Registry();
+        registry.declare(pipelineRaftRunCheckpointed);
+
+        const slotWithCheckpoint = { runId: 'run_01', status: 'running', lastAppliedIndex: 3, checkpoint: { ctx: {} } };
+        const slotWithoutCheckpoint = { runId: 'run_01', status: 'running', lastAppliedIndex: 3 };
+
+        expect(registry.validate('pipeline:raft:run:checkpointed', { runId: 'run_01', slot: slotWithCheckpoint }).valid).toBe(true);
+        expect(registry.validate('pipeline:raft:run:checkpointed', { runId: 'run_01', slot: slotWithoutCheckpoint }).valid).toBe(false);
+    });
+
+    it('validates pipeline:raft:run:terminated requires terminal status enum', () => {
+        const registry = new Registry();
+        registry.declare(pipelineRaftRunTerminated);
+
+        expect(registry.validate('pipeline:raft:run:terminated', { runId: 'run_01', slot: { runId: 'run_01', status: 'completed', lastAppliedIndex: 5 } }).valid).toBe(true);
+        expect(registry.validate('pipeline:raft:run:terminated', { runId: 'run_01', slot: { runId: 'run_01', status: 'running', lastAppliedIndex: 5 } }).valid).toBe(false);
+    });
+});
+
+describe('pipelineEventDeclarations includes P2 events (wave20-a)', () => {
+    it('exports 23 declarations (P0:3 + P1:11 + P2:9)', () => {
+        expect(pipelineEventDeclarations).toHaveLength(23);
+    });
+
+    it('contains all P2 run lifecycle events', () => {
+        const names = pipelineEventDeclarations.map((d) => d.name);
+        expect(names).toContain('pipeline:run:started');
+        expect(names).toContain('pipeline:run:completed');
+        expect(names).toContain('pipeline:run:failed');
+        expect(names).toContain('pipeline:run:orphaned');
+        expect(names).toContain('pipeline:run:reassigned');
+        expect(names).toContain('pipeline:run:resumed-from-step');
+        expect(names).toContain('pipeline:run:retry');
+        expect(names).toContain('pipeline:join:waiting');
+        expect(names).toContain('pipeline:join:fired');
+    });
+
+    it('has no duplicate names', () => {
+        const names = pipelineEventDeclarations.map((d) => d.name);
+        expect(new Set(names).size).toBe(names.length);
     });
 });

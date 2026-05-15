@@ -30,6 +30,7 @@ exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineA
  * canonical contract declared here.
  */
 exports.pipelineApprovalRequested = {
+    namespace: 'pipeline',
     name: 'pipeline.approval.requested',
     description: 'A pipeline approval node has been entered and is awaiting one or more '
         + 'approvers. Emitted on the in-process bus by distributed-core; forwarded '
@@ -67,6 +68,7 @@ exports.pipelineApprovalRequested = {
  * `{ runId, stepId, userId, decision, comment?, reason?, at }`.
  */
 exports.pipelineApprovalRecorded = {
+    namespace: 'pipeline',
     name: 'pipeline.approval.recorded',
     description: 'An approver has recorded a decision against a pending pipeline '
         + 'approval. `decision` is the recorded outcome; `comment` carries an '
@@ -104,6 +106,7 @@ exports.pipelineApprovalRecorded = {
  * ISO-8601 timestamp string (not a number) on the colon-form side.
  */
 exports.pipelineRunCheckpoint = {
+    namespace: 'pipeline',
     name: 'pipeline.run.checkpoint',
     description: 'A periodic snapshot of a running pipeline\'s execution context + '
         + 'frontier, emitted on the signal bus by distributed-core for audit '

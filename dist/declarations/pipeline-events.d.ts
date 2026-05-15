@@ -1,14 +1,15 @@
 import { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpoint } from './pipeline';
 import { pipelineRunCancelled, pipelineStepStarted, pipelineStepCompleted, pipelineStepFailed, pipelineLlmPrompt, pipelineLlmResponse, pipelineContextPatched, pipelineContextPatchedUnvalidated, pipelineContextPatchReverted } from './pipeline-p1';
-import { pipelineRunStuck, pipelineStepBreakpoint } from './pipeline-p2';
-export { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpoint, pipelineRunCancelled, pipelineRunStuck, pipelineStepStarted, pipelineStepCompleted, pipelineStepFailed, pipelineStepBreakpoint, pipelineContextPatched, pipelineContextPatchedUnvalidated, pipelineContextPatchReverted, pipelineLlmPrompt, pipelineLlmResponse, };
+import { pipelineRunStarted, pipelineRunCompleted, pipelineRunFailed, pipelineRunOrphaned, pipelineRunReassigned, pipelineRunResumedFromStep, pipelineRunRetry, pipelineRunStuck, pipelineStepBreakpoint, pipelineJoinWaiting, pipelineJoinFired } from './pipeline-p2';
+export { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpoint, pipelineRunCancelled, pipelineRunStuck, pipelineStepStarted, pipelineStepCompleted, pipelineStepFailed, pipelineStepBreakpoint, pipelineContextPatched, pipelineContextPatchedUnvalidated, pipelineContextPatchReverted, pipelineLlmPrompt, pipelineLlmResponse, pipelineRunStarted, pipelineRunCompleted, pipelineRunFailed, pipelineRunOrphaned, pipelineRunReassigned, pipelineRunResumedFromStep, pipelineRunRetry, pipelineJoinWaiting, pipelineJoinFired, };
 /**
- * Consolidated list of 14 P0+P1 pipeline event declarations for
+ * Consolidated list of P0+P1+P2 pipeline event declarations for
  * bulk-registration by consumers.
  *
  * Includes:
- *   - 2 approval events (transport: 'both' — signal + durable)
+ *   - 3 P0 events: 2 approval events (transport: 'both') + 1 checkpoint
  *   - 12 P1 lifecycle/observability signal events
+ *   - 9 P2 run lifecycle + join signal events (wave20-a)
  *
  * Note: `pipeline:approval:requested` and `pipeline:approval:recorded`
  * are exposed via aliases on the canonical dot-form declarations. The

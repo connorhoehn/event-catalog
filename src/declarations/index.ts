@@ -27,6 +27,7 @@ export {
   pipelineRunOrphaned,
   pipelineRunReassigned,
   pipelineRunResumedFromStep,
+  pipelineRunRetry,
   pipelineRunStuck,
   pipelineStepBreakpoint,
   pipelineJoinWaiting,
@@ -41,6 +42,7 @@ export {
   pipelineRaftRunCheckpointed,
   pipelineRaftRunTerminated,
   pipelineRaftDeclarations,
+  pipelineRaftStateMachineDeclarations,
 } from './pipeline-raft';
 
 export { gatewaySignalDeclarations } from './gateway-signal';

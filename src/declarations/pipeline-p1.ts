@@ -48,6 +48,7 @@ function pipelineSchema(
 // ---------------------------------------------------------------------------
 
 export const pipelineRunCancelled: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:cancelled',
     transport: 'signal',
     producer: PRODUCER,
@@ -57,6 +58,7 @@ export const pipelineRunCancelled: EventDeclaration = {
 };
 
 export const pipelineRunPaused: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:paused',
     transport: 'signal',
     producer: PRODUCER,
@@ -69,6 +71,7 @@ export const pipelineRunPaused: EventDeclaration = {
 };
 
 export const pipelineRunResumed: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:resumed',
     transport: 'signal',
     producer: PRODUCER,
@@ -83,6 +86,7 @@ export const pipelineRunResumed: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineStepStarted: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:started',
     transport: 'signal',
     producer: PRODUCER,
@@ -98,6 +102,7 @@ export const pipelineStepStarted: EventDeclaration = {
 };
 
 export const pipelineStepCompleted: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:completed',
     transport: 'signal',
     producer: PRODUCER,
@@ -114,6 +119,7 @@ export const pipelineStepCompleted: EventDeclaration = {
 };
 
 export const pipelineStepFailed: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:failed',
     transport: 'signal',
     producer: PRODUCER,
@@ -129,6 +135,7 @@ export const pipelineStepFailed: EventDeclaration = {
 };
 
 export const pipelineStepSkipped: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:skipped',
     transport: 'signal',
     producer: PRODUCER,
@@ -144,6 +151,7 @@ export const pipelineStepSkipped: EventDeclaration = {
 };
 
 export const pipelineStepCancelled: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:cancelled',
     transport: 'signal',
     producer: PRODUCER,
@@ -156,6 +164,7 @@ export const pipelineStepCancelled: EventDeclaration = {
 };
 
 export const pipelineStepHeartbeat: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:heartbeat',
     transport: 'signal',
     producer: PRODUCER,
@@ -168,6 +177,7 @@ export const pipelineStepHeartbeat: EventDeclaration = {
 };
 
 export const pipelineStepAttemptStarted: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:attempt:started',
     transport: 'signal',
     producer: PRODUCER,
@@ -187,6 +197,7 @@ export const pipelineStepAttemptStarted: EventDeclaration = {
 };
 
 export const pipelineStepAttemptFailed: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:attempt:failed',
     transport: 'signal',
     producer: PRODUCER,
@@ -212,6 +223,7 @@ export const pipelineStepAttemptFailed: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineLlmPrompt: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:llm:prompt',
     transport: 'signal',
     producer: PRODUCER,
@@ -228,6 +240,7 @@ export const pipelineLlmPrompt: EventDeclaration = {
 };
 
 export const pipelineLlmToken: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:llm:token',
     transport: 'signal',
     producer: PRODUCER,
@@ -243,6 +256,7 @@ export const pipelineLlmToken: EventDeclaration = {
 };
 
 export const pipelineLlmResponse: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:llm:response',
     transport: 'signal',
     producer: PRODUCER,
@@ -260,6 +274,7 @@ export const pipelineLlmResponse: EventDeclaration = {
 };
 
 export const pipelineLlmStreamOpened: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:llm:stream:opened',
     transport: 'signal',
     producer: PRODUCER,
@@ -283,6 +298,7 @@ export const pipelineLlmStreamOpened: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineContextPatched: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:context.patched',
     transport: 'signal',
     producer: PRODUCER,
@@ -299,6 +315,7 @@ export const pipelineContextPatched: EventDeclaration = {
 };
 
 export const pipelineContextPatchedUnvalidated: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:context.patched-unvalidated',
     transport: 'signal',
     producer: PRODUCER,
@@ -315,6 +332,7 @@ export const pipelineContextPatchedUnvalidated: EventDeclaration = {
 };
 
 export const pipelineContextPatchReverted: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:context.patch-reverted',
     transport: 'signal',
     producer: PRODUCER,

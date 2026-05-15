@@ -45,7 +45,7 @@
 //   - `pipeline:run:orphaned` and `:reassigned` are emitted by the
 //     ResourceRouter (still part of DC), not the PipelineExecutor itself.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunResumeFromStep = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = void 0;
+exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumeFromStep = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = void 0;
 const PRODUCER = 'distributed-core';
 const TAGS_BASE = ['pipeline', 'producer:distributed-core'];
 /** Common envelope-shape builder for events whose payload follows the
@@ -66,6 +66,7 @@ function pipelineSchema(extra, required) {
 // Run lifecycle (started, completed, failed)
 // ---------------------------------------------------------------------------
 exports.pipelineRunStarted = {
+    namespace: 'pipeline',
     name: 'pipeline:run:started',
     transport: 'signal',
     producer: PRODUCER,
@@ -77,6 +78,7 @@ exports.pipelineRunStarted = {
     }, ['pipelineId', 'triggeredBy']),
 };
 exports.pipelineRunCompleted = {
+    namespace: 'pipeline',
     name: 'pipeline:run:completed',
     transport: 'signal',
     producer: PRODUCER,
@@ -85,6 +87,7 @@ exports.pipelineRunCompleted = {
     schema: pipelineSchema({ durationMs: { type: 'number' } }, ['durationMs']),
 };
 exports.pipelineRunFailed = {
+    namespace: 'pipeline',
     name: 'pipeline:run:failed',
     transport: 'signal',
     producer: PRODUCER,
@@ -96,6 +99,7 @@ exports.pipelineRunFailed = {
 // Distribution events (emitted by ResourceRouter inside distributed-core)
 // ---------------------------------------------------------------------------
 exports.pipelineRunOrphaned = {
+    namespace: 'pipeline',
     name: 'pipeline:run:orphaned',
     transport: 'signal',
     producer: PRODUCER,
@@ -104,6 +108,7 @@ exports.pipelineRunOrphaned = {
     schema: pipelineSchema({ previousOwner: { type: 'string' } }, ['previousOwner']),
 };
 exports.pipelineRunReassigned = {
+    namespace: 'pipeline',
     name: 'pipeline:run:reassigned',
     transport: 'signal',
     producer: PRODUCER,
@@ -118,6 +123,7 @@ exports.pipelineRunReassigned = {
 // Resume-from-step (hub#2222)
 // ---------------------------------------------------------------------------
 exports.pipelineRunResumedFromStep = {
+    namespace: 'pipeline',
     name: 'pipeline:run:resumed-from-step',
     transport: 'signal',
     producer: PRODUCER,
@@ -142,6 +148,7 @@ exports.pipelineRunResumedFromStep = {
 //
 // Producer: websocket-gateway (local EventEmitter fallback, not DC).
 exports.pipelineRunResumeFromStep = {
+    namespace: 'pipeline',
     name: 'pipeline:run:resumeFromStep',
     transport: 'signal',
     producer: 'websocket-gateway',
@@ -152,9 +159,21 @@ exports.pipelineRunResumeFromStep = {
     }, ['fromNodeId']),
 };
 // ---------------------------------------------------------------------------
+// Run retry (emitted by PipelineExecutor when a run-level retry is scheduled)
+// ---------------------------------------------------------------------------
+exports.pipelineRunRetry = {
+    name: 'pipeline:run:retry',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'PipelineExecutor is about to retry a run. `attempt` is the 1-based retry counter. Emitted before the run re-enters execution.',
+    tags: [...TAGS_BASE, 'run-lifecycle', 'retry'],
+    schema: pipelineSchema({ attempt: { type: 'number' } }, ['attempt']),
+};
+// ---------------------------------------------------------------------------
 // Stuck-run detection
 // ---------------------------------------------------------------------------
 exports.pipelineRunStuck = {
+    namespace: 'pipeline',
     name: 'pipeline:run:stuck',
     transport: 'signal',
     producer: PRODUCER,
@@ -178,6 +197,7 @@ exports.pipelineRunStuck = {
 // Debug breakpoint
 // ---------------------------------------------------------------------------
 exports.pipelineStepBreakpoint = {
+    namespace: 'pipeline',
     name: 'pipeline:step:breakpoint',
     transport: 'signal',
     producer: PRODUCER,
@@ -189,6 +209,7 @@ exports.pipelineStepBreakpoint = {
 // Join bookkeeping (observability / debugging)
 // ---------------------------------------------------------------------------
 exports.pipelineJoinWaiting = {
+    namespace: 'pipeline',
     name: 'pipeline:join:waiting',
     transport: 'signal',
     producer: PRODUCER,
@@ -201,6 +222,7 @@ exports.pipelineJoinWaiting = {
     }, ['stepId', 'received', 'required']),
 };
 exports.pipelineJoinFired = {
+    namespace: 'pipeline',
     name: 'pipeline:join:fired',
     transport: 'signal',
     producer: PRODUCER,
@@ -232,6 +254,8 @@ exports.pipelineP2Declarations = [
     // resume
     exports.pipelineRunResumedFromStep,
     exports.pipelineRunResumeFromStep,
+    // retry
+    exports.pipelineRunRetry,
     // stuck-run
     exports.pipelineRunStuck,
     // debug

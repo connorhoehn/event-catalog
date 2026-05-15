@@ -47,6 +47,7 @@ const slotBase = {
 // ---------------------------------------------------------------------------
 
 export const pipelineRaftRunStarted: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:raft:run:started',
     transport: 'signal',
     producer: PRODUCER,
@@ -79,6 +80,7 @@ export const pipelineRaftRunStarted: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineRaftRunUpdated: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:raft:run:updated',
     transport: 'signal',
     producer: PRODUCER,
@@ -102,6 +104,7 @@ export const pipelineRaftRunUpdated: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineRaftRunSynthesized: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:raft:run:synthesized',
     transport: 'signal',
     producer: PRODUCER,
@@ -126,6 +129,7 @@ export const pipelineRaftRunSynthesized: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineRaftRunCheckpointed: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:raft:run:checkpointed',
     transport: 'signal',
     producer: PRODUCER,
@@ -155,6 +159,7 @@ export const pipelineRaftRunCheckpointed: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineRaftRunTerminated: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:raft:run:terminated',
     transport: 'signal',
     producer: PRODUCER,
@@ -195,6 +200,25 @@ export const pipelineRaftDeclarations: EventDeclaration[] = [
     pipelineRaftRunStarted,
     pipelineRaftRunUpdated,
     pipelineRaftRunSynthesized,
+    pipelineRaftRunCheckpointed,
+    pipelineRaftRunTerminated,
+];
+
+/**
+ * The four state-machine transition events emitted by PipelineRaftStateMachine
+ * (wave20-a). Excludes `pipeline:raft:run:started` which is a slot-creation
+ * event. Consumers that only care about post-create state transitions should
+ * register from this list.
+ *
+ * Corresponds to the 4 Raft SM events listed in the wave20 task spec:
+ *   - pipeline:raft:run:synthesized
+ *   - pipeline:raft:run:updated
+ *   - pipeline:raft:run:checkpointed
+ *   - pipeline:raft:run:terminated
+ */
+export const pipelineRaftStateMachineDeclarations: EventDeclaration[] = [
+    pipelineRaftRunSynthesized,
+    pipelineRaftRunUpdated,
     pipelineRaftRunCheckpointed,
     pipelineRaftRunTerminated,
 ];

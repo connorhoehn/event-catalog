@@ -72,6 +72,7 @@ function pipelineSchema(
 // ---------------------------------------------------------------------------
 
 export const pipelineRunStarted: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:started',
     transport: 'signal',
     producer: PRODUCER,
@@ -87,6 +88,7 @@ export const pipelineRunStarted: EventDeclaration = {
 };
 
 export const pipelineRunCompleted: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:completed',
     transport: 'signal',
     producer: PRODUCER,
@@ -99,6 +101,7 @@ export const pipelineRunCompleted: EventDeclaration = {
 };
 
 export const pipelineRunFailed: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:failed',
     transport: 'signal',
     producer: PRODUCER,
@@ -115,6 +118,7 @@ export const pipelineRunFailed: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineRunOrphaned: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:orphaned',
     transport: 'signal',
     producer: PRODUCER,
@@ -127,6 +131,7 @@ export const pipelineRunOrphaned: EventDeclaration = {
 };
 
 export const pipelineRunReassigned: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:reassigned',
     transport: 'signal',
     producer: PRODUCER,
@@ -146,6 +151,7 @@ export const pipelineRunReassigned: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineRunResumedFromStep: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:resumed-from-step',
     transport: 'signal',
     producer: PRODUCER,
@@ -175,6 +181,7 @@ export const pipelineRunResumedFromStep: EventDeclaration = {
 // Producer: websocket-gateway (local EventEmitter fallback, not DC).
 
 export const pipelineRunResumeFromStep: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:resumeFromStep',
     transport: 'signal',
     producer: 'websocket-gateway',
@@ -189,10 +196,27 @@ export const pipelineRunResumeFromStep: EventDeclaration = {
 };
 
 // ---------------------------------------------------------------------------
+// Run retry (emitted by PipelineExecutor when a run-level retry is scheduled)
+// ---------------------------------------------------------------------------
+
+export const pipelineRunRetry: EventDeclaration = {
+    name: 'pipeline:run:retry',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'PipelineExecutor is about to retry a run. `attempt` is the 1-based retry counter. Emitted before the run re-enters execution.',
+    tags: [...TAGS_BASE, 'run-lifecycle', 'retry'],
+    schema: pipelineSchema(
+        { attempt: { type: 'number' } },
+        ['attempt'],
+    ),
+};
+
+// ---------------------------------------------------------------------------
 // Stuck-run detection
 // ---------------------------------------------------------------------------
 
 export const pipelineRunStuck: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:stuck',
     transport: 'signal',
     producer: PRODUCER,
@@ -218,6 +242,7 @@ export const pipelineRunStuck: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineStepBreakpoint: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:step:breakpoint',
     transport: 'signal',
     producer: PRODUCER,
@@ -234,6 +259,7 @@ export const pipelineStepBreakpoint: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineJoinWaiting: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:join:waiting',
     transport: 'signal',
     producer: PRODUCER,
@@ -250,6 +276,7 @@ export const pipelineJoinWaiting: EventDeclaration = {
 };
 
 export const pipelineJoinFired: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:join:fired',
     transport: 'signal',
     producer: PRODUCER,
@@ -286,6 +313,8 @@ export const pipelineP2Declarations: EventDeclaration[] = [
     // resume
     pipelineRunResumedFromStep,
     pipelineRunResumeFromStep,
+    // retry
+    pipelineRunRetry,
     // stuck-run
     pipelineRunStuck,
     // debug

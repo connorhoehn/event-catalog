@@ -24,7 +24,7 @@
 // `platform-api/src/lib/event-catalog.ts`. Moved here in wave9-d so they
 // ship to all consumers automatically without local re-declaration.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = void 0;
+exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = void 0;
 const PRODUCER = 'platform-api';
 const TAGS_BASE = ['producer:platform-api', 'pipeline', 'raft'];
 // Common slot sub-schema (base fields present on every Raft slot record).
@@ -44,6 +44,7 @@ const slotBase = {
 // pipeline:raft:run:started
 // ---------------------------------------------------------------------------
 exports.pipelineRaftRunStarted = {
+    namespace: 'pipeline',
     name: 'pipeline:raft:run:started',
     transport: 'signal',
     producer: PRODUCER,
@@ -73,6 +74,7 @@ exports.pipelineRaftRunStarted = {
 // pipeline:raft:run:updated
 // ---------------------------------------------------------------------------
 exports.pipelineRaftRunUpdated = {
+    namespace: 'pipeline',
     name: 'pipeline:raft:run:updated',
     transport: 'signal',
     producer: PRODUCER,
@@ -93,6 +95,7 @@ exports.pipelineRaftRunUpdated = {
 // pipeline:raft:run:synthesized
 // ---------------------------------------------------------------------------
 exports.pipelineRaftRunSynthesized = {
+    namespace: 'pipeline',
     name: 'pipeline:raft:run:synthesized',
     transport: 'signal',
     producer: PRODUCER,
@@ -114,6 +117,7 @@ exports.pipelineRaftRunSynthesized = {
 // pipeline:raft:run:checkpointed
 // ---------------------------------------------------------------------------
 exports.pipelineRaftRunCheckpointed = {
+    namespace: 'pipeline',
     name: 'pipeline:raft:run:checkpointed',
     transport: 'signal',
     producer: PRODUCER,
@@ -140,6 +144,7 @@ exports.pipelineRaftRunCheckpointed = {
 // pipeline:raft:run:terminated
 // ---------------------------------------------------------------------------
 exports.pipelineRaftRunTerminated = {
+    namespace: 'pipeline',
     name: 'pipeline:raft:run:terminated',
     transport: 'signal',
     producer: PRODUCER,
@@ -177,6 +182,24 @@ exports.pipelineRaftDeclarations = [
     exports.pipelineRaftRunStarted,
     exports.pipelineRaftRunUpdated,
     exports.pipelineRaftRunSynthesized,
+    exports.pipelineRaftRunCheckpointed,
+    exports.pipelineRaftRunTerminated,
+];
+/**
+ * The four state-machine transition events emitted by PipelineRaftStateMachine
+ * (wave20-a). Excludes `pipeline:raft:run:started` which is a slot-creation
+ * event. Consumers that only care about post-create state transitions should
+ * register from this list.
+ *
+ * Corresponds to the 4 Raft SM events listed in the wave20 task spec:
+ *   - pipeline:raft:run:synthesized
+ *   - pipeline:raft:run:updated
+ *   - pipeline:raft:run:checkpointed
+ *   - pipeline:raft:run:terminated
+ */
+exports.pipelineRaftStateMachineDeclarations = [
+    exports.pipelineRaftRunSynthesized,
+    exports.pipelineRaftRunUpdated,
     exports.pipelineRaftRunCheckpointed,
     exports.pipelineRaftRunTerminated,
 ];
