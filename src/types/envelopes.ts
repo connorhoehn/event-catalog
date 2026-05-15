@@ -134,6 +134,92 @@ export function channelNodesRedisKey(channelId: string): string {
   return `websocket:channel:${channelId}:nodes`;
 }
 
+// ── DirectMessage envelope (wave18-b) ─────────────────────────────────
+//
+// Point-to-point delivery to a specific client on a specific gateway
+// node. Today the gateway hand-rolls this shape at
+// `src/core/message-router.ts:651-658`. Centralising it here means a
+// future producer (platform-api, distributed-core peer messaging) can
+// import the builder rather than duplicate the literal.
+//
+// Published to Redis channel `websocket:direct:{targetNode}`.
+
+export interface DirectMessageEnvelope<TMessage = unknown> {
+  type: 'direct_message';
+  clientId: string;
+  message: TMessage;
+  fromNode: string;
+  targetNode: string;
+  timestamp: string;
+}
+
+export interface BuildDirectMessageEnvelopeArgs<TMessage> {
+  clientId: string;
+  message: TMessage;
+  fromNode: string;
+  targetNode: string;
+  /** Defaults to `new Date().toISOString()`. */
+  timestamp?: string;
+}
+
+export function buildDirectMessageEnvelope<TMessage>(
+  args: BuildDirectMessageEnvelopeArgs<TMessage>,
+): DirectMessageEnvelope<TMessage> {
+  return {
+    type: 'direct_message',
+    clientId: args.clientId,
+    message: args.message,
+    fromNode: args.fromNode,
+    targetNode: args.targetNode,
+    timestamp: args.timestamp ?? new Date().toISOString(),
+  };
+}
+
+/** Redis channel a DirectMessageEnvelope is published on. */
+export function directMessageRedisChannel(targetNode: string): string {
+  return `websocket:direct:${targetNode}`;
+}
+
+// ── Broadcast envelope (wave18-b) ─────────────────────────────────────
+//
+// Cluster-wide fan-out to every subscriber of every channel, with an
+// optional exclude-client knob. Today the gateway hand-rolls this at
+// `src/core/message-router.ts:684-690`.
+//
+// Published to the fixed Redis channel `websocket:broadcast:all`.
+
+export interface BroadcastEnvelope<TMessage = unknown> {
+  type: 'broadcast';
+  message: TMessage;
+  excludeClientId: string | null;
+  fromNode: string;
+  timestamp: string;
+}
+
+export interface BuildBroadcastEnvelopeArgs<TMessage> {
+  message: TMessage;
+  fromNode: string;
+  /** Defaults to null. */
+  excludeClientId?: string | null;
+  /** Defaults to `new Date().toISOString()`. */
+  timestamp?: string;
+}
+
+export function buildBroadcastEnvelope<TMessage>(
+  args: BuildBroadcastEnvelopeArgs<TMessage>,
+): BroadcastEnvelope<TMessage> {
+  return {
+    type: 'broadcast',
+    message: args.message,
+    excludeClientId: args.excludeClientId ?? null,
+    fromNode: args.fromNode,
+    timestamp: args.timestamp ?? new Date().toISOString(),
+  };
+}
+
+/** Redis channel a BroadcastEnvelope is published on (always the same). */
+export const broadcastRedisChannel = 'websocket:broadcast:all' as const;
+
 // ── JSON Schemas (Phase E2.1 close-out) ───────────────────────────────
 //
 // The TS types above describe the shape at compile time. The schemas
@@ -189,5 +275,38 @@ export const channelMessageEnvelopeSchema = {
     'seq',
     'timestamp',
   ],
+  additionalProperties: false,
+} as const;
+
+/** JSON Schema for {@link DirectMessageEnvelope}. */
+export const directMessageEnvelopeSchema = {
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  $id: 'https://event-catalog/schemas/DirectMessageEnvelope',
+  type: 'object',
+  properties: {
+    type: { type: 'string', enum: ['direct_message'] },
+    clientId: { type: 'string' },
+    message: {},
+    fromNode: { type: 'string' },
+    targetNode: { type: 'string' },
+    timestamp: { type: 'string', format: 'date-time' },
+  },
+  required: ['type', 'clientId', 'message', 'fromNode', 'targetNode', 'timestamp'],
+  additionalProperties: false,
+} as const;
+
+/** JSON Schema for {@link BroadcastEnvelope}. */
+export const broadcastEnvelopeSchema = {
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  $id: 'https://event-catalog/schemas/BroadcastEnvelope',
+  type: 'object',
+  properties: {
+    type: { type: 'string', enum: ['broadcast'] },
+    message: {},
+    excludeClientId: { type: ['string', 'null'] },
+    fromNode: { type: 'string' },
+    timestamp: { type: 'string', format: 'date-time' },
+  },
+  required: ['type', 'message', 'excludeClientId', 'fromNode', 'timestamp'],
   additionalProperties: false,
 } as const;

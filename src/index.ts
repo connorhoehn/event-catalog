@@ -43,12 +43,23 @@ export {
   // Phase E2.1 close-out — JSON Schemas alongside the TS types.
   signalMessageSchema,
   channelMessageEnvelopeSchema,
+  // wave18-b — direct & broadcast envelope builders + schemas.
+  buildDirectMessageEnvelope,
+  directMessageRedisChannel,
+  directMessageEnvelopeSchema,
+  buildBroadcastEnvelope,
+  broadcastRedisChannel,
+  broadcastEnvelopeSchema,
 } from './types/envelopes';
 export type {
   ChannelMessageEnvelope,
   SignalMessage,
   BuildChannelMessageEnvelopeArgs,
   BuildSignalMessageArgs,
+  DirectMessageEnvelope,
+  BuildDirectMessageEnvelopeArgs,
+  BroadcastEnvelope,
+  BuildBroadcastEnvelopeArgs,
 } from './types/envelopes';
 
 // Canonical cross-service event declarations (wave1-ec-1+) for events

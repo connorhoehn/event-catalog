@@ -8,6 +8,12 @@ import {
   channelNodesRedisKey,
   signalMessageSchema,
   channelMessageEnvelopeSchema,
+  buildDirectMessageEnvelope,
+  directMessageRedisChannel,
+  directMessageEnvelopeSchema,
+  buildBroadcastEnvelope,
+  broadcastRedisChannel,
+  broadcastEnvelopeSchema,
 } from '../src/types/envelopes';
 
 describe('buildSignalMessage', () => {
@@ -220,5 +226,115 @@ describe('JSON Schemas (Phase E2.1 close-out)', () => {
       );
       expect(r.ok).toBe(false);
     });
+  });
+});
+
+describe('buildDirectMessageEnvelope (wave18-b)', () => {
+  it('produces the canonical direct-message shape with defaults', () => {
+    const env = buildDirectMessageEnvelope({
+      clientId: 'client-7',
+      message: { kind: 'rpc', payload: { x: 1 } },
+      fromNode: 'gw-A',
+      targetNode: 'gw-B',
+    });
+    expect(env.type).toBe('direct_message');
+    expect(env.clientId).toBe('client-7');
+    expect(env.fromNode).toBe('gw-A');
+    expect(env.targetNode).toBe('gw-B');
+    expect(env.message).toEqual({ kind: 'rpc', payload: { x: 1 } });
+    expect(typeof env.timestamp).toBe('string');
+    expect(env.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('respects an explicit timestamp', () => {
+    const ts = '2026-05-15T10:00:00.000Z';
+    const env = buildDirectMessageEnvelope({
+      clientId: 'c',
+      message: {},
+      fromNode: 'a',
+      targetNode: 'b',
+      timestamp: ts,
+    });
+    expect(env.timestamp).toBe(ts);
+  });
+
+  it('directMessageRedisChannel builds the per-node channel name', () => {
+    expect(directMessageRedisChannel('gw-7')).toBe('websocket:direct:gw-7');
+  });
+});
+
+describe('buildBroadcastEnvelope (wave18-b)', () => {
+  it('produces the canonical broadcast shape with defaults', () => {
+    const env = buildBroadcastEnvelope({
+      message: { notice: 'system shutdown in 5m' },
+      fromNode: 'gw-A',
+    });
+    expect(env.type).toBe('broadcast');
+    expect(env.fromNode).toBe('gw-A');
+    expect(env.excludeClientId).toBeNull();
+    expect(env.message).toEqual({ notice: 'system shutdown in 5m' });
+    expect(typeof env.timestamp).toBe('string');
+  });
+
+  it('passes through excludeClientId and timestamp when provided', () => {
+    const env = buildBroadcastEnvelope({
+      message: {},
+      fromNode: 'gw-A',
+      excludeClientId: 'client-42',
+      timestamp: '2026-05-15T10:00:00.000Z',
+    });
+    expect(env.excludeClientId).toBe('client-42');
+    expect(env.timestamp).toBe('2026-05-15T10:00:00.000Z');
+  });
+
+  it('broadcastRedisChannel is the fixed cluster-wide topic', () => {
+    expect(broadcastRedisChannel).toBe('websocket:broadcast:all');
+  });
+});
+
+describe('directMessageEnvelopeSchema + broadcastEnvelopeSchema (wave18-b)', () => {
+  const validator = new JsonSchemaValidator({ mode: 'auto' });
+
+  it('accepts canonical direct-message builder output', () => {
+    const env = buildDirectMessageEnvelope({
+      clientId: 'c-1', message: {}, fromNode: 'gw-A', targetNode: 'gw-B',
+    });
+    const r = validator.validate(directMessageEnvelopeSchema as unknown as Record<string, unknown>, env);
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects direct-message envelope missing required `targetNode`', () => {
+    const broken = buildDirectMessageEnvelope({
+      clientId: 'c', message: {}, fromNode: 'gw-A', targetNode: 'gw-B',
+    }) as Record<string, unknown>;
+    delete broken.targetNode;
+    const r = validator.validate(directMessageEnvelopeSchema as unknown as Record<string, unknown>, broken);
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects direct-message envelope with wrong `type` discriminator', () => {
+    const env = buildDirectMessageEnvelope({
+      clientId: 'c', message: {}, fromNode: 'a', targetNode: 'b',
+    });
+    const r = validator.validate(
+      directMessageEnvelopeSchema as unknown as Record<string, unknown>,
+      { ...env, type: 'broadcast' },
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it('accepts canonical broadcast builder output', () => {
+    const env = buildBroadcastEnvelope({ message: {}, fromNode: 'gw-A' });
+    const r = validator.validate(broadcastEnvelopeSchema as unknown as Record<string, unknown>, env);
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects broadcast envelope with `excludeClientId` of wrong type', () => {
+    const env = buildBroadcastEnvelope({ message: {}, fromNode: 'gw-A' });
+    const r = validator.validate(
+      broadcastEnvelopeSchema as unknown as Record<string, unknown>,
+      { ...env, excludeClientId: 42 },
+    );
+    expect(r.ok).toBe(false);
   });
 });
