@@ -111,6 +111,42 @@ class EventCatalog {
             throw new Error(`[event-catalog] declare("${event.name}") rejected by strict mode: ${violations}`);
         }
     }
+    /**
+     * Phase 20-b — bulk-declare convenience. Equivalent to looping
+     * `declare()` per event but documents intent at the call site (most
+     * consumers register many declarations at boot from an exported
+     * array, e.g. `pipelineEventDeclarations`). In strict mode each
+     * incompatible declaration throws *immediately*; earlier successful
+     * declarations stay in the local registry.
+     */
+    declareAll(events) {
+        for (const event of events) {
+            this.declare(event);
+        }
+    }
+    /**
+     * Phase 20-b — fetch the current sha256 fingerprint of an event's
+     * schema from the remote registry. Returns null when the event is
+     * not declared on the registry, or when `registryUrl` is unset.
+     * Throws on network errors (callers can wrap to fail open).
+     *
+     * Use case: a consumer caches the fingerprint from its last fetch.
+     * On a tick it calls this and compares — if the value changed, the
+     * cached schema is stale and the consumer should re-fetch.
+     */
+    async getSchemaFingerprint(eventName) {
+        if (!this.config.registryUrl)
+            return null;
+        const url = `${this.config.registryUrl}/api/events/${encodeURIComponent(eventName)}`;
+        const res = await fetch(url);
+        if (res.status === 404)
+            return null;
+        if (!res.ok) {
+            throw new Error(`[event-catalog] getSchemaFingerprint("${eventName}"): HTTP ${res.status}`);
+        }
+        const body = await res.json();
+        return body.schemaFingerprint ?? null;
+    }
     isStrict() {
         if (typeof this.config.strict === 'boolean')
             return this.config.strict;
@@ -288,6 +324,15 @@ class EventCatalog {
         this.registerSubscriberRemote(eventName).catch(err => {
             console.warn(`[event-catalog] failed to register subscriber with remote registry for "${eventName}":`, err.message);
         });
+        // Phase 20-b — shared paused-state for the Subscription handle.
+        // The handler wrapper consults this flag; transports keep
+        // receiving so resume() doesn't have to re-attach.
+        let paused = false;
+        const guardedHandler = async (envelope) => {
+            if (paused)
+                return;
+            await handler(envelope);
+        };
         if (entry.transport === 'signal') {
             let unsubFn = null;
             // Phase E3.3 — subscribe() needs a static channel. If the declaration's
@@ -296,7 +341,7 @@ class EventCatalog {
             // subscribing to the wrong channel.
             const signalChannel = resolveStaticSignalChannel(entry.channel, eventName);
             const setupPromise = this.signal.subscribe(signalChannel, (envelope) => {
-                handler(envelope);
+                guardedHandler(envelope);
             }).then(unsub => {
                 unsubFn = unsub;
             });
@@ -309,12 +354,15 @@ class EventCatalog {
                         console.warn(`[event-catalog] failed to deregister subscriber from remote registry for "${eventName}":`, err.message);
                     });
                 },
+                pause: () => { paused = true; },
+                resume: () => { paused = false; },
+                isPaused: () => paused,
             };
         }
         else {
             const queueName = durable_1.DurableTransport.eventNameToQueueName(eventName);
             const cancel = this.durable.subscribe(queueName, async (envelope) => {
-                await handler(envelope);
+                await guardedHandler(envelope);
             }, {
                 pollingInterval: options?.pollingInterval,
                 batchSize: options?.batchSize,
@@ -327,6 +375,9 @@ class EventCatalog {
                         console.warn(`[event-catalog] failed to deregister subscriber from remote registry for "${eventName}":`, err.message);
                     });
                 },
+                pause: () => { paused = true; },
+                resume: () => { paused = false; },
+                isPaused: () => paused,
             };
         }
     }

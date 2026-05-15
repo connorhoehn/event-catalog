@@ -25,6 +25,26 @@ export declare class EventCatalog {
      * endpoint.
      */
     declare(event: EventDeclaration): void;
+    /**
+     * Phase 20-b — bulk-declare convenience. Equivalent to looping
+     * `declare()` per event but documents intent at the call site (most
+     * consumers register many declarations at boot from an exported
+     * array, e.g. `pipelineEventDeclarations`). In strict mode each
+     * incompatible declaration throws *immediately*; earlier successful
+     * declarations stay in the local registry.
+     */
+    declareAll(events: EventDeclaration[]): void;
+    /**
+     * Phase 20-b — fetch the current sha256 fingerprint of an event's
+     * schema from the remote registry. Returns null when the event is
+     * not declared on the registry, or when `registryUrl` is unset.
+     * Throws on network errors (callers can wrap to fail open).
+     *
+     * Use case: a consumer caches the fingerprint from its last fetch.
+     * On a tick it calls this and compares — if the value changed, the
+     * cached schema is stale and the consumer should re-fetch.
+     */
+    getSchemaFingerprint(eventName: string): Promise<string | null>;
     private isStrict;
     publish<T = unknown>(eventName: string, payload: T, options?: PublishOptions): Promise<void>;
     /**

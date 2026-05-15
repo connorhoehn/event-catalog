@@ -141,6 +141,42 @@ export class EventCatalog {
     }
   }
 
+  /**
+   * Phase 20-b — bulk-declare convenience. Equivalent to looping
+   * `declare()` per event but documents intent at the call site (most
+   * consumers register many declarations at boot from an exported
+   * array, e.g. `pipelineEventDeclarations`). In strict mode each
+   * incompatible declaration throws *immediately*; earlier successful
+   * declarations stay in the local registry.
+   */
+  declareAll(events: EventDeclaration[]): void {
+    for (const event of events) {
+      this.declare(event);
+    }
+  }
+
+  /**
+   * Phase 20-b — fetch the current sha256 fingerprint of an event's
+   * schema from the remote registry. Returns null when the event is
+   * not declared on the registry, or when `registryUrl` is unset.
+   * Throws on network errors (callers can wrap to fail open).
+   *
+   * Use case: a consumer caches the fingerprint from its last fetch.
+   * On a tick it calls this and compares — if the value changed, the
+   * cached schema is stale and the consumer should re-fetch.
+   */
+  async getSchemaFingerprint(eventName: string): Promise<string | null> {
+    if (!this.config.registryUrl) return null;
+    const url = `${this.config.registryUrl}/api/events/${encodeURIComponent(eventName)}`;
+    const res = await fetch(url);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new Error(`[event-catalog] getSchemaFingerprint("${eventName}"): HTTP ${res.status}`);
+    }
+    const body = await res.json() as { schemaFingerprint?: string };
+    return body.schemaFingerprint ?? null;
+  }
+
   private isStrict(): boolean {
     if (typeof this.config.strict === 'boolean') return this.config.strict;
     return process.env.EVENT_CATALOG_STRICT === 'true';
@@ -351,6 +387,15 @@ export class EventCatalog {
       console.warn(`[event-catalog] failed to register subscriber with remote registry for "${eventName}":`, (err as Error).message);
     });
 
+    // Phase 20-b — shared paused-state for the Subscription handle.
+    // The handler wrapper consults this flag; transports keep
+    // receiving so resume() doesn't have to re-attach.
+    let paused = false;
+    const guardedHandler = async (envelope: EventEnvelope<T>): Promise<void> => {
+      if (paused) return;
+      await handler(envelope);
+    };
+
     if (entry.transport === 'signal') {
       let unsubFn: (() => Promise<void>) | null = null;
 
@@ -361,7 +406,7 @@ export class EventCatalog {
       const signalChannel = resolveStaticSignalChannel(entry.channel, eventName);
 
       const setupPromise = this.signal.subscribe(signalChannel, (envelope) => {
-        handler(envelope as EventEnvelope<T>);
+        guardedHandler(envelope as EventEnvelope<T>);
       }).then(unsub => {
         unsubFn = unsub;
       });
@@ -374,13 +419,16 @@ export class EventCatalog {
             console.warn(`[event-catalog] failed to deregister subscriber from remote registry for "${eventName}":`, (err as Error).message);
           });
         },
+        pause: () => { paused = true; },
+        resume: () => { paused = false; },
+        isPaused: () => paused,
       };
     } else {
       const queueName = DurableTransport.eventNameToQueueName(eventName);
       const cancel = this.durable.subscribe(
         queueName,
         async (envelope) => {
-          await handler(envelope as EventEnvelope<T>);
+          await guardedHandler(envelope as EventEnvelope<T>);
         },
         {
           pollingInterval: options?.pollingInterval,
@@ -396,6 +444,9 @@ export class EventCatalog {
             console.warn(`[event-catalog] failed to deregister subscriber from remote registry for "${eventName}":`, (err as Error).message);
           });
         },
+        pause: () => { paused = true; },
+        resume: () => { paused = false; },
+        isPaused: () => paused,
       };
     }
   }

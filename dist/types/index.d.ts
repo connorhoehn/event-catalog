@@ -145,6 +145,17 @@ export interface EventEnvelope<T = unknown> {
 export type EventHandler<T = unknown> = (envelope: EventEnvelope<T>) => Promise<void> | void;
 export interface Subscription {
     unsubscribe(): Promise<void>;
+    /**
+     * Phase 20-b — pause forwarding. The underlying transport keeps
+     * receiving (so no Redis unsubscribe), but the handler is skipped
+     * until `resume()` is called. Drops events during pause; callers
+     * that need replay should buffer at the handler layer.
+     */
+    pause(): void;
+    /** Phase 20-b — resume forwarding. No-op if already running. */
+    resume(): void;
+    /** Phase 20-b — current pause state. */
+    isPaused(): boolean;
 }
 export interface EventStats {
     publishCount: number;

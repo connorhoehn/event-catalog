@@ -123,6 +123,89 @@ describe('EventCatalog Client Integration', () => {
       await sub.unsubscribe();
       await catalog.disconnect();
     });
+
+    it('Subscription.pause()/resume() controls handler delivery (wave20-b)', async () => {
+      const catalog = new EventCatalog(makeConfig());
+      catalog.declare({
+        name: 'gated.signal',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'test-service',
+      });
+      await catalog.connect();
+
+      const received: number[] = [];
+      const sub = catalog.subscribe('gated.signal', (envelope) => {
+        received.push((envelope.payload as { n: number }).n);
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Delivered while running.
+      expect(sub.isPaused()).toBe(false);
+      await catalog.publish('gated.signal', { n: 1 });
+      expect(received).toEqual([1]);
+
+      // Dropped while paused.
+      sub.pause();
+      expect(sub.isPaused()).toBe(true);
+      await catalog.publish('gated.signal', { n: 2 });
+      await catalog.publish('gated.signal', { n: 3 });
+      expect(received).toEqual([1]);
+
+      // Resumed.
+      sub.resume();
+      expect(sub.isPaused()).toBe(false);
+      await catalog.publish('gated.signal', { n: 4 });
+      expect(received).toEqual([1, 4]);
+
+      await sub.unsubscribe();
+      await catalog.disconnect();
+    });
+  });
+
+  describe('Phase 20-b — declareAll + getSchemaFingerprint', () => {
+    it('declareAll registers every event in the array', () => {
+      const catalog = new EventCatalog(makeConfig());
+      const events = [
+        { name: 'a.x', schema: {}, transport: 'signal' as const, producer: 's' },
+        { name: 'b.y', schema: {}, transport: 'signal' as const, producer: 's' },
+        { name: 'c.z', schema: {}, transport: 'durable' as const, producer: 's' },
+      ];
+      catalog.declareAll(events);
+      const reg = catalog.getRegistry();
+      expect(reg.size()).toBe(3);
+      expect(reg.get('a.x')).toBeDefined();
+      expect(reg.get('c.z')!.transport).toBe('durable');
+    });
+
+    it('getSchemaFingerprint returns null when registryUrl is unset', async () => {
+      const catalog = new EventCatalog(makeConfig());
+      const fp = await catalog.getSchemaFingerprint('whatever');
+      expect(fp).toBeNull();
+    });
+
+    it('getSchemaFingerprint fetches the current fingerprint from the registry', async () => {
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      fetchMock.mockImplementationOnce(async () => new Response(
+        JSON.stringify({ name: 'a.x', schemaFingerprint: 'abcd1234'.padEnd(64, '0') }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ));
+      const fp = await catalog.getSchemaFingerprint('a.x');
+      expect(fp).toBe('abcd1234'.padEnd(64, '0'));
+    });
+
+    it('getSchemaFingerprint returns null on 404', async () => {
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      fetchMock.mockImplementationOnce(async () => new Response('not found', { status: 404 }));
+      const fp = await catalog.getSchemaFingerprint('missing.event');
+      expect(fp).toBeNull();
+    });
+
+    it('getSchemaFingerprint throws on other HTTP errors', async () => {
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      fetchMock.mockImplementationOnce(async () => new Response('server', { status: 503 }));
+      await expect(catalog.getSchemaFingerprint('a.x')).rejects.toThrow(/HTTP 503/);
+    });
   });
 
   describe('Phase E3.5 — alias resolution', () => {
