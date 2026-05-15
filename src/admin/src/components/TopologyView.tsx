@@ -30,6 +30,7 @@ import { api, type TopologyGraph } from '../api';
 import EventNode from './topology/EventNode';
 import ServiceNode from './topology/ServiceNode';
 import { layoutGraph } from './topology/layout';
+import { NamespaceClusters } from './topology/NamespaceClusters';
 
 const nodeTypes: NodeTypes = {
   event: EventNode,
@@ -109,18 +110,27 @@ export function TopologyView() {
       .catch((err) => setError((err as Error).message));
   }, [filter.namespace]);
 
-  const { rfNodes, rfEdges, namespaces } = useMemo(() => {
-    if (!topology) return { rfNodes: [], rfEdges: [], namespaces: [] as string[] };
+  const { rfNodes, rfEdges, namespaces, nodeNamespaces } = useMemo(() => {
+    if (!topology) {
+      return {
+        rfNodes: [] as Node[],
+        rfEdges: [] as Edge[],
+        namespaces: [] as string[],
+        nodeNamespaces: {} as Record<string, string>,
+      };
+    }
     const baseNodes = toReactFlowNodes(topology);
     const baseEdges = toReactFlowEdges(topology);
     const laidOut = layoutGraph(baseNodes, baseEdges);
     const ns = new Set<string>();
+    const byId: Record<string, string> = {};
     for (const n of topology.nodes) {
       if (n.type === 'event' && typeof n.metadata.namespace === 'string') {
         ns.add(n.metadata.namespace);
+        byId[n.id] = n.metadata.namespace;
       }
     }
-    return { rfNodes: laidOut, rfEdges: baseEdges, namespaces: [...ns].sort() };
+    return { rfNodes: laidOut, rfEdges: baseEdges, namespaces: [...ns].sort(), nodeNamespaces: byId };
   }, [topology]);
 
   if (error) return <Banner variant="error" title="Error">{error}</Banner>;
@@ -168,6 +178,7 @@ export function TopologyView() {
               maxZoom={1.5}
               proOptions={{ hideAttribution: true }}
             >
+              <NamespaceClusters nodeNamespaces={nodeNamespaces} />
               <Background />
               <Controls />
               <MiniMap

@@ -4,6 +4,7 @@ import Chip from '@ui/components/shared/Chip';
 import Banner from '@ui/components/shared/Banner';
 import SkeletonCard from '@ui/components/shared/SkeletonCard';
 import { api, type EventEntry, type EventStats } from '../api';
+import { FingerprintChip } from './FingerprintChip';
 
 export function EventDetail() {
   const { name } = useParams<{ name: string }>();
@@ -52,11 +53,14 @@ export function EventDetail() {
         <Link to="/events">Events</Link> / {event.name}
       </div>
 
-      <div className="detail-header">
-        <h2>{event.name}</h2>
+      <div className="detail-header" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <h2 style={{ margin: 0 }}>{event.name}</h2>
         <Chip tone={event.transport === 'signal' ? 'info' : 'warning'}>
           {event.transport}
         </Chip>
+        {event.namespace ? <Chip tone="purple">{event.namespace}</Chip> : null}
+        {event.version ? <Chip tone="neutral">v{event.version}</Chip> : null}
+        <FingerprintChip fingerprint={event.schemaFingerprint} />
       </div>
 
       {event.description && <p className="description">{event.description}</p>}
@@ -98,6 +102,23 @@ export function EventDetail() {
             {JSON.stringify(event.schema, null, 2)}
           </pre>
         </section>
+
+        {event.schemaHistory && event.schemaHistory.length > 0 ? (
+          <section className="detail-section">
+            <h3>Schema History ({event.schemaHistory.length})</h3>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {event.schemaHistory.map((h) => (
+                <li key={h.version} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Chip tone="neutral">v{h.version}</Chip>
+                  <FingerprintChip fingerprint={h.fingerprint} label="" />
+                  <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                    {new Date(h.updatedAt).toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <section className="detail-section">
           <h3>Registration</h3>

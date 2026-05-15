@@ -32,6 +32,7 @@ import { api, type TopologyGraph } from '../api';
 import EventNode from './topology/EventNode';
 import ServiceNode from './topology/ServiceNode';
 import { layoutGraph } from './topology/layout';
+import { NamespaceClusters } from './topology/NamespaceClusters';
 import { useFlowTap, type TapEvent } from './topology/useFlowTap';
 
 const nodeTypes: NodeTypes = {
@@ -101,13 +102,14 @@ export function FlowView() {
       .catch((err) => setError((err as Error).message));
   }, [namespace]);
 
-  const { rfNodes, rfEdges, namespaces, edgeIdsByEvent } = useMemo(() => {
+  const { rfNodes, rfEdges, namespaces, edgeIdsByEvent, nodeNamespaces } = useMemo(() => {
     if (!topology) {
       return {
         rfNodes: [] as Node[],
         rfEdges: [] as Edge[],
         namespaces: [] as string[],
         edgeIdsByEvent: new Map<string, string[]>(),
+        nodeNamespaces: {} as Record<string, string>,
       };
     }
     const baseNodes = toReactFlowNodes(topology);
@@ -115,9 +117,11 @@ export function FlowView() {
     const laidOut = layoutGraph(baseNodes, baseEdges);
 
     const ns = new Set<string>();
+    const byId: Record<string, string> = {};
     for (const n of topology.nodes) {
       if (n.type === 'event' && typeof n.metadata.namespace === 'string') {
         ns.add(n.metadata.namespace);
+        byId[n.id] = n.metadata.namespace;
       }
     }
     // Index edges by the event-node they touch — flow events animate
@@ -135,7 +139,7 @@ export function FlowView() {
       byEvent.set(eventId, list);
     }
 
-    return { rfNodes: laidOut, rfEdges: baseEdges, namespaces: [...ns].sort(), edgeIdsByEvent: byEvent };
+    return { rfNodes: laidOut, rfEdges: baseEdges, namespaces: [...ns].sort(), edgeIdsByEvent: byEvent, nodeNamespaces: byId };
   }, [topology]);
 
   // Apply current edgeStates dict onto rfEdges.
@@ -249,6 +253,7 @@ export function FlowView() {
             maxZoom={1.5}
             proOptions={{ hideAttribution: true }}
           >
+            <NamespaceClusters nodeNamespaces={nodeNamespaces} />
             <Background />
             <Controls />
             <MiniMap nodeColor={(n) => (n.type === 'event' ? '#0ea5e9' : '#94a3b8')} />

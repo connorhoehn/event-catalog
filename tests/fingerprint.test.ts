@@ -106,6 +106,29 @@ describe('Registry integration', () => {
     expect(reg.get('order.created')!.schemaFingerprint).toBe(fp1);
   });
 
+  it('pushes the prior fingerprint into schemaHistory on schema change (Phase E6.5)', () => {
+    const reg = new Registry();
+    reg.declare({
+      name: 'order.created',
+      schema: { type: 'object', properties: { x: { type: 'string' } } },
+      transport: 'durable',
+      producer: 'orders',
+    });
+    const fp1 = reg.get('order.created')!.schemaFingerprint;
+
+    reg.declare({
+      name: 'order.created',
+      schema: { type: 'object', properties: { x: { type: 'string' }, y: { type: 'number' } } },
+      transport: 'durable',
+      producer: 'orders',
+      compatibilityMode: 'none',
+    });
+    const after = reg.get('order.created')!;
+    expect(after.schemaHistory).toHaveLength(1);
+    expect(after.schemaHistory[0]!.fingerprint).toBe(fp1);
+    expect(after.schemaHistory[0]!.version).toBe(1);
+  });
+
   it('re-declare with a different shape bumps the fingerprint and version together', () => {
     const reg = new Registry();
     reg.declare({

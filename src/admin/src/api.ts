@@ -24,16 +24,22 @@ async function requestText(path: string): Promise<string> {
 export interface SchemaHistoryEntry {
   version: number;
   schema: Record<string, unknown>;
+  /** Phase E6.5 — sha256 of the historical schema; optional on legacy entries. */
+  fingerprint?: string;
   updatedAt: string;
 }
 
 export interface EventEntry {
   name: string;
+  /** Phase E7 — always populated by the registry (auto-derived if not declared). */
+  namespace?: string;
   transport: 'signal' | 'durable';
   producer: string | string[];
   description?: string;
   tags?: string[];
   schema: Record<string, unknown>;
+  /** Phase E6 — sha256 of the canonical schema serialization. */
+  schemaFingerprint?: string;
   version?: number;
   schemaHistory?: SchemaHistoryEntry[];
   subscribers: string[];

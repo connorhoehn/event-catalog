@@ -797,6 +797,12 @@ components:
                 properties:
                   version: { type: integer }
                   schema: { type: object }
+                  fingerprint:
+                    type: string
+                    pattern: '^[0-9a-f]{64}$'
+                    description: |
+                      Phase E6.5 — sha256 of the historical schema.
+                      Optional on entries written before wave19-h.
                   updatedAt: { type: string, format: date-time }
             subscribers:
               type: array

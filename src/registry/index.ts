@@ -64,6 +64,10 @@ export class Registry implements IRegistry {
         existing.schemaHistory.push({
           version: existing.version,
           schema: existing.schema,
+          // Phase E6.5 — stash the prior schema's fingerprint so a
+          // consumer with a cached fingerprint can ask
+          // "is X somewhere in my history?" without recomputing.
+          fingerprint: existing.schemaFingerprint,
           updatedAt: new Date().toISOString(),
         });
         if (existing.schemaHistory.length > 5) {

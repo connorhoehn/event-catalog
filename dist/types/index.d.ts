@@ -94,6 +94,14 @@ export interface EventDeclaration {
 export interface SchemaHistoryEntry {
     version: number;
     schema: Record<string, unknown>;
+    /**
+     * Phase E6.5 — sha256 fingerprint of the historical schema, for
+     * "is the fingerprint I have stashed somewhere in this history?"
+     * queries. Always populated for entries written after wave19-h;
+     * older entries persisted before that wave may be missing it
+     * (consumers should treat absence as "unknown").
+     */
+    fingerprint?: string;
     updatedAt: string;
 }
 export interface EventCatalogConfig {
