@@ -694,4 +694,123 @@ describe('Server Routes', () => {
       expect(res.body.error).toContain('not found');
     });
   });
+
+  // ─── POST /api/transports/durable/dlq/replay (Phase E5.2) ────────────
+
+  describe('POST /api/transports/durable/dlq/replay', () => {
+    type FakeEntry = { id: string; eventName: string; payload: unknown };
+
+    function createAppWithDlq(entries: FakeEntry[], publishImpl?: (queue: string, env: unknown) => Promise<void>) {
+      const remaining = new Map(entries.map((e) => [e.id, e]));
+      const removed: string[] = [];
+      const published: Array<{ queue: string; envelope: unknown }> = [];
+
+      const dlqStore = {
+        findById: async (id: string) => remaining.get(id) ?? null,
+        remove: async (id: string) => {
+          const had = remaining.delete(id);
+          if (had) removed.push(id);
+          return had;
+        },
+        list: async () => [],
+        put: async () => ({}),
+      } as unknown as RoutesDeps['dlqStore'];
+
+      const durableWithPublish = {
+        ...durable,
+        publish: publishImpl ?? (async (queue: string, env: unknown) => {
+          published.push({ queue, envelope: env });
+        }),
+      };
+
+      const localApp = createApp({
+        registry,
+        metrics,
+        metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
+        signal: signal as unknown as RoutesDeps['signal'],
+        durable: durableWithPublish as unknown as RoutesDeps['durable'],
+        dlqStore,
+        startedAt: Date.now(),
+      });
+
+      return { localApp, removed, published, remaining };
+    }
+
+    it('redrives every supplied id, returns a per-id breakdown', async () => {
+      const { localApp, removed, published } = createAppWithDlq([
+        { id: 'a1', eventName: 'orders.failed', payload: { x: 1 } },
+        { id: 'a2', eventName: 'orders.failed', payload: { x: 2 } },
+      ]);
+
+      const res = await request(localApp)
+        .post('/api/transports/durable/dlq/replay')
+        .send({ ids: ['a1', 'a2'] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(2);
+      expect(res.body.replayed).toHaveLength(2);
+      expect(res.body.failed).toHaveLength(0);
+      expect(removed).toEqual(['a1', 'a2']);
+      expect(published).toHaveLength(2);
+      // Envelope reuses the DLQ entry id as the message id (idempotency key).
+      expect((published[0]!.envelope as { metadata: { id: string } }).metadata.id).toBe('a1');
+    });
+
+    it('partial failure: missing ids land in failed[], successful ids in replayed[]', async () => {
+      const { localApp } = createAppWithDlq([
+        { id: 'found-1', eventName: 'orders.failed', payload: {} },
+      ]);
+
+      const res = await request(localApp)
+        .post('/api/transports/durable/dlq/replay')
+        .send({ ids: ['found-1', 'missing-2'] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.replayed.map((r: { id: string }) => r.id)).toEqual(['found-1']);
+      expect(res.body.failed).toEqual([{ id: 'missing-2', error: 'not found' }]);
+      expect(res.body.total).toBe(2);
+    });
+
+    it('publish error surfaces in failed[] but does not abort the batch', async () => {
+      let calls = 0;
+      const failingPublish = async () => {
+        calls += 1;
+        if (calls === 1) throw new Error('queue offline');
+      };
+      const { localApp } = createAppWithDlq(
+        [
+          { id: 'b1', eventName: 'orders.failed', payload: {} },
+          { id: 'b2', eventName: 'orders.failed', payload: {} },
+        ],
+        failingPublish,
+      );
+
+      const res = await request(localApp)
+        .post('/api/transports/durable/dlq/replay')
+        .send({ ids: ['b1', 'b2'] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.replayed).toHaveLength(1);
+      expect(res.body.failed).toEqual([{ id: 'b1', error: 'queue offline' }]);
+    });
+
+    it('rejects empty or malformed ids array with 400', async () => {
+      const { localApp } = createAppWithDlq([]);
+
+      const empty = await request(localApp)
+        .post('/api/transports/durable/dlq/replay')
+        .send({ ids: [] });
+      expect(empty.status).toBe(400);
+
+      const wrong = await request(localApp)
+        .post('/api/transports/durable/dlq/replay')
+        .send({ ids: ['a', 42] });
+      expect(wrong.status).toBe(400);
+
+      const missing = await request(localApp)
+        .post('/api/transports/durable/dlq/replay')
+        .send({});
+      expect(missing.status).toBe(400);
+    });
+  });
 });

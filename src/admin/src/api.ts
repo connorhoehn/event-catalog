@@ -154,6 +154,18 @@ export const api = {
     return request<{ replayed: string; eventName: string }>(`/transports/durable/dlq/${encodeURIComponent(id)}/replay`, { method: 'POST' });
   },
 
+  /** Phase E5.2 — redrive N DLQ entries in one call. Returns per-id outcomes. */
+  batchReplayDLQ(ids: string[]) {
+    return request<{
+      replayed: Array<{ id: string; eventName: string }>;
+      failed: Array<{ id: string; error: string }>;
+      total: number;
+    }>('/transports/durable/dlq/replay', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+  },
+
   deleteDLQ(id: string) {
     return request<{ removed: string }>(`/transports/durable/dlq/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },

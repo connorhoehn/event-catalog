@@ -443,6 +443,44 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json({ removed: req.params.id });
   });
 
+  // Phase E5.2 — batch redrive. Accepts `{ ids: string[] }` and runs the
+  // single-replay logic per id. Reuses each entry's id as the published
+  // envelope's idempotency key so partial-failure retries don't double-
+  // deliver. Always returns 200 with a per-id breakdown — callers
+  // inspect `failed[]` to decide whether to retry.
+  router.post('/transports/durable/dlq/replay', async (req: Request, res: Response) => {
+    const { ids } = req.body as { ids?: unknown };
+    if (!Array.isArray(ids) || ids.length === 0 || ids.some((i) => typeof i !== 'string')) {
+      res.status(400).json({ error: 'ids must be a non-empty array of strings' });
+      return;
+    }
+
+    const replayed: Array<{ id: string; eventName: string }> = [];
+    const failed: Array<{ id: string; error: string }> = [];
+
+    for (const id of ids as string[]) {
+      const entry = await dlqStore.findById(id);
+      if (!entry) {
+        failed.push({ id, error: 'not found' });
+        continue;
+      }
+      const queueName = DurableTransport.eventNameToQueueName(entry.eventName);
+      try {
+        await durable.publish(queueName, {
+          eventName: entry.eventName,
+          payload: entry.payload,
+          metadata: { id: entry.id, producer: 'dlq-replay', timestamp: Date.now() },
+        });
+        await dlqStore.remove(entry.id);
+        replayed.push({ id: entry.id, eventName: entry.eventName });
+      } catch (err) {
+        failed.push({ id, error: (err as Error).message });
+      }
+    }
+
+    res.json({ replayed, failed, total: ids.length });
+  });
+
   // Replay a DLQ entry: re-publish to durable transport, then delete
   router.post('/transports/durable/dlq/:id/replay', async (req: Request, res: Response) => {
     const entry = await dlqStore.findById(req.params.id);

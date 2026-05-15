@@ -519,6 +519,59 @@ paths:
                   source: { type: string, enum: [in-memory] }
                   error: { type: string }
 
+  /api/transports/durable/dlq/replay:
+    post:
+      tags: [transports]
+      summary: Batch-redrive multiple DLQ entries (Phase E5.2)
+      description: |
+        Replays N DLQ entries in one call. Each entry is re-published
+        with its original id as the message metadata.id, so partial-
+        failure retries on the same set don't double-deliver downstream.
+
+        Always returns 200 with a per-id breakdown; callers inspect
+        `failed[]` to decide retry policy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  items: { type: string }
+      responses:
+        '200':
+          description: Per-id outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [replayed, failed, total]
+                properties:
+                  replayed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        eventName: { type: string }
+                  failed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        error: { type: string }
+                  total: { type: integer }
+        '400':
+          description: Missing or malformed `ids`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /api/transports/durable/dlq/{id}:
     parameters:
       - in: path
