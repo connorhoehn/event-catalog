@@ -334,6 +334,56 @@ describe('EventCatalog Client Integration', () => {
       fetchMock.mockImplementationOnce(async () => new Response('server', { status: 503 }));
       await expect(catalog.getSchemaFingerprint('a.x')).rejects.toThrow(/HTTP 503/);
     });
+
+    it('checkAllSchemaFreshness reports fresh + stale + unknown across the registry (wave21-b)', async () => {
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      catalog.declare({ name: 'a.fresh', schema: { type: 'object' }, transport: 'signal', producer: 's' });
+      catalog.declare({ name: 'b.stale', schema: { type: 'object' }, transport: 'signal', producer: 's' });
+      catalog.declare({ name: 'c.unknown', schema: { type: 'object' }, transport: 'signal', producer: 's' });
+
+      const localFresh = catalog.getRegistry().get('a.fresh')!.schemaFingerprint;
+      const remoteForStale = 'feedface'.repeat(8); // 64 chars
+
+      fetchMock.mockImplementation(async (url: string) => {
+        if (typeof url === 'string' && url.includes('a.fresh')) {
+          return new Response(JSON.stringify({ schemaFingerprint: localFresh }), { status: 200 });
+        }
+        if (typeof url === 'string' && url.includes('b.stale')) {
+          return new Response(JSON.stringify({ schemaFingerprint: remoteForStale }), { status: 200 });
+        }
+        // c.unknown → 404
+        return new Response('not found', { status: 404 });
+      });
+
+      const report = await catalog.checkAllSchemaFreshness();
+      const byName = Object.fromEntries(report.map((r) => [r.eventName, r]));
+
+      expect(byName['a.fresh']!.status).toBe('fresh');
+      expect(byName['a.fresh']!.remoteFingerprint).toBe(localFresh);
+
+      expect(byName['b.stale']!.status).toBe('stale');
+      expect(byName['b.stale']!.remoteFingerprint).toBe(remoteForStale);
+
+      expect(byName['c.unknown']!.status).toBe('unknown');
+      expect(byName['c.unknown']!.remoteFingerprint).toBeNull();
+    });
+
+    it('checkAllSchemaFreshness treats network errors as unknown (does not abort the loop)', async () => {
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      catalog.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
+      catalog.declare({ name: 'b.y', schema: {}, transport: 'signal', producer: 's' });
+
+      let calls = 0;
+      fetchMock.mockImplementation(async () => {
+        calls += 1;
+        if (calls === 1) return new Response(JSON.stringify({ schemaFingerprint: 'a'.repeat(64) }), { status: 200 });
+        return new Response('boom', { status: 503 });
+      });
+
+      const report = await catalog.checkAllSchemaFreshness();
+      expect(report).toHaveLength(2);
+      expect(report[1]!.status).toBe('unknown'); // network err on second call
+    });
   });
 
   describe('Phase E3.5 — alias resolution', () => {

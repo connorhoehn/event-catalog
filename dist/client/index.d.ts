@@ -37,6 +37,26 @@ export declare class EventCatalog {
      */
     declareAll(events: EventDeclaration[]): void;
     /**
+     * Phase 21-b — bulk drift detection. For every event in the local
+     * registry, fetches the current fingerprint from the remote registry
+     * and compares to the local one. Returns a per-event status report.
+     *
+     *   'fresh'   — local fingerprint matches remote
+     *   'stale'   — fingerprints differ; the local declaration is out of sync
+     *   'unknown' — no remote fingerprint (event not yet on the registry,
+     *               or `registryUrl` is unset)
+     *
+     * Useful at consumer boot to log a single startup line summarizing
+     * declaration drift, or for periodic health checks. Network errors
+     * on individual events show as 'unknown' (they don't abort the loop).
+     */
+    checkAllSchemaFreshness(): Promise<Array<{
+        eventName: string;
+        status: 'fresh' | 'stale' | 'unknown';
+        localFingerprint: string;
+        remoteFingerprint: string | null;
+    }>>;
+    /**
      * Phase 20-b — fetch the current sha256 fingerprint of an event's
      * schema from the remote registry. Returns null when the event is
      * not declared on the registry, or when `registryUrl` is unset.
