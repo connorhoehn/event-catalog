@@ -25,16 +25,16 @@ service is required to validate or send an event.
 
 | Concern | Module |
 |---|---|
-| `EventCatalog` class — `connect / declare / publish / publishSignal / subscribe` | `src/client/index.ts` |
-| `EventDeclaration`, `EventEnvelope`, `EventMetadata`, `TransportType` | `src/types/index.ts` |
-| Shared wire envelopes (`channel_message`, `direct_message`, `broadcast`, `SignalMessage`) + builders + JSON Schemas | `src/types/envelopes.ts` |
-| Local `Registry` + Ajv-based JSON Schema validation + alias resolution | `src/registry/index.ts` |
+| `EventCatalog` class — `connect / declare / declareAll / publish / publishSignal / subscribe / resolveEvent / getSchemaFingerprint / getNamespacePolicy` | `src/client/index.ts` |
+| `EventDeclaration`, `EventEnvelope`, `EventMetadata`, `TransportType`, `Subscription` (with `pause/resume/isPaused`), `PublishHook`, `NamespacePolicy` | `src/types/index.ts` |
+| Shared wire envelopes (`channel_message`, `direct_message`, `broadcast`, `SignalMessage`) + builders + JSON Schemas + decoders + type guards | `src/types/envelopes.ts` |
+| Local `Registry` + Ajv-based JSON Schema validation + alias resolution + `ResolveResult` | `src/registry/index.ts` |
 | Backward / forward / full schema compat checking | `src/registry/schema-compat.ts` |
 | **Deterministic schema fingerprinting (Phase E6)** — sha256 of sorted-key serialization | `src/registry/fingerprint.ts` |
 | **Namespace derivation (Phase E7)** — dotted/colon prefix fallback | `src/registry/namespace.ts` |
 | Signal transport (Redis pub/sub) | `src/client/signal.ts` |
 | Durable transport (HTTP → message-queue) | `src/client/durable.ts` |
-| Library-owned event declarations (DC PipelineExecutor events) | `src/declarations/` |
+| Library-owned event declarations (DC PipelineExecutor events) + `DEPRECATED_DUAL_EMIT_ALIASES` derived from canonical aliases | `src/declarations/` |
 
 Boot looks like:
 
@@ -233,6 +233,78 @@ catalog.declare({
   compatibilityMode: 'full',   // strictest — neither side may break
 });
 ```
+
+---
+
+## 6.5. Extension points (wave-20)
+
+The library + service expose three operator-facing extension surfaces.
+None require forking; all are wired via constructor config.
+
+### Publish middleware (`EventCatalogConfig.hooks`)
+
+```ts
+interface PublishHook {
+  beforePublish?(envelope, entry): void | Promise<void>;
+  afterPublish?(envelope, entry): void | Promise<void>;
+}
+```
+
+`beforePublish` may mutate `envelope.metadata.headers` (inject
+traceparent, correlationId, etc.) or throw to reject the publish.
+`afterPublish` is informational; thrown errors are caught + logged so
+an audit-sink hiccup can't fail an otherwise-successful publish.
+Hooks see the canonical `RegistryEntry` post-alias-resolution.
+
+### DLQ handler array (`ServerConfig.onDeadLetter`)
+
+```ts
+type DeadLetterHandler =
+  (message, { entry, namespace }) => void | Promise<void>;
+```
+
+Operator-supplied handlers run alongside the built-in DDB write. Each
+receives the failing message + an enriched context (canonical
+RegistryEntry + namespace) so per-event-class branching ("page oncall
+when a billing event hits DLQ") is one line. Sync throws + async
+rejections are caught.
+
+### Auth middleware seam (`ServerConfig.authMiddleware`)
+
+```ts
+startServer({
+  authMiddleware: (req, res, next) => {
+    if (req.header('x-api-key') !== process.env.ADMIN_KEY) {
+      return res.status(401).end();
+    }
+    next();
+  },
+});
+```
+
+If supplied, mounted before the `/api` router so it gates every admin
+endpoint. The catalog ships unauthenticated (private/local-dev surface);
+operators deploying outside that envelope inject their JWT / API-key
+check here without forking `startServer`.
+
+---
+
+## 6.6. Namespace policy defaults (Phase E7 + wave20-h)
+
+Per-namespace defaults remove repetition for "every event in this
+domain needs the same retention/compat/dlq" patterns.
+
+```ts
+new EventCatalog({
+  namespacePolicies: {
+    pipeline: { compatibilityMode: 'full', retention: 2592000 },
+    sfu:      { dlqAfterAttempts: 5 },
+  },
+});
+```
+
+Per-event values always win over policy defaults; tags union-merge.
+Inspect at runtime via `catalog.getNamespacePolicy(name)`.
 
 ---
 

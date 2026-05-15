@@ -70,7 +70,7 @@ response and the POST 201 reply):
 
 | Field | Notes |
 |---|---|
-| `namespace` | Phase E7 — domain group for organizing events in the admin UI and filtering via `?namespace=X` on the list and topology APIs. When omitted, the registry auto-derives from `name.split('.')[0]` (or colon prefix for legacy colon-form names). Becomes hard-required in v0.5; today every declaration in this repo and in LVS carries it explicitly (wave19-g) for forward-readiness. |
+| `namespace` | Phase E7 — domain group for organizing events in the admin UI and filtering via `?namespace=X` on the list and topology APIs. When omitted, the registry auto-derives from `name.split('.')[0]` (or colon prefix for legacy colon-form names). Becomes hard-required in v0.5; today every declaration in this repo and in LVS carries it explicitly (wave19-g) for forward-readiness. **Set once via `EventCatalogConfig.namespacePolicies` (wave20-h)** to share defaults across every event in a namespace — see §6 below. |
 | `description` | Prose explanation. Surfaces in the admin UI and OpenAPI spec. Write it for the consumer that has to integrate against the event, not the producer that emits it. |
 | `tags` | Free-form classification for filtering (`?tag=approval` on `GET /api/events`). Conventional tags: domain (`pipeline`, `chat`, `presence`), priority (`p0`, `p1`), purpose (`audit`, `webhook`). |
 | `version` | Server-managed. Bumped automatically by `POST /api/events` when the schema changes. Don't set manually in declarations. |
@@ -290,3 +290,65 @@ See `docs/architecture.md` §3 for the full compat-gate matrix.
   evolution. Use it only where you've decided field shape is frozen.
 - **Skipping `description`.** The admin UI is the discovery surface for
   every other team in the platform. An undescribed event is invisible.
+
+---
+
+## 6. Namespace policies (wave20-h)
+
+Repetition across declarations in the same domain — every `pipeline.*`
+event needing `compatibilityMode: 'full'` and 30-day retention, every
+`sfu.*` event needing `dlqAfterAttempts: 5` — is hostile to readability.
+A `NamespacePolicy` lets you set those defaults once.
+
+```ts
+const catalog = new EventCatalog({
+  // ...connection config...
+  namespacePolicies: {
+    pipeline: {
+      compatibilityMode: 'full',
+      retention: 2592000,        // 30d
+      dlqRetention: 7776000,     // 90d
+      tags: ['domain:pipeline', 'audited'],
+    },
+    sfu: { dlqAfterAttempts: 5 },
+  },
+});
+
+catalog.declare({
+  name: 'pipeline.run.started',
+  schema: { /* ... */ },
+  transport: 'durable',
+  producer: 'distributed-core',
+  // ← inherits compatibilityMode, retention, dlqRetention, tags
+});
+```
+
+Rules:
+
+- Per-event values **always win** over policy defaults.
+- Tags are union-merged + deduplicated.
+- An explicit `namespace` field on the declaration overrides the
+  auto-derived one for policy lookup purposes.
+- Policies apply to both `declare()` and `declareAll()`.
+- Inspect a registered policy at runtime via
+  `catalog.getNamespacePolicy(name)`.
+
+---
+
+## 7. New library APIs (wave-20)
+
+The wave-20 series added consumer-side primitives that complement the
+EventDeclaration contract. Quick reference (all exported from the
+package root):
+
+| Symbol | Purpose |
+|---|---|
+| `catalog.declareAll(events[])` | Bulk-register a declarations array (e.g. `pipelineEventDeclarations`) without a manual loop. |
+| `catalog.getSchemaFingerprint(name)` | Fetch the canonical sha256 from the registry (HTTP). Returns `null` when unset / 404. Use to detect cached-schema drift without a full GET. |
+| `catalog.resolveEvent(name)` | Alias-aware lookup: returns the canonical RegistryEntry plus alias info if you queried by a deprecated name. |
+| `Subscription.pause()` / `.resume()` / `.isPaused()` | Throttle a noisy subscription without unsubscribe-then-resubscribe. The transport keeps receiving; events drop on the floor while paused. |
+| `decodeChannelMessageEnvelope(raw)` `decodeDirectMessageEnvelope(raw)` `decodeBroadcastEnvelope(raw)` | Receive-side decoders matching the existing `build*` builders. Return a tagged `DecodeResult<T>` (`{ok: true, value}` or `{ok: false, error}`). Replaces hand-rolled `JSON.parse + ad-hoc field checks`. |
+| `isChannelMessageEnvelope`, `isDirectMessageEnvelope`, `isBroadcastEnvelope` | Runtime type guards for envelope shape (used by the decoders, exported for direct use). |
+| `PublishHook { beforePublish?, afterPublish? }` | Middleware on every `publish()`. `beforePublish` may mutate `metadata.headers` (inject traceparent etc.) and may throw to reject the publish. `afterPublish` is informational; thrown errors are caught + logged so an audit-sink hiccup can't fail the publish. Wired via `EventCatalogConfig.hooks`. |
+| `DEPRECATED_DUAL_EMIT_ALIASES` | ReadonlySet of dot-form pipeline names PipelineExecutor dual-emits. Derived from the canonical declarations' `aliases` arrays — single source of truth for any consumer that wants to suppress the deprecated half. |
+
