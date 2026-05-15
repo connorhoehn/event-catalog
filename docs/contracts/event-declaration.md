@@ -23,6 +23,7 @@ interface EventDeclaration {
   producer:    string | string[];
 
   // --- always optional ---
+  namespace?:          string;       // Phase E7 (auto-derived if absent)
   description?:        string;
   tags?:               string[];
   version?:            number;
@@ -35,15 +36,26 @@ interface EventDeclaration {
 
   // --- durable-only (transport: 'durable' | 'both') ---
   queue?:             string;
-  retention?:         number;        // seconds
+  retention?:         number;        // seconds (queue message retention)
   fifo?:              boolean;
   partitionKey?:      (payload) => string;
   dlqAfterAttempts?:  number;
+  dlqRetention?:      number;        // Phase E5.3 — seconds (DLQ TTL)
 
   // --- both transports ---
   aliases?:  { name: string; deprecated: true; until?: string }[];
 }
 ```
+
+The registry **computes** two more fields and attaches them to every
+`RegistryEntry` (not on the input interface, but visible on every GET
+response and the POST 201 reply):
+
+- `schemaFingerprint: string` — Phase E6. sha256 of the canonical
+  (sorted-key) schema serialization, 64-char lowercase hex.
+- `namespace: string` — Phase E7. Always populated; same as the input
+  `namespace` if you provided one, otherwise derived from the event
+  name's dotted/colon prefix.
 
 ### Always-required fields
 
@@ -58,6 +70,7 @@ interface EventDeclaration {
 
 | Field | Notes |
 |---|---|
+| `namespace` | Phase E7 — domain group for organizing events in the admin UI and filtering via `?namespace=X` on the list and topology APIs. When omitted, the registry auto-derives from `name.split('.')[0]` (or colon prefix for legacy colon-form names). Becomes hard-required in v0.5; today every declaration in this repo and in LVS carries it explicitly (wave19-g) for forward-readiness. |
 | `description` | Prose explanation. Surfaces in the admin UI and OpenAPI spec. Write it for the consumer that has to integrate against the event, not the producer that emits it. |
 | `tags` | Free-form classification for filtering (`?tag=approval` on `GET /api/events`). Conventional tags: domain (`pipeline`, `chat`, `presence`), priority (`p0`, `p1`), purpose (`audit`, `webhook`). |
 | `version` | Server-managed. Bumped automatically by `POST /api/events` when the schema changes. Don't set manually in declarations. |
@@ -86,6 +99,7 @@ message-queue queue via idempotent `PUT /queues/{name}`.
 | `fifo` | FIFO queue ordering — preserves per-`partitionKey` order. Defaults to false (standard at-least-once). Setting `true` requires `partitionKey`. |
 | `partitionKey` | Extractor for the FIFO partition. `p => p.runId` is typical. Messages with the same partition key are delivered in order; different keys may interleave. |
 | `dlqAfterAttempts` | Auto-route to DLQ after this many delivery attempts. Catalog ensures a paired DLQ queue named `${queue}-dlq` is provisioned alongside. |
+| `dlqRetention` | Phase E5.3 — per-event TTL for DLQ entries in seconds. Falls back to a 30-day default. Use a longer value (e.g. 90+ days) for high-value audit / billing events so they outlive transient webhook DLQs. |
 
 ### Cross-transport fields
 

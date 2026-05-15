@@ -3,10 +3,11 @@
 Hybrid schema-registry library + service. Owns the declaration of every
 cross-service event in the platform — both **durable** (SQS-style, persisted,
 retryable, via `message-queue`) and **signal** (WS-style, ephemeral, via Redis
-pub/sub).
+pub/sub). Reframed 2026-05-15 as **an exchange for contracts plus an
+observability layer on the flow**, not merely a schema registry.
 
 **Read `.agent/CONSTITUTION.md` first** — agent's north star and
-backlog priorities. Read `ROADMAP.md` for phase E1–E5 progression.
+backlog priorities. Read `ROADMAP.md` for phase E1–E8 progression.
 
 ## Architecture in one paragraph
 
@@ -15,9 +16,13 @@ service declares its events in code (`catalog.declare(...)`) and publishes
 through `catalog.publish('event:name', payload)`, which validates locally
 against the schema and routes to `SignalTransport` (Redis pub/sub) or
 `DurableTransport` (HTTP POST to `message-queue`). The service half (Express
-on `:3010`) is the central inventory: each consumer POSTs its declarations
-via `syncToRemoteRegistry` so the server can answer "who consumes X?" and gate
-schema evolution. Library publish never blocks on the server.
+on `:3010`) is the central inventory + observability surface: consumers POST
+their declarations via `syncToRemoteRegistry` so the server can answer "who
+consumes X?", gate schema evolution, surface deterministic sha256
+fingerprints (Phase E6), group events by namespace (Phase E7), and stream
+the live event flow over SSE at `GET /api/flow` (Phase E8) so the admin UI
+can pulse the topology graph as events fire. Library publish never blocks
+on the server.
 
 ## Workflow conventions
 
@@ -44,20 +49,23 @@ assume cross-service events are declared and validated here.
 
 | Producer | Status |
 |----------|--------|
-| `platform-api` | ✅ Only current consumer of the library |
-| `websocket-gateway` | 🔜 Phase E2 — needs WS frame types declared, envelope shared |
-| `live-video-streaming` (SFU) | 🔜 Phase E2 — needs chat-bus + control + webhook events declared. **Coordinate via handoff** — other agent owns that repo. |
-| `distributed-core` | ❌ Never a direct consumer (it's a library). Its events declared on its behalf by `platform-api`. |
-| `message-queue` | ❌ Never imports event-catalog. Reverse: catalog's `DurableTransport` calls message-queue HTTP. |
+| `platform-api` | ✅ Library consumer; publishes via `catalog.publishSignal`/`publish`. |
+| `websocket-gateway` | ✅ Library consumer (Phase E2); shared envelope builders adopted in `message-router.ts`; 23 frame-type declarations in `gateway-event-declarations.ts` + finer-grained `gatewaySignalDeclarations` pulled from this repo. |
+| `live-video-streaming` (SFU) | ✅ Best-effort registration at boot via `src/event-declarations.js` (19 events: webhook + control-plane + chat-bus). LVS is inactive — direct edits permitted; no handoff required. |
+| `distributed-core` | ❌ Never a direct consumer (it's a library). Its ~36 pipeline events are declared on its behalf by this repo at `src/declarations/`. |
+| `message-queue` | ❌ Never imports event-catalog. Reverse: catalog's `DurableTransport` calls message-queue HTTP, and MQ workers fetch schemas via `GET /api/events/:name`. |
 
 ## Dependencies
 
-- **`distributed-core`** — pinned to `#main`. Uses `RetryManager`,
-  `CircuitBreaker`, `JsonSchemaValidator`, `MetricsRegistry`. Drift hazard:
-  websocket-gateway pins to `#v0.14.2` tag; reconcile before deeper adoption.
+- **`distributed-core`** — currently `github:connorhoehn/distributed-core#v0.19.6`.
+  Uses `RetryManager`, `CircuitBreaker`, `JsonSchemaValidator`, `MetricsRegistry`.
+  Pin reconciled across event-catalog / platform-api / gateway / message-queue.
 - **`@connorhoehn/message-queue`** — peer dependency. `DurableTransport`
   resolves to this via `MESSAGE_QUEUE_URL`.
-- **`@connorhoehn/ui-components`** — admin UI shared components (Vite).
+- **`@connorhoehn/ui-components`** — admin UI shared components (Vite). The
+  topology + flow views import `PipelineCanvas`'s underlying primitives
+  (`@xyflow/react` + `AnimatedEdge`) to match the gateway's
+  pipeline-replay visual language.
 
 ## Hub coordination
 

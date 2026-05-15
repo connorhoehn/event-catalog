@@ -27,9 +27,11 @@ service is required to validate or send an event.
 |---|---|
 | `EventCatalog` class — `connect / declare / publish / publishSignal / subscribe` | `src/client/index.ts` |
 | `EventDeclaration`, `EventEnvelope`, `EventMetadata`, `TransportType` | `src/types/index.ts` |
-| Shared wire envelopes (`ChannelMessageEnvelope`, `SignalMessage`) + builders | `src/types/envelopes.ts` |
-| Local `Registry` + Ajv-based JSON Schema validation | `src/registry/index.ts` |
+| Shared wire envelopes (`channel_message`, `direct_message`, `broadcast`, `SignalMessage`) + builders + JSON Schemas | `src/types/envelopes.ts` |
+| Local `Registry` + Ajv-based JSON Schema validation + alias resolution | `src/registry/index.ts` |
 | Backward / forward / full schema compat checking | `src/registry/schema-compat.ts` |
+| **Deterministic schema fingerprinting (Phase E6)** — sha256 of sorted-key serialization | `src/registry/fingerprint.ts` |
+| **Namespace derivation (Phase E7)** — dotted/colon prefix fallback | `src/registry/namespace.ts` |
 | Signal transport (Redis pub/sub) | `src/client/signal.ts` |
 | Durable transport (HTTP → message-queue) | `src/client/durable.ts` |
 | Library-owned event declarations (DC PipelineExecutor events) | `src/declarations/` |
@@ -60,18 +62,20 @@ proxy or broker events.
 
 | Concern | Endpoint(s) |
 |---|---|
-| Event inventory | `GET /api/events`, `GET /api/events/:name` |
+| Event inventory (carries `schemaFingerprint` + `namespace` on every entry) | `GET /api/events`, `GET /api/events/:name` |
+| Filter by namespace | `?namespace=X` on `/api/events` and `/api/topology` |
 | Bulk declaration sync from producers | `POST /api/events`, `POST /api/events/bulk` |
-| Schema history per event | `GET /api/events/:name/history` |
+| Schema history per event (with per-version fingerprints) | `GET /api/events/:name/history` |
 | Pre-flight compat check | `GET /api/events/:name/schema/check` |
 | Per-event publish stats | `GET /api/events/:name/stats` |
 | Subscriber registration | `POST /api/events/:name/subscribers`, `DELETE …/:serviceName` |
 | Topology graph (producers → events → consumers) | `GET /api/topology` |
+| **Live flow tap (SSE, Phase E8)** | `GET /api/flow` with `?eventName, ?transport, ?producer, ?namespace, ?sample` |
 | Signal-side channel inventory | `GET /api/transports/signal/channels` |
-| Durable-side queue inventory + DLQ store | `GET /api/transports/durable/queues`, `…/dlq`, `…/dlq/:id/replay` |
-| Health / readiness | `GET /api/health` |
-| Prometheus metrics | `GET /api/metrics` |
-| Admin UI (Vite + React) | `src/admin/` |
+| Durable-side queue inventory + DLQ store + batch redrive | `GET /api/transports/durable/queues`, `…/dlq`, `…/dlq/:id/replay`, `…/dlq/replay` |
+| Health / readiness | `GET /health` |
+| Prometheus metrics | `GET /metrics` |
+| Admin UI (Vite + React; topology + live flow on `@xyflow/react` with shared `AnimatedEdge` from ui-components) | `src/admin/` |
 
 The DLQ store is DynamoDB-backed (`src/server/dlq-store.ts`). The service
 listens on `EVENT_CATALOG_PORT` (default `3010`).
@@ -234,18 +238,23 @@ catalog.declare({
 
 ## 7. Phase roadmap (where we are)
 
-The full plan lives in `ROADMAP.md`. Status as of Wave 3 (2026-05-14):
+The full plan lives in `ROADMAP.md`. Status as of the 2026-05-15 vision
+refresh:
 
 | Phase | Goal | Status |
 |---|---|---|
 | **E1** Universal declarations | `CLAUDE.md` + `CONSTITUTION.md` + `ROADMAP.md` + this doc | ✅ done |
-| **E2** Adopt across producers | gateway + platform-api wired; LVS pending via handoff | ✅ partial (gateway + platform-api), 🔜 LVS |
-| **E3** Signal/durable as peers | `transport: 'both'`, queue auto-provision, aliases, discriminator | ✅ done |
-| **E4** Strict-mode registry | Library strict declare ✅; service-side 409 gating partial; topology API ✅; admin UI Phase 1 in progress | 🔜 partial |
-| **E5** DLQ replay automation | DLQ browser + batch redrive + per-event retention | ⏳ not started |
+| **E2** Adopt across producers | platform-api, gateway, LVS all consume the library | ✅ done |
+| **E3** Signal/durable as peers | `transport: 'both'`, queue auto-provision, aliases, discriminator, channel resolution | ✅ done |
+| **E4** Strict-mode registry | Library + service strict declare, topology API, subscriber tracking, admin UI v1, OpenAPI spec | ✅ done |
+| **E5** DLQ replay automation | DLQ browser + batch redrive + per-event retention | ✅ done (E5.1–5.3) |
+| **E6** Schema fingerprinting | sha256 of sorted-key serialization on `RegistryEntry` + GET surfaces + 409 enrichment + history fingerprints + UI chip | ✅ done |
+| **E7** Namespaces | Optional `namespace` field with auto-derive in v0.4; backfill across 98 declarations | ✅ E7.1+E7.2 done; E7.3 (hard-require in v0.5) future |
+| **E8** Live flow observability | Process-internal tap emitter, SSE `/api/flow`, topology + live-flow admin UI views, namespace clusters | ✅ done |
 
-Cross-region propagation (E5.4) and schema fingerprinting (E5.5) are
-explicitly deferred until a real second region exists.
+Explicitly dropped per the 2026-05-15 refresh: cross-region propagation
+(former E5.4 — no second region planned). Multi-tenancy, code generation,
+streaming consumer groups stay out of scope.
 
 ---
 

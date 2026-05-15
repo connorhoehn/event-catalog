@@ -48,7 +48,11 @@ envelope construction in multiple places (`platform-api/src/lib/event-catalog.ts
 and `websocket-gateway/src/core/message-router.js:463` both build the
 `channel_message` envelope; neither validates it).
 
-## Reality check (v0.1.0 today)
+## Reality check (v0.1.0 baseline — historical)
+
+> Snapshot kept as the "before" picture against which phases E1–E8
+> measured progress. Most "what's missing" items below have shipped; see
+> the phase tables below for current state.
 
 What's already in place — building blocks the roadmap composes:
 
@@ -64,20 +68,17 @@ What's already in place — building blocks the roadmap composes:
   `src/client/index.ts:94`. (Hybrid model is already half-implemented.)
 - ✅ Remote registry sync at `src/client/index.ts:224` (`syncToRemoteRegistry`).
 
-What's missing:
+What was missing at v0.1.0 (and where it landed):
 
-- ⚠ Only one consumer (`platform-api`). websocket-gateway, SFU, distributed-core,
-  message-queue do **not** import the library.
-- ⚠ Admin UI is a skeleton (no real components).
-- ⚠ No CLAUDE.md, no CONSTITUTION.md, no ROADMAP.md before this writeup. This
-  is the most cited reason "no agent prioritizes event-catalog work."
-- ⚠ Observability is `console.log` only. No structured logger, no metrics
-  endpoint instrumentation, no `/health` HEALTHCHECK in Dockerfile.
-- ⚠ No K8s manifests / Helm chart.
+- ⚠ Only one consumer (`platform-api`). → **Resolved Phase E2.** Gateway, LVS now consume the library.
+- ⚠ Admin UI is a skeleton (no real components). → **Resolved Phase E4 + E8.** Dashboard, EventList, EventDetail, TopologyView (ReactFlow), FlowView (SSE-driven), DLQBrowser, etc.
+- ⚠ No CLAUDE.md, CONSTITUTION.md, ROADMAP.md. → **Resolved Phase E1.**
+- ⚠ Observability is `console.log` only. → **Partial.** Pino + Prom metrics on the server; structured logger still pending in admin UI client.
+- ⚠ No K8s manifests / Helm chart. → **Still outstanding.** Out of scope for the 19-x wave series; revisit when production deploy is on the table.
 - ⚠ `publishSignal()` in platform-api **bypasses** the catalog and writes
-  directly to Redis. Schemas aren't actually validated on the WS path today.
+  directly to Redis. Schemas aren't actually validated on the WS path today. → **Resolved Phase E3.3** (signal channel resolution); per-event schema validation on `publishSignal` is wired.
 - ⚠ `DurableTransport.eventNameToQueueName()` is a convention, not a contract;
-  no glue ensures the message-queue queue's settings match the declaration.
+  no glue ensures the message-queue queue's settings match the declaration. → **Resolved Phase E3.2** (idempotent queue provisioning honors declaration).
 
 ## Phases
 
@@ -120,26 +121,6 @@ cross-service event gets a declaration.
   *Historical context: the original E2.3 directive said "do not edit LVS;
   file a handoff." The 2026-05-15 confirmation that LVS is inactive permitted
   direct edits.*
-
-- [ ] ~~**E2.3 (legacy text)** — Coordinate with the live-video-streaming agent~~ via handoff to
-  declare SFU events:
-    - Chat-bus events (`user.banned`, `user.unbanned`, `chat.message`,
-      `chat.message_deleted`, `chat.user_disconnected`). **Canonicalize casing
-      here** — this fixes the silent-drop bug at
-      `live-video-streaming/src/api/channels/chatBans.js:44` vs.
-      `live-video-streaming/src/chat/ChatHub.js:208`.
-    - SFU control events (`producer.added`, `producer.removed`,
-      `participant.joined`, `participant.left`, `sfu:router:created`,
-      `sfu:pipe:created`, `sfu:pipe:connected`).
-    - Webhook events as `durable`: `stream.started`, `stream.ended`,
-      `stream.health.degraded`, `stream.health.recovered`,
-      `stream.thumbnail.updated`, `recording.started`, `recording.completed`,
-      `channel.created`, `channel.updated`, `channel.deleted`,
-      `session.created`, `session.ended`.
-
-  ✋ **Do not directly edit live-video-streaming files** — that repo is owned
-  by another agent. File a handoff with the proposed declarations and let the
-  LVS agent commit them.
 
 - [x] **E2.4: Declare distributed-core's pipeline events.** Shipped in
   earlier waves (pipeline-p1, pipeline-p2, pipeline-raft declaration modules,

@@ -4,7 +4,24 @@
 **From:** platform-api / event-catalog work session
 **To:** live-video-streaming agent (owns `/Users/connorhoehn/Projects/live-video-streaming`)
 **Scope:** documentation only — no LVS files were modified in this session
-**Status:** open; pick up when LVS post-parity / distributed-core hardening work permits
+**Status (updated 2026-05-15):** Items 2 + 3 SUPERSEDED — see notes below.
+Item 1 (`/sessions` contract) remains open.
+
+> **2026-05-15 update.**
+> - **Item 2** ("declare SFU events in event-catalog") was shipped in waves
+>   17-a / 17-b / 17-c. 19 events declared in
+>   `live-video-streaming/src/event-declarations.js` with best-effort
+>   boot-time registration to the catalog. See
+>   `2026-05-15-lvs-chat-bus-architecture.md` for the open chat-bus
+>   architectural question that came out of that work.
+> - **Item 3** ("canonicalize chat-bus casing to lowercase") is **REJECTED**.
+>   The PascalCase `Type` field on `ChatHub.js` is intentional IVS Chat
+>   wire-protocol parity, not drift. Forcing it to lowercase would break the
+>   IVS-replacement surface declared in LVS's `CLAUDE.md`. The actual
+>   architectural ambiguity — that `chatBans.js` events with lowercase
+>   `type` share the same Redis channel as IVS-shaped messages — is the
+>   subject of the 2026-05-15 handoff.
+> - **Item 1** (`/sessions` contract) is unchanged and still open.
 
 This document captures three coordinated items that should land on the LVS
 side. None of them are urgent enough to interrupt LVS's current focus
