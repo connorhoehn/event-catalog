@@ -5,6 +5,7 @@ import type { IRegistry, ValidationResult, DeclareResult, ResolveResult } from '
 import { checkBackwardCompat, checkForwardCompat, type CompatResult } from './schema-compat';
 import { computeSchemaFingerprint } from './fingerprint';
 import { resolveNamespace } from './namespace';
+import { validateSchemaShape } from './schema-shape';
 
 const REDIS_KEY = 'event-catalog:registry';
 
@@ -48,6 +49,19 @@ export class Registry implements IRegistry {
   }
 
   declare(event: EventDeclaration): DeclareResult {
+    // wave22-a — meta-validate the schema shape before anything else.
+    // Empty schema ({}) is allowed; non-object or malformed schemas
+    // are rejected at declare-time so a typo doesn't sit in the
+    // registry until the first publish trips Ajv.
+    if (event.schema && Object.keys(event.schema).length > 0) {
+      const shape = validateSchemaShape(event.schema);
+      if (!shape.ok) {
+        throw new Error(
+          `[event-catalog] declare("${event.name}") rejected: invalid JSON Schema shape: ${shape.errors.join('; ')}`,
+        );
+      }
+    }
+
     const existing = this.events.get(event.name);
 
     if (existing) {

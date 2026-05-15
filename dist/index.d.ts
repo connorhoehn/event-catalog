@@ -7,6 +7,8 @@ export type { ValidationResult, DeclareResult, IRegistry, ResolveResult } from '
 export type { CompatResult } from './registry/schema-compat';
 export { checkBackwardCompat, checkForwardCompat } from './registry/schema-compat';
 export { stableStringify, computeSchemaFingerprint } from './registry/fingerprint';
+export { validateSchemaShape } from './registry/schema-shape';
+export type { SchemaShapeResult } from './registry/schema-shape';
 export { deriveNamespace, resolveNamespace } from './registry/namespace';
 export type { SignalTransportConfig } from './client/signal';
 export type { DurableTransportConfig, DurableSubscribeOptions, EnsureQueueOptions } from './client/durable';

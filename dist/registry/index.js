@@ -5,6 +5,7 @@ const messaging_queue_1 = require("distributed-core/messaging-queue");
 const schema_compat_1 = require("./schema-compat");
 const fingerprint_1 = require("./fingerprint");
 const namespace_1 = require("./namespace");
+const schema_shape_1 = require("./schema-shape");
 const REDIS_KEY = 'event-catalog:registry';
 /** Normalize EventDeclaration.producer to an always-array form. */
 function producerList(producer) {
@@ -48,6 +49,16 @@ class Registry {
         }
     }
     declare(event) {
+        // wave22-a — meta-validate the schema shape before anything else.
+        // Empty schema ({}) is allowed; non-object or malformed schemas
+        // are rejected at declare-time so a typo doesn't sit in the
+        // registry until the first publish trips Ajv.
+        if (event.schema && Object.keys(event.schema).length > 0) {
+            const shape = (0, schema_shape_1.validateSchemaShape)(event.schema);
+            if (!shape.ok) {
+                throw new Error(`[event-catalog] declare("${event.name}") rejected: invalid JSON Schema shape: ${shape.errors.join('; ')}`);
+            }
+        }
         const existing = this.events.get(event.name);
         if (existing) {
             const schemaChanged = JSON.stringify(existing.schema) !== JSON.stringify(event.schema);

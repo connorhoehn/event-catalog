@@ -35,6 +35,10 @@ export { checkBackwardCompat, checkForwardCompat } from './registry/schema-compa
 // Phase E6 — fingerprint helpers exposed for downstream consumers that
 // want to compute fingerprints locally (cache-key derivation, CI gates).
 export { stableStringify, computeSchemaFingerprint } from './registry/fingerprint';
+// wave22-a — meta-schema shape validator. Catches typos like
+// `type: 'objct'` at declare-time. Exported for CI usage too.
+export { validateSchemaShape } from './registry/schema-shape';
+export type { SchemaShapeResult } from './registry/schema-shape';
 // Phase E7 — namespace derivation helpers for downstream consumers that
 // want to mirror the registry's auto-derive logic (e.g. CI lint that
 // flags declarations whose explicit namespace doesn't match the
