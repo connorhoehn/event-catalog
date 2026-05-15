@@ -40,6 +40,9 @@ export {
   isChannelMessageEnvelope,
   channelMessageRedisChannel,
   channelNodesRedisKey,
+  // Phase E2.1 close-out — JSON Schemas alongside the TS types.
+  signalMessageSchema,
+  channelMessageEnvelopeSchema,
 } from './types/envelopes';
 export type {
   ChannelMessageEnvelope,

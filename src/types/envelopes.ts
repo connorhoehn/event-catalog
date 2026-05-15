@@ -133,3 +133,61 @@ export function channelMessageRedisChannel(channelId: string): string {
 export function channelNodesRedisKey(channelId: string): string {
   return `websocket:channel:${channelId}:nodes`;
 }
+
+// ── JSON Schemas (Phase E2.1 close-out) ───────────────────────────────
+//
+// The TS types above describe the shape at compile time. The schemas
+// below describe the same shape at runtime — for cross-language
+// consumers, registry storage, and gateway-side drift guards on the
+// pSubscribe path (today an envelope missing `targetNodes` would crash
+// the gateway's `data.targetNodes.includes()` call; with a validator,
+// the publisher can be rejected before that path runs).
+//
+// Schemas are draft-07. The `payload` field on SignalMessage is left
+// unconstrained — per-event payload schemas live on individual
+// EventDeclaration entries, not on the transport envelope.
+
+/** JSON Schema for {@link SignalMessage}. */
+export const signalMessageSchema = {
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  $id: 'https://event-catalog/schemas/SignalMessage',
+  type: 'object',
+  properties: {
+    type: { type: 'string' },
+    channel: { type: 'string' },
+    payload: {},
+    timestamp: { type: 'string', format: 'date-time' },
+  },
+  required: ['type', 'channel', 'payload', 'timestamp'],
+  additionalProperties: true,
+} as const;
+
+/** JSON Schema for {@link ChannelMessageEnvelope}. */
+export const channelMessageEnvelopeSchema = {
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  $id: 'https://event-catalog/schemas/ChannelMessageEnvelope',
+  type: 'object',
+  properties: {
+    type: { type: 'string', enum: ['channel_message'] },
+    channel: { type: 'string' },
+    message: signalMessageSchema,
+    excludeClientId: { type: ['string', 'null'] },
+    fromNode: { type: 'string' },
+    seq: { type: 'number' },
+    timestamp: { type: 'string', format: 'date-time' },
+    targetNodes: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+  },
+  required: [
+    'type',
+    'channel',
+    'message',
+    'excludeClientId',
+    'fromNode',
+    'seq',
+    'timestamp',
+  ],
+  additionalProperties: false,
+} as const;
