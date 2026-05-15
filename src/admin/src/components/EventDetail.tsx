@@ -5,6 +5,7 @@ import Banner from '@ui/components/shared/Banner';
 import SkeletonCard from '@ui/components/shared/SkeletonCard';
 import { api, type EventEntry, type EventStats } from '../api';
 import { FingerprintChip } from './FingerprintChip';
+import { SchemaDiffToggle } from './SchemaDiff';
 
 export function EventDetail() {
   const { name } = useParams<{ name: string }>();
@@ -108,12 +109,15 @@ export function EventDetail() {
             <h3>Schema History ({event.schemaHistory.length})</h3>
             <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {event.schemaHistory.map((h) => (
-                <li key={h.version} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Chip tone="neutral">v{h.version}</Chip>
-                  <FingerprintChip fingerprint={h.fingerprint} label="" />
-                  <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                    {new Date(h.updatedAt).toLocaleString()}
-                  </span>
+                <li key={h.version} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Chip tone="neutral">v{h.version}</Chip>
+                    <FingerprintChip fingerprint={h.fingerprint} label="" />
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                      {new Date(h.updatedAt).toLocaleString()}
+                    </span>
+                    <SchemaDiffToggle before={h.schema} after={event.schema} />
+                  </div>
                 </li>
               ))}
             </ul>
