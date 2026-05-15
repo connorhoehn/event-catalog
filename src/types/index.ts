@@ -81,6 +81,13 @@ export interface EventDeclaration {
   partitionKey?: (payload: unknown) => string;
   /** Auto-route to DLQ after this many delivery attempts. */
   dlqAfterAttempts?: number;
+  /**
+   * Phase E5.3 — per-event DLQ retention in seconds. Overrides the
+   * global 30-day default. Used to keep high-value audit events longer
+   * than transient webhook failures, or to age short-lived events out
+   * of DDB sooner.
+   */
+  dlqRetention?: number;
 
   // --- both transports ---
   /** Deprecated alternate names for this event still being emitted. */

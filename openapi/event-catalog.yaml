@@ -633,6 +633,9 @@ components:
         dlqAfterAttempts:
           type: integer
           description: Durable-only. Auto-DLQ after this many delivery attempts.
+        dlqRetention:
+          type: integer
+          description: Durable-only. Per-event DLQ TTL in seconds. Overrides the global 30-day default.
         aliases:
           type: array
           items:

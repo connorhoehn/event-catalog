@@ -187,7 +187,7 @@ export function createRoutes(deps: RoutesDeps): Router {
     const {
       name, schema, transport, producer, description, tags, compatibilityMode, compatMode,
       // E3 fields:
-      channel, discriminator, queue, retention, fifo, dlqAfterAttempts, aliases,
+      channel, discriminator, queue, retention, fifo, dlqAfterAttempts, dlqRetention, aliases,
     } = req.body as Partial<EventDeclaration>;
 
     if (!name || !transport || !producer) {
@@ -253,6 +253,7 @@ export function createRoutes(deps: RoutesDeps): Router {
       ...(typeof retention === 'number' ? { retention } : {}),
       ...(typeof fifo === 'boolean' ? { fifo } : {}),
       ...(typeof dlqAfterAttempts === 'number' ? { dlqAfterAttempts } : {}),
+      ...(typeof dlqRetention === 'number' ? { dlqRetention } : {}),
       ...(aliases ? { aliases } : {}),
     });
 

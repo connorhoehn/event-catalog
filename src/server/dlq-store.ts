@@ -26,7 +26,7 @@ export interface DLQListOptions {
   limit?: number;
 }
 
-const TTL_DAYS = 30;
+const DEFAULT_TTL_SECONDS = 30 * 86400;
 
 export class DLQStore {
   constructor(
@@ -34,9 +34,15 @@ export class DLQStore {
     private readonly tableName: string,
   ) {}
 
-  async put(entry: DLQPutInput): Promise<DLQEntry> {
+  /**
+   * Phase E5.3 — `retentionSeconds` overrides the global 30-day default
+   * on a per-entry basis. Wired by the server's onDeadLetter hook from
+   * the corresponding EventDeclaration.dlqRetention.
+   */
+  async put(entry: DLQPutInput, retentionSeconds?: number): Promise<DLQEntry> {
     const id = crypto.randomUUID();
-    const ttl = Math.floor(Date.now() / 1000) + TTL_DAYS * 86400;
+    const ttl = Math.floor(Date.now() / 1000)
+      + (retentionSeconds ?? DEFAULT_TTL_SECONDS);
 
     const item: DLQEntry = {
       id,

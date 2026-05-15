@@ -82,13 +82,17 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   const dlqStore = new DLQStore(dynamoClient, dlqTableName);
 
   durable.onDeadLetter((message) => {
+    // Phase E5.3 — honor the event's declared dlqRetention (seconds) when
+    // present. Falls back to DLQStore's 30-day default for undeclared
+    // events or events without an override.
+    const entry = registry.get(message.envelope.eventName);
     dlqStore.put({
       eventName: message.envelope.eventName,
       payload: message.envelope.payload,
       error: message.error,
       attempts: message.attempts,
       deadAt: message.deadLetteredAt,
-    }).catch(err => {
+    }, entry?.dlqRetention).catch(err => {
       console.error('[server] DLQ store write failed:', (err as Error).message);
     });
   });
