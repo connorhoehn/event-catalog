@@ -3,6 +3,7 @@ import type { RedisClientType } from 'redis';
 import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyNode, TopologyEdge, TopologyFilter, CompatibilityMode } from '../types/index';
 import type { IRegistry, ValidationResult, DeclareResult } from './types';
 import { checkBackwardCompat, checkForwardCompat, type CompatResult } from './schema-compat';
+import { computeSchemaFingerprint } from './fingerprint';
 
 const REDIS_KEY = 'event-catalog:registry';
 
@@ -70,6 +71,11 @@ export class Registry implements IRegistry {
       }
 
       existing.schema = event.schema;
+      // Phase E6 — recompute fingerprint whenever the schema is replaced.
+      // Stays in lockstep with `version` bumps.
+      if (schemaChanged) {
+        existing.schemaFingerprint = computeSchemaFingerprint(event.schema);
+      }
       existing.description = event.description;
       existing.tags = event.tags;
       if (event.compatibilityMode) {
@@ -84,12 +90,21 @@ export class Registry implements IRegistry {
         existing.producer = event.producer;
       }
       this.persist(event.name, existing);
-      return { version: existing.version, compatible, violations };
+      return {
+        version: existing.version,
+        compatible,
+        violations,
+        schemaFingerprint: existing.schemaFingerprint,
+      };
     }
 
     const entry: RegistryEntry = {
       ...event,
       version: event.version ?? 1,
+      // Phase E6 — fingerprint computed at creation. Empty schema (e.g.
+      // bulk-registration entries that lack a schema) gets the fingerprint
+      // of `{}` so the field is always present.
+      schemaFingerprint: computeSchemaFingerprint(event.schema ?? {}),
       compatibilityMode: event.compatibilityMode ?? 'backward',
       schemaHistory: [],
       subscribers: [],
@@ -103,7 +118,11 @@ export class Registry implements IRegistry {
 
     this.events.set(event.name, entry);
     this.persist(event.name, entry);
-    return { version: entry.version, compatible: true };
+    return {
+      version: entry.version,
+      compatible: true,
+      schemaFingerprint: entry.schemaFingerprint,
+    };
   }
 
   get(name: string): RegistryEntry | undefined {

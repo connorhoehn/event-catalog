@@ -132,11 +132,15 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [declared, version, compatible]
+                required: [declared, version, compatible, schemaFingerprint]
                 properties:
                   declared: { type: string }
                   version: { type: integer }
                   compatible: { type: boolean }
+                  schemaFingerprint:
+                    type: string
+                    pattern: '^[0-9a-f]{64}$'
+                    description: sha256 of the canonical schema serialization (Phase E6).
                   violations:
                     type: array
                     items: { type: string }
@@ -705,9 +709,17 @@ components:
       allOf:
         - $ref: '#/components/schemas/EventDeclarationInput'
         - type: object
-          required: [version, compatibilityMode, schemaHistory, subscribers, metadata]
+          required: [version, schemaFingerprint, compatibilityMode, schemaHistory, subscribers, metadata]
           properties:
             version: { type: integer }
+            schemaFingerprint:
+              type: string
+              pattern: '^[0-9a-f]{64}$'
+              description: |
+                Phase E6 — sha256 of the canonical (sorted-key) schema
+                serialization. Identical for shape-identical schemas
+                regardless of key order. Consumers cache + compare
+                locally to detect drift without a registry round-trip.
             schemaHistory:
               type: array
               items:
@@ -842,10 +854,18 @@ components:
       properties:
         error:
           type: object
-          required: [code, eventName, violations]
+          required: [code, eventName, violations, currentFingerprint, proposedFingerprint]
           properties:
             code: { type: string, enum: [COMPAT_VIOLATION] }
             eventName: { type: string }
             violations:
               type: array
               items: { type: string }
+            currentFingerprint:
+              type: string
+              pattern: '^[0-9a-f]{64}$'
+              description: Phase E6 — fingerprint of the schema currently stored in the registry.
+            proposedFingerprint:
+              type: string
+              pattern: '^[0-9a-f]{64}$'
+              description: Phase E6 — fingerprint of the schema the caller tried to declare.

@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import type { Registry } from '../registry/index.js';
+import { computeSchemaFingerprint } from '../registry/fingerprint.js';
 import type { MetricsCollector } from './metrics.js';
 import type { MetricsObserver } from './metrics-observer.js';
 import type { SignalTransport } from '../client/signal.js';
@@ -218,11 +219,16 @@ export function createRoutes(deps: RoutesDeps): Router {
       const compat = registry.checkSchemaCompat(name, schema);
       if (!compat.compatible) {
         if (effectiveMode === 'strict') {
+          // Phase E6 — surface both fingerprints on the 409 so the caller
+          // can confirm in one round-trip whether their local cache matches
+          // the registry's current schema vs. the proposed one.
           res.status(409).json({
             error: {
               code: 'COMPAT_VIOLATION',
               eventName: name,
               violations: compat.violations,
+              currentFingerprint: existing.schemaFingerprint,
+              proposedFingerprint: computeSchemaFingerprint(schema),
             },
           });
           return;
@@ -259,7 +265,14 @@ export function createRoutes(deps: RoutesDeps): Router {
 
     metricsObserver.observe(name, transport).catch(() => {});
 
-    const response: Record<string, unknown> = { declared: name, version: result.version, compatible: result.compatible };
+    const response: Record<string, unknown> = {
+      declared: name,
+      version: result.version,
+      compatible: result.compatible,
+      // Phase E6 — return the fingerprint so consumers can cache it
+      // immediately rather than re-fetching via GET /api/events/:name.
+      schemaFingerprint: result.schemaFingerprint,
+    };
     if (result.violations) {
       response.violations = result.violations;
     }

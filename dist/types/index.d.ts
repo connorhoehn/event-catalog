@@ -172,6 +172,12 @@ export interface HealthStatus {
 }
 export interface RegistryEntry extends EventDeclaration {
     version: number;
+    /**
+     * Phase E6 — deterministic sha256 of the canonical (sorted-key) schema
+     * serialization. Consumers cache + compare to detect drift without a
+     * round-trip. Recomputed when the schema changes. Lowercase 64-char hex.
+     */
+    schemaFingerprint: string;
     compatibilityMode: CompatibilityMode;
     schemaHistory: SchemaHistoryEntry[];
     subscribers: string[];

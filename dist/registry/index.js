@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.Registry = void 0;
 const messaging_queue_1 = require("distributed-core/messaging-queue");
 const schema_compat_1 = require("./schema-compat");
+const fingerprint_1 = require("./fingerprint");
 const REDIS_KEY = 'event-catalog:registry';
 /** Normalize EventDeclaration.producer to an always-array form. */
 function producerList(producer) {
@@ -64,6 +65,11 @@ class Registry {
                 existing.version += 1;
             }
             existing.schema = event.schema;
+            // Phase E6 — recompute fingerprint whenever the schema is replaced.
+            // Stays in lockstep with `version` bumps.
+            if (schemaChanged) {
+                existing.schemaFingerprint = (0, fingerprint_1.computeSchemaFingerprint)(event.schema);
+            }
             existing.description = event.description;
             existing.tags = event.tags;
             if (event.compatibilityMode) {
@@ -78,11 +84,20 @@ class Registry {
                 existing.producer = event.producer;
             }
             this.persist(event.name, existing);
-            return { version: existing.version, compatible, violations };
+            return {
+                version: existing.version,
+                compatible,
+                violations,
+                schemaFingerprint: existing.schemaFingerprint,
+            };
         }
         const entry = {
             ...event,
             version: event.version ?? 1,
+            // Phase E6 — fingerprint computed at creation. Empty schema (e.g.
+            // bulk-registration entries that lack a schema) gets the fingerprint
+            // of `{}` so the field is always present.
+            schemaFingerprint: (0, fingerprint_1.computeSchemaFingerprint)(event.schema ?? {}),
             compatibilityMode: event.compatibilityMode ?? 'backward',
             schemaHistory: [],
             subscribers: [],
@@ -95,7 +110,11 @@ class Registry {
         };
         this.events.set(event.name, entry);
         this.persist(event.name, entry);
-        return { version: entry.version, compatible: true };
+        return {
+            version: entry.version,
+            compatible: true,
+            schemaFingerprint: entry.schemaFingerprint,
+        };
     }
     get(name) {
         return this.events.get(name);

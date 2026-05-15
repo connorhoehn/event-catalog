@@ -10,6 +10,8 @@ export interface DeclareResult {
   version: number;
   compatible: boolean;
   violations?: string[];
+  /** Phase E6 — sha256 of the canonical schema serialization. */
+  schemaFingerprint: string;
 }
 
 export interface IRegistry {

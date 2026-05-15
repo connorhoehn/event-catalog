@@ -316,14 +316,18 @@ describe('POST /api/events compat-gate (wave3-ec-7)', () => {
       name: 'ec7:evt', transport: 'signal', producer: 'svc', schema: breakingSchema,
     }).expect(409);
 
-    expect(res.body).toEqual({
-      error: {
+    expect(res.body.error).toEqual(
+      expect.objectContaining({
         code: 'COMPAT_VIOLATION',
         eventName: 'ec7:evt',
         violations: expect.any(Array),
-      },
-    });
+        // Phase E6 — 409 enriched with current + proposed fingerprints.
+        currentFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+        proposedFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
+    );
     expect(res.body.error.violations.length).toBeGreaterThan(0);
+    expect(res.body.error.currentFingerprint).not.toBe(res.body.error.proposedFingerprint);
 
     // Critical: registry must NOT have mutated on rejection.
     const after = registry.get('ec7:evt')!;
