@@ -25,6 +25,7 @@ export type {
   SchemaHistoryEntry,
   EventDiscriminator,
   EventAlias,
+  PublishHook,
 } from './types/index';
 
 export type { ValidationResult, DeclareResult, IRegistry, ResolveResult } from './registry/types';

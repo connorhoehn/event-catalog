@@ -199,6 +199,13 @@ class EventCatalog {
             metadata,
         };
         try {
+            // Phase 20-c — beforePublish hooks. Run sequentially in declared
+            // order so a tracing hook can read what a logging hook set.
+            // Throwing aborts the publish.
+            const hooks = this.config.hooks ?? [];
+            for (const hook of hooks) {
+                await hook.beforePublish?.(envelope, entry);
+            }
             // Phase E3.4 — 'both' fan-out: publish to signal AND durable in
             // parallel. Failure of either propagates after both are attempted so
             // partial deliveries are not silently masked.
@@ -229,6 +236,17 @@ class EventCatalog {
                 lastPublishedAt: new Date().toISOString(),
                 publishCount: (entry.metadata.publishCount ?? 0) + 1,
             });
+            // Phase 20-c — afterPublish hooks. Informational. Exceptions are
+            // caught + logged so an audit-sink failure can't fail the publish
+            // that just succeeded.
+            for (const hook of hooks) {
+                try {
+                    await hook.afterPublish?.(envelope, entry);
+                }
+                catch (hookErr) {
+                    console.warn(`[event-catalog] afterPublish hook threw on "${eventName}":`, hookErr.message);
+                }
+            }
         }
         catch (err) {
             this.registry.updateStats(eventName, {

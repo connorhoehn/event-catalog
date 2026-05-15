@@ -163,6 +163,134 @@ describe('EventCatalog Client Integration', () => {
     });
   });
 
+  describe('Phase 20-c — publish middleware (PublishHook)', () => {
+    it('beforePublish runs in order and can mutate metadata.headers', async () => {
+      const order: string[] = [];
+      const catalog = new EventCatalog({
+        ...makeConfig(),
+        hooks: [
+          {
+            beforePublish(envelope) {
+              order.push('A');
+              envelope.metadata.headers = { ...(envelope.metadata.headers ?? {}), traceparent: '00-abcd' };
+            },
+          },
+          {
+            beforePublish(envelope) {
+              order.push('B');
+              // Second hook can read what the first hook set.
+              envelope.metadata.headers = {
+                ...(envelope.metadata.headers ?? {}),
+                'x-trace-seen': envelope.metadata.headers?.traceparent ?? 'missing',
+              };
+            },
+          },
+        ],
+      });
+      catalog.declare({
+        name: 'hooked.signal',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'test-service',
+      });
+      await catalog.connect();
+
+      const received: Array<Record<string, string>> = [];
+      catalog.subscribe('hooked.signal', (envelope) => {
+        received.push(envelope.metadata.headers ?? {});
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      await catalog.publish('hooked.signal', { x: 1 });
+
+      expect(order).toEqual(['A', 'B']);
+      expect(received[0]).toMatchObject({
+        traceparent: '00-abcd',
+        'x-trace-seen': '00-abcd',
+      });
+
+      await catalog.disconnect();
+    });
+
+    it('beforePublish throwing aborts the publish + bumps errorCount', async () => {
+      const catalog = new EventCatalog({
+        ...makeConfig(),
+        hooks: [
+          { beforePublish() { throw new Error('quota exceeded'); } },
+        ],
+      });
+      catalog.declare({
+        name: 'blocked.signal',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'test-service',
+      });
+      await catalog.connect();
+
+      await expect(catalog.publish('blocked.signal', {})).rejects.toThrow(/quota exceeded/);
+
+      const stats = catalog.getRegistry().get('blocked.signal')!.metadata;
+      expect(stats.errorCount).toBe(1);
+      expect(stats.publishCount).toBe(0);
+
+      await catalog.disconnect();
+    });
+
+    it('afterPublish receives the envelope post-transport-send', async () => {
+      const seen: Array<{ name: string; namespace: string }> = [];
+      const catalog = new EventCatalog({
+        ...makeConfig(),
+        hooks: [
+          {
+            afterPublish(envelope, entry) {
+              seen.push({ name: envelope.eventName, namespace: entry.namespace });
+            },
+          },
+        ],
+      });
+      catalog.declare({
+        name: 'pipeline.foo',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'distributed-core',
+      });
+      await catalog.connect();
+
+      await catalog.publish('pipeline.foo', {});
+      expect(seen).toEqual([{ name: 'pipeline.foo', namespace: 'pipeline' }]);
+
+      await catalog.disconnect();
+    });
+
+    it('afterPublish errors are caught and logged, do NOT fail the publish', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const catalog = new EventCatalog({
+        ...makeConfig(),
+        hooks: [
+          { afterPublish() { throw new Error('audit sink down'); } },
+        ],
+      });
+      catalog.declare({
+        name: 'audit.signal',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'test-service',
+      });
+      await catalog.connect();
+
+      await expect(catalog.publish('audit.signal', {})).resolves.not.toThrow();
+      const stats = catalog.getRegistry().get('audit.signal')!.metadata;
+      expect(stats.publishCount).toBe(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('afterPublish hook threw'),
+        expect.stringContaining('audit sink down'),
+      );
+
+      warnSpy.mockRestore();
+      await catalog.disconnect();
+    });
+  });
+
   describe('Phase 20-b — declareAll + getSchemaFingerprint', () => {
     it('declareAll registers every event in the array', () => {
       const catalog = new EventCatalog(makeConfig());

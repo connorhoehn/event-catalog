@@ -119,6 +119,32 @@ export interface EventCatalogConfig {
      * the value of the `EVENT_CATALOG_STRICT` env var (`'true'` enables).
      */
     strict?: boolean;
+    /**
+     * Phase 20-c — publish-path middleware. Hooks run in array order.
+     * `beforePublish` may mutate `envelope.metadata.headers` (inject
+     * traceId, correlationId, etc.) and may throw to reject the publish.
+     * `afterPublish` is informational and post-transport-send;
+     * exceptions thrown from `afterPublish` are caught and logged so a
+     * downstream audit failure can't mask a successful publish.
+     */
+    hooks?: PublishHook[];
+}
+/**
+ * Phase 20-c — publish-path middleware contract.
+ *
+ * Both methods are optional so a hook can implement either or both. The
+ * `entry` parameter is the canonical RegistryEntry (post-alias-resolution),
+ * giving hooks access to namespace, tags, fingerprint, etc.
+ *
+ * Use cases:
+ *   - tracing: `beforePublish` injects `traceparent` into metadata.headers
+ *   - audit: `afterPublish` writes the envelope to an audit sink
+ *   - transformation: `beforePublish` redacts payload fields by tag
+ *   - rate-limiting: `beforePublish` throws when a quota is exceeded
+ */
+export interface PublishHook {
+    beforePublish?(envelope: EventEnvelope, entry: RegistryEntry): Promise<void> | void;
+    afterPublish?(envelope: EventEnvelope, entry: RegistryEntry): Promise<void> | void;
 }
 export interface PublishOptions {
     headers?: Record<string, string>;
