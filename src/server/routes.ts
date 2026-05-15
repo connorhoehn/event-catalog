@@ -384,6 +384,22 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json(topology);
   });
 
+  // Phase 21-e — flat fingerprint manifest. Returns
+  // `{ <eventName>: <schemaFingerprint> }` for every declared event
+  // (or every event in a namespace when filtered). Designed for CI:
+  //   $ curl /api/fingerprints > current.json
+  //   $ diff snapshot.json current.json   # → see schema changes
+  // Cheaper than GET /api/events when callers only need fingerprints.
+  router.get('/fingerprints', (req: Request, res: Response) => {
+    const namespace = typeof req.query.namespace === 'string' ? req.query.namespace : undefined;
+    const entries = registry.list(namespace ? { namespace } : undefined);
+    const manifest: Record<string, string> = {};
+    for (const e of entries) {
+      manifest[e.name] = e.schemaFingerprint;
+    }
+    res.json(manifest);
+  });
+
   // Phase E8 — live flow tap (SSE). Subscribers stream every observed
   // event publish through the catalog's MetricsObserver, optionally
   // filtered. Sample knob (`?sample=N`) emits 1-in-N events for high-

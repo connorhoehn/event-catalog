@@ -422,6 +422,36 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/fingerprints:
+    get:
+      tags: [events]
+      summary: Flat fingerprint manifest
+      description: |
+        Phase 21-e — returns `{ <eventName>: <schemaFingerprint> }` for
+        every declared event. Cheaper than `GET /api/events` when the
+        caller only needs fingerprints (CI drift detection, schema-
+        change diffs across deploys).
+
+        ```bash
+        $ curl /api/fingerprints > current.json
+        $ diff snapshot.json current.json
+        ```
+      parameters:
+        - in: query
+          name: namespace
+          schema: { type: string }
+          description: Restrict the manifest to one namespace.
+      responses:
+        '200':
+          description: Manifest
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                  pattern: '^[0-9a-f]{64}$'
+
   /api/topology:
     get:
       tags: [topology]

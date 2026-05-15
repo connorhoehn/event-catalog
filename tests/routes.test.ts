@@ -695,6 +695,48 @@ describe('Server Routes', () => {
     });
   });
 
+  // ─── GET /api/fingerprints (wave21-e) ────────────────────────────────
+
+  describe('GET /api/fingerprints', () => {
+    it('returns a flat {eventName: fingerprint} manifest of every declared event', async () => {
+      registry.declare({ name: 'pipeline.run.started', schema: { type: 'object' }, transport: 'signal', producer: 'dc' });
+      registry.declare({ name: 'sfu.stream.started', schema: { type: 'object' }, transport: 'durable', producer: 'sfu' });
+
+      const res = await request(app).get('/api/fingerprints');
+      expect(res.status).toBe(200);
+      expect(Object.keys(res.body).sort()).toEqual(['pipeline.run.started', 'sfu.stream.started']);
+      // Fingerprints are 64-char lowercase hex.
+      expect(res.body['pipeline.run.started']).toMatch(/^[0-9a-f]{64}$/);
+      expect(res.body['sfu.stream.started']).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('?namespace=X filters the manifest', async () => {
+      registry.declare({ name: 'pipeline.a', schema: {}, transport: 'signal', producer: 'dc' });
+      registry.declare({ name: 'pipeline.b', schema: {}, transport: 'signal', producer: 'dc' });
+      registry.declare({ name: 'sfu.x', schema: {}, transport: 'signal', producer: 'sfu' });
+
+      const res = await request(app).get('/api/fingerprints?namespace=pipeline');
+      expect(res.status).toBe(200);
+      expect(Object.keys(res.body).sort()).toEqual(['pipeline.a', 'pipeline.b']);
+    });
+
+    it('returns an empty object when no events match', async () => {
+      const res = await request(app).get('/api/fingerprints?namespace=does-not-exist');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({});
+    });
+
+    it('shape-stable: same schema → same fingerprint regardless of declaration order', async () => {
+      registry.declare({ name: 'a.b', schema: { type: 'object', required: ['x', 'y'] }, transport: 'signal', producer: 's' });
+      const r1 = await request(app).get('/api/fingerprints');
+
+      registry.declare({ name: 'a.b', schema: { required: ['x', 'y'], type: 'object' }, transport: 'signal', producer: 's' });
+      const r2 = await request(app).get('/api/fingerprints');
+
+      expect(r1.body['a.b']).toBe(r2.body['a.b']);
+    });
+  });
+
   // ─── POST /api/transports/durable/dlq/replay (Phase E5.2) ────────────
 
   describe('POST /api/transports/durable/dlq/replay', () => {

@@ -18,14 +18,16 @@ console.log('╔═════════════════════�
 console.log('║        event-catalog v0.1.0          ║');
 console.log('╚══════════════════════════════════════╝');
 
-const { shutdown } = await startServer({ port, redisUrl, messageQueueUrl });
+void (async () => {
+  const { shutdown } = await startServer({ port, redisUrl, messageQueueUrl });
 
-process.on('SIGINT', async () => {
-  await shutdown();
-  process.exit(0);
-});
+  process.on('SIGINT', async () => {
+    await shutdown();
+    process.exit(0);
+  });
 
-process.on('SIGTERM', async () => {
-  await shutdown();
-  process.exit(0);
-});
+  process.on('SIGTERM', async () => {
+    await shutdown();
+    process.exit(0);
+  });
+})();
