@@ -5,7 +5,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { Registry } from '../registry/index.js';
 import { SignalTransport } from '../client/signal.js';
-import { DurableTransport } from '../client/durable.js';
+import { DurableTransport, type DeadLetteredMessage } from '../client/durable.js';
 import { MetricsCollector } from './metrics.js';
 import { MetricsObserver } from './metrics-observer.js';
 import { AlertManager } from './alerting.js';
@@ -15,6 +15,7 @@ import { createRoutes } from './routes.js';
 import { makeHealthHandler } from './health.js';
 import { PromMetrics } from './prom-metrics.js';
 import { readFileSync } from 'node:fs';
+import type { RegistryEntry } from '../types/index.js';
 
 function readServiceVersion(): string {
   try {
@@ -26,11 +27,86 @@ function readServiceVersion(): string {
   }
 }
 
+/**
+ * Phase 20-d — DLQ handler context. Built once per dead-letter event by
+ * looking the envelope's eventName up in the local Registry, so operator
+ * handlers get the canonical RegistryEntry + namespace without a second
+ * lookup. Both fields are optional because dead-letters can fire on
+ * undeclared events (consumer drift).
+ */
+export interface DeadLetterContext {
+  entry?: RegistryEntry;
+  namespace?: string;
+}
+
+/** Phase 20-d — server-side DLQ handler. */
+export type DeadLetterHandler =
+  (message: DeadLetteredMessage, context: DeadLetterContext) => void | Promise<void>;
+
+/**
+ * Phase 20-d — internal factory that builds the dead-letter callback
+ * the server registers on the DurableTransport. Exported so tests can
+ * exercise the wiring in isolation (no Redis / DDB roundtrip).
+ *
+ *   1. Write to the DLQ store (honoring declared dlqRetention).
+ *   2. Fan out to operator-supplied handlers with enriched context.
+ *      Errors caught + logged so a webhook hiccup can't fail the
+ *      primary DLQ write.
+ */
+export function buildDeadLetterCallback(deps: {
+  registry: { get(name: string): RegistryEntry | undefined };
+  dlqStore: { put(entry: { eventName: string; payload: unknown; error: string; attempts: number; deadAt: string }, retentionSeconds?: number): Promise<unknown> };
+  additionalHandlers: DeadLetterHandler[];
+}): (message: DeadLetteredMessage) => void {
+  return (message) => {
+    const entry = deps.registry.get(message.envelope.eventName);
+    deps.dlqStore.put({
+      eventName: message.envelope.eventName,
+      payload: message.envelope.payload,
+      error: message.error,
+      attempts: message.attempts,
+      deadAt: message.deadLetteredAt,
+    }, entry?.dlqRetention).catch((err: Error) => {
+      console.error('[server] DLQ store write failed:', err.message);
+    });
+
+    if (deps.additionalHandlers.length === 0) return;
+    const context: DeadLetterContext = { entry, namespace: entry?.namespace };
+    for (const handler of deps.additionalHandlers) {
+      // Wrap with new Promise() so a SYNCHRONOUS throw inside the
+      // handler is caught alongside async rejections.
+      new Promise<void>((resolve) => {
+        resolve(handler(message, context));
+      }).catch((err: Error) => {
+        console.warn(
+          `[server] DLQ handler threw on "${message.envelope.eventName}":`,
+          err.message,
+        );
+      });
+    }
+  };
+}
+
 export interface ServerConfig {
   port?: number;
   redisUrl?: string;
   messageQueueUrl?: string;
   corsOrigin?: string | boolean;
+  /**
+   * Phase 20-d — additional DLQ handlers run alongside the built-in
+   * "write to DDB" handler. Each receives the failing message plus a
+   * context with the canonical registry entry and namespace. Errors
+   * thrown by these handlers are caught + logged so a webhook hiccup
+   * can't fail the primary DLQ write.
+   */
+  onDeadLetter?: DeadLetterHandler[];
+  /**
+   * Phase 20-d — optional Express middleware mounted before `/api`
+   * routes. The admin server is unauthenticated by default
+   * (deliberately, for local dev); operators can inject a JWT / API-key
+   * check here without forking startServer.
+   */
+  authMiddleware?: express.RequestHandler;
 }
 
 export async function startServer(config: ServerConfig = {}): Promise<{
@@ -42,6 +118,8 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379',
     messageQueueUrl = process.env.MESSAGE_QUEUE_URL ?? 'http://localhost:3004',
     corsOrigin = true,
+    onDeadLetter = [],
+    authMiddleware,
   } = config;
 
   const redisClient = createClient({ url: redisUrl }) as RedisClientType;
@@ -81,21 +159,11 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   const dlqTableName = process.env.DLQ_TABLE_NAME ?? 'event-catalog-dlq';
   const dlqStore = new DLQStore(dynamoClient, dlqTableName);
 
-  durable.onDeadLetter((message) => {
-    // Phase E5.3 — honor the event's declared dlqRetention (seconds) when
-    // present. Falls back to DLQStore's 30-day default for undeclared
-    // events or events without an override.
-    const entry = registry.get(message.envelope.eventName);
-    dlqStore.put({
-      eventName: message.envelope.eventName,
-      payload: message.envelope.payload,
-      error: message.error,
-      attempts: message.attempts,
-      deadAt: message.deadLetteredAt,
-    }, entry?.dlqRetention).catch(err => {
-      console.error('[server] DLQ store write failed:', (err as Error).message);
-    });
-  });
+  durable.onDeadLetter(buildDeadLetterCallback({
+    registry,
+    dlqStore,
+    additionalHandlers: onDeadLetter,
+  }));
 
   const metricsObserver = new MetricsObserver({ registry, signal, durable, metrics });
   await metricsObserver.start().catch(err => {
@@ -175,6 +243,14 @@ export async function startServer(config: ServerConfig = {}): Promise<{
 
   // Admin API
   const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics });
+  // Phase 20-d — auth middleware injection (optional). Mounted before
+  // the /api router so it gates every admin endpoint. The catalog
+  // itself ships with no auth on purpose (local dev / in-cluster
+  // private surface) but operators deploying outside that envelope
+  // pass their JWT / API-key middleware here.
+  if (authMiddleware) {
+    app.use('/api', authMiddleware);
+  }
   app.use('/api', routes);
 
   // Static admin UI (production)
