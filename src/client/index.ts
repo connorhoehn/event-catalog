@@ -62,6 +62,8 @@ export class EventCatalog {
   private readonly syncRetryManager: RetryManager;
   private connected = false;
   private resyncInterval: ReturnType<typeof setInterval> | null = null;
+  /** Phase E3.5 — dedupe deprecation log to one line per alias per process. */
+  private readonly warnedAliases = new Set<string>();
 
   constructor(config: EventCatalogConfig) {
     this.config = config;
@@ -144,9 +146,19 @@ export class EventCatalog {
   }
 
   async publish<T = unknown>(eventName: string, payload: T, options?: PublishOptions): Promise<void> {
-    const entry = this.registry.get(eventName);
-    if (!entry) {
+    // Phase E3.5 — alias resolution. If `eventName` is a deprecated alias of
+    // some canonical declaration, route the publish through the canonical
+    // (use its schema, channel, queue) and emit on the canonical name so
+    // subscribers don't have to handle both forms. A one-line deprecation
+    // warning per process per alias keeps log noise bounded.
+    const resolved = this.registry.resolve(eventName);
+    if (!resolved) {
       throw new Error(`[event-catalog] event "${eventName}" is not declared. Call declare() first.`);
+    }
+    const entry = resolved.entry;
+    if (resolved.viaAlias) {
+      this.warnDeprecatedAlias(resolved.viaAlias.name, entry.name, resolved.viaAlias.until);
+      eventName = entry.name;
     }
 
     // Validate payload against schema
@@ -318,9 +330,17 @@ export class EventCatalog {
     handler: EventHandler<T>,
     options?: SubscribeOptions,
   ): Subscription {
-    const entry = this.registry.get(eventName);
-    if (!entry) {
+    // Phase E3.5 — alias-aware subscribe. If the caller supplied a deprecated
+    // alias, resolve to the canonical and subscribe there. No warning on the
+    // subscribe path — only producers should be redirected (the alias-warning
+    // story belongs on the emission side).
+    const resolved = this.registry.resolve(eventName);
+    if (!resolved) {
       throw new Error(`[event-catalog] event "${eventName}" is not declared. Call declare() first.`);
+    }
+    const entry = resolved.entry;
+    if (resolved.viaAlias) {
+      eventName = entry.name;
     }
 
     this.registry.addSubscriber(eventName, this.config.serviceName);
@@ -393,6 +413,17 @@ export class EventCatalog {
 
   isConnected(): boolean {
     return this.connected;
+  }
+
+  private warnDeprecatedAlias(aliasName: string, canonicalName: string, until?: string): void {
+    if (this.warnedAliases.has(aliasName)) return;
+    this.warnedAliases.add(aliasName);
+    const expiry = until ? ` (removal scheduled after ${until})` : '';
+    console.warn(
+      `[event-catalog] publish("${aliasName}") routed via deprecated alias — `
+      + `canonical name is "${canonicalName}". Update producers to emit the `
+      + `canonical name${expiry}.`,
+    );
   }
 
   private scheduleBackgroundSync(): void {

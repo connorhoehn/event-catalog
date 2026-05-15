@@ -125,6 +125,119 @@ describe('EventCatalog Client Integration', () => {
     });
   });
 
+  describe('Phase E3.5 — alias resolution', () => {
+    it('publish via deprecated alias routes through canonical declaration', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'pipeline.approval.requested',
+        schema: { type: 'object', properties: { runId: { type: 'string' } }, required: ['runId'] },
+        transport: 'signal',
+        producer: 'distributed-core',
+        aliases: [{ name: 'pipeline:approval:requested', deprecated: true }],
+      });
+
+      await catalog.connect();
+
+      const received: Array<{ raw: string }> = [];
+      // Subscribe to the canonical channel (alias should route here).
+      subscriptions.set('pipeline.approval.requested', new Set([(msg) => received.push({ raw: msg })]));
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await catalog.publish('pipeline:approval:requested', { runId: 'r1' });
+
+      expect(received).toHaveLength(1);
+      const parsed = JSON.parse(received[0]!.raw) as { eventName: string };
+      // Envelope's eventName is the canonical, not the alias.
+      expect(parsed.eventName).toBe('pipeline.approval.requested');
+
+      // Deprecation warning was emitted.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('routed via deprecated alias'),
+      );
+
+      warnSpy.mockRestore();
+      await catalog.disconnect();
+    });
+
+    it('warns once per alias per process (no log spam)', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'pipeline.run.checkpoint',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'distributed-core',
+        aliases: [{ name: 'pipeline:run:checkpoint', deprecated: true }],
+      });
+
+      await catalog.connect();
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await catalog.publish('pipeline:run:checkpoint', {});
+      await catalog.publish('pipeline:run:checkpoint', {});
+      await catalog.publish('pipeline:run:checkpoint', {});
+
+      const aliasWarns = warnSpy.mock.calls.filter((c) =>
+        String(c[0]).includes('routed via deprecated alias'),
+      );
+      expect(aliasWarns).toHaveLength(1);
+
+      warnSpy.mockRestore();
+      await catalog.disconnect();
+    });
+
+    it('throws when neither the canonical name nor any alias matches', async () => {
+      const catalog = new EventCatalog(makeConfig());
+      await catalog.connect();
+
+      await expect(catalog.publish('unknown:event', { x: 1 })).rejects.toThrow(
+        /is not declared/,
+      );
+
+      await catalog.disconnect();
+    });
+
+    it('subscribe via alias attaches to the canonical channel without warning', async () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'pipeline.approval.recorded',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'distributed-core',
+        aliases: [{ name: 'pipeline:approval:recorded', deprecated: true }],
+      });
+
+      await catalog.connect();
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const received: unknown[] = [];
+      const sub = catalog.subscribe('pipeline:approval:recorded', (env) => {
+        received.push(env.payload);
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      await catalog.publish('pipeline.approval.recorded', { ok: true });
+
+      expect(received).toEqual([{ ok: true }]);
+      // Subscribe via alias does not warn (only producer-side alias use is
+      // warned). Publish here used the canonical name, so total alias warnings
+      // should be zero.
+      const subWarns = warnSpy.mock.calls.filter((c) =>
+        String(c[0]).includes('routed via deprecated alias'),
+      );
+      expect(subWarns).toHaveLength(0);
+
+      await sub.unsubscribe();
+      warnSpy.mockRestore();
+      await catalog.disconnect();
+    });
+  });
+
   describe('Phase E3.3 — declared signal channel', () => {
     it('publishes to a literal-string declared channel, not the event name', async () => {
       const catalog = new EventCatalog(makeConfig());
