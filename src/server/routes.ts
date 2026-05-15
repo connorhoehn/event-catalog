@@ -21,6 +21,13 @@ export interface RoutesDeps {
   startedAt: number;
   /** Optional prom-format metric surface; injected by startServer. */
   promMetrics?: PromMetrics;
+  /**
+   * wave23-a — optional handle to the persistent audit log. When
+   * supplied, GET /api/audit/recent serves history from it and
+   * GET /api/audit replays the last N events to a new SSE client
+   * before streaming live.
+   */
+  auditLog?: { recent(limit?: number): Promise<import('./audit-emitter.js').AuditEvent[]> };
 }
 
 /**
@@ -47,7 +54,7 @@ function resolveCompatMode(
 }
 
 export function createRoutes(deps: RoutesDeps): Router {
-  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics } = deps;
+  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics, auditLog } = deps;
   const router = Router();
 
   // List all events
@@ -454,20 +461,39 @@ export function createRoutes(deps: RoutesDeps): Router {
   // bump, removal, subscriber add/remove), a structured AuditEvent
   // is streamed to subscribers. Powers admin UI "registry changes"
   // panels and live audit dashboards.
-  router.get('/audit', (req: Request, res: Response) => {
+  router.get('/audit', async (req: Request, res: Response) => {
     const filter = {
       kind: typeof req.query.kind === 'string' ? (req.query.kind as AuditEvent['kind']) : undefined,
       eventName: typeof req.query.eventName === 'string' ? req.query.eventName : undefined,
       namespace: typeof req.query.namespace === 'string' ? req.query.namespace : undefined,
       serviceName: typeof req.query.serviceName === 'string' ? req.query.serviceName : undefined,
     };
+    // wave23-a — replay-on-connect knob. ?replay=N reads the last N
+    // events from the persistent log and writes them as SSE frames
+    // before streaming live. Default 0 (no replay) for back-compat.
+    const replayN = Math.max(0, parseInt(String(req.query.replay ?? '0'), 10) || 0);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
-    res.write(`: connected; filter=${JSON.stringify(filter)}\n\n`);
+    res.write(`: connected; filter=${JSON.stringify(filter)}; replay=${replayN}\n\n`);
+
+    // Replay history first when an audit log is wired and the caller
+    // asked for it. Skipped if disconnected mid-replay.
+    if (replayN > 0 && auditLog) {
+      try {
+        const history = await auditLog.recent(replayN);
+        for (const event of history) {
+          if (matchesAuditFilter(event, filter)) {
+            res.write(`data: ${JSON.stringify({ ...event, _replay: true })}\n\n`);
+          }
+        }
+      } catch {
+        // Log read failed — keep the live stream open anyway.
+      }
+    }
 
     const handler = (event: AuditEvent): void => {
       if (!matchesAuditFilter(event, filter)) return;
@@ -483,6 +509,19 @@ export function createRoutes(deps: RoutesDeps): Router {
       auditEmitter.off('audit', handler);
       clearInterval(heartbeat);
     });
+  });
+
+  // wave23-a — query the persistent audit log without subscribing
+  // to live SSE. Useful for one-off lookups + the admin UI's initial
+  // render (avoids a slow-to-paint blank panel).
+  router.get('/audit/recent', async (req: Request, res: Response) => {
+    if (!auditLog) {
+      res.json({ events: [], note: 'no persistent audit log wired' });
+      return;
+    }
+    const limit = Math.max(1, parseInt(String(req.query.limit ?? '50'), 10) || 50);
+    const events = await auditLog.recent(limit);
+    res.json({ events });
   });
 
   // Phase 21-e — flat fingerprint manifest. Returns

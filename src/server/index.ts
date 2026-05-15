@@ -11,6 +11,7 @@ import { MetricsObserver } from './metrics-observer.js';
 import { AlertManager } from './alerting.js';
 import { DLQStore } from './dlq-store.js';
 import { ensureTable } from './dynamo-setup.js';
+import { startAuditLog } from './audit-log.js';
 import { createRoutes } from './routes.js';
 import { makeHealthHandler } from './health.js';
 import { PromMetrics } from './prom-metrics.js';
@@ -241,8 +242,14 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     res.send(promMetrics.renderProm());
   });
 
+  // wave23-a — persistent audit log. Capped Redis list keyed at
+  // `event-catalog:audit-log` so audit events survive replicas
+  // restarts and SSE clients get history-on-connect via ?replay=N.
+  // Best-effort — Redis hiccups don't block live emits.
+  const auditLog = startAuditLog({ redis: redisClient });
+
   // Admin API
-  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics });
+  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog });
   // Phase 20-d — auth middleware injection (optional). Mounted before
   // the /api router so it gates every admin endpoint. The catalog
   // itself ships with no auth on purpose (local dev / in-cluster
@@ -317,6 +324,7 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     console.log('[event-catalog] shutting down...');
     clearInterval(healthInterval);
     clearInterval(metricsSnapshotInterval);
+    auditLog.stop();
     await metrics.snapshotToRedis(redisClient).catch(() => {});
     server.close();
     await metricsObserver.stop();

@@ -555,6 +555,12 @@ paths:
 
         Filters AND-combine. Stream opens with a `: connected;` comment
         and includes 30-second heartbeats.
+
+        wave23-a — when the persistent audit log is wired and
+        `?replay=N` is passed, the last N events from the log are
+        flushed as SSE frames *before* the live stream begins. Each
+        replayed frame carries `_replay: true` so the client can
+        distinguish history from live.
       parameters:
         - in: query
           name: kind
@@ -570,12 +576,54 @@ paths:
         - in: query
           name: serviceName
           schema: { type: string }
+        - in: query
+          name: replay
+          schema: { type: integer, minimum: 0, default: 0 }
+          description: Number of historical events to replay before streaming live (wave23-a).
       responses:
         '200':
           description: SSE stream (long-lived)
           content:
             text/event-stream:
               schema: { type: string, description: SSE-formatted AuditEvent frames }
+
+  /api/audit/recent:
+    get:
+      tags: [events]
+      summary: Persistent audit log query
+      description: |
+        wave23-a — returns the last N audit events from the Redis-
+        backed audit log without subscribing to live SSE. Useful for
+        one-off lookups and for the admin UI's initial render (avoids
+        a slow-to-paint blank panel before the first live event).
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, default: 50 }
+      responses:
+        '200':
+          description: Recent audit events in chronological order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind: { type: string }
+                        timestamp: { type: string, format: date-time }
+                        eventName: { type: string }
+                        namespace: { type: string }
+                        version: { type: integer }
+                        fingerprint: { type: string }
+                        serviceName: { type: string }
+                  note:
+                    type: string
+                    description: Present when no audit log is wired (returns empty events).
 
   /api/flow:
     get:
