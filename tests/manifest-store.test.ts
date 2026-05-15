@@ -202,3 +202,133 @@ describe('manifest routes', () => {
     expect(byName['stale-consumer'].summary.stale).toBe(1);
   });
 });
+
+describe('manifest-aware POST /api/events gate (wave23-c)', () => {
+  function makeApp() {
+    const registry = new Registry();
+    const metrics = new MetricsCollector(60);
+    const map = new Map<string, ManifestEntry>();
+    const inMemory: ManifestStore = {
+      async put(e) {
+        const stored: ManifestEntry = { consumerName: e.consumerName, events: e.events.slice(), updatedAt: '2026-05-15T00:00:00.000Z' };
+        map.set(e.consumerName, stored);
+        return stored;
+      },
+      async get(name) { return map.get(name) ?? null; },
+      async list() { return [...map.values()]; },
+      async remove(name) { return map.delete(name); },
+      async driftReport(current) {
+        return [...map.values()].map((m) => buildDriftReport(m, current));
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createRoutes({
+      registry,
+      metrics,
+      metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
+      signal: { isConnected: () => true, healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }), getAllMetrics: () => new Map(), getHistory: async () => [] } as unknown as RoutesDeps['signal'],
+      durable: { isConnected: () => true, healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }), getAllMetrics: () => new Map() } as unknown as RoutesDeps['durable'],
+      dlqStore: { list: async () => [], remove: async () => true, findById: async () => null, put: async () => ({}) } as unknown as RoutesDeps['dlqStore'],
+      startedAt: Date.now(),
+      manifestStore: inMemory,
+    }));
+    return { app, registry };
+  }
+
+  it('strict mode: 409 PINNED_CONSUMER_BREAK when a fingerprint change would stale a pinned consumer', async () => {
+    const { app, registry } = makeApp();
+    registry.declare({
+      name: 'orders.placed', schema: { type: 'object' }, transport: 'durable', producer: 'orders',
+      compatibilityMode: 'none',
+    });
+    const currentFp = registry.get('orders.placed')!.schemaFingerprint;
+    await request(app).put('/api/manifests/audit-worker').send({
+      events: [{ name: 'orders.placed', fingerprint: currentFp }],
+    });
+
+    const res = await request(app)
+      .post('/api/events?check-manifests=strict')
+      .send({
+        name: 'orders.placed',
+        schema: { type: 'object', properties: { orderId: { type: 'string' } } },
+        transport: 'durable',
+        producer: 'orders',
+        compatibilityMode: 'none',
+      });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('PINNED_CONSUMER_BREAK');
+    expect(res.body.error.affectedConsumers[0].consumerName).toBe('audit-worker');
+    // Registry was NOT mutated (still version 1).
+    expect(registry.get('orders.placed')!.version).toBe(1);
+  });
+
+  it('warn mode: 201 with affectedConsumers field; declare proceeds', async () => {
+    const { app, registry } = makeApp();
+    registry.declare({
+      name: 'orders.placed', schema: { type: 'object' }, transport: 'durable', producer: 'orders',
+      compatibilityMode: 'none',
+    });
+    const currentFp = registry.get('orders.placed')!.schemaFingerprint;
+    await request(app).put('/api/manifests/audit-worker').send({
+      events: [{ name: 'orders.placed', fingerprint: currentFp }],
+    });
+
+    const res = await request(app)
+      .post('/api/events?check-manifests=warn')
+      .send({
+        name: 'orders.placed',
+        schema: { type: 'object', properties: { orderId: { type: 'string' } } },
+        transport: 'durable',
+        producer: 'orders',
+        compatibilityMode: 'none',
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.affectedConsumers).toHaveLength(1);
+    expect(registry.get('orders.placed')!.version).toBe(2);
+  });
+
+  it('off mode (default): never returns affectedConsumers, always 201', async () => {
+    const { app, registry } = makeApp();
+    registry.declare({
+      name: 'orders.placed', schema: { type: 'object' }, transport: 'durable', producer: 'orders',
+      compatibilityMode: 'none',
+    });
+    const currentFp = registry.get('orders.placed')!.schemaFingerprint;
+    await request(app).put('/api/manifests/audit-worker').send({
+      events: [{ name: 'orders.placed', fingerprint: currentFp }],
+    });
+
+    const res = await request(app).post('/api/events').send({
+      name: 'orders.placed',
+      schema: { type: 'object', properties: { orderId: { type: 'string' } } },
+      transport: 'durable',
+      producer: 'orders',
+      compatibilityMode: 'none',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.affectedConsumers).toBeUndefined();
+  });
+
+  it('skips the check entirely when no fingerprint change is proposed', async () => {
+    const { app, registry } = makeApp();
+    registry.declare({
+      name: 'orders.placed', schema: { type: 'object' }, transport: 'durable', producer: 'orders',
+    });
+    const currentFp = registry.get('orders.placed')!.schemaFingerprint;
+    await request(app).put('/api/manifests/audit-worker').send({
+      events: [{ name: 'orders.placed', fingerprint: currentFp }],
+    });
+
+    // Re-declare with the SAME schema → no fingerprint change → no check fires.
+    const res = await request(app)
+      .post('/api/events?check-manifests=strict')
+      .send({
+        name: 'orders.placed',
+        schema: { type: 'object' },
+        transport: 'durable',
+        producer: 'orders',
+      });
+    expect(res.status).toBe(201);
+  });
+});

@@ -202,7 +202,7 @@ export function createRoutes(deps: RoutesDeps): Router {
   });
 
   // Declare/register an event
-  router.post('/events', (req: Request, res: Response) => {
+  router.post('/events', async (req: Request, res: Response) => {
     const {
       name, schema, transport, producer, description, tags, compatibilityMode, compatMode,
       // E3 fields:
@@ -258,6 +258,62 @@ export function createRoutes(deps: RoutesDeps): Router {
         console.warn(
           `[event-catalog] compat-warn for "${name}": ${compat.violations.join('; ')}`,
         );
+      }
+    }
+
+    // wave23-c — manifest-aware deploy gate. When `?check-manifests=`
+    // is set and a fingerprint change is proposed, look up every
+    // pinned consumer manifest and find ones whose pin matches the
+    // CURRENT fingerprint (those consumers think they're fresh; the
+    // proposed declare would silently make them stale).
+    //
+    //   strict → 409 with affected_consumers list, no declare
+    //   warn   → 201 with affected_consumers field, declare proceeds
+    //   off    → no check (default)
+    let affectedConsumers: Array<{ consumerName: string; pinnedFingerprint: string }> = [];
+    const checkManifestsMode = (() => {
+      const q = req.query['check-manifests'];
+      if (q === 'strict' || q === 'warn' || q === 'off') return q;
+      return 'off';
+    })();
+    if (
+      manifestStore
+      && checkManifestsMode !== 'off'
+      && existing
+      && schema
+      && Object.keys(schema).length > 0
+    ) {
+      const proposedFp = computeSchemaFingerprint(schema);
+      if (proposedFp !== existing.schemaFingerprint) {
+        const all = await manifestStore.list();
+        for (const m of all) {
+          for (const evt of m.events) {
+            if (evt.name === name && evt.fingerprint === existing.schemaFingerprint) {
+              affectedConsumers.push({
+                consumerName: m.consumerName,
+                pinnedFingerprint: evt.fingerprint,
+              });
+              break; // one entry per consumer is enough
+            }
+          }
+        }
+        if (affectedConsumers.length > 0 && checkManifestsMode === 'strict') {
+          res.status(409).json({
+            error: {
+              code: 'PINNED_CONSUMER_BREAK',
+              eventName: name,
+              currentFingerprint: existing.schemaFingerprint,
+              proposedFingerprint: proposedFp,
+              affectedConsumers,
+            },
+          });
+          return;
+        }
+        if (affectedConsumers.length > 0) {
+          console.warn(
+            `[event-catalog] check-manifests warn: declare("${name}") would stale ${affectedConsumers.length} pinned consumer(s)`,
+          );
+        }
       }
     }
 
@@ -318,6 +374,12 @@ export function createRoutes(deps: RoutesDeps): Router {
     };
     if (result.violations) {
       response.violations = result.violations;
+    }
+    // wave23-c — surface warn-mode pinned-consumer breaks on the 201
+    // so CI can flag deploys that are technically allowed but would
+    // stale a pinned consumer's manifest.
+    if (affectedConsumers.length > 0) {
+      response.affectedConsumers = affectedConsumers;
     }
     res.status(201).json(response);
   });

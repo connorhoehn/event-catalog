@@ -129,6 +129,20 @@ paths:
           required: false
           schema: { type: string, enum: ['true', 'false'] }
           description: Per-request strict-mode override (`true` enables strict).
+        - in: query
+          name: check-manifests
+          required: false
+          schema: { type: string, enum: [off, warn, strict] }
+          description: |
+            wave23-c — manifest-aware deploy gate. When set, the
+            server checks every pinned consumer manifest before
+            applying the declare. If the proposed schema would change
+            the event's fingerprint and a pinned consumer's manifest
+            references this event at the current fingerprint, the
+            consumer would be staled.
+              `strict` → 409 PINNED_CONSUMER_BREAK with affectedConsumers; declare aborts
+              `warn`   → 201 with affectedConsumers field; declare proceeds
+              `off`    → no check (default; back-compat)
       responses:
         '201':
           description: Declared
@@ -1265,3 +1279,23 @@ components:
               type: string
               pattern: '^[0-9a-f]{64}$'
               description: Phase E6 — fingerprint of the schema the caller tried to declare.
+
+    PinnedConsumerBreakError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, eventName, currentFingerprint, proposedFingerprint, affectedConsumers]
+          properties:
+            code: { type: string, enum: [PINNED_CONSUMER_BREAK] }
+            eventName: { type: string }
+            currentFingerprint: { type: string, pattern: '^[0-9a-f]{64}$' }
+            proposedFingerprint: { type: string, pattern: '^[0-9a-f]{64}$' }
+            affectedConsumers:
+              type: array
+              items:
+                type: object
+                properties:
+                  consumerName: { type: string }
+                  pinnedFingerprint: { type: string }
