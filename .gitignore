@@ -4,3 +4,4 @@ src/admin/node_modules/
 *.tsbuildinfo
 .env
 coverage/
+.dev-logs/
