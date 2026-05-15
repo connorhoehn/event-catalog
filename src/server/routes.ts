@@ -28,6 +28,12 @@ export interface RoutesDeps {
    * before streaming live.
    */
   auditLog?: { recent(limit?: number): Promise<import('./audit-emitter.js').AuditEvent[]> };
+  /**
+   * wave23-b — optional manifest store backing the /api/manifests
+   * surface. Consumers POST {events, fingerprints} they depend on;
+   * the catalog returns a per-consumer drift report on demand.
+   */
+  manifestStore?: import('./manifest-store.js').ManifestStore;
 }
 
 /**
@@ -54,7 +60,7 @@ function resolveCompatMode(
 }
 
 export function createRoutes(deps: RoutesDeps): Router {
-  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics, auditLog } = deps;
+  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics, auditLog, manifestStore } = deps;
   const router = Router();
 
   // List all events
@@ -523,6 +529,60 @@ export function createRoutes(deps: RoutesDeps): Router {
     const events = await auditLog.recent(limit);
     res.json({ events });
   });
+
+  // wave23-b — consumer manifest pinning. Consumers POST a list of
+  // events + fingerprints they depend on; the catalog stores per
+  // consumer and exposes a drift report comparing each pinned
+  // fingerprint to the current registry value.
+  if (manifestStore) {
+    router.put('/manifests/:consumerName', async (req: Request, res: Response) => {
+      const consumerName = req.params.consumerName;
+      const events = req.body?.events;
+      if (!Array.isArray(events)) {
+        res.status(400).json({ error: 'body.events must be an array of { name, fingerprint }' });
+        return;
+      }
+      // Light shape check — every entry needs a string name + 64-char fingerprint.
+      for (const [i, e] of events.entries()) {
+        if (typeof e?.name !== 'string' || typeof e?.fingerprint !== 'string') {
+          res.status(400).json({ error: `events[${i}]: name and fingerprint are required strings` });
+          return;
+        }
+      }
+      const stored = await manifestStore.put({ consumerName, events });
+      res.status(201).json(stored);
+    });
+
+    router.get('/manifests', async (_req: Request, res: Response) => {
+      const manifests = await manifestStore.list();
+      res.json({ manifests, count: manifests.length });
+    });
+
+    router.get('/manifests/:consumerName', async (req: Request, res: Response) => {
+      const m = await manifestStore.get(req.params.consumerName);
+      if (!m) {
+        res.status(404).json({ error: `No manifest pinned for consumer "${req.params.consumerName}"` });
+        return;
+      }
+      res.json(m);
+    });
+
+    router.delete('/manifests/:consumerName', async (req: Request, res: Response) => {
+      const removed = await manifestStore.remove(req.params.consumerName);
+      if (!removed) {
+        res.status(404).json({ error: `No manifest to remove for "${req.params.consumerName}"` });
+        return;
+      }
+      res.json({ removed: req.params.consumerName });
+    });
+
+    router.get('/manifests/check/all', async (_req: Request, res: Response) => {
+      const fingerprints = new Map<string, string>();
+      for (const e of registry.list()) fingerprints.set(e.name, e.schemaFingerprint);
+      const reports = await manifestStore.driftReport(fingerprints);
+      res.json({ reports });
+    });
+  }
 
   // Phase 21-e — flat fingerprint manifest. Returns
   // `{ <eventName>: <schemaFingerprint> }` for every declared event

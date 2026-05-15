@@ -587,6 +587,116 @@ paths:
             text/event-stream:
               schema: { type: string, description: SSE-formatted AuditEvent frames }
 
+  /api/manifests:
+    get:
+      tags: [events]
+      summary: List every pinned consumer manifest
+      description: |
+        wave23-b — consumer manifest pinning. A consumer "pins" the
+        events + fingerprints it depends on by PUT-ing a manifest;
+        operators see drift across all pinned consumers via
+        `GET /api/manifests/check/all`.
+      responses:
+        '200':
+          description: All manifests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  manifests:
+                    type: array
+                    items: { $ref: '#/components/schemas/ConsumerManifest' }
+                  count: { type: integer }
+
+  /api/manifests/{consumerName}:
+    parameters:
+      - in: path
+        name: consumerName
+        required: true
+        schema: { type: string }
+    put:
+      tags: [events]
+      summary: Pin a consumer's manifest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, fingerprint]
+                    properties:
+                      name: { type: string }
+                      fingerprint: { type: string, pattern: '^[0-9a-f]{64}$' }
+      responses:
+        '201':
+          description: Manifest stored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumerManifest' }
+        '400':
+          description: Malformed body
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      tags: [events]
+      summary: Fetch one consumer's manifest
+      responses:
+        '200':
+          description: Manifest
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumerManifest' }
+        '404':
+          description: No manifest pinned for that consumer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [events]
+      summary: Remove a consumer's manifest
+      responses:
+        '200':
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  removed: { type: string }
+        '404':
+          description: No manifest to remove
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/manifests/check/all:
+    get:
+      tags: [events]
+      summary: Drift report across every pinned consumer
+      description: |
+        Compares each pinned manifest's fingerprints against the
+        registry's current values; returns a per-consumer report
+        with `fresh`/`stale`/`unknown` counts.
+      responses:
+        '200':
+          description: Drift reports
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reports:
+                    type: array
+                    items: { $ref: '#/components/schemas/ManifestDriftReport' }
+
   /api/audit/recent:
     get:
       tags: [events]
@@ -1085,6 +1195,45 @@ components:
         attempts: { type: integer }
         firstSeenAt: { type: string, format: date-time }
         lastAttemptAt: { type: string, format: date-time }
+
+    ConsumerManifest:
+      type: object
+      required: [consumerName, events, updatedAt]
+      properties:
+        consumerName: { type: string }
+        events:
+          type: array
+          items:
+            type: object
+            required: [name, fingerprint]
+            properties:
+              name: { type: string }
+              fingerprint: { type: string, pattern: '^[0-9a-f]{64}$' }
+        updatedAt: { type: string, format: date-time }
+
+    ManifestDriftReport:
+      type: object
+      required: [consumerName, updatedAt, events, summary]
+      properties:
+        consumerName: { type: string }
+        updatedAt: { type: string, format: date-time }
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              pinnedFingerprint: { type: string }
+              currentFingerprint: { type: [string, 'null'] }
+              status:
+                type: string
+                enum: [fresh, stale, unknown]
+        summary:
+          type: object
+          properties:
+            fresh: { type: integer }
+            stale: { type: integer }
+            unknown: { type: integer }
 
     Error:
       type: object

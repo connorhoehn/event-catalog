@@ -12,6 +12,7 @@ import { AlertManager } from './alerting.js';
 import { DLQStore } from './dlq-store.js';
 import { ensureTable } from './dynamo-setup.js';
 import { startAuditLog } from './audit-log.js';
+import { RedisManifestStore } from './manifest-store.js';
 import { createRoutes } from './routes.js';
 import { makeHealthHandler } from './health.js';
 import { PromMetrics } from './prom-metrics.js';
@@ -248,8 +249,13 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   // Best-effort — Redis hiccups don't block live emits.
   const auditLog = startAuditLog({ redis: redisClient });
 
+  // wave23-b — consumer manifest store. Backs /api/manifests/* so
+  // consumers can pin "I depend on these N events at these N
+  // fingerprints" and the catalog can report drift.
+  const manifestStore = new RedisManifestStore(redisClient);
+
   // Admin API
-  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog });
+  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog, manifestStore });
   // Phase 20-d — auth middleware injection (optional). Mounted before
   // the /api router so it gates every admin endpoint. The catalog
   // itself ships with no auth on purpose (local dev / in-cluster
