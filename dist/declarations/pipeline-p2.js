@@ -68,6 +68,7 @@ function pipelineSchema(extra, required) {
 exports.pipelineRunStarted = {
     namespace: 'pipeline',
     name: 'pipeline:run:started',
+    aliases: [{ name: 'pipeline.run.started', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'PipelineExecutor started a new run. `triggeredBy` describes the trigger (manual, schedule, webhook, etc.).',
@@ -80,6 +81,7 @@ exports.pipelineRunStarted = {
 exports.pipelineRunCompleted = {
     namespace: 'pipeline',
     name: 'pipeline:run:completed',
+    aliases: [{ name: 'pipeline.run.completed', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'PipelineExecutor completed a run successfully.',
@@ -89,6 +91,7 @@ exports.pipelineRunCompleted = {
 exports.pipelineRunFailed = {
     namespace: 'pipeline',
     name: 'pipeline:run:failed',
+    aliases: [{ name: 'pipeline.run.failed', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'PipelineExecutor terminated a run with an error. `error` is a structured `PipelineRunError` object (not a plain string).',
@@ -101,6 +104,7 @@ exports.pipelineRunFailed = {
 exports.pipelineRunOrphaned = {
     namespace: 'pipeline',
     name: 'pipeline:run:orphaned',
+    aliases: [{ name: 'pipeline.run.orphaned', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A run lost its previous owner (node left the cluster, lease expired, etc.). Emitted by ResourceRouter before reassignment.',
@@ -110,6 +114,7 @@ exports.pipelineRunOrphaned = {
 exports.pipelineRunReassigned = {
     namespace: 'pipeline',
     name: 'pipeline:run:reassigned',
+    aliases: [{ name: 'pipeline.run.reassigned', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A run was reassigned from one cluster node to another. Pair with `pipeline:run:orphaned` for the full handoff trail.',
@@ -125,6 +130,7 @@ exports.pipelineRunReassigned = {
 exports.pipelineRunResumedFromStep = {
     namespace: 'pipeline',
     name: 'pipeline:run:resumed-from-step',
+    aliases: [{ name: 'pipeline.run.resumed-from-step', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A previously-failed (or completed, if explicitly opted in) run was restarted from `fromNodeId`. Fires before the dispatch loop re-enters at `fromNodeId`.',
@@ -163,6 +169,7 @@ exports.pipelineRunResumeFromStep = {
 // ---------------------------------------------------------------------------
 exports.pipelineRunRetry = {
     name: 'pipeline:run:retry',
+    aliases: [{ name: 'pipeline.run.retry', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'PipelineExecutor is about to retry a run. `attempt` is the 1-based retry counter. Emitted before the run re-enters execution.',
@@ -211,6 +218,7 @@ exports.pipelineStepBreakpoint = {
 exports.pipelineJoinWaiting = {
     namespace: 'pipeline',
     name: 'pipeline:join:waiting',
+    aliases: [{ name: 'pipeline.join.waiting', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A join node has received some but not all required inputs. `received` / `required` expose the per-join progress for dashboards.',
@@ -224,6 +232,7 @@ exports.pipelineJoinWaiting = {
 exports.pipelineJoinFired = {
     namespace: 'pipeline',
     name: 'pipeline:join:fired',
+    aliases: [{ name: 'pipeline.join.fired', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A join node has received all required inputs and dispatched downstream. `inputs` is the ordered list of contributing step IDs.',

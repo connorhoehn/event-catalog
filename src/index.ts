@@ -116,3 +116,7 @@ export {
 // Shared MQ queue-name constants (wave7-d — single source of truth).
 export { MQ_QUEUE_NAMES } from './queue-names';
 export type { MQQueueName } from './queue-names';
+
+// wave20-f — deprecated dot-form pipeline event names, derived from
+// the canonical colon-form declarations' `aliases` arrays.
+export { DEPRECATED_DUAL_EMIT_ALIASES } from './declarations/deprecated-pipeline-aliases';

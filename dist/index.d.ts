@@ -15,4 +15,5 @@ export type { ChannelMessageEnvelope, SignalMessage, BuildChannelMessageEnvelope
 export { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpoint, pipelineDeclarations, pipelineP1Declarations, pipelineRunStarted, pipelineRunCompleted, pipelineRunFailed, pipelineRunOrphaned, pipelineRunReassigned, pipelineRunResumedFromStep, pipelineRunRetry, pipelineRunStuck, pipelineStepBreakpoint, pipelineJoinWaiting, pipelineJoinFired, pipelineP2Declarations, pipelineRaftRunStarted, pipelineRaftRunUpdated, pipelineRaftRunSynthesized, pipelineRaftRunCheckpointed, pipelineRaftRunTerminated, pipelineRaftDeclarations, pipelineRaftStateMachineDeclarations, pipelineEventDeclarations, } from './declarations/index';
 export { MQ_QUEUE_NAMES } from './queue-names';
 export type { MQQueueName } from './queue-names';
+export { DEPRECATED_DUAL_EMIT_ALIASES } from './declarations/deprecated-pipeline-aliases';
 //# sourceMappingURL=index.d.ts.map

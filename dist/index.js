@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = exports.decodeBroadcastEnvelope = exports.decodeDirectMessageEnvelope = exports.decodeChannelMessageEnvelope = exports.isBroadcastEnvelope = exports.isDirectMessageEnvelope = exports.broadcastEnvelopeSchema = exports.broadcastRedisChannel = exports.buildBroadcastEnvelope = exports.directMessageEnvelopeSchema = exports.directMessageRedisChannel = exports.buildDirectMessageEnvelope = exports.channelMessageEnvelopeSchema = exports.signalMessageSchema = exports.channelNodesRedisKey = exports.channelMessageRedisChannel = exports.isChannelMessageEnvelope = exports.buildSignalMessage = exports.buildChannelMessageEnvelope = exports.resolveNamespace = exports.deriveNamespace = exports.computeSchemaFingerprint = exports.stableStringify = exports.checkForwardCompat = exports.checkBackwardCompat = exports.DurableTransport = exports.SignalTransport = exports.Registry = exports.EventCatalog = void 0;
-exports.MQ_QUEUE_NAMES = exports.pipelineEventDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = void 0;
+exports.DEPRECATED_DUAL_EMIT_ALIASES = exports.MQ_QUEUE_NAMES = exports.pipelineEventDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = void 0;
 var index_1 = require("./client/index");
 Object.defineProperty(exports, "EventCatalog", { enumerable: true, get: function () { return index_1.EventCatalog; } });
 var index_2 = require("./registry/index");
@@ -84,4 +84,8 @@ Object.defineProperty(exports, "pipelineEventDeclarations", { enumerable: true, 
 // Shared MQ queue-name constants (wave7-d — single source of truth).
 var queue_names_1 = require("./queue-names");
 Object.defineProperty(exports, "MQ_QUEUE_NAMES", { enumerable: true, get: function () { return queue_names_1.MQ_QUEUE_NAMES; } });
+// wave20-f — deprecated dot-form pipeline event names, derived from
+// the canonical colon-form declarations' `aliases` arrays.
+var deprecated_pipeline_aliases_1 = require("./declarations/deprecated-pipeline-aliases");
+Object.defineProperty(exports, "DEPRECATED_DUAL_EMIT_ALIASES", { enumerable: true, get: function () { return deprecated_pipeline_aliases_1.DEPRECATED_DUAL_EMIT_ALIASES; } });
 //# sourceMappingURL=index.js.map

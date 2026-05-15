@@ -44,6 +44,7 @@ function pipelineSchema(extra, required) {
 exports.pipelineRunCancelled = {
     namespace: 'pipeline',
     name: 'pipeline:run:cancelled',
+    aliases: [{ name: 'pipeline.run.cancelled', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'PipelineExecutor cancelled an in-flight run.',
@@ -53,6 +54,7 @@ exports.pipelineRunCancelled = {
 exports.pipelineRunPaused = {
     namespace: 'pipeline',
     name: 'pipeline:run:paused',
+    aliases: [{ name: 'pipeline.run.paused', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'Run paused (Phase 5 pause/resume — reserved; no producer yet).',
@@ -62,6 +64,7 @@ exports.pipelineRunPaused = {
 exports.pipelineRunResumed = {
     namespace: 'pipeline',
     name: 'pipeline:run:resumed',
+    aliases: [{ name: 'pipeline.run.resumed', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'Run resumed (Phase 5 pause/resume — reserved; no producer yet).',
@@ -75,6 +78,7 @@ exports.pipelineRunResumed = {
 exports.pipelineStepStarted = {
     namespace: 'pipeline',
     name: 'pipeline:step:started',
+    aliases: [{ name: 'pipeline.step.started', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A pipeline step entered execution.',
@@ -87,6 +91,7 @@ exports.pipelineStepStarted = {
 exports.pipelineStepCompleted = {
     namespace: 'pipeline',
     name: 'pipeline:step:completed',
+    aliases: [{ name: 'pipeline.step.completed', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A pipeline step finished successfully.',
@@ -100,6 +105,7 @@ exports.pipelineStepCompleted = {
 exports.pipelineStepFailed = {
     namespace: 'pipeline',
     name: 'pipeline:step:failed',
+    aliases: [{ name: 'pipeline.step.failed', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A pipeline step failed (after retry exhaustion).',
@@ -112,6 +118,7 @@ exports.pipelineStepFailed = {
 exports.pipelineStepSkipped = {
     namespace: 'pipeline',
     name: 'pipeline:step:skipped',
+    aliases: [{ name: 'pipeline.step.skipped', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A step was skipped (condition false, cancellation, etc.).',
@@ -124,6 +131,7 @@ exports.pipelineStepSkipped = {
 exports.pipelineStepCancelled = {
     namespace: 'pipeline',
     name: 'pipeline:step:cancelled',
+    aliases: [{ name: 'pipeline.step.cancelled', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A step was cancelled mid-execution.',
@@ -185,6 +193,7 @@ exports.pipelineStepAttemptFailed = {
 exports.pipelineLlmPrompt = {
     namespace: 'pipeline',
     name: 'pipeline:llm:prompt',
+    aliases: [{ name: 'pipeline.llm.prompt', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'LLM step prompt about to be sent to the provider.',
@@ -198,6 +207,7 @@ exports.pipelineLlmPrompt = {
 exports.pipelineLlmToken = {
     namespace: 'pipeline',
     name: 'pipeline:llm:token',
+    aliases: [{ name: 'pipeline.llm.token', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'Streamed LLM output token. High-volume; rate-limit before forwarding to clients.',
@@ -210,6 +220,7 @@ exports.pipelineLlmToken = {
 exports.pipelineLlmResponse = {
     namespace: 'pipeline',
     name: 'pipeline:llm:response',
+    aliases: [{ name: 'pipeline.llm.response', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'LLM step received its full response, including token accounting.',
@@ -224,6 +235,7 @@ exports.pipelineLlmResponse = {
 exports.pipelineLlmStreamOpened = {
     namespace: 'pipeline',
     name: 'pipeline:llm:stream:opened',
+    aliases: [{ name: 'pipeline.llm.stream.opened', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'LLM stream `for await` entry (DC-14). Pairs with first :token event for first-token-latency. Uses `openedAt` field (not `at`).',

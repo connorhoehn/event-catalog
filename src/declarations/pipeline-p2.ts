@@ -74,6 +74,7 @@ function pipelineSchema(
 export const pipelineRunStarted: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:run:started',
+    aliases: [{ name: 'pipeline.run.started', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'PipelineExecutor started a new run. `triggeredBy` describes the trigger (manual, schedule, webhook, etc.).',
@@ -90,6 +91,7 @@ export const pipelineRunStarted: EventDeclaration = {
 export const pipelineRunCompleted: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:run:completed',
+    aliases: [{ name: 'pipeline.run.completed', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'PipelineExecutor completed a run successfully.',
@@ -103,6 +105,7 @@ export const pipelineRunCompleted: EventDeclaration = {
 export const pipelineRunFailed: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:run:failed',
+    aliases: [{ name: 'pipeline.run.failed', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'PipelineExecutor terminated a run with an error. `error` is a structured `PipelineRunError` object (not a plain string).',
@@ -120,6 +123,7 @@ export const pipelineRunFailed: EventDeclaration = {
 export const pipelineRunOrphaned: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:run:orphaned',
+    aliases: [{ name: 'pipeline.run.orphaned', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A run lost its previous owner (node left the cluster, lease expired, etc.). Emitted by ResourceRouter before reassignment.',
@@ -133,6 +137,7 @@ export const pipelineRunOrphaned: EventDeclaration = {
 export const pipelineRunReassigned: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:run:reassigned',
+    aliases: [{ name: 'pipeline.run.reassigned', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A run was reassigned from one cluster node to another. Pair with `pipeline:run:orphaned` for the full handoff trail.',
@@ -153,6 +158,7 @@ export const pipelineRunReassigned: EventDeclaration = {
 export const pipelineRunResumedFromStep: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:run:resumed-from-step',
+    aliases: [{ name: 'pipeline.run.resumed-from-step', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A previously-failed (or completed, if explicitly opted in) run was restarted from `fromNodeId`. Fires before the dispatch loop re-enters at `fromNodeId`.',
@@ -201,6 +207,7 @@ export const pipelineRunResumeFromStep: EventDeclaration = {
 
 export const pipelineRunRetry: EventDeclaration = {
     name: 'pipeline:run:retry',
+    aliases: [{ name: 'pipeline.run.retry', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'PipelineExecutor is about to retry a run. `attempt` is the 1-based retry counter. Emitted before the run re-enters execution.',
@@ -261,6 +268,7 @@ export const pipelineStepBreakpoint: EventDeclaration = {
 export const pipelineJoinWaiting: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:join:waiting',
+    aliases: [{ name: 'pipeline.join.waiting', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A join node has received some but not all required inputs. `received` / `required` expose the per-join progress for dashboards.',
@@ -278,6 +286,7 @@ export const pipelineJoinWaiting: EventDeclaration = {
 export const pipelineJoinFired: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:join:fired',
+    aliases: [{ name: 'pipeline.join.fired', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A join node has received all required inputs and dispatched downstream. `inputs` is the ordered list of contributing step IDs.',

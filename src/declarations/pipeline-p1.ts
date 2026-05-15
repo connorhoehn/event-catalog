@@ -50,6 +50,7 @@ function pipelineSchema(
 export const pipelineRunCancelled: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:run:cancelled',
+    aliases: [{ name: 'pipeline.run.cancelled', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'PipelineExecutor cancelled an in-flight run.',
@@ -60,6 +61,7 @@ export const pipelineRunCancelled: EventDeclaration = {
 export const pipelineRunPaused: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:run:paused',
+    aliases: [{ name: 'pipeline.run.paused', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'Run paused (Phase 5 pause/resume — reserved; no producer yet).',
@@ -73,6 +75,7 @@ export const pipelineRunPaused: EventDeclaration = {
 export const pipelineRunResumed: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:run:resumed',
+    aliases: [{ name: 'pipeline.run.resumed', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'Run resumed (Phase 5 pause/resume — reserved; no producer yet).',
@@ -88,6 +91,7 @@ export const pipelineRunResumed: EventDeclaration = {
 export const pipelineStepStarted: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:step:started',
+    aliases: [{ name: 'pipeline.step.started', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A pipeline step entered execution.',
@@ -104,6 +108,7 @@ export const pipelineStepStarted: EventDeclaration = {
 export const pipelineStepCompleted: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:step:completed',
+    aliases: [{ name: 'pipeline.step.completed', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A pipeline step finished successfully.',
@@ -121,6 +126,7 @@ export const pipelineStepCompleted: EventDeclaration = {
 export const pipelineStepFailed: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:step:failed',
+    aliases: [{ name: 'pipeline.step.failed', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A pipeline step failed (after retry exhaustion).',
@@ -137,6 +143,7 @@ export const pipelineStepFailed: EventDeclaration = {
 export const pipelineStepSkipped: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:step:skipped',
+    aliases: [{ name: 'pipeline.step.skipped', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A step was skipped (condition false, cancellation, etc.).',
@@ -153,6 +160,7 @@ export const pipelineStepSkipped: EventDeclaration = {
 export const pipelineStepCancelled: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:step:cancelled',
+    aliases: [{ name: 'pipeline.step.cancelled', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'A step was cancelled mid-execution.',
@@ -225,6 +233,7 @@ export const pipelineStepAttemptFailed: EventDeclaration = {
 export const pipelineLlmPrompt: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:llm:prompt',
+    aliases: [{ name: 'pipeline.llm.prompt', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'LLM step prompt about to be sent to the provider.',
@@ -242,6 +251,7 @@ export const pipelineLlmPrompt: EventDeclaration = {
 export const pipelineLlmToken: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:llm:token',
+    aliases: [{ name: 'pipeline.llm.token', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'Streamed LLM output token. High-volume; rate-limit before forwarding to clients.',
@@ -258,6 +268,7 @@ export const pipelineLlmToken: EventDeclaration = {
 export const pipelineLlmResponse: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:llm:response',
+    aliases: [{ name: 'pipeline.llm.response', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'LLM step received its full response, including token accounting.',
@@ -276,6 +287,7 @@ export const pipelineLlmResponse: EventDeclaration = {
 export const pipelineLlmStreamOpened: EventDeclaration = {
     namespace: 'pipeline',
     name: 'pipeline:llm:stream:opened',
+    aliases: [{ name: 'pipeline.llm.stream.opened', deprecated: true }],
     transport: 'signal',
     producer: PRODUCER,
     description: 'LLM stream `for await` entry (DC-14). Pairs with first :token event for first-token-latency. Uses `openedAt` field (not `at`).',
