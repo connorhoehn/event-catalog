@@ -601,6 +601,36 @@ paths:
             text/event-stream:
               schema: { type: string, description: SSE-formatted AuditEvent frames }
 
+  /api/asyncapi:
+    get:
+      tags: [events]
+      summary: AsyncAPI 3.0 spec generated from the registry (wave24-c)
+      description: |
+        Returns an AsyncAPI 3.0 document generated from the current
+        registry state. Lets operators feed catalog declarations into
+        existing AsyncAPI tooling (codegen, validators, doc renderers)
+        without adopting a separate schema-of-record.
+
+        Mapping:
+          - Each declaration → one or more `operation`s (one per producer).
+          - `transport: 'both'` → two operations on two channels.
+          - `schema` → `components.schemas[...]` (JSON Schema 1:1).
+          - `tags` → `message.tags` + `operation.tags`.
+          - `channel` (signal) / `queue` (durable) → channel `address`.
+      parameters:
+        - in: query
+          name: namespace
+          schema: { type: string }
+          description: Restrict the spec to one namespace.
+      responses:
+        '200':
+          description: AsyncAPI 3.0 document
+          content:
+            application/json:
+              schema:
+                type: object
+                description: AsyncAPI 3.0 spec object.
+
   /api/heartbeat:
     post:
       tags: [subscribers]

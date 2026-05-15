@@ -3,6 +3,7 @@ import type { Registry } from '../registry/index.js';
 import { computeSchemaFingerprint } from '../registry/fingerprint.js';
 import { tapEmitter, matchesTapFilter, type TapEvent } from './tap-emitter.js';
 import { auditEmitter, matchesAuditFilter, type AuditEvent } from './audit-emitter.js';
+import { buildAsyncApiSpec } from './asyncapi.js';
 import type { MetricsCollector } from './metrics.js';
 import type { MetricsObserver } from './metrics-observer.js';
 import type { SignalTransport } from '../client/signal.js';
@@ -677,6 +678,16 @@ export function createRoutes(deps: RoutesDeps): Router {
       return;
     }
     res.json({ subscribers: all, total: all.length });
+  });
+
+  // wave24-c — AsyncAPI 3.0 export. Generated from the registry on
+  // demand; pairs with the existing OpenAPI spec for a complete
+  // codegen-friendly contract surface. ?namespace= filter narrows
+  // output to one domain.
+  router.get('/asyncapi', (req: Request, res: Response) => {
+    const namespace = typeof req.query.namespace === 'string' ? req.query.namespace : undefined;
+    const spec = buildAsyncApiSpec(registry, { namespace });
+    res.json(spec);
   });
 
   // Phase 21-e — flat fingerprint manifest. Returns
