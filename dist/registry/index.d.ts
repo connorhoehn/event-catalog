@@ -10,6 +10,21 @@ export declare class Registry implements IRegistry {
     load(): Promise<void>;
     declare(event: EventDeclaration): DeclareResult;
     get(name: string): RegistryEntry | undefined;
+    /**
+     * Phase E3.5 — alias-aware lookup.
+     *
+     * Returns the canonical RegistryEntry for `name`, whether `name` is the
+     * canonical event name or a deprecated alias declared on some canonical
+     * event. When `name` resolves via an alias, `viaAlias` carries the alias
+     * record so callers can surface a deprecation warning.
+     */
+    resolve(name: string): {
+        entry: RegistryEntry;
+        viaAlias?: {
+            name: string;
+            until?: string;
+        };
+    } | undefined;
     list(filter?: RegistryFilter): RegistryEntry[];
     addSubscriber(eventName: string, serviceName: string): void;
     removeSubscriber(eventName: string, serviceName: string): void;

@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Registry = void 0;
-const messaging_queue_1 = require("distributed-core/dist/messaging-queue");
+const messaging_queue_1 = require("distributed-core/messaging-queue");
 const schema_compat_1 = require("./schema-compat");
 const REDIS_KEY = 'event-catalog:registry';
 /** Normalize EventDeclaration.producer to an always-array form. */
@@ -99,6 +99,26 @@ class Registry {
     }
     get(name) {
         return this.events.get(name);
+    }
+    /**
+     * Phase E3.5 — alias-aware lookup.
+     *
+     * Returns the canonical RegistryEntry for `name`, whether `name` is the
+     * canonical event name or a deprecated alias declared on some canonical
+     * event. When `name` resolves via an alias, `viaAlias` carries the alias
+     * record so callers can surface a deprecation warning.
+     */
+    resolve(name) {
+        const direct = this.events.get(name);
+        if (direct)
+            return { entry: direct };
+        for (const entry of this.events.values()) {
+            const match = entry.aliases?.find((a) => a.name === name);
+            if (match) {
+                return { entry, viaAlias: { name: match.name, until: match.until } };
+            }
+        }
+        return undefined;
     }
     list(filter) {
         let entries = Array.from(this.events.values());

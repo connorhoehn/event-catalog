@@ -81,4 +81,171 @@ export declare function channelMessageRedisChannel(channelId: string): string;
  * writes it.
  */
 export declare function channelNodesRedisKey(channelId: string): string;
+export interface DirectMessageEnvelope<TMessage = unknown> {
+    type: 'direct_message';
+    clientId: string;
+    message: TMessage;
+    fromNode: string;
+    targetNode: string;
+    timestamp: string;
+}
+export interface BuildDirectMessageEnvelopeArgs<TMessage> {
+    clientId: string;
+    message: TMessage;
+    fromNode: string;
+    targetNode: string;
+    /** Defaults to `new Date().toISOString()`. */
+    timestamp?: string;
+}
+export declare function buildDirectMessageEnvelope<TMessage>(args: BuildDirectMessageEnvelopeArgs<TMessage>): DirectMessageEnvelope<TMessage>;
+/** Redis channel a DirectMessageEnvelope is published on. */
+export declare function directMessageRedisChannel(targetNode: string): string;
+export interface BroadcastEnvelope<TMessage = unknown> {
+    type: 'broadcast';
+    message: TMessage;
+    excludeClientId: string | null;
+    fromNode: string;
+    timestamp: string;
+}
+export interface BuildBroadcastEnvelopeArgs<TMessage> {
+    message: TMessage;
+    fromNode: string;
+    /** Defaults to null. */
+    excludeClientId?: string | null;
+    /** Defaults to `new Date().toISOString()`. */
+    timestamp?: string;
+}
+export declare function buildBroadcastEnvelope<TMessage>(args: BuildBroadcastEnvelopeArgs<TMessage>): BroadcastEnvelope<TMessage>;
+/** Redis channel a BroadcastEnvelope is published on (always the same). */
+export declare const broadcastRedisChannel: "websocket:broadcast:all";
+/** JSON Schema for {@link SignalMessage}. */
+export declare const signalMessageSchema: {
+    readonly $schema: "http://json-schema.org/draft-07/schema#";
+    readonly $id: "https://event-catalog/schemas/SignalMessage";
+    readonly type: "object";
+    readonly properties: {
+        readonly type: {
+            readonly type: "string";
+        };
+        readonly channel: {
+            readonly type: "string";
+        };
+        readonly payload: {};
+        readonly timestamp: {
+            readonly type: "string";
+            readonly format: "date-time";
+        };
+    };
+    readonly required: readonly ["type", "channel", "payload", "timestamp"];
+    readonly additionalProperties: true;
+};
+/** JSON Schema for {@link ChannelMessageEnvelope}. */
+export declare const channelMessageEnvelopeSchema: {
+    readonly $schema: "http://json-schema.org/draft-07/schema#";
+    readonly $id: "https://event-catalog/schemas/ChannelMessageEnvelope";
+    readonly type: "object";
+    readonly properties: {
+        readonly type: {
+            readonly type: "string";
+            readonly enum: readonly ["channel_message"];
+        };
+        readonly channel: {
+            readonly type: "string";
+        };
+        readonly message: {
+            readonly $schema: "http://json-schema.org/draft-07/schema#";
+            readonly $id: "https://event-catalog/schemas/SignalMessage";
+            readonly type: "object";
+            readonly properties: {
+                readonly type: {
+                    readonly type: "string";
+                };
+                readonly channel: {
+                    readonly type: "string";
+                };
+                readonly payload: {};
+                readonly timestamp: {
+                    readonly type: "string";
+                    readonly format: "date-time";
+                };
+            };
+            readonly required: readonly ["type", "channel", "payload", "timestamp"];
+            readonly additionalProperties: true;
+        };
+        readonly excludeClientId: {
+            readonly type: readonly ["string", "null"];
+        };
+        readonly fromNode: {
+            readonly type: "string";
+        };
+        readonly seq: {
+            readonly type: "number";
+        };
+        readonly timestamp: {
+            readonly type: "string";
+            readonly format: "date-time";
+        };
+        readonly targetNodes: {
+            readonly type: "array";
+            readonly items: {
+                readonly type: "string";
+            };
+        };
+    };
+    readonly required: readonly ["type", "channel", "message", "excludeClientId", "fromNode", "seq", "timestamp"];
+    readonly additionalProperties: false;
+};
+/** JSON Schema for {@link DirectMessageEnvelope}. */
+export declare const directMessageEnvelopeSchema: {
+    readonly $schema: "http://json-schema.org/draft-07/schema#";
+    readonly $id: "https://event-catalog/schemas/DirectMessageEnvelope";
+    readonly type: "object";
+    readonly properties: {
+        readonly type: {
+            readonly type: "string";
+            readonly enum: readonly ["direct_message"];
+        };
+        readonly clientId: {
+            readonly type: "string";
+        };
+        readonly message: {};
+        readonly fromNode: {
+            readonly type: "string";
+        };
+        readonly targetNode: {
+            readonly type: "string";
+        };
+        readonly timestamp: {
+            readonly type: "string";
+            readonly format: "date-time";
+        };
+    };
+    readonly required: readonly ["type", "clientId", "message", "fromNode", "targetNode", "timestamp"];
+    readonly additionalProperties: false;
+};
+/** JSON Schema for {@link BroadcastEnvelope}. */
+export declare const broadcastEnvelopeSchema: {
+    readonly $schema: "http://json-schema.org/draft-07/schema#";
+    readonly $id: "https://event-catalog/schemas/BroadcastEnvelope";
+    readonly type: "object";
+    readonly properties: {
+        readonly type: {
+            readonly type: "string";
+            readonly enum: readonly ["broadcast"];
+        };
+        readonly message: {};
+        readonly excludeClientId: {
+            readonly type: readonly ["string", "null"];
+        };
+        readonly fromNode: {
+            readonly type: "string";
+        };
+        readonly timestamp: {
+            readonly type: "string";
+            readonly format: "date-time";
+        };
+    };
+    readonly required: readonly ["type", "message", "excludeClientId", "fromNode", "timestamp"];
+    readonly additionalProperties: false;
+};
 //# sourceMappingURL=envelopes.d.ts.map

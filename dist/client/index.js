@@ -7,6 +7,35 @@ const index_1 = require("../registry/index");
 const signal_1 = require("./signal");
 const durable_1 = require("./durable");
 const envelopes_1 = require("../types/envelopes");
+/**
+ * Phase E3.3 — resolve the Redis channel an event publishes on.
+ *
+ *   - `undefined` channel → default to the event name (preserves v0.1 behavior).
+ *   - `string` channel    → literal pattern.
+ *   - `function` channel  → call with the payload (per-publish destinations,
+ *     e.g. `p => \`document:${p.documentId}\``).
+ */
+function resolveSignalChannel(declared, eventName, payload) {
+    if (declared === undefined)
+        return eventName;
+    if (typeof declared === 'string')
+        return declared;
+    return declared(payload);
+}
+/**
+ * Subscribe-side resolver. Static channels only — a function-typed `channel`
+ * means the destination is per-payload, which `subscribe()` cannot honor
+ * without a payload to evaluate against.
+ */
+function resolveStaticSignalChannel(declared, eventName) {
+    if (declared === undefined)
+        return eventName;
+    if (typeof declared === 'string')
+        return declared;
+    throw new Error(`[event-catalog] cannot subscribe to "${eventName}": its declared channel is a function `
+        + `(per-payload). Declare a static channel string, or subscribe directly via the `
+        + `SignalTransport with a Redis pattern subscription.`);
+}
 class EventCatalog {
     config;
     registry;
@@ -15,6 +44,8 @@ class EventCatalog {
     syncRetryManager;
     connected = false;
     resyncInterval = null;
+    /** Phase E3.5 — dedupe deprecation log to one line per alias per process. */
+    warnedAliases = new Set();
     constructor(config) {
         this.config = config;
         this.registry = new index_1.Registry();
@@ -86,9 +117,19 @@ class EventCatalog {
         return process.env.EVENT_CATALOG_STRICT === 'true';
     }
     async publish(eventName, payload, options) {
-        const entry = this.registry.get(eventName);
-        if (!entry) {
+        // Phase E3.5 — alias resolution. If `eventName` is a deprecated alias of
+        // some canonical declaration, route the publish through the canonical
+        // (use its schema, channel, queue) and emit on the canonical name so
+        // subscribers don't have to handle both forms. A one-line deprecation
+        // warning per process per alias keeps log noise bounded.
+        const resolved = this.registry.resolve(eventName);
+        if (!resolved) {
             throw new Error(`[event-catalog] event "${eventName}" is not declared. Call declare() first.`);
+        }
+        const entry = resolved.entry;
+        if (resolved.viaAlias) {
+            this.warnDeprecatedAlias(resolved.viaAlias.name, entry.name, resolved.viaAlias.until);
+            eventName = entry.name;
         }
         // Validate payload against schema
         const validation = this.registry.validate(eventName, payload);
@@ -135,7 +176,10 @@ class EventCatalog {
             };
             const sends = [];
             if (entry.transport === 'signal' || entry.transport === 'both') {
-                sends.push(this.signal.publish(eventName, envelope));
+                // Phase E3.3 — resolve declared `channel` (string, function of
+                // payload, or fall back to event name).
+                const signalChannel = resolveSignalChannel(entry.channel, eventName, payload);
+                sends.push(this.signal.publish(signalChannel, envelope));
             }
             if (entry.transport === 'durable' || entry.transport === 'both') {
                 sends.push(this.durable.publish(queueName, envelope, queueOptions));
@@ -227,9 +271,17 @@ class EventCatalog {
         return delivered;
     }
     subscribe(eventName, handler, options) {
-        const entry = this.registry.get(eventName);
-        if (!entry) {
+        // Phase E3.5 — alias-aware subscribe. If the caller supplied a deprecated
+        // alias, resolve to the canonical and subscribe there. No warning on the
+        // subscribe path — only producers should be redirected (the alias-warning
+        // story belongs on the emission side).
+        const resolved = this.registry.resolve(eventName);
+        if (!resolved) {
             throw new Error(`[event-catalog] event "${eventName}" is not declared. Call declare() first.`);
+        }
+        const entry = resolved.entry;
+        if (resolved.viaAlias) {
+            eventName = entry.name;
         }
         this.registry.addSubscriber(eventName, this.config.serviceName);
         // Notify remote catalog (non-blocking, fault-tolerant)
@@ -238,7 +290,12 @@ class EventCatalog {
         });
         if (entry.transport === 'signal') {
             let unsubFn = null;
-            const setupPromise = this.signal.subscribe(eventName, (envelope) => {
+            // Phase E3.3 — subscribe() needs a static channel. If the declaration's
+            // `channel` is a function (dynamic per payload), the subscriber has no
+            // payload to resolve from. Reject with a clear error rather than silently
+            // subscribing to the wrong channel.
+            const signalChannel = resolveStaticSignalChannel(entry.channel, eventName);
+            const setupPromise = this.signal.subscribe(signalChannel, (envelope) => {
                 handler(envelope);
             }).then(unsub => {
                 unsubFn = unsub;
@@ -284,6 +341,15 @@ class EventCatalog {
     }
     isConnected() {
         return this.connected;
+    }
+    warnDeprecatedAlias(aliasName, canonicalName, until) {
+        if (this.warnedAliases.has(aliasName))
+            return;
+        this.warnedAliases.add(aliasName);
+        const expiry = until ? ` (removal scheduled after ${until})` : '';
+        console.warn(`[event-catalog] publish("${aliasName}") routed via deprecated alias — `
+            + `canonical name is "${canonicalName}". Update producers to emit the `
+            + `canonical name${expiry}.`);
     }
     scheduleBackgroundSync() {
         const attempt = (delay) => {

@@ -10,6 +10,8 @@ export declare class EventCatalog {
     private readonly syncRetryManager;
     private connected;
     private resyncInterval;
+    /** Phase E3.5 — dedupe deprecation log to one line per alias per process. */
+    private readonly warnedAliases;
     constructor(config: EventCatalogConfig);
     connect(): Promise<void>;
     disconnect(): Promise<void>;
@@ -55,6 +57,7 @@ export declare class EventCatalog {
     getSignalTransport(): SignalTransport;
     getDurableTransport(): DurableTransport;
     isConnected(): boolean;
+    private warnDeprecatedAlias;
     private scheduleBackgroundSync;
     private syncToRemoteRegistry;
     private registerSubscriberRemote;

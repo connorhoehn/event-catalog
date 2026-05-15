@@ -10,7 +10,7 @@
 // own its declaration. Service-owned events still live in the producing
 // service's own source tree per the charter.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
+exports.gatewaySignalDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
 var pipeline_1 = require("./pipeline");
 Object.defineProperty(exports, "pipelineApprovalRequested", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRequested; } });
 Object.defineProperty(exports, "pipelineApprovalRecorded", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRecorded; } });
@@ -37,4 +37,6 @@ Object.defineProperty(exports, "pipelineRaftRunSynthesized", { enumerable: true,
 Object.defineProperty(exports, "pipelineRaftRunCheckpointed", { enumerable: true, get: function () { return pipeline_raft_1.pipelineRaftRunCheckpointed; } });
 Object.defineProperty(exports, "pipelineRaftRunTerminated", { enumerable: true, get: function () { return pipeline_raft_1.pipelineRaftRunTerminated; } });
 Object.defineProperty(exports, "pipelineRaftDeclarations", { enumerable: true, get: function () { return pipeline_raft_1.pipelineRaftDeclarations; } });
+var gateway_signal_1 = require("./gateway-signal");
+Object.defineProperty(exports, "gatewaySignalDeclarations", { enumerable: true, get: function () { return gateway_signal_1.gatewaySignalDeclarations; } });
 //# sourceMappingURL=index.js.map

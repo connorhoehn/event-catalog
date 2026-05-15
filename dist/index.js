@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MQ_QUEUE_NAMES = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = exports.channelNodesRedisKey = exports.channelMessageRedisChannel = exports.isChannelMessageEnvelope = exports.buildSignalMessage = exports.buildChannelMessageEnvelope = exports.checkForwardCompat = exports.checkBackwardCompat = exports.DurableTransport = exports.SignalTransport = exports.Registry = exports.EventCatalog = void 0;
+exports.MQ_QUEUE_NAMES = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = exports.broadcastEnvelopeSchema = exports.broadcastRedisChannel = exports.buildBroadcastEnvelope = exports.directMessageEnvelopeSchema = exports.directMessageRedisChannel = exports.buildDirectMessageEnvelope = exports.channelMessageEnvelopeSchema = exports.signalMessageSchema = exports.channelNodesRedisKey = exports.channelMessageRedisChannel = exports.isChannelMessageEnvelope = exports.buildSignalMessage = exports.buildChannelMessageEnvelope = exports.checkForwardCompat = exports.checkBackwardCompat = exports.DurableTransport = exports.SignalTransport = exports.Registry = exports.EventCatalog = void 0;
 var index_1 = require("./client/index");
 Object.defineProperty(exports, "EventCatalog", { enumerable: true, get: function () { return index_1.EventCatalog; } });
 var index_2 = require("./registry/index");
@@ -19,6 +19,16 @@ Object.defineProperty(exports, "buildSignalMessage", { enumerable: true, get: fu
 Object.defineProperty(exports, "isChannelMessageEnvelope", { enumerable: true, get: function () { return envelopes_1.isChannelMessageEnvelope; } });
 Object.defineProperty(exports, "channelMessageRedisChannel", { enumerable: true, get: function () { return envelopes_1.channelMessageRedisChannel; } });
 Object.defineProperty(exports, "channelNodesRedisKey", { enumerable: true, get: function () { return envelopes_1.channelNodesRedisKey; } });
+// Phase E2.1 close-out — JSON Schemas alongside the TS types.
+Object.defineProperty(exports, "signalMessageSchema", { enumerable: true, get: function () { return envelopes_1.signalMessageSchema; } });
+Object.defineProperty(exports, "channelMessageEnvelopeSchema", { enumerable: true, get: function () { return envelopes_1.channelMessageEnvelopeSchema; } });
+// wave18-b — direct & broadcast envelope builders + schemas.
+Object.defineProperty(exports, "buildDirectMessageEnvelope", { enumerable: true, get: function () { return envelopes_1.buildDirectMessageEnvelope; } });
+Object.defineProperty(exports, "directMessageRedisChannel", { enumerable: true, get: function () { return envelopes_1.directMessageRedisChannel; } });
+Object.defineProperty(exports, "directMessageEnvelopeSchema", { enumerable: true, get: function () { return envelopes_1.directMessageEnvelopeSchema; } });
+Object.defineProperty(exports, "buildBroadcastEnvelope", { enumerable: true, get: function () { return envelopes_1.buildBroadcastEnvelope; } });
+Object.defineProperty(exports, "broadcastRedisChannel", { enumerable: true, get: function () { return envelopes_1.broadcastRedisChannel; } });
+Object.defineProperty(exports, "broadcastEnvelopeSchema", { enumerable: true, get: function () { return envelopes_1.broadcastEnvelopeSchema; } });
 // Canonical cross-service event declarations (wave1-ec-1+) for events
 // produced by libraries (e.g. distributed-core) that have no single
 // owning runtime service. Service-owned events still live in the
