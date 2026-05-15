@@ -14,6 +14,21 @@ export interface DeclareResult {
     /** Phase E6 — sha256 of the canonical schema serialization. */
     schemaFingerprint: string;
 }
+/**
+ * Phase 20-a — public shape of `Registry.resolve()` results.
+ *
+ * `entry` is the canonical RegistryEntry regardless of whether the
+ * caller queried by canonical name or a deprecated alias. `viaAlias`
+ * is present only on the alias path, carrying the alias name + optional
+ * `until` cutoff so callers can surface "this name is deprecated".
+ */
+export interface ResolveResult {
+    entry: RegistryEntry;
+    viaAlias?: {
+        name: string;
+        until?: string;
+    };
+}
 export interface IRegistry {
     declare(event: EventDeclaration): DeclareResult;
     get(name: string): RegistryEntry | undefined;

@@ -70,6 +70,20 @@ export interface BuildChannelMessageEnvelopeArgs<TMessage> {
 }
 export declare function buildChannelMessageEnvelope<TMessage>(args: BuildChannelMessageEnvelopeArgs<TMessage>): ChannelMessageEnvelope<TMessage>;
 export declare function isChannelMessageEnvelope(value: unknown): value is ChannelMessageEnvelope;
+/** Phase 20-a — runtime guard for DirectMessageEnvelope. */
+export declare function isDirectMessageEnvelope(value: unknown): value is DirectMessageEnvelope;
+/** Phase 20-a — runtime guard for BroadcastEnvelope. */
+export declare function isBroadcastEnvelope(value: unknown): value is BroadcastEnvelope;
+export type DecodeResult<T> = {
+    ok: true;
+    value: T;
+} | {
+    ok: false;
+    error: string;
+};
+export declare function decodeChannelMessageEnvelope(raw: string): DecodeResult<ChannelMessageEnvelope>;
+export declare function decodeDirectMessageEnvelope(raw: string): DecodeResult<DirectMessageEnvelope>;
+export declare function decodeBroadcastEnvelope(raw: string): DecodeResult<BroadcastEnvelope>;
 /**
  * Redis channel pattern producers publish to and the gateway pSubscribes.
  * Exported so consumers don't hard-code the string.

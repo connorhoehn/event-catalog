@@ -1,7 +1,7 @@
 import { JsonSchemaValidator } from 'distributed-core/messaging-queue';
 import type { RedisClientType } from 'redis';
 import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyNode, TopologyEdge, TopologyFilter, CompatibilityMode } from '../types/index';
-import type { IRegistry, ValidationResult, DeclareResult } from './types';
+import type { IRegistry, ValidationResult, DeclareResult, ResolveResult } from './types';
 import { checkBackwardCompat, checkForwardCompat, type CompatResult } from './schema-compat';
 import { computeSchemaFingerprint } from './fingerprint';
 import { resolveNamespace } from './namespace';
@@ -147,7 +147,7 @@ export class Registry implements IRegistry {
    * event. When `name` resolves via an alias, `viaAlias` carries the alias
    * record so callers can surface a deprecation warning.
    */
-  resolve(name: string): { entry: RegistryEntry; viaAlias?: { name: string; until?: string } } | undefined {
+  resolve(name: string): ResolveResult | undefined {
     const direct = this.events.get(name);
     if (direct) return { entry: direct };
 

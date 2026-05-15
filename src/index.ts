@@ -27,7 +27,7 @@ export type {
   EventAlias,
 } from './types/index';
 
-export type { ValidationResult, DeclareResult, IRegistry } from './registry/types';
+export type { ValidationResult, DeclareResult, IRegistry, ResolveResult } from './registry/types';
 export type { CompatResult } from './registry/schema-compat';
 export { checkBackwardCompat, checkForwardCompat } from './registry/schema-compat';
 // Phase E6 — fingerprint helpers exposed for downstream consumers that
@@ -58,6 +58,12 @@ export {
   buildBroadcastEnvelope,
   broadcastRedisChannel,
   broadcastEnvelopeSchema,
+  // wave20-a — runtime guards + decoder helpers (receive side).
+  isDirectMessageEnvelope,
+  isBroadcastEnvelope,
+  decodeChannelMessageEnvelope,
+  decodeDirectMessageEnvelope,
+  decodeBroadcastEnvelope,
 } from './types/envelopes';
 export type {
   ChannelMessageEnvelope,
@@ -68,6 +74,7 @@ export type {
   BuildDirectMessageEnvelopeArgs,
   BroadcastEnvelope,
   BuildBroadcastEnvelopeArgs,
+  DecodeResult,
 } from './types/envelopes';
 
 // Canonical cross-service event declarations (wave1-ec-1+) for events

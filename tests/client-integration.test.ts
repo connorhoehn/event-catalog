@@ -236,6 +236,41 @@ describe('EventCatalog Client Integration', () => {
       warnSpy.mockRestore();
       await catalog.disconnect();
     });
+
+    it('resolveEvent() returns canonical entry on direct query (wave20-a)', () => {
+      const catalog = new EventCatalog(makeConfig());
+      catalog.declare({
+        name: 'pipeline.approval.requested',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'distributed-core',
+        aliases: [{ name: 'pipeline:approval:requested', deprecated: true }],
+      });
+      const r = catalog.resolveEvent('pipeline.approval.requested');
+      expect(r).toBeDefined();
+      expect(r!.entry.name).toBe('pipeline.approval.requested');
+      expect(r!.viaAlias).toBeUndefined();
+    });
+
+    it('resolveEvent() returns canonical entry + viaAlias on alias query (wave20-a)', () => {
+      const catalog = new EventCatalog(makeConfig());
+      catalog.declare({
+        name: 'pipeline.approval.requested',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'distributed-core',
+        aliases: [{ name: 'pipeline:approval:requested', deprecated: true, until: '2027-01-01' }],
+      });
+      const r = catalog.resolveEvent('pipeline:approval:requested');
+      expect(r).toBeDefined();
+      expect(r!.entry.name).toBe('pipeline.approval.requested');
+      expect(r!.viaAlias).toEqual({ name: 'pipeline:approval:requested', until: '2027-01-01' });
+    });
+
+    it('resolveEvent() returns undefined for unknown names', () => {
+      const catalog = new EventCatalog(makeConfig());
+      expect(catalog.resolveEvent('nothing.declared')).toBeUndefined();
+    });
   });
 
   describe('Phase E3.3 — declared signal channel', () => {

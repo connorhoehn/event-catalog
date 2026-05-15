@@ -17,6 +17,7 @@ import type {
   Subscription,
   SubscribeOptions,
 } from '../types/index';
+import type { ResolveResult } from '../registry/types';
 
 /**
  * Phase E3.3 — resolve the Redis channel an event publishes on.
@@ -401,6 +402,16 @@ export class EventCatalog {
 
   getRegistry(): Registry {
     return this.registry;
+  }
+
+  /**
+   * Phase 20-a — alias-aware public lookup. Returns the canonical
+   * RegistryEntry plus alias-info if the caller queried by a deprecated
+   * name. Use this for "what's my canonical name for this old alias?"
+   * audits without reaching into `getRegistry()`.
+   */
+  resolveEvent(name: string): ResolveResult | undefined {
+    return this.registry.resolve(name);
   }
 
   getSignalTransport(): SignalTransport {

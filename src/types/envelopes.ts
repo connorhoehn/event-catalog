@@ -117,6 +117,95 @@ export function isChannelMessageEnvelope(
   );
 }
 
+/** Phase 20-a — runtime guard for DirectMessageEnvelope. */
+export function isDirectMessageEnvelope(
+  value: unknown,
+): value is DirectMessageEnvelope {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.type === 'direct_message'
+    && typeof v.clientId === 'string'
+    && typeof v.fromNode === 'string'
+    && typeof v.targetNode === 'string'
+    && typeof v.timestamp === 'string'
+    && 'message' in v
+  );
+}
+
+/** Phase 20-a — runtime guard for BroadcastEnvelope. */
+export function isBroadcastEnvelope(
+  value: unknown,
+): value is BroadcastEnvelope {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.type === 'broadcast'
+    && typeof v.fromNode === 'string'
+    && typeof v.timestamp === 'string'
+    && (v.excludeClientId === null || typeof v.excludeClientId === 'string')
+    && 'message' in v
+  );
+}
+
+// ── Decoder primitives (wave 20-a) ────────────────────────────────────
+//
+// The receive side of every envelope: JSON.parse + shape guard, returning
+// a tagged Result so callers can branch on success without try/catch. The
+// gateway today hand-rolls this at message-router.ts; with these
+// primitives in place, a Redis subscriber can do
+//
+//   const r = decodeChannelMessageEnvelope(raw);
+//   if (!r.ok) { logger.warn({ err: r.error }, 'drift'); return; }
+//   forwardToClients(r.value);
+//
+// instead of `JSON.parse + ad-hoc field checks`.
+
+export type DecodeResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: string };
+
+function parseJson(raw: string): DecodeResult<unknown> {
+  try {
+    return { ok: true, value: JSON.parse(raw) };
+  } catch (err) {
+    return { ok: false, error: `invalid JSON: ${(err as Error).message}` };
+  }
+}
+
+export function decodeChannelMessageEnvelope(
+  raw: string,
+): DecodeResult<ChannelMessageEnvelope> {
+  const parsed = parseJson(raw);
+  if (!parsed.ok) return parsed;
+  if (!isChannelMessageEnvelope(parsed.value)) {
+    return { ok: false, error: 'not a channel_message envelope' };
+  }
+  return { ok: true, value: parsed.value };
+}
+
+export function decodeDirectMessageEnvelope(
+  raw: string,
+): DecodeResult<DirectMessageEnvelope> {
+  const parsed = parseJson(raw);
+  if (!parsed.ok) return parsed;
+  if (!isDirectMessageEnvelope(parsed.value)) {
+    return { ok: false, error: 'not a direct_message envelope' };
+  }
+  return { ok: true, value: parsed.value };
+}
+
+export function decodeBroadcastEnvelope(
+  raw: string,
+): DecodeResult<BroadcastEnvelope> {
+  const parsed = parseJson(raw);
+  if (!parsed.ok) return parsed;
+  if (!isBroadcastEnvelope(parsed.value)) {
+    return { ok: false, error: 'not a broadcast envelope' };
+  }
+  return { ok: true, value: parsed.value };
+}
+
 /**
  * Redis channel pattern producers publish to and the gateway pSubscribes.
  * Exported so consumers don't hard-code the string.

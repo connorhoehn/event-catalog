@@ -333,6 +333,15 @@ class EventCatalog {
     getRegistry() {
         return this.registry;
     }
+    /**
+     * Phase 20-a — alias-aware public lookup. Returns the canonical
+     * RegistryEntry plus alias-info if the caller queried by a deprecated
+     * name. Use this for "what's my canonical name for this old alias?"
+     * audits without reaching into `getRegistry()`.
+     */
+    resolveEvent(name) {
+        return this.registry.resolve(name);
+    }
     getSignalTransport() {
         return this.signal;
     }

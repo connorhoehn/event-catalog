@@ -14,6 +14,11 @@ exports.broadcastEnvelopeSchema = exports.directMessageEnvelopeSchema = exports.
 exports.buildSignalMessage = buildSignalMessage;
 exports.buildChannelMessageEnvelope = buildChannelMessageEnvelope;
 exports.isChannelMessageEnvelope = isChannelMessageEnvelope;
+exports.isDirectMessageEnvelope = isDirectMessageEnvelope;
+exports.isBroadcastEnvelope = isBroadcastEnvelope;
+exports.decodeChannelMessageEnvelope = decodeChannelMessageEnvelope;
+exports.decodeDirectMessageEnvelope = decodeDirectMessageEnvelope;
+exports.decodeBroadcastEnvelope = decodeBroadcastEnvelope;
 exports.channelMessageRedisChannel = channelMessageRedisChannel;
 exports.channelNodesRedisKey = channelNodesRedisKey;
 exports.buildDirectMessageEnvelope = buildDirectMessageEnvelope;
@@ -53,6 +58,64 @@ function isChannelMessageEnvelope(value) {
         && typeof v.fromNode === 'string'
         && typeof v.seq === 'number'
         && typeof v.timestamp === 'string');
+}
+/** Phase 20-a — runtime guard for DirectMessageEnvelope. */
+function isDirectMessageEnvelope(value) {
+    if (typeof value !== 'object' || value === null)
+        return false;
+    const v = value;
+    return (v.type === 'direct_message'
+        && typeof v.clientId === 'string'
+        && typeof v.fromNode === 'string'
+        && typeof v.targetNode === 'string'
+        && typeof v.timestamp === 'string'
+        && 'message' in v);
+}
+/** Phase 20-a — runtime guard for BroadcastEnvelope. */
+function isBroadcastEnvelope(value) {
+    if (typeof value !== 'object' || value === null)
+        return false;
+    const v = value;
+    return (v.type === 'broadcast'
+        && typeof v.fromNode === 'string'
+        && typeof v.timestamp === 'string'
+        && (v.excludeClientId === null || typeof v.excludeClientId === 'string')
+        && 'message' in v);
+}
+function parseJson(raw) {
+    try {
+        return { ok: true, value: JSON.parse(raw) };
+    }
+    catch (err) {
+        return { ok: false, error: `invalid JSON: ${err.message}` };
+    }
+}
+function decodeChannelMessageEnvelope(raw) {
+    const parsed = parseJson(raw);
+    if (!parsed.ok)
+        return parsed;
+    if (!isChannelMessageEnvelope(parsed.value)) {
+        return { ok: false, error: 'not a channel_message envelope' };
+    }
+    return { ok: true, value: parsed.value };
+}
+function decodeDirectMessageEnvelope(raw) {
+    const parsed = parseJson(raw);
+    if (!parsed.ok)
+        return parsed;
+    if (!isDirectMessageEnvelope(parsed.value)) {
+        return { ok: false, error: 'not a direct_message envelope' };
+    }
+    return { ok: true, value: parsed.value };
+}
+function decodeBroadcastEnvelope(raw) {
+    const parsed = parseJson(raw);
+    if (!parsed.ok)
+        return parsed;
+    if (!isBroadcastEnvelope(parsed.value)) {
+        return { ok: false, error: 'not a broadcast envelope' };
+    }
+    return { ok: true, value: parsed.value };
 }
 /**
  * Redis channel pattern producers publish to and the gateway pSubscribes.

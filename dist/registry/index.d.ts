@@ -1,6 +1,6 @@
 import type { RedisClientType } from 'redis';
 import type { EventDeclaration, RegistryEntry, RegistryFilter, TopologyGraph, TopologyFilter } from '../types/index';
-import type { IRegistry, ValidationResult, DeclareResult } from './types';
+import type { IRegistry, ValidationResult, DeclareResult, ResolveResult } from './types';
 import { type CompatResult } from './schema-compat';
 export declare class Registry implements IRegistry {
     private events;
@@ -18,13 +18,7 @@ export declare class Registry implements IRegistry {
      * event. When `name` resolves via an alias, `viaAlias` carries the alias
      * record so callers can surface a deprecation warning.
      */
-    resolve(name: string): {
-        entry: RegistryEntry;
-        viaAlias?: {
-            name: string;
-            until?: string;
-        };
-    } | undefined;
+    resolve(name: string): ResolveResult | undefined;
     list(filter?: RegistryFilter): RegistryEntry[];
     addSubscriber(eventName: string, serviceName: string): void;
     removeSubscriber(eventName: string, serviceName: string): void;

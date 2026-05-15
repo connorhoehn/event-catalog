@@ -2,6 +2,7 @@ import { Registry } from '../registry/index';
 import { SignalTransport } from './signal';
 import { DurableTransport } from './durable';
 import type { EventCatalogConfig, EventDeclaration, EventHandler, PublishOptions, Subscription, SubscribeOptions } from '../types/index';
+import type { ResolveResult } from '../registry/types';
 export declare class EventCatalog {
     private readonly config;
     private readonly registry;
@@ -54,6 +55,13 @@ export declare class EventCatalog {
     publishSignal<T = unknown>(channelId: string, eventName: string, payload: T, options?: PublishOptions): Promise<number>;
     subscribe<T = unknown>(eventName: string, handler: EventHandler<T>, options?: SubscribeOptions): Subscription;
     getRegistry(): Registry;
+    /**
+     * Phase 20-a — alias-aware public lookup. Returns the canonical
+     * RegistryEntry plus alias-info if the caller queried by a deprecated
+     * name. Use this for "what's my canonical name for this old alias?"
+     * audits without reaching into `getRegistry()`.
+     */
+    resolveEvent(name: string): ResolveResult | undefined;
     getSignalTransport(): SignalTransport;
     getDurableTransport(): DurableTransport;
     isConnected(): boolean;

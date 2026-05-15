@@ -14,6 +14,12 @@ import {
   buildBroadcastEnvelope,
   broadcastRedisChannel,
   broadcastEnvelopeSchema,
+  // wave20-a — decoder primitives + new type guards
+  isDirectMessageEnvelope,
+  isBroadcastEnvelope,
+  decodeChannelMessageEnvelope,
+  decodeDirectMessageEnvelope,
+  decodeBroadcastEnvelope,
 } from '../src/types/envelopes';
 
 describe('buildSignalMessage', () => {
@@ -335,6 +341,96 @@ describe('directMessageEnvelopeSchema + broadcastEnvelopeSchema (wave18-b)', () 
       broadcastEnvelopeSchema as unknown as Record<string, unknown>,
       { ...env, excludeClientId: 42 },
     );
+    expect(r.ok).toBe(false);
+  });
+});
+
+// ── wave20-a — runtime guards + decoder primitives ────────────────────
+
+describe('isDirectMessageEnvelope (wave20-a)', () => {
+  it('accepts canonical direct-message builder output', () => {
+    const env = buildDirectMessageEnvelope({
+      clientId: 'c1', message: {}, fromNode: 'a', targetNode: 'b',
+    });
+    expect(isDirectMessageEnvelope(env)).toBe(true);
+  });
+
+  it('rejects non-direct shapes', () => {
+    expect(isDirectMessageEnvelope(null)).toBe(false);
+    expect(isDirectMessageEnvelope({ type: 'broadcast' })).toBe(false);
+    expect(isDirectMessageEnvelope({
+      type: 'direct_message', clientId: 'c', message: {}, fromNode: 'a',
+      /* no targetNode */ timestamp: 't',
+    })).toBe(false);
+  });
+});
+
+describe('isBroadcastEnvelope (wave20-a)', () => {
+  it('accepts canonical broadcast builder output', () => {
+    const env = buildBroadcastEnvelope({ message: {}, fromNode: 'gw' });
+    expect(isBroadcastEnvelope(env)).toBe(true);
+  });
+
+  it('rejects non-broadcast shapes', () => {
+    expect(isBroadcastEnvelope({ type: 'direct_message' })).toBe(false);
+    expect(isBroadcastEnvelope({
+      type: 'broadcast', fromNode: 'gw', timestamp: 't',
+      /* missing message + excludeClientId */
+    })).toBe(false);
+    expect(isBroadcastEnvelope({
+      type: 'broadcast', fromNode: 'gw', timestamp: 't',
+      message: {}, excludeClientId: 42, // wrong type
+    })).toBe(false);
+  });
+});
+
+describe('decode helpers (wave20-a)', () => {
+  it('decodeChannelMessageEnvelope returns ok on valid JSON of a valid envelope', () => {
+    const env = buildChannelMessageEnvelope({
+      channel: 'r',
+      message: buildSignalMessage({ eventName: 'x', channel: 'r', payload: {} }),
+      fromNode: 'gw',
+    });
+    const r = decodeChannelMessageEnvelope(JSON.stringify(env));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.type).toBe('channel_message');
+  });
+
+  it('decodeChannelMessageEnvelope returns error on invalid JSON', () => {
+    const r = decodeChannelMessageEnvelope('{not json');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/invalid JSON/);
+  });
+
+  it('decodeChannelMessageEnvelope returns error when shape mismatches', () => {
+    const r = decodeChannelMessageEnvelope(JSON.stringify({ type: 'broadcast' }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/channel_message envelope/);
+  });
+
+  it('decodeDirectMessageEnvelope round-trips builder output', () => {
+    const env = buildDirectMessageEnvelope({
+      clientId: 'c1', message: { kind: 'rpc' }, fromNode: 'a', targetNode: 'b',
+    });
+    const r = decodeDirectMessageEnvelope(JSON.stringify(env));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.targetNode).toBe('b');
+  });
+
+  it('decodeBroadcastEnvelope round-trips builder output', () => {
+    const env = buildBroadcastEnvelope({ message: { notice: 'hi' }, fromNode: 'gw' });
+    const r = decodeBroadcastEnvelope(JSON.stringify(env));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.excludeClientId).toBeNull();
+  });
+
+  it('decodeBroadcastEnvelope rejects a channel_message envelope', () => {
+    const env = buildChannelMessageEnvelope({
+      channel: 'r',
+      message: buildSignalMessage({ eventName: 'x', channel: 'r', payload: {} }),
+      fromNode: 'gw',
+    });
+    const r = decodeBroadcastEnvelope(JSON.stringify(env));
     expect(r.ok).toBe(false);
   });
 });
