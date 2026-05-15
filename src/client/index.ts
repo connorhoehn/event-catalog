@@ -205,6 +205,83 @@ export class EventCatalog {
   }
 
   /**
+   * wave24-e — periodically POST /api/heartbeat for every event this
+   * catalog instance is currently subscribed to. Returns a `stop()`
+   * function for graceful shutdown wiring.
+   *
+   * Defaults to 5-minute cadence which sits comfortably within the
+   * server's default 30-min `SUBSCRIBER_TTL_SECONDS`. Best-effort:
+   * heartbeat HTTP failures log a warn and the loop continues.
+   *
+   * Use case (consumer boot):
+   *   const stopHb = catalog.startHeartbeating();
+   *   process.on('SIGTERM', async () => { stopHb(); await catalog.disconnect(); });
+   */
+  startHeartbeating(intervalMs: number = 5 * 60 * 1000): () => void {
+    if (!this.config.registryUrl) {
+      // No remote registry to heartbeat against — return a no-op stop.
+      return () => {};
+    }
+    const tick = async (): Promise<void> => {
+      const subscribed = this.registry.eventsSubscribedBy(this.config.serviceName);
+      if (subscribed.length === 0) return;
+      try {
+        await fetch(`${this.config.registryUrl!.replace(/\/$/, '')}/api/heartbeat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serviceName: this.config.serviceName, events: subscribed }),
+        });
+      } catch (err) {
+        console.warn('[event-catalog] heartbeat failed:', (err as Error).message);
+      }
+    };
+    // Fire one immediately so the first tick doesn't wait `intervalMs`.
+    void tick();
+    const handle = setInterval(() => { void tick(); }, intervalMs);
+    return () => clearInterval(handle);
+  }
+
+  /**
+   * wave24-e — derive a manifest of every event this consumer is
+   * subscribed to + the current local fingerprint. Returns the shape
+   * the wave23-b PUT /api/manifests/:consumer endpoint expects.
+   *
+   * Use case:
+   *   const manifest = catalog.exportManifest();
+   *   await fetch(`${url}/api/manifests/audit-worker`, { method: 'PUT', body: JSON.stringify(manifest) });
+   */
+  exportManifest(): { events: Array<{ name: string; fingerprint: string }> } {
+    const events: Array<{ name: string; fingerprint: string }> = [];
+    for (const name of this.registry.eventsSubscribedBy(this.config.serviceName)) {
+      const entry = this.registry.get(name);
+      if (entry) events.push({ name, fingerprint: entry.schemaFingerprint });
+    }
+    return { events };
+  }
+
+  /**
+   * wave24-e — convenience: derive the manifest via exportManifest()
+   * and PUT it to the registry under the configured serviceName (or
+   * an explicit override). Returns the server's response body. Throws
+   * on non-2xx HTTP. No-op when registryUrl is unset.
+   */
+  async pinManifest(consumerName?: string): Promise<unknown> {
+    if (!this.config.registryUrl) return null;
+    const consumer = consumerName ?? this.config.serviceName;
+    const body = this.exportManifest();
+    const url = `${this.config.registryUrl.replace(/\/$/, '')}/api/manifests/${encodeURIComponent(consumer)}`;
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(`[event-catalog] pinManifest("${consumer}"): HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
+  /**
    * Phase 21-b — bulk drift detection. For every event in the local
    * registry, fetches the current fingerprint from the remote registry
    * and compares to the local one. Returns a per-event status report.

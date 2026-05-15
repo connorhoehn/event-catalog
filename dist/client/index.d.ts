@@ -37,6 +37,42 @@ export declare class EventCatalog {
      */
     declareAll(events: EventDeclaration[]): void;
     /**
+     * wave24-e — periodically POST /api/heartbeat for every event this
+     * catalog instance is currently subscribed to. Returns a `stop()`
+     * function for graceful shutdown wiring.
+     *
+     * Defaults to 5-minute cadence which sits comfortably within the
+     * server's default 30-min `SUBSCRIBER_TTL_SECONDS`. Best-effort:
+     * heartbeat HTTP failures log a warn and the loop continues.
+     *
+     * Use case (consumer boot):
+     *   const stopHb = catalog.startHeartbeating();
+     *   process.on('SIGTERM', async () => { stopHb(); await catalog.disconnect(); });
+     */
+    startHeartbeating(intervalMs?: number): () => void;
+    /**
+     * wave24-e — derive a manifest of every event this consumer is
+     * subscribed to + the current local fingerprint. Returns the shape
+     * the wave23-b PUT /api/manifests/:consumer endpoint expects.
+     *
+     * Use case:
+     *   const manifest = catalog.exportManifest();
+     *   await fetch(`${url}/api/manifests/audit-worker`, { method: 'PUT', body: JSON.stringify(manifest) });
+     */
+    exportManifest(): {
+        events: Array<{
+            name: string;
+            fingerprint: string;
+        }>;
+    };
+    /**
+     * wave24-e — convenience: derive the manifest via exportManifest()
+     * and PUT it to the registry under the configured serviceName (or
+     * an explicit override). Returns the server's response body. Throws
+     * on non-2xx HTTP. No-op when registryUrl is unset.
+     */
+    pinManifest(consumerName?: string): Promise<unknown>;
+    /**
      * Phase 21-b — bulk drift detection. For every event in the local
      * registry, fetches the current fingerprint from the remote registry
      * and compares to the local one. Returns a per-event status report.
