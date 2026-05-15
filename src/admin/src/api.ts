@@ -118,8 +118,14 @@ export const api = {
     return request<{ removed: string }>(`/events/${encodeURIComponent(name)}`, { method: 'DELETE' });
   },
 
-  getTopology() {
-    return request<TopologyGraph>('/topology');
+  getTopology(filter?: { namespace?: string; producer?: string; consumer?: string; transport?: string }) {
+    const params = new URLSearchParams();
+    if (filter?.namespace) params.set('namespace', filter.namespace);
+    if (filter?.producer) params.set('producer', filter.producer);
+    if (filter?.consumer) params.set('consumer', filter.consumer);
+    if (filter?.transport) params.set('transport', filter.transport);
+    const qs = params.toString();
+    return request<TopologyGraph>(`/topology${qs ? `?${qs}` : ''}`);
   },
 
   getHealth() {

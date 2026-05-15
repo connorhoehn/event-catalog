@@ -1,206 +1,183 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+// Phase E8.2 — Topology view rebuilt on @xyflow/react with custom
+// EventNode + ServiceNode types, dagre auto-layout, and AnimatedEdge
+// from `@ui/components/pipelines/canvas/edges/AnimatedEdge` so the
+// visual style matches the gateway's pipeline-replay view.
+//
+// Lives in event-catalog/src/admin. Data shape comes from the
+// existing GET /api/topology endpoint; transformation to ReactFlow
+// node/edge format happens client-side.
+
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  Controls,
+  MiniMap,
+  type Node,
+  type Edge,
+  type NodeTypes,
+  type EdgeTypes,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+
 import Chip from '@ui/components/shared/Chip';
 import EmptyState from '@ui/components/shared/EmptyState';
 import Banner from '@ui/components/shared/Banner';
-import { api, type TopologyGraph } from '../api';
+import AnimatedEdge from '@ui/components/pipelines/canvas/edges/AnimatedEdge';
 
-interface NodePosition {
-  id: string;
-  type: 'service' | 'event';
-  x: number;
-  y: number;
-  metadata: Record<string, unknown>;
+import { api, type TopologyGraph } from '../api';
+import EventNode from './topology/EventNode';
+import ServiceNode from './topology/ServiceNode';
+import { layoutGraph } from './topology/layout';
+
+const nodeTypes: NodeTypes = {
+  event: EventNode,
+  service: ServiceNode,
+};
+
+const edgeTypes: EdgeTypes = {
+  animated: AnimatedEdge,
+};
+
+interface FilterState {
+  namespace: string;
+}
+
+function toReactFlowNodes(topology: TopologyGraph): Node[] {
+  const producerIds = new Set(
+    topology.edges.filter((e) => e.relation === 'publishes').map((e) => e.from),
+  );
+  const consumerIds = new Set(
+    topology.edges.filter((e) => e.relation === 'subscribes').map((e) => e.to),
+  );
+
+  return topology.nodes.map((n) => {
+    if (n.type === 'event') {
+      return {
+        id: n.id,
+        type: 'event',
+        position: { x: 0, y: 0 }, // dagre will replace
+        data: {
+          label: n.id,
+          transport: ((n.metadata.transport as string) ?? 'signal') as
+            | 'signal'
+            | 'durable'
+            | 'both',
+          namespace: (n.metadata.namespace as string) ?? undefined,
+          description: n.metadata.description as string | undefined,
+        },
+      } satisfies Node;
+    }
+    const isProducer = producerIds.has(n.id);
+    const isConsumer = consumerIds.has(n.id);
+    return {
+      id: n.id,
+      type: 'service',
+      position: { x: 0, y: 0 },
+      data: {
+        label: n.id,
+        role: isProducer && isConsumer ? 'both' : isProducer ? 'producer' : 'consumer',
+      },
+    } satisfies Node;
+  });
+}
+
+function toReactFlowEdges(topology: TopologyGraph): Edge[] {
+  return topology.edges.map((e, i) => ({
+    id: `${e.from}->${e.to}#${i}`,
+    source: e.from,
+    target: e.to,
+    type: 'animated',
+    data: {
+      state: 'default' as const,
+      label: e.relation,
+    },
+  }));
 }
 
 export function TopologyView() {
   const [topology, setTopology] = useState<TopologyGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [positions, setPositions] = useState<NodePosition[]>([]);
+  const [filter, setFilter] = useState<FilterState>({ namespace: '' });
 
   useEffect(() => {
-    api.getTopology()
-      .then(data => {
-        setTopology(data);
-        setPositions(layoutNodes(data));
-      })
-      .catch(err => setError(err.message));
-  }, []);
+    const params = filter.namespace ? { namespace: filter.namespace } : undefined;
+    api
+      .getTopology(params)
+      .then(setTopology)
+      .catch((err) => setError((err as Error).message));
+  }, [filter.namespace]);
 
-  const handleNodeClick = useCallback((id: string) => {
-    setSelectedNode(prev => prev === id ? null : id);
-  }, []);
+  const { rfNodes, rfEdges, namespaces } = useMemo(() => {
+    if (!topology) return { rfNodes: [], rfEdges: [], namespaces: [] as string[] };
+    const baseNodes = toReactFlowNodes(topology);
+    const baseEdges = toReactFlowEdges(topology);
+    const laidOut = layoutGraph(baseNodes, baseEdges);
+    const ns = new Set<string>();
+    for (const n of topology.nodes) {
+      if (n.type === 'event' && typeof n.metadata.namespace === 'string') {
+        ns.add(n.metadata.namespace);
+      }
+    }
+    return { rfNodes: laidOut, rfEdges: baseEdges, namespaces: [...ns].sort() };
+  }, [topology]);
 
   if (error) return <Banner variant="error" title="Error">{error}</Banner>;
   if (!topology) return <div className="loading">Loading topology...</div>;
-  if (topology.nodes.length === 0) {
-    return (
-      <div className="topology-view">
-        <h2>Event Topology</h2>
+
+  return (
+    <div className="topology-view" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className="page-header" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid #e2e8f0' }}>
+        <h2 style={{ margin: 0 }}>Event Topology</h2>
+        <Chip tone="neutral">{topology.nodes.filter((n) => n.type === 'event').length} events</Chip>
+        <Chip tone="neutral">{topology.nodes.filter((n) => n.type === 'service').length} services</Chip>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <label style={{ fontSize: 12, color: '#475569' }}>namespace</label>
+          <select
+            value={filter.namespace}
+            onChange={(e) => setFilter({ namespace: e.target.value })}
+            style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #cbd5e1' }}
+          >
+            <option value="">all</option>
+            {namespaces.map((ns) => (
+              <option key={ns} value={ns}>
+                {ns}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {topology.nodes.length === 0 ? (
         <EmptyState
           icon="🕸️"
           title="No events registered yet"
           body="Services register their events at startup. The topology graph will show producers, events, and subscribers as connected nodes."
         />
-      </div>
-    );
-  }
-
-  const services = positions.filter(n => n.type === 'service');
-  const events = positions.filter(n => n.type === 'event');
-
-  return (
-    <div className="topology-view">
-      <div className="page-header">
-        <h2>Event Topology</h2>
-        <div className="legend">
-          <span className="legend-item"><span className="legend-dot service" /> Service</span>
-          <span className="legend-item"><span className="legend-dot event-signal" /> Signal Event</span>
-          <span className="legend-item"><span className="legend-dot event-durable" /> Durable Event</span>
-        </div>
-      </div>
-
-      <div className="topology-canvas">
-        <svg
-          ref={svgRef}
-          viewBox="0 0 1000 600"
-          className="topology-svg"
-        >
-          {topology.edges.map((edge, i) => {
-            const from = positions.find(n => n.id === edge.from);
-            const to = positions.find(n => n.id === edge.to);
-            if (!from || !to) return null;
-
-            const isPublish = edge.relation === 'publishes';
-            return (
-              <g key={i}>
-                <line
-                  x1={from.x}
-                  y1={from.y}
-                  x2={to.x}
-                  y2={to.y}
-                  className={`edge ${isPublish ? 'publish-edge' : 'subscribe-edge'}`}
-                  markerEnd="url(#arrowhead)"
-                />
-              </g>
-            );
-          })}
-
-          <defs>
-            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-              <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
-            </marker>
-          </defs>
-
-          {services.map(node => (
-            <g
-              key={node.id}
-              className={`node service-node ${selectedNode === node.id ? 'selected' : ''}`}
-              onClick={() => handleNodeClick(node.id)}
+      ) : (
+        <div style={{ flex: 1, minHeight: 500 }}>
+          <ReactFlowProvider>
+            <ReactFlow
+              nodes={rfNodes}
+              edges={rfEdges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              fitView
+              minZoom={0.2}
+              maxZoom={1.5}
+              proOptions={{ hideAttribution: true }}
             >
-              <rect
-                x={node.x - 60}
-                y={node.y - 20}
-                width={120}
-                height={40}
-                rx={6}
+              <Background />
+              <Controls />
+              <MiniMap
+                nodeColor={(n) => (n.type === 'event' ? '#0ea5e9' : '#94a3b8')}
+                maskColor="rgba(15, 23, 42, 0.04)"
               />
-              <text x={node.x} y={node.y + 5} textAnchor="middle">{node.id}</text>
-            </g>
-          ))}
-
-          {events.map(node => {
-            const transport = (node.metadata.transport as string) ?? 'signal';
-            return (
-              <g
-                key={node.id}
-                className={`node event-node ${transport} ${selectedNode === node.id ? 'selected' : ''}`}
-                onClick={() => handleNodeClick(node.id)}
-              >
-                <ellipse
-                  cx={node.x}
-                  cy={node.y}
-                  rx={70}
-                  ry={24}
-                />
-                <text x={node.x} y={node.y + 5} textAnchor="middle">{node.id}</text>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-
-      {selectedNode && (
-        <div className="node-detail-panel">
-          <h3>{selectedNode}</h3>
-          {(() => {
-            const node = topology.nodes.find(n => n.id === selectedNode);
-            if (!node) return null;
-            const outEdges = topology.edges.filter(e => e.from === selectedNode);
-            const inEdges = topology.edges.filter(e => e.to === selectedNode);
-            return (
-              <div>
-                <p>Type: <Chip tone={node.type === 'service' ? 'purple' : 'info'}>{node.type}</Chip></p>
-                {outEdges.length > 0 && (
-                  <div>
-                    <strong>Publishes to:</strong>
-                    <ul>{outEdges.map((e, i) => <li key={i}>{e.to}</li>)}</ul>
-                  </div>
-                )}
-                {inEdges.length > 0 && (
-                  <div>
-                    <strong>Receives from:</strong>
-                    <ul>{inEdges.map((e, i) => <li key={i}>{e.from}</li>)}</ul>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+            </ReactFlow>
+          </ReactFlowProvider>
         </div>
       )}
     </div>
   );
-}
-
-function layoutNodes(topology: TopologyGraph): NodePosition[] {
-  const positions: NodePosition[] = [];
-  const services = topology.nodes.filter(n => n.type === 'service');
-  const events = topology.nodes.filter(n => n.type === 'event');
-
-  const producerIds = new Set(topology.edges.filter(e => e.relation === 'publishes').map(e => e.from));
-  const producers = services.filter(s => producerIds.has(s.id));
-  const subscribers = services.filter(s => !producerIds.has(s.id));
-
-  producers.forEach((s, i) => {
-    positions.push({
-      id: s.id,
-      type: 'service',
-      x: 150,
-      y: 80 + i * 100,
-      metadata: s.metadata,
-    });
-  });
-
-  events.forEach((e, i) => {
-    positions.push({
-      id: e.id,
-      type: 'event',
-      x: 500,
-      y: 60 + i * 80,
-      metadata: e.metadata,
-    });
-  });
-
-  subscribers.forEach((s, i) => {
-    positions.push({
-      id: s.id,
-      type: 'service',
-      x: 850,
-      y: 80 + i * 100,
-      metadata: s.metadata,
-    });
-  });
-
-  return positions;
 }
