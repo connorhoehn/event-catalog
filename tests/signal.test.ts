@@ -292,6 +292,21 @@ describe('SignalTransport', () => {
       );
     });
 
+    it('swallows xAdd failure and logs a warning — publish still resolves', async () => {
+      await transport.connect();
+      mockPublishClient.xAdd.mockRejectedValueOnce(new Error('Stream full'));
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await expect(transport.publish('events:ring-fail', makeEnvelope())).resolves.toBeUndefined();
+
+      const ringWarn = warnSpy.mock.calls.find(c =>
+        typeof c[0] === 'string' && (c[0] as string).includes('ring buffer write failed'),
+      );
+      expect(ringWarn).toBeDefined();
+
+      warnSpy.mockRestore();
+    });
+
     it('uses custom ring buffer size from config', async () => {
       const customTransport = new SignalTransport({
         url: 'redis://localhost:6379',
@@ -359,6 +374,38 @@ describe('SignalTransport', () => {
       expect(history[0].eventName).toBe('event.7');
       expect(history[1].eventName).toBe('event.8');
       expect(history[2].eventName).toBe('event.9');
+    });
+  });
+
+  describe('subscribe handler error isolation', () => {
+    it('throwing handler is caught — other handlers on the same channel still fire', async () => {
+      await transport.connect();
+
+      let subscribeCb: ((message: string) => void) | undefined;
+      mockSubscribeClient.subscribe.mockImplementationOnce(
+        (_channel: string, cb: (message: string) => void) => {
+          subscribeCb = cb;
+          return Promise.resolve();
+        },
+      );
+
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const throwingHandler = vi.fn().mockImplementation(() => { throw new Error('handler boom'); });
+      const safeHandler = vi.fn();
+
+      await transport.subscribe('events:isolated', throwingHandler);
+      await transport.subscribe('events:isolated', safeHandler);
+
+      const envelope = makeEnvelope({ eventName: 'isolated.event' });
+      expect(() => subscribeCb!(JSON.stringify(envelope))).not.toThrow();
+
+      expect(safeHandler).toHaveBeenCalledOnce();
+      const handlerErr = errorSpy.mock.calls.find(c =>
+        typeof c[0] === 'string' && (c[0] as string).includes('handler error'),
+      );
+      expect(handlerErr).toBeDefined();
+
+      errorSpy.mockRestore();
     });
   });
 
