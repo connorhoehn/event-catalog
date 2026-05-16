@@ -351,6 +351,17 @@ describe('cli: drift', () => {
     fetchMock.mockRestore();
   });
 
+  it('exits 1 when catalog-url returns non-2xx HTTP', async () => {
+    const f = writeTmp('snap.json', JSON.stringify({ 'a.x': fp('a') }));
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('upstream error', { status: 503 }) as never,
+    );
+    expect(await drift([`--against=${f}`, '--catalog-url=http://x'])).toBe(1);
+    const all = errorSpy.mock.calls.flat().join('\n');
+    expect(all).toContain('HTTP 503');
+    fetchMock.mockRestore();
+  });
+
   it('exits 2 when neither --catalog-url nor --registry-snapshot is provided', async () => {
     const f = writeTmp('snap.json', JSON.stringify({ 'a.x': fp('a') }));
     expect(await drift([`--against=${f}`])).toBe(2);
