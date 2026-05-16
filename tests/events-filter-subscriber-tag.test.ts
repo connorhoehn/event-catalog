@@ -119,6 +119,26 @@ describe('GET /api/events?producer= — array-producer (registry/index.ts:219)',
     });
 });
 
+// ─── GET /api/events?transport=both ──────────────────────────────────────────
+
+describe('GET /api/events?transport=both (routes.ts:86 transport filter)', () => {
+    it('returns only transport:both events, not signal or durable', async () => {
+        const registry = new Registry();
+        registry.declare({ name: 'sig.event', schema: {}, transport: 'signal', producer: 'svc' });
+        registry.declare({ name: 'dur.event', schema: {}, transport: 'durable', producer: 'svc' });
+        registry.declare({ name: 'both.event', schema: {}, transport: 'both', producer: 'svc' });
+        const app = createApp(registry);
+
+        const res = await request(app).get('/api/events?transport=both');
+        expect(res.status).toBe(200);
+        expect(res.body.total).toBe(1);
+        const names = res.body.events.map((e: { name: string }) => e.name);
+        expect(names).toContain('both.event');
+        expect(names).not.toContain('sig.event');
+        expect(names).not.toContain('dur.event');
+    });
+});
+
 // ─── GET /api/events?tag= ─────────────────────────────────────────────────────
 
 describe('GET /api/events?tag=', () => {
