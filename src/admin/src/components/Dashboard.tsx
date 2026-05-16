@@ -42,6 +42,12 @@ export function Dashboard() {
   const totalErrors = events.reduce((sum, e) => sum + (e.stats?.errorCount ?? 0), 0);
   const producers = [...new Set(events.map(e => e.producer))];
 
+  // wave25-d — lifecycle rollups derived from the same /events payload.
+  const deprecated = events.filter(e => !!e.deprecation);
+  const orphans = events.filter(e => e.subscribers.length === 0);
+  const neverPublished = events.filter(e => !e.metadata?.lastPublishedAt);
+  const deprecatedActive = deprecated.filter(e => e.subscribers.length > 0 || e.stats?.publishCount);
+
   return (
     <div className="dashboard">
       <h2>Dashboard</h2>
@@ -73,6 +79,31 @@ export function Dashboard() {
         </div>
       </div>
 
+      {/* wave25-d — lifecycle rollups. Only render when there's anything to
+         flag, so a healthy catalog doesn't get a row of zero-value cards. */}
+      {(deprecated.length > 0 || orphans.length > 0 || neverPublished.length > 0) && (
+        <div className="stats-grid" style={{ marginTop: 12 }}>
+          {deprecated.length > 0 && (
+            <Link to="/events" className="stat-card" style={{ textDecoration: 'none', color: 'inherit', borderLeft: '3px solid #b91c1c' }}>
+              <div className="stat-value" style={{ color: '#b91c1c' }}>{deprecated.length}</div>
+              <div className="stat-label">Deprecated{deprecatedActive.length > 0 ? ` (${deprecatedActive.length} still active)` : ''}</div>
+            </Link>
+          )}
+          {orphans.length > 0 && (
+            <div className="stat-card" style={{ borderLeft: '3px solid #d97706' }}>
+              <div className="stat-value" style={{ color: '#d97706' }}>{orphans.length}</div>
+              <div className="stat-label">Orphans (no subscribers)</div>
+            </div>
+          )}
+          {neverPublished.length > 0 && (
+            <div className="stat-card" style={{ borderLeft: '3px solid #64748b' }}>
+              <div className="stat-value" style={{ color: '#64748b' }}>{neverPublished.length}</div>
+              <div className="stat-label">Never published</div>
+            </div>
+          )}
+        </div>
+      )}
+
       {health && (
         <div className="transport-status">
           <h3>Transport Status</h3>
@@ -93,6 +124,39 @@ export function Dashboard() {
           <div className="status-row">
             <span>Uptime: {formatUptime(health.uptime)}</span>
           </div>
+        </div>
+      )}
+
+      {deprecated.length > 0 && (
+        <div className="recent-events" style={{ marginTop: 16 }}>
+          <h3>Deprecated Events</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Reason</th>
+                <th>Subscribers</th>
+                <th>Deprecated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deprecated
+                .slice()
+                .sort((a, b) => (b.deprecation?.deprecatedAt ?? '').localeCompare(a.deprecation?.deprecatedAt ?? ''))
+                .slice(0, 10)
+                .map(e => (
+                  <tr key={e.name}>
+                    <td>
+                      <Link to={`/events/${encodeURIComponent(e.name)}`}>{e.name}</Link>{' '}
+                      <Chip tone="danger" size="xs">deprecated</Chip>
+                    </td>
+                    <td style={{ color: '#64748b' }}>{e.deprecation?.reason ?? '—'}</td>
+                    <td>{e.subscribers.length}</td>
+                    <td>{e.deprecation?.deprecatedAt ? timeAgo(e.deprecation.deprecatedAt) : '—'}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
         </div>
       )}
 
