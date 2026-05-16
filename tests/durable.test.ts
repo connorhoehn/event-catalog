@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { EventEnvelope } from '../src/types/index.js';
 import { DurableTransport } from '../src/client/durable.js';
+
+function makeEnvelope(overrides: Partial<EventEnvelope> = {}): EventEnvelope {
+  return {
+    eventName: 'test.event',
+    payload: { key: 'value' },
+    metadata: { id: 'e-001', producer: 'test', timestamp: Date.now() },
+    ...overrides,
+  };
+}
 
 describe('DurableTransport', () => {
   describe('eventNameToQueueName', () => {
@@ -250,5 +260,60 @@ describe('DurableTransport — onDeadLetter()', () => {
     const dispose3 = t.onDeadLetter(cb3);
     expect(typeof dispose3).toBe('function');
     dispose3();
+  });
+});
+
+describe('DurableTransport — publish()', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('throws when not connected', async () => {
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    await expect(t.publish('test-queue', makeEnvelope())).rejects.toThrow(
+      '[durable-transport] not connected',
+    );
+  });
+
+  it('POSTs to the correct endpoint and increments the sent metric', async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                 // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })    // ensureQueue PUT
+      .mockResolvedValueOnce({ ok: true });                // publish POST
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts: 1, retryBaseMs: 0 });
+    await t.connect();
+    await t.publish('test-queue', makeEnvelope());
+
+    const publishCall = fetchSpy.mock.calls[2];
+    expect(publishCall![0]).toBe('http://mq:3004/queues/test-queue/messages');
+    expect(publishCall![1]).toMatchObject({ method: 'POST' });
+
+    const metrics = t.getMetrics('test-queue') as { sent: number; failed: number };
+    expect(metrics.sent).toBe(1);
+    expect(metrics.failed).toBe(0);
+  });
+
+  it('increments the failed metric and rethrows on non-ok response', async () => {
+    const failResponse = { ok: false, status: 500 };
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })   // ensureQueue PUT
+      .mockResolvedValue(failResponse);                   // all publish POST attempts → fail
+    vi.stubGlobal('fetch', fetchSpy);
+
+    // retryAttempts:1 → maxRetries:0 in our code, but RetryManager uses ||3 default;
+    // retryBaseMs:1 avoids the ||1000 fallback, keeping retries fast (1ms+2ms+4ms).
+    const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts: 1, retryBaseMs: 1 });
+    await t.connect();
+
+    await expect(t.publish('test-queue', makeEnvelope())).rejects.toThrow(
+      '[durable-transport] publish to "test-queue" failed after 1 attempts',
+    );
+
+    const metrics = t.getMetrics('test-queue') as { sent: number; failed: number };
+    expect(metrics.failed).toBe(1);
+    expect(metrics.sent).toBe(0);
   });
 });
