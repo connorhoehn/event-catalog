@@ -515,9 +515,19 @@ describe('cli: manifest verify', () => {
     expect(await manifest(['verify', `--against=${consumed}`])).toBe(2);
   });
 
-  it('exits 2 when files are unreadable', async () => {
+  it('exits 2 when --against file is unreadable', async () => {
+    const registry = writeTmp('registry.json', '{}');
     expect(await manifest([
-      'verify', '--against=/no/such/consumed.json', '--registry-snapshot=/no/such/registry.json',
+      'verify', '--against=/no/such/consumed.json', `--registry-snapshot=${registry}`,
     ])).toBe(2);
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain('cannot read');
+  });
+
+  it('exits 2 when --registry-snapshot file is unreadable (against file is readable)', async () => {
+    const consumed = writeTmp('consumed.json', JSON.stringify({ 'a.x': 'a'.repeat(64) }));
+    expect(await manifest([
+      'verify', `--against=${consumed}`, '--registry-snapshot=/no/such/registry.json',
+    ])).toBe(2);
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain('cannot read registry snapshot');
   });
 });
