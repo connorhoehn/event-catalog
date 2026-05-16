@@ -114,4 +114,39 @@ describe('routes → coordinator.broadcast wiring (wave26-d)', () => {
     expect(res.status).toBe(201);
     expect(coordinator.broadcast).not.toHaveBeenCalled();
   });
+
+  it('POST /api/events/bulk broadcasts "declare" once per event in the batch', async () => {
+    await request(app)
+      .post('/api/events/bulk')
+      .send({
+        serviceName: 'batch-svc',
+        events: [
+          { name: 'bulk.one', schema: { type: 'object' }, transport: 'signal' },
+          { name: 'bulk.two', schema: { type: 'object' }, transport: 'durable' },
+        ],
+      })
+      .expect(201);
+    expect(coordinator.broadcast).toHaveBeenCalledTimes(2);
+    const kinds = (coordinator.broadcast as ReturnType<typeof vi.fn>).mock.calls.map(([k]) => k);
+    expect(kinds).toEqual(['declare', 'declare']);
+    const names = (coordinator.broadcast as ReturnType<typeof vi.fn>).mock.calls.map(
+      ([, p]) => (p as { name: string }).name,
+    );
+    expect(names).toEqual(expect.arrayContaining(['bulk.one', 'bulk.two']));
+  });
+
+  it('POST /api/events/bulk/deprecate broadcasts "deprecate" once per deprecated event', async () => {
+    registry.declare({ name: 'dep.one', schema: {}, transport: 'signal', producer: 'svc' });
+    registry.declare({ name: 'dep.two', schema: {}, transport: 'signal', producer: 'svc' });
+    await request(app)
+      .post('/api/events/bulk/deprecate')
+      .send({ names: ['dep.one', 'dep.two'], reason: 'sunset', by: 'ops' })
+      .expect(200);
+    expect(coordinator.broadcast).toHaveBeenCalledTimes(2);
+    const calls = (coordinator.broadcast as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.every(([k]) => k === 'deprecate')).toBe(true);
+    expect(calls.map(([, p]) => (p as { name: string }).name)).toEqual(
+      expect.arrayContaining(['dep.one', 'dep.two']),
+    );
+  });
 });
