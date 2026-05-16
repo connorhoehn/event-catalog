@@ -74,6 +74,18 @@ describe('Registry heartbeat (wave24-b)', () => {
     expect(refreshed).toEqual(['a.x']);
   });
 
+  it('heartbeat() skips existing events the requesting service never subscribed to (registry/index.ts:264)', () => {
+    const reg = new Registry();
+    reg.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
+    reg.declare({ name: 'b.y', schema: {}, transport: 'signal', producer: 's' });
+    reg.addSubscriber('a.x', 'consumer-1');
+    reg.addSubscriber('b.y', 'consumer-2'); // different service owns b.y
+
+    // consumer-1 asks to heartbeat b.y — the event exists but consumer-1 never subscribed.
+    const refreshed = reg.heartbeat('consumer-1', ['b.y']);
+    expect(refreshed).toEqual([]);
+  });
+
   it('pruneStaleSubscribers removes subscribers older than ttl + drops their heartbeats', () => {
     const reg = new Registry();
     reg.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
