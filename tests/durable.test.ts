@@ -340,6 +340,54 @@ describe('DurableTransport — publish()', () => {
     expect(metrics.failed).toBe(1);
     expect(metrics.sent).toBe(0);
   });
+
+  it('logs warning on 409 conflict from ensureQueue PUT but publishes successfully', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                                         // connect /health
+      .mockResolvedValueOnce({                                                      // ensureQueue PUT → 409
+        ok: false, status: 409,
+        json: async () => ({ conflicts: { retention: [300, 600] } }),
+        text: async () => '',
+      })
+      .mockResolvedValueOnce({ ok: true });                                         // publish POST
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts: 1, retryBaseMs: 0 });
+    await t.connect();
+    await t.publish('test-queue', makeEnvelope());
+
+    const warnCall = warnSpy.mock.calls.find(c =>
+      typeof c[0] === 'string' && (c[0] as string).includes('differing config'),
+    );
+    expect(warnCall).toBeDefined();
+    const metrics = t.getMetrics('test-queue') as { sent: number };
+    expect(metrics.sent).toBe(1);
+
+    warnSpy.mockRestore();
+  });
+
+  it('logs warning when ensureQueue PUT throws (network error) but still attempts publish', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                           // connect /health
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))             // ensureQueue PUT throws
+      .mockResolvedValueOnce({ ok: true });                          // publish POST succeeds
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts: 1, retryBaseMs: 0 });
+    await t.connect();
+    await t.publish('test-queue', makeEnvelope());
+
+    const warnCall = warnSpy.mock.calls.find(c =>
+      typeof c[0] === 'string' && (c[0] as string).includes('ensureQueue'),
+    );
+    expect(warnCall).toBeDefined();
+    const metrics = t.getMetrics('test-queue') as { sent: number };
+    expect(metrics.sent).toBe(1);
+
+    warnSpy.mockRestore();
+  });
 });
 
 describe('DurableTransport — subscribe() + pollLoop()', () => {
