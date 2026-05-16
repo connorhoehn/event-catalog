@@ -81,6 +81,30 @@ describe('cli: lint', () => {
     const f = writeTmp('bad.json', '{not json');
     expect(await lint([f])).toBe(2);
   });
+
+  it('exits 2 when the file contains no events (empty array)', async () => {
+    const f = writeTmp('empty.json', JSON.stringify({ events: [] }));
+    const code = await lint([f]);
+    expect(code).toBe(2);
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain('no events to lint');
+  });
+
+  it('exits 1 when an event has a missing or non-object schema', async () => {
+    const f = writeTmp('no-schema.json', JSON.stringify({
+      events: [
+        { name: 'good', schema: { type: 'object' } },
+        { name: 'bad-null' },                     // schema absent
+        { name: 'bad-string', schema: 'string' }, // schema is not an object
+      ],
+    }));
+    const code = await lint([f]);
+    expect(code).toBe(1);
+    const all = logSpy.mock.calls.flat().join('\n');
+    expect(all).toContain('✓ good');
+    expect(all).toContain('✗ bad-null');
+    expect(all).toContain('✗ bad-string');
+    expect(all).toContain('missing or non-object schema');
+  });
 });
 
 describe('cli: snapshot', () => {
@@ -443,6 +467,24 @@ describe('cli: manifest pin', () => {
       `--events=a.x=${'a'.repeat(64)}`,
     ])).toBe(1);
     fetchMock.mockRestore();
+  });
+
+  it('exits 2 when an --events entry has no = separator (malformed pair)', async () => {
+    const code = await manifest([
+      'pin', '--catalog-url=http://x', '--consumer=audit',
+      '--events=malformed-no-equals',
+    ]);
+    expect(code).toBe(2);
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain('malformed');
+  });
+
+  it('exits 2 when the snapshot file is a valid JSON object but has no events (empty {})', async () => {
+    const f = writeTmp('empty-snap.json', JSON.stringify({}));
+    const code = await manifest([
+      'pin', '--catalog-url=http://x', '--consumer=audit', `--snapshot=${f}`,
+    ]);
+    expect(code).toBe(2);
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain('no events to pin');
   });
 
   it('exits 2 on unknown subcommand', async () => {
