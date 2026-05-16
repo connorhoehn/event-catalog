@@ -33,6 +33,10 @@ export function NamespacesView() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  // wave26-f — per-namespace bulk action state
+  const [bulkNs, setBulkNs] = useState<string | null>(null);
+  const [bulkReason, setBulkReason] = useState('');
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api.getNamespacesSummary('full')
@@ -128,6 +132,58 @@ export function NamespacesView() {
 
                   {isExpanded && row.events && (
                     <div style={{ padding: '0 14px 12px', borderTop: '1px solid #f1f5f9' }}>
+                      {/* wave26-f — namespace-level bulk actions */}
+                      <div style={{ display: 'flex', gap: 6, padding: '8px 0', flexWrap: 'wrap' }}>
+                        <button
+                          style={{ fontSize: 11, padding: '2px 8px', border: '1px solid #b91c1c', background: 'transparent', color: '#b91c1c', borderRadius: 4, cursor: 'pointer' }}
+                          onClick={() => { setBulkNs(row.namespace); setBulkMsg(null); }}
+                        >
+                          Deprecate namespace
+                        </button>
+                        <button
+                          style={{ fontSize: 11, padding: '2px 8px', border: '1px solid #1d4ed8', background: 'transparent', color: '#1d4ed8', borderRadius: 4, cursor: 'pointer' }}
+                          onClick={() => {
+                            const names = row.events!.map(e => e.name);
+                            window.open(api.bulkExportUrl(names), '_blank');
+                          }}
+                        >
+                          Export namespace JSON
+                        </button>
+                      </div>
+                      {bulkNs === row.namespace && (
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            placeholder="Reason for deprecating entire namespace"
+                            value={bulkReason}
+                            onChange={e => setBulkReason(e.target.value)}
+                            style={{ flex: 1, padding: '4px 8px', fontSize: 12, border: '1px solid #fca5a5', borderRadius: 4 }}
+                          />
+                          <button
+                            style={{ fontSize: 12, padding: '4px 10px', background: '#b91c1c', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                            onClick={async () => {
+                              const names = row.events!.map(e => e.name);
+                              try {
+                                const res = await api.bulkDeprecate(names, { reason: bulkReason || undefined });
+                                setBulkMsg(`Deprecated ${res.total}/${names.length} event(s).`);
+                                setBulkNs(null);
+                                load();
+                              } catch (err) {
+                                setBulkMsg(`Error: ${(err as Error).message}`);
+                              }
+                            }}
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            style={{ fontSize: 12, padding: '4px 8px', background: 'transparent', color: '#64748b', border: '1px solid #cbd5e1', borderRadius: 4, cursor: 'pointer' }}
+                            onClick={() => setBulkNs(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+                      {bulkMsg && <div style={{ fontSize: 12, color: '#16a34a', marginBottom: 6 }}>{bulkMsg}</div>}
                       <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                         {row.events.map(ev => (
                           <li

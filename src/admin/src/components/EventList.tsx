@@ -28,6 +28,11 @@ export function EventList() {
   const [filter, setFilter] = useState<{ transport?: string; producer?: string }>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // wave26-f — bulk selection state
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkReason, setBulkReason] = useState('');
+  const [bulkPending, setBulkPending] = useState(false);
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -35,12 +40,58 @@ export function EventList() {
       api.getEvents(filter),
       api.getMetricsHistory().catch(() => ({} as Record<string, number[]>)),
     ])
-      .then(([eventsRes, history]) => { setEvents(eventsRes.events); setRateHistory(history); setError(null); })
+      .then(([eventsRes, history]) => {
+        setEvents(eventsRes.events);
+        setRateHistory(history);
+        setError(null);
+        setSelected(new Set());
+      })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [filter]);
 
   const producers = [...new Set(events.flatMap(e => Array.isArray(e.producer) ? e.producer : [e.producer]))];
+
+  const allSelected = events.length > 0 && selected.size === events.length;
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(events.map(e => e.name)));
+    }
+  };
+  const toggleOne = (name: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
+
+  const selectedNames = [...selected];
+
+  const handleBulkDeprecate = async () => {
+    if (!bulkReason.trim()) { setBulkResult('Please enter a deprecation reason.'); return; }
+    setBulkPending(true);
+    setBulkResult(null);
+    try {
+      const res = await api.bulkDeprecate(selectedNames, { reason: bulkReason });
+      setBulkResult(`Deprecated ${res.total} event(s).${res.notFound.length > 0 ? ` Not found: ${res.notFound.join(', ')}.` : ''}`);
+      setSelected(new Set());
+      // Refresh list
+      const eventsRes = await api.getEvents(filter);
+      setEvents(eventsRes.events);
+    } catch (err) {
+      setBulkResult(`Error: ${(err as Error).message}`);
+    } finally {
+      setBulkPending(false);
+    }
+  };
+
+  const handleBulkExport = () => {
+    const url = api.bulkExportUrl(selectedNames);
+    window.open(url, '_blank');
+  };
 
   return (
     <div className="event-list">
@@ -68,6 +119,54 @@ export function EventList() {
         </select>
       </div>
 
+      {/* wave26-f — bulk actions toolbar (only visible when events are selected) */}
+      {selected.size > 0 && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          background: '#eff6ff',
+          border: '1px solid #bfdbfe',
+          borderRadius: 6,
+          marginBottom: 8,
+          flexWrap: 'wrap',
+        }}>
+          <Chip tone="info" size="xs">{selected.size} selected</Chip>
+          <input
+            type="text"
+            placeholder="Deprecation reason (required for deprecate)"
+            value={bulkReason}
+            onChange={e => setBulkReason(e.target.value)}
+            style={{ flex: 1, minWidth: 200, padding: '4px 8px', fontSize: 13, border: '1px solid #93c5fd', borderRadius: 4 }}
+          />
+          <button
+            onClick={handleBulkDeprecate}
+            disabled={bulkPending}
+            style={{ padding: '4px 12px', fontSize: 13, background: '#b91c1c', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', opacity: bulkPending ? 0.6 : 1 }}
+          >
+            Deprecate
+          </button>
+          <button
+            onClick={handleBulkExport}
+            style={{ padding: '4px 12px', fontSize: 13, background: '#1d4ed8', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+          >
+            Export JSON
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            style={{ padding: '4px 8px', fontSize: 12, background: 'transparent', color: '#64748b', border: '1px solid #cbd5e1', borderRadius: 4, cursor: 'pointer' }}
+          >
+            Clear
+          </button>
+          {bulkResult && (
+            <span style={{ fontSize: 12, color: bulkResult.startsWith('Error') ? '#b91c1c' : '#16a34a' }}>
+              {bulkResult}
+            </span>
+          )}
+        </div>
+      )}
+
       {error && <Banner variant="error">{error}</Banner>}
       {loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -81,6 +180,9 @@ export function EventList() {
         <table className="events-table">
           <thead>
             <tr>
+              <th style={{ width: 32 }}>
+                <input type="checkbox" checked={allSelected} onChange={toggleAll} title="Select all" />
+              </th>
               <th>Name</th>
               <th>Transport</th>
               <th>Producer</th>
@@ -95,6 +197,13 @@ export function EventList() {
           <tbody>
             {events.map(event => (
               <tr key={event.name} className={event.stats?.errorCount ? 'has-errors' : ''}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(event.name)}
+                    onChange={() => toggleOne(event.name)}
+                  />
+                </td>
                 <td>
                   <Link to={`/events/${encodeURIComponent(event.name)}`} className="event-name">
                     {event.name}

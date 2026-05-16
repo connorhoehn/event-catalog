@@ -251,6 +251,20 @@ export const api = {
     return request<{ removed: string }>(`/transports/durable/dlq/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
+  /** wave26-f — bulk deprecate N events with a shared reason. */
+  bulkDeprecate(names: string[], opts: { reason?: string; by?: string } = {}) {
+    return request<{ deprecated: string[]; notFound: string[]; total: number }>(
+      '/events/bulk/deprecate',
+      { method: 'POST', body: JSON.stringify({ names, ...opts }) },
+    );
+  },
+
+  /** wave26-f — returns the URL for a bulk JSON export (use as href or fetch). */
+  bulkExportUrl(names: string[]): string {
+    const qs = names.length > 0 ? `?names=${names.map(encodeURIComponent).join(',')}` : '';
+    return `/api/events/bulk/export${qs}`;
+  },
+
   /** wave26-e — list all events that exceeded the failure threshold. */
   getPoisonedEvents() {
     return request<{

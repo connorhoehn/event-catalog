@@ -541,6 +541,83 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json({ cleared: req.params.name, wasPoison: cleared });
   });
 
+  // wave26-f — bulk deprecate N events with a shared reason
+  router.post('/events/bulk/deprecate', (req: Request, res: Response) => {
+    const { names, reason, by } = req.body as {
+      names?: string[];
+      reason?: string;
+      by?: string;
+    };
+
+    if (!Array.isArray(names) || names.length === 0) {
+      res.status(400).json({ error: 'names[] is required and must be non-empty' });
+      return;
+    }
+
+    const deprecated: string[] = [];
+    const notFound: string[] = [];
+    const ts = new Date().toISOString();
+
+    for (const name of names) {
+      const ok = registry.deprecate(name, { reason, by });
+      if (!ok) {
+        notFound.push(name);
+        continue;
+      }
+      const entry = registry.get(name);
+      if (entry) {
+        auditEmitter.publish({
+          kind: 'event.deprecated',
+          timestamp: ts,
+          eventName: entry.name,
+          namespace: entry.namespace,
+          version: entry.version,
+          reason,
+          by,
+        });
+      }
+      deprecated.push(name);
+    }
+
+    res.status(notFound.length > 0 && deprecated.length === 0 ? 400 : 200).json({
+      deprecated,
+      notFound,
+      total: deprecated.length,
+    });
+  });
+
+  // wave26-f — bulk export event schemas as JSON archive
+  router.get('/events/bulk/export', (req: Request, res: Response) => {
+    const rawNames = req.query.names;
+    const nameList: string[] = typeof rawNames === 'string'
+      ? rawNames.split(',').map(n => n.trim()).filter(Boolean)
+      : [];
+
+    const entries = nameList.length > 0
+      ? nameList.map(n => registry.get(n)).filter(Boolean)
+      : registry.list();
+
+    const archive = {
+      exportedAt: new Date().toISOString(),
+      eventCount: entries.length,
+      events: entries.map(e => ({
+        name: e!.name,
+        namespace: e!.namespace,
+        transport: e!.transport,
+        producer: e!.producer,
+        version: e!.version,
+        schemaFingerprint: e!.schemaFingerprint,
+        schema: e!.schema,
+        description: e!.description,
+        tags: e!.tags,
+        deprecation: e!.deprecation,
+      })),
+    };
+
+    res.setHeader('Content-Disposition', 'attachment; filename="event-catalog-export.json"');
+    res.json(archive);
+  });
+
   // Delete an event declaration
   router.delete('/events/:name', (req: Request, res: Response) => {
     const before = registry.get(req.params.name);
