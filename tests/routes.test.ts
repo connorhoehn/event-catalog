@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
@@ -1035,5 +1035,53 @@ describe('Server Routes', () => {
         .send({});
       expect(missing.status).toBe(400);
     });
+  });
+});
+
+// ─── metricsObserver.observe() wiring ────────────────────────────────────────
+
+describe('routes → metricsObserver.observe() wiring', () => {
+  function makeApp(observeSpy: ReturnType<typeof vi.fn>) {
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createRoutes({
+      registry: new Registry(),
+      metrics: new MetricsCollector(60),
+      metricsObserver: { observe: observeSpy } as unknown as RoutesDeps['metricsObserver'],
+      signal: { isConnected: () => true, healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }), getAllMetrics: () => new Map(), getHistory: async () => [] } as unknown as RoutesDeps['signal'],
+      durable: { isConnected: () => true, healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }), getAllMetrics: () => new Map() } as unknown as RoutesDeps['durable'],
+      startedAt: Date.now(),
+    }));
+    return app;
+  }
+
+  it('POST /api/events calls metricsObserver.observe with eventName and transport', async () => {
+    const observeSpy = vi.fn(async () => {});
+    await request(makeApp(observeSpy))
+      .post('/api/events')
+      .send({ name: 'wired.event', schema: { type: 'object' }, transport: 'signal', producer: 'svc' })
+      .expect(201);
+
+    await Promise.resolve(); // let the fire-and-forget .catch() settle
+    expect(observeSpy).toHaveBeenCalledWith('wired.event', 'signal');
+  });
+
+  it('POST /api/events/bulk calls metricsObserver.observe once per declared event', async () => {
+    const observeSpy = vi.fn(async () => {});
+    await request(makeApp(observeSpy))
+      .post('/api/events/bulk')
+      .send({
+        serviceName: 'batch-svc',
+        events: [
+          { name: 'bulk.one', schema: { type: 'object' }, transport: 'signal' },
+          { name: 'bulk.two', schema: { type: 'object' }, transport: 'durable' },
+        ],
+      })
+      .expect(201);
+
+    await Promise.resolve();
+    expect(observeSpy).toHaveBeenCalledTimes(2);
+    expect(observeSpy).toHaveBeenCalledWith('bulk.one', 'signal');
+    expect(observeSpy).toHaveBeenCalledWith('bulk.two', 'durable');
   });
 });
