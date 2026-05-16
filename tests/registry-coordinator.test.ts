@@ -190,6 +190,38 @@ describe('RegistryCoordinator', () => {
     await coord.stop();
   });
 
+  it('registers on("error") handlers on both Redis clients — suppresses unhandled rejections', async () => {
+    const registry = new Registry();
+    const coord = await makeCoordinator(registry);
+
+    const pub = (coord as any).pubClient as ReturnType<typeof createMockClient>;
+    const sub = (coord as any).subClient as ReturnType<typeof createMockClient>;
+
+    const pubErrorArgs = pub.on.mock.calls.find(([event]: [string]) => event === 'error');
+    const subErrorArgs = sub.on.mock.calls.find(([event]: [string]) => event === 'error');
+
+    expect(pubErrorArgs).toBeDefined();
+    expect(subErrorArgs).toBeDefined();
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fakeErr = new Error('ECONNREFUSED');
+
+    expect(() => (pubErrorArgs![1] as (e: Error) => void)(fakeErr)).not.toThrow();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('pub client error'),
+      'ECONNREFUSED',
+    );
+
+    expect(() => (subErrorArgs![1] as (e: Error) => void)(fakeErr)).not.toThrow();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('sub client error'),
+      'ECONNREFUSED',
+    );
+
+    warnSpy.mockRestore();
+    await coord.stop();
+  });
+
   it('broadcast is a no-op when not started', async () => {
     const coord = new RegistryCoordinator();
     await expect(coord.broadcast('declare', {})).resolves.toBeUndefined();
