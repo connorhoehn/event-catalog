@@ -106,6 +106,16 @@ describe('Registry', () => {
       registry.addSubscriber('user:created', 'service-a');
       expect(registry.get('user:created')!.subscribers).toEqual(['service-a']);
     });
+
+    it('addSubscriber is a no-op when the event does not exist (registry/index.ts:237)', () => {
+      // Guard: calling addSubscriber before the event is declared must not throw.
+      expect(() => registry.addSubscriber('ghost.event', 'some-service')).not.toThrow();
+    });
+
+    it('removeSubscriber is a no-op when the event does not exist (registry/index.ts:248)', () => {
+      // Guard: calling removeSubscriber on an undeclared event must not throw.
+      expect(() => registry.removeSubscriber('ghost.event', 'some-service')).not.toThrow();
+    });
   });
 
   describe('validate', () => {
