@@ -206,6 +206,7 @@ export const pipelineRunResumeFromStep: EventDeclaration = {
 // ---------------------------------------------------------------------------
 
 export const pipelineRunRetry: EventDeclaration = {
+    namespace: 'pipeline',
     name: 'pipeline:run:retry',
     aliases: [{ name: 'pipeline.run.retry', deprecated: true }],
     transport: 'signal',
