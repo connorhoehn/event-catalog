@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+    PutCommand,
     QueryCommand,
     DeleteCommand,
     BatchWriteCommand,
@@ -219,5 +220,100 @@ describe('DLQStore.clear()', () => {
         expect(deleted).toBe(30);
         const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
         expect(send).toHaveBeenCalledTimes(3); // 1 scan + 2 batches
+    });
+});
+
+describe('DLQStore.put()', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.useRealTimers();
+    });
+
+    it('returns a DLQEntry with the expected shape', async () => {
+        const client = makeMockClient([{}]);
+        const store = new DLQStore(client, 'test-table');
+
+        const input = {
+            eventName: 'orders.failed',
+            payload: { orderId: 'o1' },
+            error: 'processing failed',
+            attempts: 3,
+            deadAt: '2026-05-16T00:00:00.000Z',
+        };
+
+        const entry = await store.put(input);
+
+        expect(typeof entry.id).toBe('string');
+        expect(entry.pk).toBe('DLQ#orders.failed');
+        expect(entry.sk).toContain(entry.id);
+        expect(entry.sk).toContain(input.deadAt);
+        expect(entry.eventName).toBe('orders.failed');
+        expect(entry.payload).toEqual({ orderId: 'o1' });
+        expect(entry.error).toBe('processing failed');
+        expect(entry.attempts).toBe(3);
+        expect(entry.deadAt).toBe(input.deadAt);
+    });
+
+    it('issues a PutCommand to the DynamoDB client', async () => {
+        const client = makeMockClient([{}]);
+        const store = new DLQStore(client, 'test-table');
+
+        await store.put({
+            eventName: 'ship.event',
+            payload: {},
+            error: 'err',
+            attempts: 1,
+            deadAt: '2026-05-16T00:00:00.000Z',
+        });
+
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        expect(send).toHaveBeenCalledOnce();
+        const cmd = send.mock.calls[0][0] as PutCommand;
+        expect(cmd).toBeInstanceOf(PutCommand);
+        expect((cmd.input as { TableName: string }).TableName).toBe('test-table');
+    });
+
+    it('uses the default 30-day TTL when retentionSeconds is omitted', async () => {
+        vi.useFakeTimers();
+        const now = new Date('2026-05-16T00:00:00.000Z').getTime();
+        vi.setSystemTime(now);
+
+        const client = makeMockClient([{}]);
+        const store = new DLQStore(client, 'test-table');
+
+        const entry = await store.put({
+            eventName: 'ev.a',
+            payload: {},
+            error: 'e',
+            attempts: 1,
+            deadAt: '2026-05-16T00:00:00.000Z',
+        });
+
+        const expectedTtl = Math.floor(now / 1000) + 30 * 86400;
+        expect(entry.ttl).toBe(expectedTtl);
+    });
+
+    it('uses the supplied retentionSeconds for TTL', async () => {
+        vi.useFakeTimers();
+        const now = new Date('2026-05-16T00:00:00.000Z').getTime();
+        vi.setSystemTime(now);
+
+        const client = makeMockClient([{}]);
+        const store = new DLQStore(client, 'test-table');
+
+        const SEVEN_DAYS = 7 * 86400;
+        const entry = await store.put(
+            {
+                eventName: 'ev.b',
+                payload: {},
+                error: 'e',
+                attempts: 1,
+                deadAt: '2026-05-16T00:00:00.000Z',
+            },
+            SEVEN_DAYS,
+        );
+
+        const expectedTtl = Math.floor(now / 1000) + SEVEN_DAYS;
+        expect(entry.ttl).toBe(expectedTtl);
     });
 });
