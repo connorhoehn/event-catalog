@@ -439,6 +439,21 @@ describe('SignalTransport', () => {
       const result = await transport.healthCheck();
       expect(result.status).toBe('disconnected');
     });
+
+    it('returns degraded when ping times out (Promise.race timeout wins)', async () => {
+      await transport.connect();
+      // ping never resolves — simulates a hung Redis connection
+      mockPublishClient.ping.mockReturnValue(new Promise(() => {}));
+
+      vi.useFakeTimers();
+      const healthCheckPromise = transport.healthCheck();
+      // Advance past the 2000ms internal timeout
+      await vi.advanceTimersByTimeAsync(2100);
+      const result = await healthCheckPromise;
+      vi.useRealTimers();
+
+      expect(result.status).toBe('degraded');
+    });
   });
 
   describe('getMetrics() / getAllMetrics()', () => {

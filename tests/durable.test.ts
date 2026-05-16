@@ -144,6 +144,18 @@ describe('DurableTransport', () => {
       const result = await t.healthCheck();
       expect(result.status).toBe('disconnected');
     });
+
+    it('returns degraded when fetch throws AbortError (internal 2 s timeout fires)', async () => {
+      const t = new DurableTransport({ url: 'http://mq:3004' });
+      await t.connect();
+
+      const abortError = new Error('The operation was aborted');
+      abortError.name = 'AbortError';
+      fetchSpy.mockRejectedValue(abortError);
+
+      const result = await t.healthCheck();
+      expect(result.status).toBe('degraded');
+    });
   });
 });
 
