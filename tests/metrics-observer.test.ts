@@ -283,6 +283,54 @@ describe('MetricsObserver', () => {
       expect(taps[0].namespace).toBe('chat');
       expect(taps[0].transport).toBe('signal');
     });
+
+    it('tap event uses entry.producer[0] when producer is an array and envelope has no producer', async () => {
+      registry.declare({ name: 'multi.prod', schema: {}, transport: 'signal', producer: ['svc-a', 'svc-b'], namespace: 'multi' });
+
+      const signal = makeSignal();
+      let capturedHandler: ((envelope: any) => void) | undefined;
+      signal.subscribe.mockImplementation((_name: string, handler: (env: any) => void) => {
+        capturedHandler = handler;
+        return Promise.resolve(vi.fn().mockResolvedValue(undefined));
+      });
+
+      const taps: any[] = [];
+      tapEmitter.on('publish', (e) => taps.push(e));
+
+      const observer = new MetricsObserver({
+        registry, signal: signal as any, durable: makeDurable() as any,
+        metrics: makeMetrics() as any,
+      });
+
+      await observer.observe('multi.prod', 'signal');
+      capturedHandler!({ eventName: 'multi.prod', payload: {}, metadata: {} }); // no producer in metadata
+
+      expect(taps[0].producer).toBe('svc-a');
+    });
+
+    it('tap event uses declared string channel when entry.channel is set', async () => {
+      registry.declare({ name: 'chat.room', schema: {}, transport: 'signal', producer: 'gateway', namespace: 'chat', channel: 'chat-bus' });
+
+      const signal = makeSignal();
+      let capturedHandler: ((envelope: any) => void) | undefined;
+      signal.subscribe.mockImplementation((_name: string, handler: (env: any) => void) => {
+        capturedHandler = handler;
+        return Promise.resolve(vi.fn().mockResolvedValue(undefined));
+      });
+
+      const taps: any[] = [];
+      tapEmitter.on('publish', (e) => taps.push(e));
+
+      const observer = new MetricsObserver({
+        registry, signal: signal as any, durable: makeDurable() as any,
+        metrics: makeMetrics() as any,
+      });
+
+      await observer.observe('chat.room', 'signal');
+      capturedHandler!({ eventName: 'chat.room', payload: {}, metadata: {} });
+
+      expect(taps[0].channel).toBe('chat-bus');
+    });
   });
 
   describe('maybePoison path (poison detection)', () => {
