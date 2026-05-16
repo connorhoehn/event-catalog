@@ -402,6 +402,24 @@ describe('SignalTransport', () => {
       expect(history[1].eventName).toBe('event.8');
       expect(history[2].eventName).toBe('event.9');
     });
+
+    it('returns empty array when xRange throws', async () => {
+      await transport.connect();
+      mockPublishClient.xRange.mockRejectedValueOnce(new Error('Stream unavailable'));
+      const history = await transport.getHistory('events:broken');
+      expect(history).toEqual([]);
+    });
+
+    it('silently drops entries with malformed JSON payload', async () => {
+      await transport.connect();
+      mockPublishClient.xRange.mockResolvedValueOnce([
+        { id: '1-0', message: { payload: JSON.stringify(makeEnvelope({ eventName: 'good.event' })) } },
+        { id: '2-0', message: { payload: 'not valid json {{' } },
+      ]);
+      const history = await transport.getHistory('events:mixed');
+      expect(history).toHaveLength(1);
+      expect(history[0]!.eventName).toBe('good.event');
+    });
   });
 
   describe('subscribe handler error isolation', () => {
