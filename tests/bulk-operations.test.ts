@@ -128,6 +128,28 @@ describe('GET /api/events/bulk/export', () => {
   });
 });
 
+describe('POST /api/events/bulk — malformed entry skip (routes.ts:442)', () => {
+  it('skips entries missing name or transport and only declares valid ones', async () => {
+    const { app, registry } = createApp();
+
+    const res = await request(app)
+      .post('/api/events/bulk')
+      .send({
+        serviceName: 'batch-svc',
+        events: [
+          { schema: { type: 'object' }, transport: 'signal' },         // missing name
+          { name: 'no.transport', schema: { type: 'object' } },         // missing transport
+          { name: 'valid.event', schema: { type: 'object' }, transport: 'signal' },
+        ],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.count).toBe(1);
+    expect(res.body.declared).toEqual(['valid.event']);
+    expect(registry.get('valid.event')).toBeDefined();
+  });
+});
+
 describe('POST /api/events/bulk — invalid-schema recovery', () => {
   it('skips and logs a warn when a batch entry has an invalid schema, still registers valid ones', async () => {
     const { app, registry } = createApp();
