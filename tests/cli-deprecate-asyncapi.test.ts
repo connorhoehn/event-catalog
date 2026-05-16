@@ -86,6 +86,10 @@ describe('cli: undeprecate', () => {
     expect(await undeprecate(['a.x'])).toBe(2);
   });
 
+  it('exits 2 without an event name (name starts with --)', async () => {
+    expect(await undeprecate(['--catalog-url=https://catalog'])).toBe(2);
+  });
+
   it('exits 1 when fetch throws a network error', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('ECONNREFUSED'));
     expect(await undeprecate(['a.x', '--catalog-url=https://catalog'])).toBe(1);

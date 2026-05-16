@@ -202,6 +202,18 @@ describe('cli: snapshot', () => {
       expect(JSON.parse(stdout.trim())['d.x']).toMatch(/^[0-9a-f]{64}$/);
     });
 
+    it('falls back to eventDeclarations named export (third probe)', async () => {
+      const mod = writeDeclModule('evtDecls', `
+        export const eventDeclarations = [
+          { name: 'e.x', transport: 'signal', producer: 'svc',
+            schema: { type: 'object' } },
+        ];
+      `);
+      const code = await snapshot(['--from-source', `--declarations=${mod}`]);
+      expect(code).toBe(0);
+      expect(JSON.parse(stdout.trim())['e.x']).toMatch(/^[0-9a-f]{64}$/);
+    });
+
     it('honors --export=<name>', async () => {
       const mod = writeDeclModule('custom', `
         export const myDecls = [
@@ -432,6 +444,14 @@ describe('cli: manifest pin', () => {
 
   it('exits 2 when neither --snapshot nor --events provided', async () => {
     expect(await manifest(['pin', '--catalog-url=http://x', '--consumer=audit'])).toBe(2);
+  });
+
+  it('exits 2 when --catalog-url is missing', async () => {
+    expect(await manifest(['pin', '--consumer=audit', `--events=a.x=${'a'.repeat(64)}`])).toBe(2);
+  });
+
+  it('exits 2 when --consumer is missing', async () => {
+    expect(await manifest(['pin', '--catalog-url=http://x', `--events=a.x=${'a'.repeat(64)}`])).toBe(2);
   });
 
   it('exits 2 when the --snapshot file does not exist', async () => {
