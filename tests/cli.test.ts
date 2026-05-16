@@ -292,6 +292,22 @@ describe('cli: drift', () => {
     expect(await drift(['--catalog-url=http://x'])).toBe(2);
   });
 
+  it('exits 2 when the --against snapshot file does not exist', async () => {
+    expect(await drift(['--catalog-url=http://x', '--against=/no/such/snapshot.json'])).toBe(2);
+    const all = errorSpy.mock.calls.flat().join('\n');
+    expect(all).toContain('cannot read snapshot');
+  });
+
+  it('exits 1 when catalog-url fetch throws a network error', async () => {
+    const f = writeTmp('snap.json', JSON.stringify({ 'a.x': fp('a') }));
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    const code = await drift([`--against=${f}`, '--catalog-url=http://x']);
+    expect(code).toBe(1);
+    const all = errorSpy.mock.calls.flat().join('\n');
+    expect(all).toContain('fetch failed');
+    fetchMock.mockRestore();
+  });
+
   it('exits 2 when neither --catalog-url nor --registry-snapshot is provided', async () => {
     const f = writeTmp('snap.json', JSON.stringify({ 'a.x': fp('a') }));
     expect(await drift([`--against=${f}`])).toBe(2);
