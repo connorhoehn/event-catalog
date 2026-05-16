@@ -6,6 +6,7 @@ import { TopologyView } from './components/TopologyView';
 import { FlowView } from './components/FlowView';
 import { AuditView } from './components/AuditView';
 import { SubscribersView } from './components/SubscribersView';
+import { NamespacesView } from './components/NamespacesView';
 import { LiveInspector } from './components/LiveInspector';
 import { TransportHealth } from './components/TransportHealth';
 import { DLQBrowser } from './components/DLQBrowser';
@@ -22,6 +23,7 @@ export function App() {
         <ul className="nav-links">
           <li><NavLink to="/">Dashboard</NavLink></li>
           <li><NavLink to="/events">Events</NavLink></li>
+          <li><NavLink to="/namespaces">Namespaces</NavLink></li>
           <li><NavLink to="/declarations">Declarations</NavLink></li>
           <li><NavLink to="/topology">Topology</NavLink></li>
           <li><NavLink to="/flow">Flow</NavLink></li>
@@ -37,6 +39,7 @@ export function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/events" element={<EventList />} />
           <Route path="/events/:name" element={<EventDetail />} />
+          <Route path="/namespaces" element={<NamespacesView />} />
           <Route path="/declarations" element={<DeclarationViewer />} />
           <Route path="/topology" element={<TopologyView />} />
           <Route path="/flow" element={<FlowView />} />

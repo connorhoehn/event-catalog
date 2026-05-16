@@ -151,6 +151,22 @@ export const api = {
     return request<{ count: number; items: Array<{ name: string; namespace?: string; transport: string; version: number; deprecation: { deprecatedAt: string; reason?: string; by?: string } }> }>(`/deprecated`);
   },
 
+  // wave25-b — namespace browser.
+  getNamespacesSummary(detail: 'summary' | 'full' = 'summary') {
+    type Item = {
+      namespace: string;
+      eventCount: number;
+      deprecatedCount: number;
+      producerCount: number;
+      subscriberCount: number;
+      signalCount: number;
+      durableCount: number;
+      events?: Array<{ name: string; transport: string; version: number; deprecated: boolean }>;
+    };
+    const qs = detail === 'full' ? '?detail=full' : '';
+    return request<{ count: number; items: Item[] }>(`/namespaces/summary${qs}`);
+  },
+
   getTopology(filter?: { namespace?: string; producer?: string; consumer?: string; transport?: string }) {
     const params = new URLSearchParams();
     if (filter?.namespace) params.set('namespace', filter.namespace);

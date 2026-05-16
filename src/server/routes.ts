@@ -561,6 +561,74 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json({ count: items.length, items });
   });
 
+  // wave25-b — namespace browser. Returns one row per namespace with
+  // event/producer/subscriber/deprecated counts and a transport split.
+  // The admin UI's /namespaces page uses this for the at-a-glance grid.
+  // ?detail=full also includes the per-namespace event list (name +
+  // transport + deprecated bool) so a single round-trip powers the
+  // drill-down view.
+  router.get('/namespaces/summary', (req: Request, res: Response) => {
+    const detail = req.query.detail === 'full';
+    type Row = {
+      namespace: string;
+      eventCount: number;
+      deprecatedCount: number;
+      producerCount: number;
+      subscriberCount: number;
+      signalCount: number;
+      durableCount: number;
+      events?: Array<{ name: string; transport: string; version: number; deprecated: boolean }>;
+    };
+    const rows = new Map<string, Row & { producers: Set<string>; subscribers: Set<string> }>();
+    for (const entry of registry.list()) {
+      const ns = entry.namespace;
+      let row = rows.get(ns);
+      if (!row) {
+        row = {
+          namespace: ns,
+          eventCount: 0,
+          deprecatedCount: 0,
+          producerCount: 0,
+          subscriberCount: 0,
+          signalCount: 0,
+          durableCount: 0,
+          producers: new Set<string>(),
+          subscribers: new Set<string>(),
+          ...(detail ? { events: [] as Row['events'] } : {}),
+        };
+        rows.set(ns, row);
+      }
+      row.eventCount += 1;
+      if (entry.deprecation) row.deprecatedCount += 1;
+      if (entry.transport === 'signal') row.signalCount += 1;
+      if (entry.transport === 'durable') row.durableCount += 1;
+      const producers = Array.isArray(entry.producer) ? entry.producer : [entry.producer];
+      for (const p of producers) row.producers.add(p);
+      for (const s of entry.subscribers) row.subscribers.add(s);
+      if (detail && row.events) {
+        row.events.push({
+          name: entry.name,
+          transport: entry.transport,
+          version: entry.version,
+          deprecated: !!entry.deprecation,
+        });
+      }
+    }
+    const items = Array.from(rows.values())
+      .map(r => ({
+        namespace: r.namespace,
+        eventCount: r.eventCount,
+        deprecatedCount: r.deprecatedCount,
+        producerCount: r.producers.size,
+        subscriberCount: r.subscribers.size,
+        signalCount: r.signalCount,
+        durableCount: r.durableCount,
+        ...(r.events ? { events: r.events.sort((a, b) => a.name.localeCompare(b.name)) } : {}),
+      }))
+      .sort((a, b) => a.namespace.localeCompare(b.namespace));
+    res.json({ count: items.length, items });
+  });
+
   // Topology graph — optional ?producer=, ?consumer=, ?eventType=, ?transport=
   // filters AND-combine to restrict which events (and induced services) appear
   // in the returned subgraph. No filter ⇒ full topology.
