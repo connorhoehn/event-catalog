@@ -38,6 +38,7 @@ describe('admin api surface', () => {
         getDLQ: (event?: string, limit?: number) => Promise<unknown>;
         replayDLQ: (id: string) => Promise<unknown>;
         deleteDLQ: (id: string) => Promise<unknown>;
+        clearDLQ: (eventName?: string) => Promise<unknown>;
         getEvents: () => Promise<unknown>;
         getTopology: () => Promise<unknown>;
         getPromMetrics: () => Promise<string>;
@@ -47,6 +48,7 @@ describe('admin api surface', () => {
     expect(typeof api.getDLQ).toBe('function');
     expect(typeof api.replayDLQ).toBe('function');
     expect(typeof api.deleteDLQ).toBe('function');
+    expect(typeof api.clearDLQ).toBe('function');
     expect(typeof api.getEvents).toBe('function');
     expect(typeof api.getTopology).toBe('function');
     expect(typeof api.getPromMetrics).toBe('function');
@@ -62,13 +64,21 @@ describe('admin api surface', () => {
     expect(calls[2].url).toBe('/api/transports/durable/dlq/abc');
     expect(calls[2].init?.method).toBe('DELETE');
 
+    await api.clearDLQ('orders.failed');
+    expect(calls[3].url).toBe('/api/transports/durable/dlq/clear?eventName=orders.failed');
+    expect(calls[3].init?.method).toBe('POST');
+
+    await api.clearDLQ();
+    expect(calls[4].url).toBe('/api/transports/durable/dlq/clear');
+    expect(calls[4].init?.method).toBe('POST');
+
     await api.getEvents();
-    expect(calls[3].url).toBe('/api/events');
+    expect(calls[5].url).toBe('/api/events');
 
     await api.getTopology();
-    expect(calls[4].url).toBe('/api/topology');
+    expect(calls[6].url).toBe('/api/topology');
 
     await api.getPromMetrics();
-    expect(calls[5].url).toBe('/metrics');
+    expect(calls[7].url).toBe('/metrics');
   });
 });

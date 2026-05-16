@@ -251,6 +251,14 @@ export const api = {
     return request<{ removed: string }>(`/transports/durable/dlq/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
+  /** Bulk-clear all DLQ entries, or all entries for one event when eventName is provided. */
+  clearDLQ(eventName?: string) {
+    const params = new URLSearchParams();
+    if (eventName) params.set('eventName', eventName);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request<{ cleared: number }>(`/transports/durable/dlq/clear${qs}`, { method: 'POST' });
+  },
+
   /** wave26-f — bulk deprecate N events with a shared reason. */
   bulkDeprecate(names: string[], opts: { reason?: string; by?: string } = {}) {
     return request<{ deprecated: string[]; notFound: string[]; total: number }>(
