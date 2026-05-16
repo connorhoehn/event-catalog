@@ -628,3 +628,21 @@ describe('validate + checkSchemaCompat edge cases (registry/index.ts:423-456)', 
     expect(result.violations).toEqual([]);
   });
 });
+
+describe('listSubscriberHeartbeats epoch fallback (registry/index.ts:294)', () => {
+  it("uses '1970-01-01T00:00:00.000Z' when a subscriber has no heartbeat entry", () => {
+    const registry = new Registry();
+    registry.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 'svc' });
+
+    // Bypass addSubscriber (which stamps a heartbeat) by mutating the entry directly.
+    // This simulates a subscriber restored from external state (e.g. Redis) without
+    // in-memory heartbeats, hitting the falsy-ts branch at index.ts:294.
+    const entry = registry.get('a.x')!;
+    entry.subscribers.push('orphan-svc');
+
+    const hbs = registry.listSubscriberHeartbeats();
+    const orphan = hbs.find(h => h.serviceName === 'orphan-svc');
+    expect(orphan).toBeDefined();
+    expect(orphan!.lastSeenAt).toBe('1970-01-01T00:00:00.000Z');
+  });
+});
