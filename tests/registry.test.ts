@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Registry } from '../src/registry/index.js';
+import type { RedisClientType } from 'redis';
 
 describe('Registry', () => {
   let registry: Registry;
@@ -306,6 +307,112 @@ describe('Registry', () => {
       const meta = registry.get('ev.b')!.metadata;
       expect(meta.publishCount).toBe(10);
       expect(meta.errorCount).toBe(2);
+    });
+  });
+
+  describe('load() — Redis hydration', () => {
+    function makeRedis(store: Record<string, string> = {}): RedisClientType {
+      return {
+        hGetAll: vi.fn(async () => store),
+        hSet: vi.fn(async () => 1),
+        hDel: vi.fn(async () => 1),
+      } as unknown as RedisClientType;
+    }
+
+    it('is a no-op when no Redis client is provided', async () => {
+      const reg = new Registry();
+      await reg.load(); // should not throw
+      expect(reg.size()).toBe(0);
+    });
+
+    it('loads events from hGetAll into the in-process map', async () => {
+      const entry = {
+        name: 'order.placed',
+        schema: { type: 'object' },
+        transport: 'durable',
+        producer: 'orders',
+        version: 1,
+        schemaFingerprint: 'abc',
+        schemaHistory: [],
+        subscribers: [],
+        aliases: [],
+        metadata: { publishCount: 0, errorCount: 0, subscriberCount: 0 },
+        namespace: 'order',
+      };
+      const store: Record<string, string> = {
+        'order.placed': JSON.stringify(entry),
+      };
+      const redis = makeRedis(store);
+      const reg = new Registry(redis);
+      await reg.load();
+
+      expect(reg.size()).toBe(1);
+      const loaded = reg.get('order.placed');
+      expect(loaded).toBeDefined();
+      expect(loaded!.transport).toBe('durable');
+      expect(loaded!.producer).toBe('orders');
+    });
+
+    it('loads multiple events from Redis', async () => {
+      const makeEntry = (name: string) => JSON.stringify({
+        name,
+        schema: {},
+        transport: 'signal',
+        producer: 'svc',
+        version: 1,
+        schemaFingerprint: 'fp',
+        schemaHistory: [],
+        subscribers: [],
+        aliases: [],
+        metadata: { publishCount: 0, errorCount: 0, subscriberCount: 0 },
+        namespace: 'svc',
+      });
+      const store: Record<string, string> = {
+        'ev.a': makeEntry('ev.a'),
+        'ev.b': makeEntry('ev.b'),
+        'ev.c': makeEntry('ev.c'),
+      };
+      const redis = makeRedis(store);
+      const reg = new Registry(redis);
+      await reg.load();
+
+      expect(reg.size()).toBe(3);
+      expect(reg.get('ev.a')).toBeDefined();
+      expect(reg.get('ev.b')).toBeDefined();
+      expect(reg.get('ev.c')).toBeDefined();
+    });
+
+    it('triggers fingerprint backfill for history entries missing fingerprint', async () => {
+      const entry = {
+        name: 'ev.d',
+        schema: { type: 'string' },
+        transport: 'signal',
+        producer: 'svc',
+        version: 2,
+        schemaFingerprint: 'fp-current',
+        schemaHistory: [
+          { schema: { type: 'object' }, version: 1 }, // no fingerprint
+        ],
+        subscribers: [],
+        aliases: [],
+        metadata: { publishCount: 0, errorCount: 0, subscriberCount: 0 },
+        namespace: 'ev',
+      };
+      const redis = makeRedis({ 'ev.d': JSON.stringify(entry) });
+      const reg = new Registry(redis);
+      await reg.load();
+
+      const loaded = reg.get('ev.d');
+      expect(loaded!.schemaHistory[0]!.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('calls hGetAll with the correct key', async () => {
+      const redis = makeRedis();
+      const reg = new Registry(redis);
+      await reg.load();
+
+      const mockHGetAll = (redis as unknown as { hGetAll: ReturnType<typeof vi.fn> }).hGetAll;
+      expect(mockHGetAll).toHaveBeenCalledWith('event-catalog:registry');
     });
   });
 
