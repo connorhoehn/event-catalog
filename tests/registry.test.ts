@@ -508,4 +508,24 @@ describe('Registry', () => {
       expect(registry.list({ tag: 'nope' })).toHaveLength(0);
     });
   });
+
+  describe('declare — invalid schema shape guard', () => {
+    it('throws with a descriptive message when schema type is misspelled', () => {
+      expect(() =>
+        registry.declare({ name: 'bad.event', schema: { type: 'objct' }, transport: 'signal', producer: 'svc' }),
+      ).toThrow(/declare\("bad\.event"\) rejected: invalid JSON Schema shape/);
+    });
+
+    it('does not throw when schema is empty object (schema shape guard skipped)', () => {
+      expect(() =>
+        registry.declare({ name: 'empty.schema', schema: {}, transport: 'signal', producer: 'svc' }),
+      ).not.toThrow();
+    });
+
+    it('throws with the offending validator error embedded in the message', () => {
+      expect(() =>
+        registry.declare({ name: 'bad.event2', schema: { type: 'objct' }, transport: 'signal', producer: 'svc' }),
+      ).toThrow(/objct/);
+    });
+  });
 });

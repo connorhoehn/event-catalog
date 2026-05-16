@@ -1319,4 +1319,64 @@ describe('EventCatalog Client Integration', () => {
       await catalog.disconnect();
     });
   });
+
+  describe('declare() — strict mode rejection', () => {
+    it('throws when strict=true and a re-declaration breaks backward compatibility', () => {
+      const catalog = new EventCatalog({
+        ...makeConfig(),
+        strict: true,
+      });
+
+      catalog.declare({
+        name: 'strict.event',
+        schema: { type: 'object', properties: { a: { type: 'string' } }, required: ['a'] },
+        transport: 'signal',
+        producer: 'test-service',
+        compatibilityMode: 'backward',
+      });
+
+      expect(() =>
+        catalog.declare({
+          name: 'strict.event',
+          schema: {
+            type: 'object',
+            properties: { a: { type: 'string' }, b: { type: 'string' } },
+            required: ['a', 'b'],
+          },
+          transport: 'signal',
+          producer: 'test-service',
+          compatibilityMode: 'backward',
+        }),
+      ).toThrow(/declare\("strict\.event"\) rejected by strict mode/);
+    });
+
+    it('does not throw when strict=true but schema is unchanged', () => {
+      const catalog = new EventCatalog({ ...makeConfig(), strict: true });
+      const decl = {
+        name: 'stable.event',
+        schema: { type: 'object', properties: { id: { type: 'string' } } },
+        transport: 'signal' as const,
+        producer: 'test-service',
+      };
+      catalog.declare(decl);
+      expect(() => catalog.declare(decl)).not.toThrow();
+    });
+  });
+
+  describe('subscribe() — channel-function guard', () => {
+    it('throws when the declared channel is a function (per-payload)', () => {
+      const catalog = new EventCatalog(makeConfig());
+
+      catalog.declare({
+        name: 'dynamic.chan',
+        schema: {},
+        transport: 'signal',
+        producer: 'test-service',
+        channel: (_payload: unknown) => 'chan-runtime',
+      });
+
+      expect(() => catalog.subscribe('dynamic.chan', async () => {}))
+        .toThrow(/cannot subscribe to "dynamic\.chan": its declared channel is a function/);
+    });
+  });
 });
