@@ -170,6 +170,28 @@ describe('POST /api/events/bulk — malformed entry skip (routes.ts:442)', () =>
   });
 });
 
+describe('POST /api/events/bulk — explicit namespace override (routes.ts:457-459)', () => {
+  it('stores the explicit namespace instead of the auto-derived one', async () => {
+    const { app, registry } = createApp();
+
+    const res = await request(app)
+      .post('/api/events/bulk')
+      .send({
+        serviceName: 'ns-svc',
+        events: [
+          { name: 'custom.event', schema: { type: 'object' }, transport: 'signal', namespace: 'custom-ns' },
+          { name: 'auto.event', schema: { type: 'object' }, transport: 'signal' },
+        ],
+      });
+
+    expect(res.status).toBe(201);
+    // Explicit namespace wins over the auto-derived "custom".
+    expect(registry.get('custom.event')?.namespace).toBe('custom-ns');
+    // No explicit namespace — auto-derived from first dot-segment.
+    expect(registry.get('auto.event')?.namespace).toBe('auto');
+  });
+});
+
 describe('POST /api/events/bulk — invalid-schema recovery', () => {
   it('skips and logs a warn when a batch entry has an invalid schema, still registers valid ones', async () => {
     const { app, registry } = createApp();
