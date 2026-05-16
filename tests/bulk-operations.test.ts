@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
@@ -124,5 +124,31 @@ describe('GET /api/events/bulk/export', () => {
     expect(res.status).toBe(200);
     expect(res.body.eventCount).toBe(0);
     expect(res.body.events).toHaveLength(0);
+  });
+});
+
+describe('POST /api/events/bulk — invalid-schema recovery', () => {
+  it('skips and logs a warn when a batch entry has an invalid schema, still registers valid ones', async () => {
+    const { app, registry } = createApp();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await request(app)
+      .post('/api/events/bulk')
+      .send({
+        serviceName: 'batch-svc',
+        events: [
+          { name: 'bad.schema', schema: { type: 'objct' }, transport: 'signal' },
+          { name: 'good.event', schema: { type: 'object' }, transport: 'signal' },
+        ],
+      });
+
+    expect(res.status).toBe(201);
+    expect(registry.get('bad.schema')).toBeUndefined();
+    expect(registry.get('good.event')).toBeDefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('bulk declare skipped "bad.schema"'),
+      expect.any(String),
+    );
+    warnSpy.mockRestore();
   });
 });

@@ -202,8 +202,14 @@ describe('MetricsObserver', () => {
         metrics: metrics as any,
       });
 
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       await expect(observer.observe('bad.event', 'signal')).resolves.toBeUndefined();
       expect(metrics.recordError).toHaveBeenCalledWith('bad.event');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('failed to observe signal channel "bad.event"'),
+        'redis down',
+      );
+      warnSpy.mockRestore();
     });
   });
 
@@ -414,12 +420,17 @@ describe('MetricsObserver', () => {
         metrics: makeMetrics() as any, poisonDetector: poisonDetector as any,
       });
 
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       await observer.observe('toxic.event', 'signal');
 
       expect(auditEvents).toHaveLength(1);
       expect(auditEvents[0].kind).toBe('event.poisoned');
       expect(auditEvents[0].eventName).toBe('toxic.event');
       expect(auditEvents[0].namespace).toBe('toxic');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"toxic.event" marked poisoned'),
+      );
+      warnSpy.mockRestore();
     });
 
     it('does not emit audit event when poisonDetector.recordFailure returns false', async () => {

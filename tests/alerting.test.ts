@@ -129,7 +129,13 @@ describe('AlertManager', () => {
       fetchSpy = vi.fn().mockRejectedValue(new Error('network error'));
       vi.stubGlobal('fetch', fetchSpy);
       const mgr = new AlertManager({ webhookUrl: 'http://hook/alert' });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       await expect(mgr.onHealthChange('redis', 'connected', 'disconnected')).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('webhook delivery failed'),
+        'network error',
+      );
+      warnSpy.mockRestore();
     });
   });
 });
