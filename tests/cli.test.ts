@@ -537,6 +537,25 @@ describe('cli: manifest pin', () => {
   it('exits 2 on unknown subcommand', async () => {
     expect(await manifest(['unknown'])).toBe(2);
   });
+
+  it('silently skips non-string fingerprints in the snapshot — only string values are pinned (manifest.ts:65)', async () => {
+    const f = writeTmp('mixed-snap.json', JSON.stringify({
+      'good.event': 'a'.repeat(64), // valid string — should be included
+      'bad.event': 123,              // number — silently filtered out
+    }));
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ updatedAt: '2026-05-15T00:00:00.000Z' }), { status: 201 }) as never,
+    );
+    const code = await manifest([
+      'pin', '--catalog-url=http://x', '--consumer=audit', `--snapshot=${f}`,
+    ]);
+    expect(code).toBe(0);
+    // Only the one string-fingerprint entry should be in the PUT body.
+    const body = JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body));
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0].name).toBe('good.event');
+    fetchMock.mockRestore();
+  });
 });
 
 describe('cli: manifest verify', () => {
