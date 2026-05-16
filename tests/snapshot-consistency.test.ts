@@ -43,8 +43,17 @@ describe('contracts/registry.snapshot.json — consistency with allDeclarations'
         expect(phantoms, `snapshot has entries not in allDeclarations (run npm run snapshot:regen): ${phantoms.join(', ')}`).toHaveLength(0);
     });
 
-    it('snapshot event count matches unique event names in allDeclarations', () => {
-        const uniqueNames = new Set(allDeclarations.map((d) => d.name));
-        expect(Object.keys(snapshot)).toHaveLength(uniqueNames.size);
+    it('allDeclarations has no duplicate event names', () => {
+        const seen = new Set<string>();
+        const dupes: string[] = [];
+        for (const d of allDeclarations) {
+            if (seen.has(d.name)) dupes.push(d.name);
+            seen.add(d.name);
+        }
+        expect(dupes, `duplicate event names in allDeclarations: ${dupes.join(', ')}`).toHaveLength(0);
+    });
+
+    it('snapshot event count matches allDeclarations length', () => {
+        expect(Object.keys(snapshot)).toHaveLength(allDeclarations.length);
     });
 });

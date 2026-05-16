@@ -57,9 +57,8 @@ import type { EventDeclaration } from '../types/index';
 import { pipelineDeclarations } from './pipeline';
 import { pipelineP1Declarations } from './pipeline-p1';
 import { pipelineP2Declarations } from './pipeline-p2';
-import { pipelineRaftDeclarations, pipelineRaftStateMachineDeclarations } from './pipeline-raft';
+import { pipelineRaftDeclarations } from './pipeline-raft';
 import { gatewaySignalDeclarations } from './gateway-signal';
-import { pipelineEventDeclarations } from './pipeline-events';
 import { agUiDeclarations } from './ag-ui';
 
 /**
@@ -67,14 +66,17 @@ import { agUiDeclarations } from './ag-ui';
  * that don't import event-catalog directly (distributed-core et al).
  * Used by `scripts/regen-registry-snapshot.ts` to build the shipped
  * `contracts/registry.snapshot.json` that producer CI compares against.
+ *
+ * Each event name appears exactly once. Convenience re-exports
+ * (pipelineEventDeclarations, pipelineRaftStateMachineDeclarations) are
+ * excluded here because their events are already covered by the canonical
+ * per-phase arrays above — including them would produce silent duplicates.
  */
 export const allDeclarations: readonly EventDeclaration[] = [
   ...pipelineDeclarations,
   ...pipelineP1Declarations,
   ...pipelineP2Declarations,
   ...pipelineRaftDeclarations,
-  ...pipelineRaftStateMachineDeclarations,
   ...gatewaySignalDeclarations,
-  ...pipelineEventDeclarations,
   ...agUiDeclarations,
 ];
