@@ -258,6 +258,22 @@ describe('cli: snapshot', () => {
       expect(Object.keys(JSON.parse(stdout.trim()))).toEqual(['pipe.x']);
     });
 
+    it('--namespace filter includes events with no namespace field (snapshot.ts:104 short-circuit)', async () => {
+      const mod = writeDeclModule('ns-mixed', `
+        export const declarations = [
+          { name: 'pipe.x', namespace: 'pipeline', transport: 'signal', producer: 'svc', schema: { type: 'object' } },
+          { name: 'gate.x', namespace: 'gateway',  transport: 'signal', producer: 'svc', schema: { type: 'object' } },
+          { name: 'no.ns',                          transport: 'signal', producer: 'svc', schema: { type: 'object' } },
+        ];
+      `);
+      const code = await snapshot(['--from-source', `--declarations=${mod}`, '--namespace=pipeline']);
+      expect(code).toBe(0);
+      const keys = Object.keys(JSON.parse(stdout.trim()));
+      expect(keys).toContain('pipe.x');  // explicit match
+      expect(keys).toContain('no.ns');   // no namespace → short-circuit, always included
+      expect(keys).not.toContain('gate.x'); // wrong namespace → excluded
+    });
+
     it('sorts keys for stable diffs', async () => {
       const mod = writeDeclModule('sort', `
         export const declarations = [
