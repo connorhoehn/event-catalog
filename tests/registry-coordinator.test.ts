@@ -196,6 +196,36 @@ describe('RegistryCoordinator', () => {
     expect(publishLog).toHaveLength(0);
   });
 
+  it('stop() calls quit() on both pub and sub Redis clients', async () => {
+    const registry = new Registry();
+    const coord = await makeCoordinator(registry);
+
+    // Capture references before stop nulls them out.
+    const pub = (coord as any).pubClient as ReturnType<typeof createMockClient>;
+    const sub = (coord as any).subClient as ReturnType<typeof createMockClient>;
+
+    await coord.stop();
+
+    expect(pub.quit).toHaveBeenCalledOnce();
+    expect(sub.quit).toHaveBeenCalledOnce();
+    expect(coord.started).toBe(false);
+  });
+
+  it('broadcast() is a no-op after stop() (pubClient is null)', async () => {
+    const registry = new Registry();
+    const coord = await makeCoordinator(registry);
+    await coord.stop();
+
+    await expect(coord.broadcast('declare', { name: 'x' })).resolves.toBeUndefined();
+    expect(publishLog).toHaveLength(0);
+  });
+
+  it('stop() on a never-started coordinator resolves safely', async () => {
+    const coord = new RegistryCoordinator();
+    await expect(coord.stop()).resolves.toBeUndefined();
+    expect(coord.started).toBe(false);
+  });
+
   it('broadcast swallows publish errors and logs a warning', async () => {
     const registry = new Registry();
     const coord = await makeCoordinator(registry);
