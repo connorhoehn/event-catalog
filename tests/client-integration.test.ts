@@ -993,5 +993,68 @@ describe('EventCatalog Client Integration', () => {
 
       await catalog.disconnect();
     });
+
+    it('subscribe() POSTs to /api/events/:name/subscribers when registryUrl is set', async () => {
+      fetchMock.mockResolvedValue({ ok: true });
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      catalog.declare({ name: 'sub.event', schema: {}, transport: 'signal', producer: 'test-service' });
+      await catalog.connect();
+      fetchMock.mockClear();
+      fetchMock.mockResolvedValue({ ok: true });
+
+      catalog.subscribe('sub.event', vi.fn());
+      // give the fire-and-forget call a tick
+      await new Promise(r => setTimeout(r, 10));
+
+      const subCalls = fetchMock.mock.calls.filter(([url, opts]: [string, RequestInit]) =>
+        url.includes('/api/events/sub.event/subscribers') && opts?.method === 'POST',
+      );
+      expect(subCalls).toHaveLength(1);
+      const body = JSON.parse(subCalls[0]![1]!.body as string);
+      expect(body.serviceName).toBe('test-service');
+
+      await catalog.disconnect();
+    });
+
+    it('unsubscribe() DELETEs /api/events/:name/subscribers/:service when registryUrl is set', async () => {
+      fetchMock.mockResolvedValue({ ok: true });
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      catalog.declare({ name: 'unsub.remote', schema: {}, transport: 'signal', producer: 'test-service' });
+      await catalog.connect();
+      fetchMock.mockClear();
+      fetchMock.mockResolvedValue({ ok: true });
+
+      const sub = catalog.subscribe('unsub.remote', vi.fn());
+      await new Promise(r => setTimeout(r, 10));
+      fetchMock.mockClear();
+
+      await sub.unsubscribe();
+      await new Promise(r => setTimeout(r, 10));
+
+      const delCalls = fetchMock.mock.calls.filter(([url, opts]: [string, RequestInit]) =>
+        url.includes('/api/events/unsub.remote/subscribers/') && opts?.method === 'DELETE',
+      );
+      expect(delCalls).toHaveLength(1);
+      expect(delCalls[0]![0]).toContain('test-service');
+
+      await catalog.disconnect();
+    });
+
+    it('subscribe() skips remote call when registryUrl is not set', async () => {
+      const catalog = new EventCatalog(makeConfig());
+      catalog.declare({ name: 'no.remote', schema: {}, transport: 'signal', producer: 'test-service' });
+      await catalog.connect();
+      fetchMock.mockClear();
+
+      catalog.subscribe('no.remote', vi.fn());
+      await new Promise(r => setTimeout(r, 10));
+
+      const subCalls = fetchMock.mock.calls.filter(([url]: [string]) =>
+        url.includes('/api/events/no.remote/subscribers'),
+      );
+      expect(subCalls).toHaveLength(0);
+
+      await catalog.disconnect();
+    });
   });
 });
