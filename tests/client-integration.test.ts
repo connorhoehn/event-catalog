@@ -1056,6 +1056,57 @@ describe('EventCatalog Client Integration', () => {
 
       await catalog.disconnect();
     });
+
+    it('subscribe() warns and swallows when remote subscriber registration returns non-ok HTTP', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      fetchMock.mockResolvedValue({ ok: true });
+
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      catalog.declare({ name: 'flaky.reg', schema: {}, transport: 'signal', producer: 'test-service' });
+      await catalog.connect();
+      fetchMock.mockClear();
+
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' });
+
+      catalog.subscribe('flaky.reg', vi.fn());
+      await new Promise(r => setTimeout(r, 20));
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('failed to register subscriber with remote registry for "flaky.reg"'),
+        expect.stringContaining('HTTP 503'),
+      );
+
+      warnSpy.mockRestore();
+      await catalog.disconnect();
+    });
+
+    it('unsubscribe() warns and swallows when remote deregistration returns non-ok HTTP', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      fetchMock.mockResolvedValue({ ok: true });
+
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      catalog.declare({ name: 'flaky.dereg', schema: {}, transport: 'signal', producer: 'test-service' });
+      await catalog.connect();
+      fetchMock.mockClear();
+      fetchMock.mockResolvedValue({ ok: true });
+
+      const sub = catalog.subscribe('flaky.dereg', vi.fn());
+      await new Promise(r => setTimeout(r, 10));
+      fetchMock.mockClear();
+
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 404, statusText: 'Not Found' });
+
+      await sub.unsubscribe();
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('failed to deregister subscriber from remote registry for "flaky.dereg"'),
+        expect.stringContaining('HTTP 404'),
+      );
+
+      warnSpy.mockRestore();
+      await catalog.disconnect();
+    });
   });
 
   describe('durable event subscribe — catalog level', () => {

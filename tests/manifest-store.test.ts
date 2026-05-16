@@ -107,6 +107,13 @@ describe('RedisManifestStore (wave23-b)', () => {
     const all = await s.list();
     expect(all.map((m) => m.consumerName)).toEqual(['legit']);
   });
+
+  it('get() returns null when the stored value is corrupt JSON', async () => {
+    const r = makeMockRedis();
+    r.store.set('broken-consumer', 'not valid json {{');
+    const s = new RedisManifestStore(r as never);
+    expect(await s.get('broken-consumer')).toBeNull();
+  });
 });
 
 describe('manifest routes', () => {
