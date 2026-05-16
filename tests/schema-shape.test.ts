@@ -116,6 +116,27 @@ describe('validateSchemaShape', () => {
       expect(r.ok).toBe(false);
       expect(r.errors[0]).toMatch(/oneOf.*must be an array/);
     });
+
+    it('`additionalProperties` that is not a schema or boolean is rejected', () => {
+      // An array is neither a schema object nor a boolean — should error.
+      const r = validateSchemaShape({ type: 'object', additionalProperties: ['x'] });
+      expect(r.ok).toBe(false);
+      expect(r.errors[0]).toMatch(/additionalProperties.*must be a schema or boolean/);
+    });
+
+    it('`not` with an invalid sub-schema bubbles up the error', () => {
+      // `not` recursively calls validateSchemaShape on its value.
+      const r = validateSchemaShape({ not: { type: 'badtype' } });
+      expect(r.ok).toBe(false);
+      expect(r.errors[0]).toMatch(/not.*type.*"badtype"/);
+    });
+  });
+
+  describe('`not` keyword (valid recursion)', () => {
+    it('accepts a valid `not` sub-schema', () => {
+      const r = validateSchemaShape({ not: { type: 'string' } });
+      expect(r).toEqual({ ok: true, errors: [] });
+    });
   });
 });
 
