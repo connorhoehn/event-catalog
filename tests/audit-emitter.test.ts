@@ -67,7 +67,10 @@ describe('auditEmitter pub/sub', () => {
   });
 });
 
-function driveAuditRoute(query: Record<string, string> = {}) {
+function driveAuditRoute(
+  query: Record<string, string> = {},
+  extraDeps: Partial<RoutesDeps> = {},
+) {
   const registry = new Registry();
   const metrics = new MetricsCollector(60);
   const app = express();
@@ -82,6 +85,7 @@ function driveAuditRoute(query: Record<string, string> = {}) {
       durable: { isConnected: () => true, healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }), getAllMetrics: () => new Map() } as unknown as RoutesDeps['durable'],
       dlqStore: { list: async () => [], remove: async () => true, findById: async () => null, put: async () => ({}) } as unknown as RoutesDeps['dlqStore'],
       startedAt: Date.now(),
+      ...extraDeps,
     }),
   );
 
@@ -147,6 +151,44 @@ describe('GET /api/audit SSE', () => {
     const frames = writes.filter((w) => w.startsWith('data: '));
     expect(frames).toHaveLength(1);
     expect(frames[0]).toContain('"eventName":"gone.x"');
+    close();
+  });
+});
+
+describe('GET /api/audit SSE — ?replay=N path', () => {
+  beforeEach(() => {
+    auditEmitter.removeAllListeners('audit');
+  });
+
+  it('emits _replay:true frames for each historical event returned by auditLog.recent()', async () => {
+    const historicalEvent: AuditEvent = {
+      kind: 'event.declared',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      eventName: 'history.event',
+      namespace: 'history',
+      version: 1,
+      fingerprint: 'abc',
+    };
+    const auditLog = { recent: async () => [historicalEvent] };
+
+    const { writes, close } = await driveAuditRoute({ replay: '1' }, { auditLog });
+
+    const replayFrames = writes.filter(w => w.includes('_replay'));
+    expect(replayFrames).toHaveLength(1);
+    expect(replayFrames[0]).toContain('"_replay":true');
+    expect(replayFrames[0]).toContain('"eventName":"history.event"');
+    close();
+  });
+
+  it('keeps the stream open when auditLog.recent() throws — no crash, no replay frames', async () => {
+    const auditLog = { recent: async (): Promise<AuditEvent[]> => { throw new Error('redis timeout'); } };
+
+    const { writes, close } = await driveAuditRoute({ replay: '5' }, { auditLog });
+
+    const replayFrames = writes.filter(w => w.includes('_replay'));
+    expect(replayFrames).toHaveLength(0);
+    // stream stays open — the connected comment is present
+    expect(writes[0]).toContain(': connected;');
     close();
   });
 });
