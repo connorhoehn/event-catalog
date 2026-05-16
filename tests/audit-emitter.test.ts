@@ -47,6 +47,15 @@ describe('matchesAuditFilter', () => {
     expect(matchesAuditFilter(subscriberEvent, { serviceName: 'my-service' })).toBe(true);
     expect(matchesAuditFilter(subscriberEvent, { serviceName: 'other-service' })).toBe(false);
   });
+
+  it('multiple-field AND logic: first field matches but second does not → returns false (audit-emitter.ts:59-64)', () => {
+    // kind matches, namespace does not — should short-circuit to false on the namespace check.
+    expect(matchesAuditFilter(sample, { kind: 'event.declared', namespace: 'wrong-ns' })).toBe(false);
+    // kind AND eventName both match → should pass.
+    expect(matchesAuditFilter(sample, { kind: 'event.declared', eventName: 'pipeline.run.started' })).toBe(true);
+    // namespace matches, eventName does not → should return false on the eventName check.
+    expect(matchesAuditFilter(sample, { namespace: 'pipeline', eventName: 'other.event' })).toBe(false);
+  });
 });
 
 describe('auditEmitter pub/sub', () => {

@@ -219,6 +219,16 @@ describe('GET /api/flow route', () => {
     tapEmitter.publish(sampleEvent);
     expect(writes.filter((w) => w.startsWith('data: '))).toHaveLength(1);
   });
+
+  it('?transport=invalid is silently ignored — all transports are let through (routes.ts:1074-1077)', async () => {
+    // An unrecognized transport value hits the else branch of the ternary,
+    // setting filter.transport = undefined, which means no transport filter.
+    const { writes, close } = await driveFlowRoute({ transport: 'invalid' });
+    tapEmitter.publish(sampleEvent); // transport='signal' — should pass because filter is undefined
+    const dataFrames = writes.filter((w) => w.startsWith('data: '));
+    expect(dataFrames).toHaveLength(1);
+    close();
+  });
 });
 
 describe('MetricsObserver tap wiring', () => {
