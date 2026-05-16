@@ -27,7 +27,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "snapshot:regen": "tsx scripts/regen-registry-snapshot.ts"
+    "snapshot:regen": "tsx scripts/regen-registry-snapshot.ts",
+    "prepublishOnly": "tsx scripts/regen-registry-snapshot.ts"
   },
   "engines": {
     "node": ">=20.0.0"
