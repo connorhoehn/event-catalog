@@ -591,6 +591,45 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     unsubscribe();
   });
 
+  it('poll-loop survives a network failure — logs error and continues to the next poll cycle', async () => {
+    vi.useFakeTimers();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const fetchSpy = vi.fn()
+        .mockResolvedValueOnce({ ok: true })              // connect /health
+        .mockResolvedValueOnce({ ok: true, status: 201 }) // ensureQueue PUT
+        // pollRetryManager has maxRetries:2 → 3 total attempts, all rejected
+        .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+        .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+        .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+        // second poll cycle succeeds with no messages
+        .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });
+
+      vi.stubGlobal('fetch', fetchSpy);
+
+      const t = new DurableTransport({ url: 'http://mq:3004', maxProcessingAttempts: 1 });
+      await t.connect();
+
+      const handler = vi.fn();
+      const unsubscribe = t.subscribe('test-queue', handler, { pollingInterval: 0 });
+
+      // Advance through RetryManager delays (1 000 ms + 2 000 ms = 3 000 ms total)
+      // plus a buffer so the second iteration can complete.
+      await vi.advanceTimersByTimeAsync(5000);
+
+      const pollErrCall = errorSpy.mock.calls.find(c =>
+        typeof c[0] === 'string' && (c[0] as string).includes('poll failed for'),
+      );
+      expect(pollErrCall).toBeDefined();
+      expect(handler).not.toHaveBeenCalled();
+
+      unsubscribe();
+    } finally {
+      vi.useRealTimers();
+      errorSpy.mockRestore();
+    }
+  });
+
   it('dlqCapacity evicts oldest entry when the DLQ is full', async () => {
     const msgA = makeQueueMessage('msg-a', makeEnvelope({ eventName: 'event.a' }));
     const msgB = makeQueueMessage('msg-b', makeEnvelope({ eventName: 'event.b' }));
