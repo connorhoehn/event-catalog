@@ -41,6 +41,12 @@ describe('matchesAuditFilter', () => {
     // serviceName only set on subscriber events; sample doesn't have one
     expect(matchesAuditFilter(sample, { serviceName: 'svc' })).toBe(false);
   });
+
+  it('serviceName filter passes when event.serviceName matches', () => {
+    const subscriberEvent = { ...sample, serviceName: 'my-service' };
+    expect(matchesAuditFilter(subscriberEvent, { serviceName: 'my-service' })).toBe(true);
+    expect(matchesAuditFilter(subscriberEvent, { serviceName: 'other-service' })).toBe(false);
+  });
 });
 
 describe('auditEmitter pub/sub', () => {
