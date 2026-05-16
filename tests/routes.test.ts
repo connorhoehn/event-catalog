@@ -756,6 +756,27 @@ describe('Server Routes', () => {
       expect(removed).toHaveLength(1);
       expect(removed[0]!.eventName).toBe('a.x');
     });
+
+    it('DELETE /api/events/:name/subscribers/:serviceName emits subscriber.removed', async () => {
+      registry.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
+      registry.addSubscriber('a.x', 'consumer-1');
+      seen.length = 0;
+      await request(app).delete('/api/events/a.x/subscribers/consumer-1');
+      const removed = seen.filter((e) => e.kind === 'subscriber.removed');
+      expect(removed).toHaveLength(1);
+      expect(removed[0]!.eventName).toBe('a.x');
+      expect(removed[0]!.serviceName).toBe('consumer-1');
+    });
+
+    it('DELETE /api/events/:name/deprecate emits event.undeprecated', async () => {
+      registry.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
+      registry.deprecate('a.x', { reason: 'old' });
+      seen.length = 0;
+      await request(app).delete('/api/events/a.x/deprecate');
+      const undeprecated = seen.filter((e) => e.kind === 'event.undeprecated');
+      expect(undeprecated).toHaveLength(1);
+      expect(undeprecated[0]!.eventName).toBe('a.x');
+    });
   });
 
   // ─── GET /api/fingerprints (wave21-e) ────────────────────────────────

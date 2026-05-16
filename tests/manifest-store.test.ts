@@ -288,6 +288,38 @@ describe('manifest-aware POST /api/events gate (wave23-c)', () => {
     expect(registry.get('orders.placed')!.version).toBe(2);
   });
 
+  it('warn mode: emits event.manifest.drift audit event for each staled consumer', async () => {
+    const { auditEmitter } = await import('../src/server/audit-emitter.js');
+    const seen: Array<{ kind: string; eventName: string; affectedConsumers?: unknown[] }> = [];
+    const handler = (e: typeof seen[number]) => seen.push(e);
+    auditEmitter.on('audit', handler);
+
+    const { app, registry } = makeApp();
+    registry.declare({
+      name: 'orders.placed', schema: { type: 'object' }, transport: 'durable', producer: 'orders',
+      compatibilityMode: 'none',
+    });
+    const currentFp = registry.get('orders.placed')!.schemaFingerprint;
+    await request(app).put('/api/manifests/audit-worker').send({
+      events: [{ name: 'orders.placed', fingerprint: currentFp }],
+    });
+
+    await request(app)
+      .post('/api/events?check-manifests=warn')
+      .send({
+        name: 'orders.placed',
+        schema: { type: 'object', properties: { orderId: { type: 'string' } } },
+        transport: 'durable', producer: 'orders', compatibilityMode: 'none',
+      });
+
+    auditEmitter.off('audit', handler);
+    const drifts = seen.filter((e) => e.kind === 'event.manifest.drift');
+    expect(drifts).toHaveLength(1);
+    expect(drifts[0]!.eventName).toBe('orders.placed');
+    expect(Array.isArray(drifts[0]!.affectedConsumers)).toBe(true);
+    expect((drifts[0]!.affectedConsumers as Array<{ consumerName: string }>)[0]!.consumerName).toBe('audit-worker');
+  });
+
   it('off mode (default): never returns affectedConsumers, always 201', async () => {
     const { app, registry } = makeApp();
     registry.declare({

@@ -162,4 +162,22 @@ describe('DELETE /api/events/:name/poison', () => {
     expect(res.status).toBe(200);
     expect(res.body.wasPoison).toBe(false);
   });
+
+  it('emits event.poison.cleared audit event when clearing a poisoned event', async () => {
+    const { auditEmitter } = await import('../src/server/audit-emitter.js');
+    const seen: Array<{ kind: string; eventName: string }> = [];
+    const handler = (e: { kind: string; eventName: string }) => seen.push(e);
+    auditEmitter.on('audit', handler);
+
+    const detector = new PoisonEventDetector({ threshold: 1, windowMs: 5000 });
+    detector.recordFailure('user.signed-up');
+    const app = createApp(detector);
+
+    await request(app).delete('/api/events/user.signed-up/poison');
+
+    auditEmitter.off('audit', handler);
+    const cleared = seen.filter((e) => e.kind === 'event.poison.cleared');
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0]!.eventName).toBe('user.signed-up');
+  });
 });
