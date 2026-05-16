@@ -463,6 +463,40 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     unsubscribe();
   });
 
+  it('drainDLQ() returns dead-lettered messages AND clears the internal queue', async () => {
+    const envelope = makeEnvelope({ eventName: 'drain.event' });
+    const queueMsg = makeQueueMessage('msg-drain', envelope);
+
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                                          // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail (attempt 1)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 2 → dead-letter
+      .mockResolvedValueOnce({ ok: true })                                          // DELETE after dead-letter
+      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const t = new DurableTransport({ url: 'http://mq:3004', maxProcessingAttempts: 2 });
+    await t.connect();
+
+    const handler = vi.fn().mockRejectedValue(new Error('fail'));
+    const unsubscribe = t.subscribe('test-queue', handler, { pollingInterval: 0 });
+
+    await new Promise(r => setTimeout(r, 100));
+
+    // DLQ has one message
+    expect(t.getDLQ()).toHaveLength(1);
+
+    // drainDLQ() returns the messages and clears the queue
+    const drained = t.drainDLQ();
+    expect(drained).toHaveLength(1);
+    expect(drained[0]!.messageId).toBe('msg-drain');
+    expect(t.getDLQ()).toHaveLength(0); // queue is now empty
+
+    unsubscribe();
+  });
+
   it('disposed onDeadLetter callback is NOT invoked when a message dead-letters', async () => {
     const envelope = makeEnvelope({ eventName: 'poison.event' });
     const queueMsg = makeQueueMessage('msg-dispose', envelope);
