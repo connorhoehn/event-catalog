@@ -317,3 +317,163 @@ describe('DurableTransport — publish()', () => {
     expect(metrics.sent).toBe(0);
   });
 });
+
+describe('DurableTransport — subscribe() + pollLoop()', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function makeQueueMessage(id: string, envelope: EventEnvelope) {
+    return {
+      message_id: id,
+      body: JSON.stringify(envelope),
+      receipt_handle: `rh-${id}`,
+    };
+  }
+
+  it('calls handler with parsed envelope and DELETEs the message on success', async () => {
+    const envelope = makeEnvelope({ eventName: 'queue.event' });
+    const queueMsg = makeQueueMessage('msg-1', envelope);
+
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                                          // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll (1 msg)
+      .mockResolvedValueOnce({ ok: true })                                          // DELETE on success
+      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts: 1, retryBaseMs: 1 });
+    await t.connect();
+
+    const handler = vi.fn().mockResolvedValue(undefined);
+    const unsubscribe = t.subscribe('test-queue', handler, { pollingInterval: 0 });
+
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(handler.mock.calls[0]![0]).toMatchObject({ eventName: 'queue.event' });
+
+    const deleteCalls = fetchSpy.mock.calls.filter(([url, opts]: [string, RequestInit]) =>
+      (url as string).includes('/messages/') && opts?.method === 'DELETE',
+    );
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]![0]).toContain('rh-msg-1');
+
+    const metrics = t.getMetrics('test-queue') as { received: number; failed: number; inFlight: number };
+    expect(metrics.received).toBe(1);
+    expect(metrics.failed).toBe(0);
+    expect(metrics.inFlight).toBe(0);
+
+    unsubscribe();
+  });
+
+  it('warns and increments failed metric when handler throws (below dead-letter threshold)', async () => {
+    const queueMsg = makeQueueMessage('msg-flaky', makeEnvelope());
+
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                                          // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll (1 msg)
+      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+
+    vi.stubGlobal('fetch', fetchSpy);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // default maxProcessingAttempts: 3 — first failure warns, does not dead-letter
+    const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts: 1, retryBaseMs: 1 });
+    await t.connect();
+
+    const handler = vi.fn().mockRejectedValue(new Error('boom'));
+    const unsubscribe = t.subscribe('test-queue', handler, { pollingInterval: 0 });
+
+    await new Promise(r => setTimeout(r, 50));
+
+    const handlerWarn = warnSpy.mock.calls.find(c =>
+      typeof c[0] === 'string' && (c[0] as string).includes('handler error'),
+    );
+    expect(handlerWarn).toBeDefined();
+    expect(String(handlerWarn![0])).toContain('attempt 1/3');
+
+    expect(t.getDLQ()).toHaveLength(0);
+
+    const metrics = t.getMetrics('test-queue') as { received: number; failed: number };
+    expect(metrics.failed).toBe(1);
+    expect(metrics.received).toBe(0);
+
+    warnSpy.mockRestore();
+    unsubscribe();
+  });
+
+  it('dead-letters message and fires callbacks after maxProcessingAttempts failures', async () => {
+    const envelope = makeEnvelope({ eventName: 'poison.event' });
+    const queueMsg = makeQueueMessage('msg-poison', envelope);
+
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                                          // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail (attempt 1)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 2 → fail (attempt 2) → dead-letter
+      .mockResolvedValueOnce({ ok: true })                                          // DELETE after dead-letter
+      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const t = new DurableTransport({ url: 'http://mq:3004', maxProcessingAttempts: 2 });
+    await t.connect();
+
+    const dlqCallback = vi.fn();
+    t.onDeadLetter(dlqCallback);
+
+    const handler = vi.fn().mockRejectedValue(new Error('poison'));
+    const unsubscribe = t.subscribe('test-queue', handler, { pollingInterval: 0 });
+
+    await new Promise(r => setTimeout(r, 100));
+
+    expect(dlqCallback).toHaveBeenCalledOnce();
+    const dlqMsg = dlqCallback.mock.calls[0]![0] as { messageId: string; queueName: string; attempts: number; envelope: EventEnvelope };
+    expect(dlqMsg.messageId).toBe('msg-poison');
+    expect(dlqMsg.queueName).toBe('test-queue');
+    expect(dlqMsg.attempts).toBe(2);
+    expect(dlqMsg.envelope.eventName).toBe('poison.event');
+
+    const dlq = t.getDLQ();
+    expect(dlq).toHaveLength(1);
+    expect(dlq[0]!.messageId).toBe('msg-poison');
+
+    // DELETE must have been issued to remove the dead-lettered message from the source queue
+    const deleteCalls = fetchSpy.mock.calls.filter(([url, opts]: [string, RequestInit]) =>
+      (url as string).includes('/messages/') && opts?.method === 'DELETE',
+    );
+    expect(deleteCalls).toHaveLength(1);
+
+    unsubscribe();
+  });
+
+  it('unsubscribe() aborts the poll loop and stops further fetches', async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                                    // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })                       // ensureQueue PUT
+      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) }); // polls → always empty
+
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    await t.connect();
+
+    const handler = vi.fn();
+    const unsubscribe = t.subscribe('test-queue', handler, { pollingInterval: 0 });
+
+    await new Promise(r => setTimeout(r, 10));
+
+    const countAtUnsubscribe = fetchSpy.mock.calls.length;
+    unsubscribe();
+
+    await new Promise(r => setTimeout(r, 30));
+    const countAfter = fetchSpy.mock.calls.length;
+
+    // Allow at most 1 in-flight fetch to complete after the abort signal fires
+    expect(countAfter - countAtUnsubscribe).toBeLessThanOrEqual(1);
+  });
+});
