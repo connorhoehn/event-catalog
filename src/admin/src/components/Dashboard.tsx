@@ -6,11 +6,13 @@ import SkeletonCard from '@ui/components/shared/SkeletonCard';
 import { api, type EventEntry, type HealthStatus } from '../api';
 
 type RegistryHealth = Awaited<ReturnType<typeof api.getRegistryHealth>>;
+type PoisonItem = Awaited<ReturnType<typeof api.getPoisonedEvents>>['items'][number];
 
 export function Dashboard() {
   const [events, setEvents] = useState<EventEntry[]>([]);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [registryHealth, setRegistryHealth] = useState<RegistryHealth | null>(null);
+  const [poisonedEvents, setPoisonedEvents] = useState<PoisonItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -19,10 +21,12 @@ export function Dashboard() {
       api.getEvents(),
       api.getHealth(),
       api.getRegistryHealth().catch(() => null),
-    ]).then(([eventsRes, healthRes, regHealth]) => {
+      api.getPoisonedEvents().catch(() => ({ count: 0, items: [] })),
+    ]).then(([eventsRes, healthRes, regHealth, poisonRes]) => {
       setEvents(eventsRes.events);
       setHealth(healthRes);
       setRegistryHealth(regHealth);
+      setPoisonedEvents(poisonRes.items);
     }).catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
@@ -106,6 +110,33 @@ export function Dashboard() {
               <div className="stat-label">Never published</div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* wave26-e — poisoned events alert. Only render when events are actively poisoned. */}
+      {poisonedEvents.length > 0 && (
+        <div style={{ margin: '12px 0' }}>
+          <Banner variant="error" title={`${poisonedEvents.length} Poisoned Event${poisonedEvents.length > 1 ? 's' : ''} — Failures Exceeding Threshold`}>
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 13 }}>
+              {poisonedEvents.map(p => (
+                <li key={p.eventName} style={{ marginBottom: 4 }}>
+                  <Link to={`/events/${encodeURIComponent(p.eventName)}`} style={{ fontWeight: 600 }}>{p.eventName}</Link>
+                  {' — '}{p.failuresInWindow} failures in {Math.round(p.windowMs / 60000)}m
+                  {' (threshold: '}{p.threshold}{')'}
+                  <button
+                    style={{ marginLeft: 8, fontSize: 11, cursor: 'pointer', padding: '1px 6px', borderRadius: 4, border: '1px solid #b91c1c', background: 'transparent', color: '#b91c1c' }}
+                    onClick={() => {
+                      api.clearPoison(p.eventName).then(() => {
+                        setPoisonedEvents(prev => prev.filter(x => x.eventName !== p.eventName));
+                      }).catch(() => {});
+                    }}
+                  >
+                    dismiss
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Banner>
         </div>
       )}
 

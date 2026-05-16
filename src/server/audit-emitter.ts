@@ -19,6 +19,8 @@ export type AuditEventKind =
   | 'event.removed'         // explicit DELETE /api/events/:name
   | 'event.deprecated'      // wave25-a — marked deprecated
   | 'event.undeprecated'    // wave25-a — un-marked
+  | 'event.poisoned'        // wave26-e — failure threshold breached
+  | 'event.poison.cleared'  // wave26-e — operator dismissed poison state
   | 'subscriber.added'
   | 'subscriber.removed';
 

@@ -4,6 +4,8 @@ import type { DurableTransport } from '../client/durable.js';
 import type { MetricsCollector } from './metrics.js';
 import { tapEmitter } from './tap-emitter.js';
 import type { ProducerAttributionStore } from './producer-attribution.js';
+import type { PoisonEventDetector } from './poison-detector.js';
+import { auditEmitter } from './audit-emitter.js';
 
 export class MetricsObserver {
   private readonly registry: Registry;
@@ -11,6 +13,7 @@ export class MetricsObserver {
   private readonly durable: DurableTransport;
   private readonly metrics: MetricsCollector;
   private readonly attribution?: ProducerAttributionStore;
+  private readonly poisonDetector?: PoisonEventDetector;
   private readonly signalUnsubscribes = new Map<string, () => Promise<void>>();
   private durablePollTimer: ReturnType<typeof setInterval> | null = null;
   private readonly durablePollIntervalMs: number;
@@ -21,6 +24,7 @@ export class MetricsObserver {
     durable: DurableTransport;
     metrics: MetricsCollector;
     attribution?: ProducerAttributionStore;
+    poisonDetector?: PoisonEventDetector;
     durablePollIntervalMs?: number;
   }) {
     this.registry = deps.registry;
@@ -28,6 +32,7 @@ export class MetricsObserver {
     this.durable = deps.durable;
     this.metrics = deps.metrics;
     this.attribution = deps.attribution;
+    this.poisonDetector = deps.poisonDetector;
     this.durablePollIntervalMs = deps.durablePollIntervalMs ?? 5000;
   }
 
@@ -94,7 +99,24 @@ export class MetricsObserver {
       );
     } catch (err) {
       this.metrics.recordError(eventName);
+      this.maybePoison(eventName);
       console.warn(`[metrics-observer] failed to observe signal channel "${eventName}":`, (err as Error).message);
+    }
+  }
+
+  private maybePoison(eventName: string): void {
+    if (!this.poisonDetector) return;
+    const becamePoison = this.poisonDetector.recordFailure(eventName);
+    if (becamePoison) {
+      const entry = this.registry.get(eventName);
+      auditEmitter.publish({
+        kind: 'event.poisoned',
+        timestamp: new Date().toISOString(),
+        eventName,
+        namespace: entry?.namespace ?? 'unknown',
+        version: entry?.version ?? 0,
+      });
+      console.warn(`[event-catalog] event "${eventName}" marked poisoned — exceeded failure threshold`);
     }
   }
 
@@ -134,8 +156,10 @@ export class MetricsObserver {
             queue: queueName,
           });
         }
-        for (let i = 0; i < transportMetrics.failed - (this.metrics.getStats(entry.name)?.errorCount ?? 0); i++) {
+        const prevErrors = this.metrics.getStats(entry.name)?.errorCount ?? 0;
+        for (let i = 0; i < transportMetrics.failed - prevErrors; i++) {
           this.metrics.recordError(entry.name);
+          this.maybePoison(entry.name);
         }
       }
     }

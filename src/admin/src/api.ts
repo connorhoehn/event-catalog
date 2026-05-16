@@ -251,6 +251,28 @@ export const api = {
     return request<{ removed: string }>(`/transports/durable/dlq/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
+  /** wave26-e — list all events that exceeded the failure threshold. */
+  getPoisonedEvents() {
+    return request<{
+      count: number;
+      items: Array<{
+        eventName: string;
+        failuresInWindow: number;
+        poisonedAt: string;
+        threshold: number;
+        windowMs: number;
+      }>;
+    }>('/events/poisoned');
+  },
+
+  /** wave26-e — clear (dismiss) poison state for one event. */
+  clearPoison(eventName: string) {
+    return request<{ cleared: string; wasPoison: boolean }>(
+      `/events/${encodeURIComponent(eventName)}/poison`,
+      { method: 'DELETE' },
+    );
+  },
+
   /** wave26-c — observed vs declared producer attribution for an event. */
   getObservedProducers(eventName: string) {
     return request<{

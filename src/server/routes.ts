@@ -12,6 +12,7 @@ import type { DLQStore } from './dlq-store.js';
 import type { EventDeclaration } from '../types/index.js';
 import type { PromMetrics } from './prom-metrics.js';
 import type { ProducerAttributionStore } from './producer-attribution.js';
+import type { PoisonEventDetector } from './poison-detector.js';
 
 export interface RoutesDeps {
   registry: Registry;
@@ -38,6 +39,8 @@ export interface RoutesDeps {
   manifestStore?: import('./manifest-store.js').ManifestStore;
   /** wave26-c — tracks actual observed publishers per event. */
   attribution?: ProducerAttributionStore;
+  /** wave26-e — rolling-window poison-event detector. */
+  poisonDetector?: PoisonEventDetector;
 }
 
 /**
@@ -64,7 +67,7 @@ function resolveCompatMode(
 }
 
 export function createRoutes(deps: RoutesDeps): Router {
-  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution } = deps;
+  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution, poisonDetector } = deps;
   const router = Router();
 
   // List all events
@@ -90,6 +93,12 @@ export function createRoutes(deps: RoutesDeps): Router {
     }));
 
     res.json({ events: enriched, total: enriched.length });
+  });
+
+  // wave26-e — list all poisoned events (MUST be before /events/:name to avoid clash)
+  router.get('/events/poisoned', (_req: Request, res: Response) => {
+    const poisoned = poisonDetector ? poisonDetector.listPoisoned() : [];
+    res.json({ count: poisoned.length, items: poisoned });
   });
 
   // Get single event — also serves as the schema-fetch endpoint for
@@ -510,6 +519,26 @@ export function createRoutes(deps: RoutesDeps): Router {
       deadDeclaredProducers,
       mismatch: undeclaredProducers.length > 0 || deadDeclaredProducers.length > 0,
     });
+  });
+
+  // wave26-e — clear (dismiss) poison state for one event
+  router.delete('/events/:name/poison', (req: Request, res: Response) => {
+    if (!poisonDetector) {
+      res.status(404).json({ error: 'poison detector not enabled' });
+      return;
+    }
+    const entry = registry.get(req.params.name);
+    const cleared = poisonDetector.clearPoison(req.params.name);
+    if (cleared && entry) {
+      auditEmitter.publish({
+        kind: 'event.poison.cleared',
+        timestamp: new Date().toISOString(),
+        eventName: req.params.name,
+        namespace: entry.namespace,
+        version: entry.version,
+      });
+    }
+    res.json({ cleared: req.params.name, wasPoison: cleared });
   });
 
   // Delete an event declaration
