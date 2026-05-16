@@ -557,6 +557,40 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     expect(countAfter - countAtUnsubscribe).toBeLessThanOrEqual(1);
   });
 
+  it('malformed message body uses fallback envelope when dead-lettered', async () => {
+    const badMsg = {
+      message_id: 'msg-bad-json',
+      body: 'not-json',
+      receipt_handle: 'rh-bad-json',
+    };
+
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                                                  // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })                                     // ensureQueue PUT
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [badMsg] }) })      // poll → bad body → dead-letter
+      .mockResolvedValueOnce({ ok: true })                                                  // DELETE after dead-letter
+      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });               // subsequent polls
+
+    vi.stubGlobal('fetch', fetchSpy);
+
+    // maxProcessingAttempts:1 — dead-letters immediately on first parse failure
+    const t = new DurableTransport({ url: 'http://mq:3004', maxProcessingAttempts: 1 });
+    await t.connect();
+
+    const handler = vi.fn();
+    const unsubscribe = t.subscribe('test-queue', handler, { pollingInterval: 0 });
+
+    await new Promise(r => setTimeout(r, 100));
+
+    const dlq = t.getDLQ();
+    expect(dlq).toHaveLength(1);
+    expect(dlq[0]!.envelope.eventName).toBe('unknown');     // fallback when JSON.parse fails
+    expect(dlq[0]!.envelope.payload).toBe('not-json');      // raw body preserved
+    expect(dlq[0]!.messageId).toBe('msg-bad-json');
+
+    unsubscribe();
+  });
+
   it('dlqCapacity evicts oldest entry when the DLQ is full', async () => {
     const msgA = makeQueueMessage('msg-a', makeEnvelope({ eventName: 'event.a' }));
     const msgB = makeQueueMessage('msg-b', makeEnvelope({ eventName: 'event.b' }));
