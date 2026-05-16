@@ -11,6 +11,8 @@ import { lint } from './commands/lint.js';
 import { snapshot } from './commands/snapshot.js';
 import { drift } from './commands/drift.js';
 import { manifest } from './commands/manifest.js';
+import { deprecate, undeprecate } from './commands/deprecate.js';
+import { asyncapi } from './commands/asyncapi.js';
 
 const args = process.argv.slice(2);
 const subcommand = args[0];
@@ -25,6 +27,10 @@ USAGE
   event-catalog drift --catalog-url=<url> --against=<snapshot.json>
   event-catalog manifest pin --catalog-url=<url> --consumer=<name>
                               [--snapshot=<file> | --events=name=fp,...]
+  event-catalog deprecate <name> --catalog-url=<url> [--reason=...] [--by=...]
+  event-catalog undeprecate <name> --catalog-url=<url>
+  event-catalog asyncapi --catalog-url=<url> [--output=file] [--namespace=ns]
+                          [--title=T] [--version=V]
   event-catalog --help
 
 EXAMPLES
@@ -83,6 +89,15 @@ void (async () => {
   }
   if (subcommand === 'manifest') {
     process.exit(await manifest(args.slice(1)));
+  }
+  if (subcommand === 'deprecate') {
+    process.exit(await deprecate(args.slice(1)));
+  }
+  if (subcommand === 'undeprecate') {
+    process.exit(await undeprecate(args.slice(1)));
+  }
+  if (subcommand === 'asyncapi') {
+    process.exit(await asyncapi(args.slice(1)));
   }
   console.error(`event-catalog: unknown subcommand "${subcommand}"`);
   console.error('run `event-catalog --help` for usage');
