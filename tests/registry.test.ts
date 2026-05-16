@@ -231,6 +231,36 @@ describe('Registry', () => {
         expect(eventNodes).toHaveLength(3);
       });
     });
+
+    it('array-producer: creates service nodes + publish edges for each declared producer', () => {
+      const reg = new Registry();
+      reg.declare({ name: 'order.placed', schema: {}, transport: 'durable', producer: ['platform-api', 'billing-service'] });
+      reg.addSubscriber('order.placed', 'fulfillment-service');
+
+      const topo = reg.getTopology();
+
+      const serviceIds = topo.nodes.filter(n => n.type === 'service').map(n => n.id);
+      expect(serviceIds).toContain('platform-api');
+      expect(serviceIds).toContain('billing-service');
+
+      const publishEdges = topo.edges.filter(e => e.relation === 'publishes');
+      expect(publishEdges).toHaveLength(2);
+      expect(publishEdges.map(e => e.from).sort()).toEqual(['billing-service', 'platform-api']);
+      expect(publishEdges.every(e => e.to === 'order.placed')).toBe(true);
+    });
+
+    it('array-producer: producer filter matches any one of the declared producers', () => {
+      const reg = new Registry();
+      reg.declare({ name: 'order.placed', schema: {}, transport: 'durable', producer: ['platform-api', 'billing-service'] });
+      reg.declare({ name: 'user.created', schema: {}, transport: 'signal', producer: 'auth-service' });
+
+      const topo1 = reg.getTopology({ producer: 'billing-service' });
+      expect(topo1.nodes.filter(n => n.type === 'event').map(n => n.id)).toContain('order.placed');
+      expect(topo1.nodes.filter(n => n.type === 'event').map(n => n.id)).not.toContain('user.created');
+
+      const topo2 = reg.getTopology({ producer: 'platform-api' });
+      expect(topo2.nodes.filter(n => n.type === 'event').map(n => n.id)).toContain('order.placed');
+    });
   });
 
   describe('remove', () => {
