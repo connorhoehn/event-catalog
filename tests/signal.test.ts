@@ -393,6 +393,67 @@ describe('SignalTransport', () => {
     });
   });
 
+  describe('handler error isolation', () => {
+    it("logs error and doesn't crash when a handler throws synchronously", async () => {
+      await transport.connect();
+
+      let subscribeCb: ((message: string) => void) | undefined;
+      mockSubscribeClient.subscribe.mockImplementation(
+        (_channel: string, cb: (message: string) => void) => {
+          subscribeCb = cb;
+          return Promise.resolve();
+        },
+      );
+
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const throwingHandler = vi.fn().mockImplementation(() => {
+        throw new Error('handler boom');
+      });
+      await transport.subscribe('events:handler-error', throwingHandler);
+
+      const msg = JSON.stringify(makeEnvelope({ eventName: 'events:handler-error' }));
+      expect(() => subscribeCb!(msg)).not.toThrow();
+
+      expect(throwingHandler).toHaveBeenCalledOnce();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('handler error on events:handler-error'),
+        expect.any(Error),
+      );
+
+      errorSpy.mockRestore();
+    });
+
+    it('continues fan-out to remaining handlers when first handler throws', async () => {
+      await transport.connect();
+
+      let subscribeCb: ((message: string) => void) | undefined;
+      mockSubscribeClient.subscribe.mockImplementation(
+        (_channel: string, cb: (message: string) => void) => {
+          subscribeCb = cb;
+          return Promise.resolve();
+        },
+      );
+
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const throwingHandler = vi.fn().mockImplementation(() => {
+        throw new Error('first handler fails');
+      });
+      const goodHandler = vi.fn();
+
+      await transport.subscribe('events:fan-out', throwingHandler);
+      await transport.subscribe('events:fan-out', goodHandler);
+
+      const envelope = makeEnvelope({ eventName: 'events:fan-out' });
+      subscribeCb!(JSON.stringify(envelope));
+
+      expect(throwingHandler).toHaveBeenCalledOnce();
+      expect(goodHandler).toHaveBeenCalledOnce();
+      expect(goodHandler).toHaveBeenCalledWith(expect.objectContaining({ eventName: 'events:fan-out' }));
+
+      errorSpy.mockRestore();
+    });
+  });
+
   describe('isConnected()', () => {
     it('returns false before connect', () => {
       expect(transport.isConnected()).toBe(false);
