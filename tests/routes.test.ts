@@ -1215,3 +1215,122 @@ describe('POST /events with aliases round-trip (routes.ts:363)', () => {
     expect(via!.viaAlias?.name).toBe('order_placed');
   });
 });
+
+describe("GET /api/health — degraded status branch (routes.ts:1126-1127)", () => {
+  it("returns HTTP 200 with status 'degraded' when one transport is degraded", async () => {
+    const registry = new Registry();
+    const app = createApp({
+      registry,
+      metrics: new MetricsCollector(60),
+      metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
+      signal: {
+        isConnected: () => true,
+        healthCheck: async () => ({ status: 'degraded' as const, latencyMs: 5 }),
+        getAllMetrics: () => new Map(),
+        getHistory: async () => [],
+      } as unknown as RoutesDeps['signal'],
+      durable: {
+        isConnected: () => true,
+        healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }),
+        getAllMetrics: () => new Map(),
+      } as unknown as RoutesDeps['durable'],
+      dlqStore: {} as unknown as RoutesDeps['dlqStore'],
+      startedAt: Date.now(),
+    });
+
+    const res = await request(app).get('/api/health');
+    // Degraded is not 'unhealthy', so HTTP 200 (not 503) and body status is 'degraded'.
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('degraded');
+  });
+
+  it("returns HTTP 503 with status 'unhealthy' when a transport is disconnected", async () => {
+    const registry = new Registry();
+    const app = createApp({
+      registry,
+      metrics: new MetricsCollector(60),
+      metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
+      signal: {
+        isConnected: () => false,
+        healthCheck: async () => ({ status: 'disconnected' as const, latencyMs: 0 }),
+        getAllMetrics: () => new Map(),
+        getHistory: async () => [],
+      } as unknown as RoutesDeps['signal'],
+      durable: {
+        isConnected: () => true,
+        healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }),
+        getAllMetrics: () => new Map(),
+      } as unknown as RoutesDeps['durable'],
+      dlqStore: {} as unknown as RoutesDeps['dlqStore'],
+      startedAt: Date.now(),
+    });
+
+    const res = await request(app).get('/api/health');
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe('unhealthy');
+  });
+});
+
+describe("GET /api/health/registry — manifestCount null when store throws (routes.ts:1157-1158)", () => {
+  it("returns manifestCount:null when manifestStore.list() throws", async () => {
+    const registry = new Registry();
+    const brokenStore = {
+      list: async () => { throw new Error('DB unavailable'); },
+      get: async () => null,
+      put: async () => ({}),
+      remove: async () => false,
+      driftReport: async () => [],
+    } as unknown as RoutesDeps['manifestStore'];
+
+    const app = createApp({
+      registry,
+      metrics: new MetricsCollector(60),
+      metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
+      signal: {
+        isConnected: () => true,
+        healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }),
+        getAllMetrics: () => new Map(),
+        getHistory: async () => [],
+      } as unknown as RoutesDeps['signal'],
+      durable: {
+        isConnected: () => true,
+        healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }),
+        getAllMetrics: () => new Map(),
+      } as unknown as RoutesDeps['durable'],
+      dlqStore: {} as unknown as RoutesDeps['dlqStore'],
+      manifestStore: brokenStore,
+      startedAt: Date.now(),
+    });
+
+    const res = await request(app).get('/api/health/registry');
+    expect(res.status).toBe(200);
+    // Error caught silently — best-effort; manifestCount stays null.
+    expect(res.body.manifestCount).toBeNull();
+  });
+
+  it("returns manifestCount:null when no manifestStore is wired", async () => {
+    const registry = new Registry();
+    const app = createApp({
+      registry,
+      metrics: new MetricsCollector(60),
+      metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
+      signal: {
+        isConnected: () => true,
+        healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }),
+        getAllMetrics: () => new Map(),
+        getHistory: async () => [],
+      } as unknown as RoutesDeps['signal'],
+      durable: {
+        isConnected: () => true,
+        healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }),
+        getAllMetrics: () => new Map(),
+      } as unknown as RoutesDeps['durable'],
+      dlqStore: {} as unknown as RoutesDeps['dlqStore'],
+      startedAt: Date.now(),
+    });
+
+    const res = await request(app).get('/api/health/registry');
+    expect(res.status).toBe(200);
+    expect(res.body.manifestCount).toBeNull();
+  });
+});
