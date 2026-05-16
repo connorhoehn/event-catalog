@@ -622,4 +622,45 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
 
     unsubscribe();
   });
+
+  it('logs error and continues after a poll fetch failure (network error recovery)', async () => {
+    // pollRetryManager: maxRetries=2, baseDelay=1000ms, backoffFactor=2 →
+    // attempt 1 (t=0), wait 1000ms, attempt 2 (t=1000ms), wait 2000ms, attempt 3 (t=3000ms) → throw.
+    // Use fake timers to skip the 3s and a long pollingInterval so the recovery
+    // sleep doesn't create another 0ms timer that would loop forever.
+    vi.useFakeTimers();
+
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                                          // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))                             // poll attempt 1/3
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))                             // poll attempt 2/3
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'));                            // poll attempt 3/3 → catch(pollErr)
+
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    await t.connect();
+
+    const handler = vi.fn();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // Long polling interval so after catch(pollErr) the loop sleeps 10s, giving
+    // us a clean window to assert before aborting — no infinite 0ms timer loop.
+    const unsubscribe = t.subscribe('test-queue', handler, { pollingInterval: 10_000 });
+
+    // Advance through all RetryManager delays (1000 + 2000 = 3000ms).
+    // After this, catch(pollErr) has fired and the loop is waiting in sleep(10000ms).
+    await vi.advanceTimersByTimeAsync(3100);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('poll failed for "test-queue"'),
+      expect.stringContaining('ECONNREFUSED'),
+    );
+    expect(handler).not.toHaveBeenCalled();
+
+    // Abort before the 10s sleep fires; the abort listener resolves it immediately.
+    unsubscribe();
+    errorSpy.mockRestore();
+    vi.useRealTimers();
+  });
 });
