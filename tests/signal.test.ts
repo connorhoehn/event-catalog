@@ -112,6 +112,33 @@ describe('SignalTransport', () => {
 
       expect(mockPublishClient.connect).toHaveBeenCalledOnce();
     });
+
+    it('registers on("error") handlers on both Redis clients — suppresses unhandled rejections', async () => {
+      await transport.connect();
+
+      const pubErrorArgs = mockPublishClient.on.mock.calls.find(([event]) => event === 'error');
+      const subErrorArgs = mockSubscribeClient.on.mock.calls.find(([event]) => event === 'error');
+
+      expect(pubErrorArgs).toBeDefined();
+      expect(subErrorArgs).toBeDefined();
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const fakeErr = new Error('ECONNREFUSED');
+
+      expect(() => (pubErrorArgs![1] as (e: Error) => void)(fakeErr)).not.toThrow();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('publish client error'),
+        'ECONNREFUSED',
+      );
+
+      expect(() => (subErrorArgs![1] as (e: Error) => void)(fakeErr)).not.toThrow();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('subscribe client error'),
+        'ECONNREFUSED',
+      );
+
+      warnSpy.mockRestore();
+    });
   });
 
   describe('publish', () => {
