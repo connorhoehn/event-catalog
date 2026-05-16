@@ -534,6 +534,72 @@ describe('EventCatalog Client Integration', () => {
     });
   });
 
+  describe('wave25-a — deprecated event publish warning', () => {
+    it('emits a console.warn when publishing a deprecated event (wave25-a)', async () => {
+      const catalog = new EventCatalog(makeConfig());
+      catalog.declare({
+        name: 'legacy.event',
+        schema: { type: 'object' },
+        transport: 'signal',
+        producer: 'test-service',
+      });
+      catalog.getRegistry().deprecate('legacy.event', { reason: 'use new.event instead', by: 'team-a' });
+      await catalog.connect();
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await catalog.publish('legacy.event', {});
+
+      const deprecWarn = warnSpy.mock.calls.find((c) =>
+        String(c[0]).includes('event is DEPRECATED'),
+      );
+      expect(deprecWarn).toBeDefined();
+      expect(String(deprecWarn![0])).toContain('legacy.event');
+      expect(String(deprecWarn![0])).toContain('use new.event instead');
+      expect(String(deprecWarn![0])).toContain('by team-a');
+
+      warnSpy.mockRestore();
+      await catalog.disconnect();
+    });
+
+    it('warns only once per process — second publish does not re-warn', async () => {
+      const catalog = new EventCatalog(makeConfig());
+      catalog.declare({ name: 'once.event', schema: { type: 'object' }, transport: 'signal', producer: 'test-service' });
+      catalog.getRegistry().deprecate('once.event');
+      await catalog.connect();
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await catalog.publish('once.event', {});
+      await catalog.publish('once.event', {});
+      await catalog.publish('once.event', {});
+
+      const deprecWarns = warnSpy.mock.calls.filter((c) =>
+        String(c[0]).includes('event is DEPRECATED'),
+      );
+      expect(deprecWarns).toHaveLength(1);
+
+      warnSpy.mockRestore();
+      await catalog.disconnect();
+    });
+
+    it('suppresses warning when warnOnDeprecated is false', async () => {
+      const catalog = new EventCatalog({ ...makeConfig(), warnOnDeprecated: false });
+      catalog.declare({ name: 'silent.event', schema: { type: 'object' }, transport: 'signal', producer: 'test-service' });
+      catalog.getRegistry().deprecate('silent.event', { reason: 'silent' });
+      await catalog.connect();
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await catalog.publish('silent.event', {});
+
+      const deprecWarns = warnSpy.mock.calls.filter((c) =>
+        String(c[0]).includes('event is DEPRECATED'),
+      );
+      expect(deprecWarns).toHaveLength(0);
+
+      warnSpy.mockRestore();
+      await catalog.disconnect();
+    });
+  });
+
   describe('Phase E3.3 — declared signal channel', () => {
     it('publishes to a literal-string declared channel, not the event name', async () => {
       const catalog = new EventCatalog(makeConfig());
