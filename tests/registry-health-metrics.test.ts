@@ -11,7 +11,7 @@ import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
 import { createRoutes, type RoutesDeps } from '../src/server/routes.js';
 
-function createApp(registry: Registry, metrics: MetricsCollector) {
+function createApp(registry: Registry, metrics: MetricsCollector, extra: Partial<RoutesDeps> = {}) {
     const deps: RoutesDeps = {
         registry,
         metrics,
@@ -29,6 +29,7 @@ function createApp(registry: Registry, metrics: MetricsCollector) {
         metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
         dlqStore: {} as unknown as RoutesDeps['dlqStore'],
         startedAt: Date.now(),
+        ...extra,
     } as RoutesDeps;
 
     const app = express();
@@ -100,6 +101,28 @@ describe('GET /api/health/registry', () => {
         const res = await request(app).get('/api/health/registry');
         expect(res.body.signal).toMatchObject({ status: 'connected' });
         expect(res.body.durable).toMatchObject({ status: 'connected' });
+    });
+
+    it('includes manifestCount when manifestStore is wired', async () => {
+        const manifestStore = {
+            list: async () => [
+                { consumerName: 'svc-a', events: [], updatedAt: new Date().toISOString() },
+                { consumerName: 'svc-b', events: [], updatedAt: new Date().toISOString() },
+            ],
+        } as unknown as RoutesDeps['manifestStore'];
+        const app = createApp(registry, metrics, { manifestStore });
+        const res = await request(app).get('/api/health/registry');
+        expect(res.body.manifestCount).toBe(2);
+    });
+
+    it('keeps manifestCount null when manifestStore.list() throws (best-effort)', async () => {
+        const manifestStore = {
+            list: async () => { throw new Error('redis timeout'); },
+        } as unknown as RoutesDeps['manifestStore'];
+        const app = createApp(registry, metrics, { manifestStore });
+        const res = await request(app).get('/api/health/registry');
+        expect(res.status).toBe(200);
+        expect(res.body.manifestCount).toBeNull();
     });
 });
 
