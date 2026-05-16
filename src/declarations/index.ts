@@ -51,6 +51,8 @@ export {
   pipelineEventDeclarations,
 } from './pipeline-events';
 
+export { agUiDeclarations } from './ag-ui';
+
 import type { EventDeclaration } from '../types/index';
 import { pipelineDeclarations } from './pipeline';
 import { pipelineP1Declarations } from './pipeline-p1';
@@ -58,6 +60,7 @@ import { pipelineP2Declarations } from './pipeline-p2';
 import { pipelineRaftDeclarations, pipelineRaftStateMachineDeclarations } from './pipeline-raft';
 import { gatewaySignalDeclarations } from './gateway-signal';
 import { pipelineEventDeclarations } from './pipeline-events';
+import { agUiDeclarations } from './ag-ui';
 
 /**
  * The flat set of every event this repo declares on behalf of producers
@@ -73,4 +76,5 @@ export const allDeclarations: readonly EventDeclaration[] = [
   ...pipelineRaftStateMachineDeclarations,
   ...gatewaySignalDeclarations,
   ...pipelineEventDeclarations,
+  ...agUiDeclarations,
 ];
