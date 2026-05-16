@@ -80,4 +80,19 @@ describe('wave25-b — GET /api/namespaces/summary', () => {
     expect(res.body.count).toBe(0);
     expect(res.body.items).toEqual([]);
   });
+
+  it('counts all producers when producer is an array (routes.ts:791 array-producer branch)', async () => {
+    const { app, registry } = makeApp();
+    // Two declared producers on one event — should contribute 2 to producerCount.
+    registry.declare({ name: 'orders.placed', schema: {}, transport: 'durable', producer: ['svc-a', 'svc-b'] });
+    // Single-string producer on a second event in the same namespace — should not double-count 'svc-a'.
+    registry.declare({ name: 'orders.cancelled', schema: {}, transport: 'durable', producer: 'svc-a' });
+
+    const res = await request(app).get('/api/namespaces/summary');
+    expect(res.status).toBe(200);
+    const orders = res.body.items.find((r: { namespace: string }) => r.namespace === 'orders')!;
+    expect(orders.eventCount).toBe(2);
+    // 'svc-a' and 'svc-b' from orders.placed; 'svc-a' from orders.cancelled → Set deduplication → 2
+    expect(orders.producerCount).toBe(2);
+  });
 });
