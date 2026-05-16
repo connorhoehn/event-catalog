@@ -1,4 +1,5 @@
-import { RateTracker, MetricsRegistry, Counter, Gauge } from 'distributed-core';
+import { RateTracker, MetricsRegistry } from 'distributed-core';
+import { Counter, Gauge } from 'distributed-core/monitoring';
 import type { RedisClientType } from 'redis';
 import type { EventStats } from '../types/index.js';
 

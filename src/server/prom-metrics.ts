@@ -1,4 +1,5 @@
-import { MetricsRegistry, formatPrometheus, type Counter, type Gauge } from 'distributed-core';
+import { MetricsRegistry, formatPrometheus } from 'distributed-core';
+import type { Counter, Gauge } from 'distributed-core/monitoring';
 
 /**
  * Prom-formatted metrics surface for the event-catalog service.

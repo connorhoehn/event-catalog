@@ -57,9 +57,11 @@ assume cross-service events are declared and validated here.
 
 ## Dependencies
 
-- **`distributed-core`** — currently `github:connorhoehn/distributed-core#v0.19.6`.
+- **`distributed-core`** — currently `github:connorhoehn/distributed-core#v0.20.0`.
   Uses `RetryManager`, `CircuitBreaker`, `JsonSchemaValidator`, `MetricsRegistry`.
-  Pin reconciled across event-catalog / platform-api / gateway / message-queue.
+  v0.20.0 dropped `Counter`/`Gauge` from the root barrel — import them from
+  `distributed-core/monitoring`. Pin reconciled across event-catalog /
+  platform-api / gateway / message-queue.
 - **`@connorhoehn/message-queue`** — peer dependency. `DurableTransport`
   resolves to this via `MESSAGE_QUEUE_URL`.
 - **`@connorhoehn/ui-components`** — admin UI shared components (Vite). The
