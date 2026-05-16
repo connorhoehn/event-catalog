@@ -227,3 +227,60 @@ describe('HTTP surface — fingerprint on GET + POST responses', () => {
     expect(res.body.schemaFingerprint).toMatch(/^[0-9a-f]{64}$/);
   });
 });
+
+describe('Registry.migrateHistoryFingerprints() (Phase E6.5 backfill)', () => {
+  it('returns 0 when no events are declared', () => {
+    const registry = new Registry();
+    expect(registry.migrateHistoryFingerprints()).toBe(0);
+  });
+
+  it('returns 0 when all history entries already have fingerprints', () => {
+    const registry = new Registry();
+    registry.declare({ name: 'ev.a', schema: { type: 'object' }, transport: 'signal', producer: 'svc' });
+    // Re-declare with different schema to create a history entry with fingerprint
+    registry.declare({ name: 'ev.a', schema: { type: 'object', properties: { x: { type: 'string' } } }, transport: 'signal', producer: 'svc' });
+    // History entry was stamped with fingerprint during declare
+    expect(registry.get('ev.a')!.schemaHistory.length).toBe(1);
+    expect(registry.get('ev.a')!.schemaHistory[0]!.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    // Migration should be a no-op
+    expect(registry.migrateHistoryFingerprints()).toBe(0);
+  });
+
+  it('backfills fingerprint on a history entry that is missing it', () => {
+    const registry = new Registry();
+    registry.declare({ name: 'ev.b', schema: { type: 'object' }, transport: 'signal', producer: 'svc' });
+    registry.declare({ name: 'ev.b', schema: { type: 'object', properties: { y: { type: 'number' } } }, transport: 'signal', producer: 'svc' });
+
+    // Simulate a pre-wave19-h entry by removing the fingerprint
+    const entry = registry.get('ev.b')!;
+    delete entry.schemaHistory[0]!.fingerprint;
+    expect(entry.schemaHistory[0]!.fingerprint).toBeUndefined();
+
+    const backfilled = registry.migrateHistoryFingerprints();
+    expect(backfilled).toBe(1);
+    expect(entry.schemaHistory[0]!.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('is idempotent — second call returns 0 after backfill', () => {
+    const registry = new Registry();
+    registry.declare({ name: 'ev.c', schema: { type: 'object' }, transport: 'signal', producer: 'svc' });
+    registry.declare({ name: 'ev.c', schema: { type: 'string' }, transport: 'signal', producer: 'svc' });
+
+    const entry = registry.get('ev.c')!;
+    delete entry.schemaHistory[0]!.fingerprint;
+
+    expect(registry.migrateHistoryFingerprints()).toBe(1); // first call backfills
+    expect(registry.migrateHistoryFingerprints()).toBe(0); // second call is no-op
+  });
+
+  it('counts backfilled entries across multiple events', () => {
+    const registry = new Registry();
+    // Two events, each with one history entry lacking fingerprint
+    for (const name of ['ev.d', 'ev.e']) {
+      registry.declare({ name, schema: { type: 'object' }, transport: 'signal', producer: 'svc' });
+      registry.declare({ name, schema: { type: 'string' }, transport: 'signal', producer: 'svc' });
+      delete registry.get(name)!.schemaHistory[0]!.fingerprint;
+    }
+    expect(registry.migrateHistoryFingerprints()).toBe(2);
+  });
+});
