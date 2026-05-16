@@ -117,6 +117,24 @@ describe('validateSchemaShape', () => {
       expect(r.errors[0]).toMatch(/oneOf.*must be an array/);
     });
 
+    it('`type` array with an invalid entry (schema-shape.ts:55)', () => {
+      const r = validateSchemaShape({ type: ['string', 'badtype'] });
+      expect(r.ok).toBe(false);
+      expect(r.errors[0]).toMatch(/type\[\].*invalid entry.*"badtype"/);
+    });
+
+    it('`properties` that is not an object map (schema-shape.ts:84)', () => {
+      const r = validateSchemaShape({ properties: ['x', 'y'] });
+      expect(r.ok).toBe(false);
+      expect(r.errors[0]).toMatch(/properties.*must be an object map/);
+    });
+
+    it('`items` that is neither a schema nor an array (schema-shape.ts:104)', () => {
+      const r = validateSchemaShape({ type: 'array', items: 42 });
+      expect(r.ok).toBe(false);
+      expect(r.errors[0]).toMatch(/items.*must be a schema object or array of schemas/);
+    });
+
     it('`additionalProperties` that is not a schema or boolean is rejected', () => {
       // An array is neither a schema object nor a boolean — should error.
       const r = validateSchemaShape({ type: 'object', additionalProperties: ['x'] });
