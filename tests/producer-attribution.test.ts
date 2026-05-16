@@ -149,4 +149,32 @@ describe('GET /api/events/:name/producers/observed', () => {
     const res = await request(app).get('/api/events/no.such.event/producers/observed');
     expect(res.status).toBe(404);
   });
+
+  it('handles array-producer: declared[] contains all producers, mismatch computed correctly', async () => {
+    const attribution = new ProducerAttributionStore();
+    const { app, registry } = createApp(attribution);
+
+    registry.declare({
+      name: 'order.placed',
+      transport: 'signal',
+      producer: ['platform-api', 'billing-service'],
+      schema: { type: 'object', properties: { orderId: { type: 'string' } } },
+    });
+
+    // platform-api observed (declared), rogue-svc observed (undeclared), billing-service never seen
+    attribution.record('order.placed', 'platform-api');
+    attribution.record('order.placed', 'rogue-svc');
+
+    const res = await request(app).get('/api/events/order.placed/producers/observed');
+    expect(res.status).toBe(200);
+    expect(res.body.declared).toContain('platform-api');
+    expect(res.body.declared).toContain('billing-service');
+    expect(res.body.observed).toContain('platform-api');
+    expect(res.body.observed).toContain('rogue-svc');
+    expect(res.body.undeclaredProducers).toContain('rogue-svc');
+    expect(res.body.undeclaredProducers).not.toContain('platform-api');
+    expect(res.body.deadDeclaredProducers).toContain('billing-service');
+    expect(res.body.deadDeclaredProducers).not.toContain('platform-api');
+    expect(res.body.mismatch).toBe(true);
+  });
 });
