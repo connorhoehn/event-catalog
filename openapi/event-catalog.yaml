@@ -982,6 +982,30 @@ paths:
                   source: { type: string, enum: [in-memory] }
                   error: { type: string }
 
+  /api/transports/durable/dlq/clear:
+    post:
+      tags: [transports]
+      summary: Bulk-clear DLQ entries
+      description: |
+        Removes all DLQ entries, or all entries for a specific event when
+        `?eventName=` is provided. Returns the number of entries cleared.
+        Useful for purging test noise or retiring a dead event before M2.
+      parameters:
+        - in: query
+          name: eventName
+          schema: { type: string }
+          description: Scope the clear to one event's DLQ entries (optional)
+      responses:
+        '200':
+          description: Number of entries cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cleared]
+                properties:
+                  cleared: { type: integer }
+
   /api/transports/durable/dlq/replay:
     post:
       tags: [transports]

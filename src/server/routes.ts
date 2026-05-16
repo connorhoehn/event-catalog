@@ -1250,6 +1250,14 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json({ replayed, failed, total: ids.length });
   });
 
+  // Bulk-clear DLQ entries. Optional ?eventName= scopes to one event.
+  // Returns { cleared: N } so callers know how many entries were removed.
+  router.post('/transports/durable/dlq/clear', async (req: Request, res: Response) => {
+    const eventName = req.query.eventName as string | undefined;
+    const cleared = await dlqStore.clear(eventName);
+    res.json({ cleared });
+  });
+
   // Replay a DLQ entry: re-publish to durable transport, then delete
   router.post('/transports/durable/dlq/:id/replay', async (req: Request, res: Response) => {
     const entry = await dlqStore.findById(req.params.id);
