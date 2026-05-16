@@ -228,6 +228,32 @@ describe('MetricsObserver', () => {
       // seenBefore = 0 (getStats returns null → publishCount = 0), newSends = 3
       expect(metrics.recordPublish).toHaveBeenCalledTimes(3);
     });
+
+    it('emits one durable tap event per sent-delta with correct transport + producer[0] fallback', async () => {
+      registry.declare({ name: 'fan.event', schema: {}, transport: 'durable', producer: ['svc-a', 'svc-b'], namespace: 'fan' });
+
+      const durable = makeDurable(null, { sent: 2, received: 0, failed: 0, inFlight: 0 });
+      const metrics = makeMetrics();
+
+      const taps: any[] = [];
+      tapEmitter.on('publish', (e) => taps.push(e));
+
+      const observer = new MetricsObserver({
+        registry, signal: makeSignal() as any, durable: durable as any,
+        metrics: metrics as any, durablePollIntervalMs: 100,
+      });
+
+      await observer.start();
+      await vi.advanceTimersByTimeAsync(101);
+      await observer.stop();
+
+      expect(taps).toHaveLength(2); // one per sent-delta
+      for (const tap of taps) {
+        expect(tap.transport).toBe('durable');
+        expect(tap.producer).toBe('svc-a'); // array → producer[0]
+        expect(tap.namespace).toBe('fan');
+      }
+    });
   });
 
   describe('signal subscribe handler (attribution + tap)', () => {
