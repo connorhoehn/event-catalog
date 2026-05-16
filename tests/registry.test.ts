@@ -48,6 +48,20 @@ describe('Registry', () => {
       expect(entry!.description).toBe('Updated description');
       expect(entry!.schema).toEqual({ type: 'object', required: ['userId'] });
     });
+
+    it('caps schemaHistory at 5 entries — oldest version is evicted on the 7th declare', () => {
+      // First declare (v1)
+      registry.declare({ name: 'ev.cap', schema: { type: 'object', properties: { v: { type: 'string' } } }, transport: 'signal', producer: 'svc', compatibilityMode: 'none' });
+      // Six more redeclares (v2–v7) each with a distinct schema so history grows
+      for (let i = 2; i <= 7; i++) {
+        registry.declare({ name: 'ev.cap', schema: { type: 'object', properties: { [`v${i}`]: { type: 'string' } } }, transport: 'signal', producer: 'svc', compatibilityMode: 'none' });
+      }
+      const entry = registry.get('ev.cap')!;
+      expect(entry.version).toBe(7);
+      expect(entry.schemaHistory).toHaveLength(5);
+      // The oldest surviving history entry should be for version 2 (v1 was evicted)
+      expect(entry.schemaHistory[0]!.version).toBe(2);
+    });
   });
 
   describe('list', () => {
@@ -232,6 +246,52 @@ describe('Registry', () => {
 
     it('returns false for non-existent event', () => {
       expect(registry.remove('nonexistent')).toBe(false);
+    });
+  });
+
+  describe('Redis persistence — remove / deprecate / undeprecate', () => {
+    function makeRedis(): { redis: RedisClientType; hDel: ReturnType<typeof vi.fn>; hSet: ReturnType<typeof vi.fn> } {
+      const hDel = vi.fn().mockResolvedValue(1);
+      const hSet = vi.fn().mockResolvedValue(1);
+      const hGetAll = vi.fn().mockResolvedValue({});
+      const redis = { hGetAll, hSet, hDel } as unknown as RedisClientType;
+      return { redis, hDel, hSet };
+    }
+
+    it('remove() calls hDel on the Redis-backed registry', async () => {
+      const { redis, hDel } = makeRedis();
+      const reg = new Registry(redis);
+      reg.declare({ name: 'del.event', schema: {}, transport: 'signal', producer: 'svc' });
+      const removed = reg.remove('del.event');
+      expect(removed).toBe(true);
+      // hDel is fire-and-forget; give the microtask queue a tick
+      await Promise.resolve();
+      expect(hDel).toHaveBeenCalledWith(expect.any(String), 'del.event');
+    });
+
+    it('deprecate() calls hSet to persist the deprecation', async () => {
+      const { redis, hSet } = makeRedis();
+      const reg = new Registry(redis);
+      reg.declare({ name: 'dep.event', schema: {}, transport: 'signal', producer: 'svc' });
+      hSet.mockClear(); // clear the declare hSet call
+      reg.deprecate('dep.event', { reason: 'replaced' });
+      await Promise.resolve();
+      expect(hSet).toHaveBeenCalledOnce();
+      const stored = JSON.parse(hSet.mock.calls[0]![2] as string) as { deprecation: { reason: string } };
+      expect(stored.deprecation.reason).toBe('replaced');
+    });
+
+    it('undeprecate() calls hSet to persist the cleared deprecation', async () => {
+      const { redis, hSet } = makeRedis();
+      const reg = new Registry(redis);
+      reg.declare({ name: 'dep.event', schema: {}, transport: 'signal', producer: 'svc' });
+      reg.deprecate('dep.event');
+      hSet.mockClear();
+      reg.undeprecate('dep.event');
+      await Promise.resolve();
+      expect(hSet).toHaveBeenCalledOnce();
+      const stored = JSON.parse(hSet.mock.calls[0]![2] as string) as { deprecation?: unknown };
+      expect(stored.deprecation).toBeUndefined();
     });
   });
 
