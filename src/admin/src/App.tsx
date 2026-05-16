@@ -5,6 +5,7 @@ import { EventDetail } from './components/EventDetail';
 import { TopologyView } from './components/TopologyView';
 import { FlowView } from './components/FlowView';
 import { AuditView } from './components/AuditView';
+import { SubscribersView } from './components/SubscribersView';
 import { LiveInspector } from './components/LiveInspector';
 import { TransportHealth } from './components/TransportHealth';
 import { DLQBrowser } from './components/DLQBrowser';

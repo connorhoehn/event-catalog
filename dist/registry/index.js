@@ -295,6 +295,45 @@ class Registry {
         }
         return deleted;
     }
+    /**
+     * wave25-a — mark an event as deprecated. Publish still works
+     * (don't break existing producers); the catalog logs a warn at
+     * publish time when warnOnDeprecated is on. Idempotent: re-calling
+     * with new metadata updates the deprecation record. Returns true if
+     * the event existed (and was marked or remarked).
+     */
+    deprecate(eventName, opts) {
+        const entry = this.events.get(eventName);
+        if (!entry)
+            return false;
+        entry.deprecation = {
+            deprecatedAt: new Date().toISOString(),
+            reason: opts?.reason,
+            by: opts?.by,
+        };
+        if (this.redis) {
+            this.redis.hSet(REDIS_KEY, eventName, JSON.stringify(entry)).catch(() => { });
+        }
+        return true;
+    }
+    /**
+     * wave25-a — clear the deprecation flag. Returns true if the event
+     * existed and was previously deprecated; false if no-op.
+     */
+    undeprecate(eventName) {
+        const entry = this.events.get(eventName);
+        if (!entry || !entry.deprecation)
+            return false;
+        delete entry.deprecation;
+        if (this.redis) {
+            this.redis.hSet(REDIS_KEY, eventName, JSON.stringify(entry)).catch(() => { });
+        }
+        return true;
+    }
+    /** wave25-a — convenience: every currently-deprecated event. */
+    listDeprecated() {
+        return Array.from(this.events.values()).filter(e => !!e.deprecation);
+    }
     getTopology(filter) {
         const nodes = [];
         const edges = [];

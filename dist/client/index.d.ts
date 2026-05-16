@@ -13,6 +13,8 @@ export declare class EventCatalog {
     private resyncInterval;
     /** Phase E3.5 — dedupe deprecation log to one line per alias per process. */
     private readonly warnedAliases;
+    /** wave25-a — track which deprecated event names we've already warned about. */
+    private readonly warnedDeprecated;
     constructor(config: EventCatalogConfig);
     connect(): Promise<void>;
     disconnect(): Promise<void>;

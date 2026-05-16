@@ -63,12 +63,19 @@ export function buildAsyncApiSpec(
       }
 
       // Messages — dedupe similarly. Per-transport message refs the same schema.
+      // wave25-a — deprecated events get a synthetic 'deprecated' tag so any
+      // AsyncAPI consumer (Studio, codegen, lint) can surface the warning.
       if (!messages[messageKey]) {
+        const baseTags = (entry.tags ?? []).map((name) => ({ name }));
+        const tags = entry.deprecation
+          ? [...baseTags, { name: 'deprecated', description: entry.deprecation.reason ?? 'Deprecated event.' }]
+          : baseTags;
         messages[messageKey] = {
           name: entry.name,
           title: entry.name,
           ...(entry.description ? { description: entry.description } : {}),
-          ...(entry.tags && entry.tags.length > 0 ? { tags: entry.tags.map((name) => ({ name })) } : {}),
+          ...(tags.length > 0 ? { tags } : {}),
+          ...(entry.deprecation ? { 'x-deprecated': entry.deprecation } : {}),
           payload: { $ref: `#/components/schemas/${schemaKey}` },
         };
       }

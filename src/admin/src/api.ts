@@ -49,6 +49,12 @@ export interface EventEntry {
     publishCount: number;
     errorCount: number;
   };
+  /** wave25-a — present when event is currently deprecated. */
+  deprecation?: {
+    deprecatedAt: string;
+    reason?: string;
+    by?: string;
+  };
   stats: EventStats | null;
 }
 
@@ -127,6 +133,22 @@ export const api = {
 
   deleteEvent(name: string) {
     return request<{ removed: string }>(`/events/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  },
+
+  // wave25-a — schema deprecation lifecycle.
+  deprecateEvent(name: string, body: { reason?: string; by?: string } = {}) {
+    return request<{ deprecated: string; deprecation: { deprecatedAt: string; reason?: string; by?: string } }>(
+      `/events/${encodeURIComponent(name)}/deprecate`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    );
+  },
+
+  undeprecateEvent(name: string) {
+    return request<{ undeprecated: string }>(`/events/${encodeURIComponent(name)}/deprecate`, { method: 'DELETE' });
+  },
+
+  listDeprecated() {
+    return request<{ count: number; items: Array<{ name: string; namespace?: string; transport: string; version: number; deprecation: { deprecatedAt: string; reason?: string; by?: string } }> }>(`/deprecated`);
   },
 
   getTopology(filter?: { namespace?: string; producer?: string; consumer?: string; transport?: string }) {

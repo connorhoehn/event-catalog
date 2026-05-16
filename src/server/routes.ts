@@ -506,6 +506,61 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json({ removed: req.params.name });
   });
 
+  // wave25-a — schema deprecation lifecycle.
+  //
+  // POST /api/events/:name/deprecate { reason?, by? }  → mark deprecated
+  // DELETE /api/events/:name/deprecate                 → unmark
+  // GET /api/deprecated                                → list deprecated
+  //
+  // Deprecation is non-blocking: existing producers continue to publish
+  // (avoid surprise outages). Consumers see the chip in admin UI;
+  // catalog.publish() logs a one-time warn if warnOnDeprecated is on.
+  router.post('/events/:name/deprecate', (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { reason?: string; by?: string };
+    const ok = registry.deprecate(req.params.name, { reason: body.reason, by: body.by });
+    if (!ok) {
+      res.status(404).json({ error: `Event "${req.params.name}" not found` });
+      return;
+    }
+    const entry = registry.get(req.params.name)!;
+    auditEmitter.publish({
+      kind: 'event.deprecated',
+      timestamp: new Date().toISOString(),
+      eventName: entry.name,
+      namespace: entry.namespace,
+      reason: body.reason,
+      by: body.by,
+    });
+    res.json({ deprecated: entry.name, deprecation: entry.deprecation });
+  });
+
+  router.delete('/events/:name/deprecate', (req: Request, res: Response) => {
+    const ok = registry.undeprecate(req.params.name);
+    if (!ok) {
+      res.status(404).json({ error: `Event "${req.params.name}" was not deprecated or does not exist` });
+      return;
+    }
+    const entry = registry.get(req.params.name)!;
+    auditEmitter.publish({
+      kind: 'event.undeprecated',
+      timestamp: new Date().toISOString(),
+      eventName: entry.name,
+      namespace: entry.namespace,
+    });
+    res.json({ undeprecated: entry.name });
+  });
+
+  router.get('/deprecated', (_req: Request, res: Response) => {
+    const items = registry.listDeprecated().map(e => ({
+      name: e.name,
+      namespace: e.namespace,
+      transport: e.transport,
+      version: e.version,
+      deprecation: e.deprecation,
+    }));
+    res.json({ count: items.length, items });
+  });
+
   // Topology graph — optional ?producer=, ?consumer=, ?eventType=, ?transport=
   // filters AND-combine to restrict which events (and induced services) appear
   // in the returned subgraph. No filter ⇒ full topology.

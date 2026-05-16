@@ -106,6 +106,8 @@ export class EventCatalog {
   private resyncInterval: ReturnType<typeof setInterval> | null = null;
   /** Phase E3.5 — dedupe deprecation log to one line per alias per process. */
   private readonly warnedAliases = new Set<string>();
+  /** wave25-a — track which deprecated event names we've already warned about. */
+  private readonly warnedDeprecated = new Set<string>();
 
   constructor(config: EventCatalogConfig) {
     this.config = config;
@@ -373,6 +375,19 @@ export class EventCatalog {
     if (resolved.viaAlias) {
       this.warnDeprecatedAlias(resolved.viaAlias.name, entry.name, resolved.viaAlias.until);
       eventName = entry.name;
+    }
+
+    // wave25-a — one-time warn per process when publishing a deprecated
+    // event. Doesn't block (existing producers shouldn't break) but the
+    // warn shows up in service logs so owners notice.
+    if (entry.deprecation && this.config.warnOnDeprecated !== false && !this.warnedDeprecated.has(entry.name)) {
+      this.warnedDeprecated.add(entry.name);
+      const reason = entry.deprecation.reason ? ` reason: ${entry.deprecation.reason}` : '';
+      const by = entry.deprecation.by ? ` (by ${entry.deprecation.by})` : '';
+      console.warn(
+        `[event-catalog] publish("${entry.name}") — event is DEPRECATED `
+        + `as of ${entry.deprecation.deprecatedAt}${by}.${reason}`,
+      );
     }
 
     // Validate payload against schema

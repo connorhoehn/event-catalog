@@ -153,6 +153,13 @@ export interface EventCatalogConfig {
      * downstream audit failure can't mask a successful publish.
      */
     hooks?: PublishHook[];
+    /**
+     * wave25-a — when true (default), publishing a deprecated event
+     * logs a one-time `console.warn` per event per process. Set false
+     * to suppress the noise (e.g. for the producer that's still being
+     * migrated and is intentionally on the deprecated path).
+     */
+    warnOnDeprecated?: boolean;
 }
 /**
  * Phase 20-c — publish-path middleware contract.
@@ -271,6 +278,17 @@ export interface RegistryEntry extends Omit<EventDeclaration, 'namespace'> {
         lastPublishedAt: string | null;
         publishCount: number;
         errorCount: number;
+    };
+    /**
+     * wave25-a — schema deprecation lifecycle. Set when an event is marked
+     * deprecated via Registry.deprecate(); cleared by undeprecate(). Publish
+     * still works for deprecated events (don't break existing producers); the
+     * library logs a one-time warn per event when warnOnDeprecated is on.
+     */
+    deprecation?: {
+        deprecatedAt: string;
+        reason?: string;
+        by?: string;
     };
 }
 export interface RegistryFilter {

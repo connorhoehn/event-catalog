@@ -17,6 +17,8 @@ export type AuditEventKind =
   | 'event.declared'        // new event added to the registry
   | 'event.version.bumped'  // schema changed, version incremented
   | 'event.removed'         // explicit DELETE /api/events/:name
+  | 'event.deprecated'      // wave25-a — marked deprecated
+  | 'event.undeprecated'    // wave25-a — un-marked
   | 'subscriber.added'
   | 'subscriber.removed';
 
@@ -36,6 +38,10 @@ export interface AuditEvent {
   serviceName?: string;
   /** Compat-violation list when a version bump landed in warn mode. */
   violations?: string[];
+  /** wave25-a — operator-supplied reason on event.deprecated. */
+  reason?: string;
+  /** wave25-a — `by` field on event.deprecated (who marked it). */
+  by?: string;
 }
 
 export interface AuditFilter {

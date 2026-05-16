@@ -62,9 +62,32 @@ export function EventDetail() {
         {event.namespace ? <Chip tone="purple">{event.namespace}</Chip> : null}
         {event.version ? <Chip tone="neutral">v{event.version}</Chip> : null}
         <FingerprintChip fingerprint={event.schemaFingerprint} />
+        {event.deprecation ? <Chip tone="danger">deprecated</Chip> : null}
       </div>
 
       {event.description && <p className="description">{event.description}</p>}
+
+      {event.deprecation && (
+        <div
+          style={{
+            margin: '8px 0 16px',
+            padding: '10px 14px',
+            border: '1px solid #fecaca',
+            background: '#fef2f2',
+            borderRadius: 6,
+            fontSize: 13,
+          }}
+        >
+          <strong style={{ color: '#b91c1c' }}>Deprecated</strong>
+          <span style={{ color: '#7f1d1d', marginLeft: 8 }}>
+            on {new Date(event.deprecation.deprecatedAt).toLocaleString()}
+            {event.deprecation.by ? ` by ${event.deprecation.by}` : ''}
+          </span>
+          {event.deprecation.reason && (
+            <div style={{ marginTop: 4, color: '#7f1d1d' }}>{event.deprecation.reason}</div>
+          )}
+        </div>
+      )}
 
       <div className="detail-grid">
         <section className="detail-section">

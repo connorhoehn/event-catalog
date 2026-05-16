@@ -56,6 +56,24 @@ export declare class Registry implements IRegistry {
     private touchHeartbeat;
     updateStats(eventName: string, stats: Partial<RegistryEntry['metadata']>): void;
     remove(eventName: string): boolean;
+    /**
+     * wave25-a — mark an event as deprecated. Publish still works
+     * (don't break existing producers); the catalog logs a warn at
+     * publish time when warnOnDeprecated is on. Idempotent: re-calling
+     * with new metadata updates the deprecation record. Returns true if
+     * the event existed (and was marked or remarked).
+     */
+    deprecate(eventName: string, opts?: {
+        reason?: string;
+        by?: string;
+    }): boolean;
+    /**
+     * wave25-a — clear the deprecation flag. Returns true if the event
+     * existed and was previously deprecated; false if no-op.
+     */
+    undeprecate(eventName: string): boolean;
+    /** wave25-a — convenience: every currently-deprecated event. */
+    listDeprecated(): RegistryEntry[];
     getTopology(filter?: TopologyFilter): TopologyGraph;
     validate(eventName: string, payload: unknown): ValidationResult;
     size(): number;
