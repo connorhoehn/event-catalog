@@ -1058,6 +1058,78 @@ describe('EventCatalog Client Integration', () => {
     });
   });
 
+  describe('durable event subscribe — catalog level', () => {
+    it('handler receives messages delivered via the durable poll loop', async () => {
+      const payload = { orderId: '123' };
+      const messageBody = JSON.stringify({
+        eventName: 'order.created',
+        payload,
+        metadata: { id: 'e-001', producer: 'test-service', timestamp: Date.now() },
+      });
+      const queueMsg = { message_id: 'msg-1', body: messageBody, receipt_handle: 'rh-1' };
+
+      let pollCall = 0;
+      fetchMock.mockImplementation(async (url: string | URL | Request, opts?: RequestInit) => {
+        const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : (url as Request).url;
+        const method = opts?.method ?? 'GET';
+        if (urlStr.includes('/health')) return new Response('ok', { status: 200 });
+        if (method === 'PUT') return new Response('{}', { status: 201 });
+        if (method === 'DELETE') return new Response('{}', { status: 200 });
+        if (method === 'GET' && urlStr.includes('/messages')) {
+          return new Response(
+            JSON.stringify({ messages: pollCall++ === 0 ? [queueMsg] : [] }),
+            { status: 200 },
+          );
+        }
+        return new Response('{}', { status: 200 });
+      });
+
+      const catalog = new EventCatalog(makeConfig());
+      catalog.declare({ name: 'order.created', schema: {}, transport: 'durable', producer: 'test-service' });
+      await catalog.connect();
+
+      const received: unknown[] = [];
+      const sub = catalog.subscribe('order.created', (env) => { received.push(env.payload); }, { pollingInterval: 0 });
+
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(received).toHaveLength(1);
+      expect(received[0]).toEqual(payload);
+
+      // Subscriber should be registered in the local registry
+      const entry = catalog.getRegistry().get('order.created')!;
+      expect(entry.subscribers).toContain('test-service');
+
+      await sub.unsubscribe();
+      await catalog.disconnect();
+    });
+
+    it('uses eventNameToQueueName to derive the queue URL from the event name', async () => {
+      fetchMock.mockImplementation(async (url: string | URL | Request, opts?: RequestInit) => {
+        const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : (url as Request).url;
+        if (urlStr.includes('/health')) return new Response('ok', { status: 200 });
+        return new Response(JSON.stringify({ messages: [] }), { status: 200 });
+      });
+
+      const catalog = new EventCatalog(makeConfig());
+      catalog.declare({ name: 'order.shipped', schema: {}, transport: 'durable', producer: 'test-service' });
+      await catalog.connect();
+      fetchMock.mockClear();
+
+      const sub = catalog.subscribe('order.shipped', vi.fn(), { pollingInterval: 0 });
+      await new Promise(r => setTimeout(r, 20));
+
+      // All queue-related fetches should use the dash-separated queue name
+      const queueCalls = fetchMock.mock.calls.filter(([url]: [string]) =>
+        url.includes('order-shipped'),
+      );
+      expect(queueCalls.length).toBeGreaterThan(0);
+
+      await sub.unsubscribe();
+      await catalog.disconnect();
+    });
+  });
+
   describe('resyncInterval — periodic re-sync', () => {
     afterEach(() => {
       vi.useRealTimers();
