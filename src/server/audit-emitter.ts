@@ -22,7 +22,8 @@ export type AuditEventKind =
   | 'event.poisoned'        // wave26-e — failure threshold breached
   | 'event.poison.cleared'  // wave26-e — operator dismissed poison state
   | 'subscriber.added'
-  | 'subscriber.removed';
+  | 'subscriber.removed'
+  | 'event.manifest.drift';   // wave23-c — declare stalened ≥1 pinned consumer manifest
 
 export interface AuditEvent {
   kind: AuditEventKind;
@@ -44,6 +45,8 @@ export interface AuditEvent {
   reason?: string;
   /** wave25-a — `by` field on event.deprecated (who marked it). */
   by?: string;
+  /** wave23-c — consumer names + their now-stale pinned fingerprints. */
+  affectedConsumers?: Array<{ consumerName: string; pinnedFingerprint: string }>;
 }
 
 export interface AuditFilter {

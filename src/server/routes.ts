@@ -402,6 +402,18 @@ export function createRoutes(deps: RoutesDeps): Router {
     // stale a pinned consumer's manifest.
     if (affectedConsumers.length > 0) {
       response.affectedConsumers = affectedConsumers;
+      // Emit a drift audit event so operators see manifest staleness in
+      // the real-time audit SSE stream without polling the drift report.
+      const after = registry.get(name);
+      auditEmitter.publish({
+        kind: 'event.manifest.drift',
+        timestamp: new Date().toISOString(),
+        eventName: name,
+        namespace: after?.namespace,
+        version: after?.version,
+        fingerprint: after?.schemaFingerprint,
+        affectedConsumers,
+      });
     }
     res.status(201).json(response);
   });
