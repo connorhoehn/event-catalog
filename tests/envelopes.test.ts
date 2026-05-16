@@ -417,6 +417,18 @@ describe('decode helpers (wave20-a)', () => {
     if (r.ok) expect(r.value.targetNode).toBe('b');
   });
 
+  it('decodeDirectMessageEnvelope returns error on invalid JSON', () => {
+    const r = decodeDirectMessageEnvelope('{not json');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/invalid JSON/);
+  });
+
+  it('decodeDirectMessageEnvelope returns error when shape mismatches', () => {
+    const r = decodeDirectMessageEnvelope(JSON.stringify({ type: 'broadcast' }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/direct_message/);
+  });
+
   it('decodeBroadcastEnvelope round-trips builder output', () => {
     const env = buildBroadcastEnvelope({ message: { notice: 'hi' }, fromNode: 'gw' });
     const r = decodeBroadcastEnvelope(JSON.stringify(env));
@@ -432,5 +444,11 @@ describe('decode helpers (wave20-a)', () => {
     });
     const r = decodeBroadcastEnvelope(JSON.stringify(env));
     expect(r.ok).toBe(false);
+  });
+
+  it('decodeBroadcastEnvelope returns error on invalid JSON', () => {
+    const r = decodeBroadcastEnvelope('{not json');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/invalid JSON/);
   });
 });
