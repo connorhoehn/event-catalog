@@ -1135,3 +1135,35 @@ describe('routes → metricsObserver.observe() wiring', () => {
     expect(observeSpy).toHaveBeenCalledWith('bulk.two', 'durable');
   });
 });
+
+describe('POST /events with aliases round-trip (routes.ts:363)', () => {
+  it('aliases passed via HTTP are stored and resolve() finds the event by legacy name', async () => {
+    const registry = new Registry();
+    const app = createApp({
+      registry,
+      metrics: new MetricsCollector(60),
+      metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
+      signal: { isConnected: () => true, healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }), getAllMetrics: () => new Map(), getHistory: async () => [] } as unknown as RoutesDeps['signal'],
+      durable: { isConnected: () => true, healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }), getAllMetrics: () => new Map() } as unknown as RoutesDeps['durable'],
+      dlqStore: {} as unknown as RoutesDeps['dlqStore'],
+      startedAt: Date.now(),
+    });
+
+    const res = await request(app)
+      .post('/api/events')
+      .send({
+        name: 'order.placed',
+        schema: { type: 'object' },
+        transport: 'durable',
+        producer: 'orders-svc',
+        aliases: [{ name: 'order_placed', deprecated: true, until: '2027-01-01' }],
+      });
+
+    expect(res.status).toBe(201);
+    // The alias should be stored and resolve() should find the canonical entry.
+    const via = registry.resolve('order_placed');
+    expect(via).toBeDefined();
+    expect(via!.entry.name).toBe('order.placed');
+    expect(via!.viaAlias?.name).toBe('order_placed');
+  });
+});
