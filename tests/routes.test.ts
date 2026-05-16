@@ -571,6 +571,23 @@ describe('Server Routes', () => {
       expect(res.body.eventCount).toBe(1);
     });
 
+    it('reports degraded state (HTTP 200) when one transport is degraded', async () => {
+      const degradedSignal = { ...signal, healthCheck: async () => ({ status: 'degraded' as const, latencyMs: 800 }) };
+
+      const degradedApp = createApp({
+        registry,
+        metrics,
+        metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
+        signal: degradedSignal as unknown as RoutesDeps['signal'],
+        durable: durable as unknown as RoutesDeps['durable'],
+        startedAt: Date.now(),
+      });
+
+      const res = await request(degradedApp).get('/api/health');
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('degraded');
+    });
+
     it('reports disconnected state when transports are down', async () => {
       const disconnectedSignal = { ...signal, healthCheck: async () => ({ status: 'disconnected' as const, latencyMs: -1 }) };
       const disconnectedDurable = { ...durable, healthCheck: async () => ({ status: 'disconnected' as const, latencyMs: -1 }) };
