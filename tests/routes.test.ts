@@ -248,6 +248,22 @@ describe('Server Routes', () => {
       expect(res.body.error).toMatch(/Version 99 not found in history/);
     });
 
+    it('?version=N equal to current version skips history lookup and returns 200 (routes.ts:135)', async () => {
+      registry.declare({
+        name: 'activity:recorded',
+        schema: { type: 'object', properties: { id: { type: 'string' } } },
+        transport: 'durable',
+        producer: 'platform-api',
+      });
+      // Event is still at v1 — never bumped; no schemaHistory entries.
+      const res = await request(appWithProm)
+        .get('/api/events/activity:recorded')
+        .query({ version: '1' });
+      expect(res.status).toBe(200);
+      expect(res.body.version).toBe(1);
+      expect((res.body.schema as { properties: Record<string, unknown> }).properties.id).toBeDefined();
+    });
+
     it('ticks event_catalog_schema_fetches_total on each successful fetch', async () => {
       registry.declare({
         name: 'activity:recorded',
