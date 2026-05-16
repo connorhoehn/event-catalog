@@ -166,5 +166,31 @@ describe('wave24-e — consumer-side helpers', () => {
         vi.useRealTimers();
       }
     });
+
+    it('swallows network failure in tick — logs warning and does not throw', async () => {
+      vi.useFakeTimers();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog:3010' }));
+        catalog.declare({ name: 'hb.event', schema: { type: 'object' }, transport: 'signal', producer: 'p' });
+        catalog.getRegistry().addSubscriber('hb.event', 'consumer-x');
+
+        fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
+        const stop = catalog.startHeartbeating(60_000);
+
+        // Immediate tick fires — should not throw
+        await vi.advanceTimersByTimeAsync(10);
+
+        const hbWarn = warnSpy.mock.calls.find(c =>
+          typeof c[0] === 'string' && (c[0] as string).includes('heartbeat failed'),
+        );
+        expect(hbWarn).toBeDefined();
+
+        stop();
+      } finally {
+        vi.useRealTimers();
+        warnSpy.mockRestore();
+      }
+    });
   });
 });

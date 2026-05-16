@@ -1230,6 +1230,32 @@ describe('EventCatalog Client Integration', () => {
       expect(countAfter).toBe(countBefore);
     });
 
+    it('periodic re-sync failure logs a warning without crashing', async () => {
+      vi.useFakeTimers();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      catalog.declare({ name: 'resync.event', schema: {}, transport: 'signal', producer: 'test-service' });
+
+      await catalog.connect(); // initial sync succeeds with default fetchMock
+
+      // Make the next bulk POST throw to simulate a transient upstream failure
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url.includes('/api/events/bulk')) throw new Error('upstream timeout');
+        return new Response('ok', { status: 200 });
+      });
+
+      await vi.advanceTimersByTimeAsync(60_000); // fire the periodic re-sync interval
+
+      const resyncWarn = warnSpy.mock.calls.find(c =>
+        typeof c[0] === 'string' && (c[0] as string).includes('periodic re-sync failed'),
+      );
+      expect(resyncWarn).toBeDefined();
+
+      warnSpy.mockRestore();
+      await catalog.disconnect();
+    });
+
     it('scheduleBackgroundSync() retries after initial sync failure', async () => {
       vi.useFakeTimers();
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
