@@ -539,6 +539,23 @@ describe('Registry', () => {
     });
   });
 
+  describe('declare — producer update on re-declaration (registry/index.ts:144)', () => {
+    it('sets producer on re-declaration when the existing entry had none', () => {
+      // Declare without a producer (producer field absent / falsy).
+      registry.declare({ name: 'prod.event', schema: {}, transport: 'signal', producer: '' } as any);
+      // Producer is empty — re-declare with a real producer should fill it in.
+      registry.declare({ name: 'prod.event', schema: {}, transport: 'signal', producer: 'auth-svc' });
+      expect(registry.get('prod.event')?.producer).toBe('auth-svc');
+    });
+
+    it('does NOT overwrite an existing producer on re-declaration (sticky)', () => {
+      registry.declare({ name: 'sticky.event', schema: {}, transport: 'signal', producer: 'original-svc' });
+      // Re-declare with a different producer — should be ignored because original-svc is already set.
+      registry.declare({ name: 'sticky.event', schema: {}, transport: 'signal', producer: 'new-svc' });
+      expect(registry.get('sticky.event')?.producer).toBe('original-svc');
+    });
+  });
+
   describe('declare — invalid schema shape guard', () => {
     it('throws with a descriptive message when schema type is misspelled', () => {
       expect(() =>
