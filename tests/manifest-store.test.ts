@@ -281,6 +281,7 @@ describe('manifest-aware POST /api/events gate (wave23-c)', () => {
       events: [{ name: 'orders.placed', fingerprint: currentFp }],
     });
 
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const res = await request(app)
       .post('/api/events?check-manifests=warn')
       .send({
@@ -293,6 +294,10 @@ describe('manifest-aware POST /api/events gate (wave23-c)', () => {
     expect(res.status).toBe(201);
     expect(res.body.affectedConsumers).toHaveLength(1);
     expect(registry.get('orders.placed')!.version).toBe(2);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('check-manifests warn: declare("orders.placed") would stale 1 pinned consumer(s)'),
+    );
+    warnSpy.mockRestore();
   });
 
   it('warn mode: emits event.manifest.drift audit event for each staled consumer', async () => {
