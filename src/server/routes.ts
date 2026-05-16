@@ -338,28 +338,34 @@ export function createRoutes(deps: RoutesDeps): Router {
     // afterwards gives us the new value).
     const priorVersion = existing?.version;
 
-    const result = registry.declare({
-      name,
-      schema: schema ?? {},
-      transport,
-      producer,
-      description,
-      tags,
-      compatibilityMode,
-      ...(typeof namespace === 'string' && namespace.length > 0 ? { namespace } : {}),
-      ...(compatMode ? { compatMode } : {}),
-      // Pass through E3 fields when present. `channel` and `partitionKey`
-      // can be functions which don't serialize over HTTP, so only the
-      // string form of `channel` is accepted here.
-      ...(typeof channel === 'string' ? { channel } : {}),
-      ...(discriminator ? { discriminator } : {}),
-      ...(queue ? { queue } : {}),
-      ...(typeof retention === 'number' ? { retention } : {}),
-      ...(typeof fifo === 'boolean' ? { fifo } : {}),
-      ...(typeof dlqAfterAttempts === 'number' ? { dlqAfterAttempts } : {}),
-      ...(typeof dlqRetention === 'number' ? { dlqRetention } : {}),
-      ...(aliases ? { aliases } : {}),
-    });
+    let result: ReturnType<typeof registry.declare>;
+    try {
+      result = registry.declare({
+        name,
+        schema: schema ?? {},
+        transport,
+        producer,
+        description,
+        tags,
+        compatibilityMode,
+        ...(typeof namespace === 'string' && namespace.length > 0 ? { namespace } : {}),
+        ...(compatMode ? { compatMode } : {}),
+        // Pass through E3 fields when present. `channel` and `partitionKey`
+        // can be functions which don't serialize over HTTP, so only the
+        // string form of `channel` is accepted here.
+        ...(typeof channel === 'string' ? { channel } : {}),
+        ...(discriminator ? { discriminator } : {}),
+        ...(queue ? { queue } : {}),
+        ...(typeof retention === 'number' ? { retention } : {}),
+        ...(typeof fifo === 'boolean' ? { fifo } : {}),
+        ...(typeof dlqAfterAttempts === 'number' ? { dlqAfterAttempts } : {}),
+        ...(typeof dlqRetention === 'number' ? { dlqRetention } : {}),
+        ...(aliases ? { aliases } : {}),
+      });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+      return;
+    }
 
     metricsObserver.observe(name, transport).catch(() => {});
 

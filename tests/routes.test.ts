@@ -311,6 +311,15 @@ describe('Server Routes', () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('transport');
     });
+
+    it('returns 400 when schema shape is invalid (e.g. unknown type)', async () => {
+      const res = await request(app)
+        .post('/api/events')
+        .send({ name: 'bad:schema', transport: 'signal', producer: 'test', schema: { type: 'objct' } });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('invalid JSON Schema shape');
+    });
   });
 
   // ─── DELETE /api/events/:name ────────────────────────────────────────
