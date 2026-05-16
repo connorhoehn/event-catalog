@@ -18,6 +18,7 @@ import { makeHealthHandler } from './health.js';
 import { PromMetrics } from './prom-metrics.js';
 import { ProducerAttributionStore } from './producer-attribution.js';
 import { PoisonEventDetector } from './poison-detector.js';
+import { RegistryCoordinator } from './registry-coordinator.js';
 import { readFileSync } from 'node:fs';
 import type { RegistryEntry } from '../types/index.js';
 
@@ -172,6 +173,12 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   const attribution = new ProducerAttributionStore();
   const poisonDetector = new PoisonEventDetector();
   const metricsObserver = new MetricsObserver({ registry, signal, durable, metrics, attribution, poisonDetector });
+
+  // wave26-d — multi-replica registry coordination via Redis pub/sub.
+  const coordinator = new RegistryCoordinator();
+  coordinator.start(redisUrl, registry).catch(err => {
+    console.warn('[server] registry coordinator start failed:', (err as Error).message);
+  });
   await metricsObserver.start().catch(err => {
     console.warn('[server] metrics observer start failed:', (err as Error).message);
   });
@@ -259,7 +266,7 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   const manifestStore = new RedisManifestStore(redisClient);
 
   // Admin API
-  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution, poisonDetector });
+  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution, poisonDetector, coordinator });
   // Phase 20-d — auth middleware injection (optional). Mounted before
   // the /api router so it gates every admin endpoint. The catalog
   // itself ships with no auth on purpose (local dev / in-cluster
@@ -372,6 +379,7 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     await metrics.snapshotToRedis(redisClient).catch(() => {});
     server.close();
     await metricsObserver.stop();
+    await coordinator.stop();
     await signal.disconnect();
     await durable.disconnect();
     await redisClient.quit().catch(() => {});

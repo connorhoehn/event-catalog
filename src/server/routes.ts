@@ -13,6 +13,7 @@ import type { EventDeclaration } from '../types/index.js';
 import type { PromMetrics } from './prom-metrics.js';
 import type { ProducerAttributionStore } from './producer-attribution.js';
 import type { PoisonEventDetector } from './poison-detector.js';
+import type { RegistryCoordinator } from './registry-coordinator.js';
 
 export interface RoutesDeps {
   registry: Registry;
@@ -41,6 +42,8 @@ export interface RoutesDeps {
   attribution?: ProducerAttributionStore;
   /** wave26-e — rolling-window poison-event detector. */
   poisonDetector?: PoisonEventDetector;
+  /** wave26-d — multi-replica registry coordination via Redis pub/sub. */
+  coordinator?: RegistryCoordinator;
 }
 
 /**
@@ -67,7 +70,7 @@ function resolveCompatMode(
 }
 
 export function createRoutes(deps: RoutesDeps): Router {
-  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution, poisonDetector } = deps;
+  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution, poisonDetector, coordinator } = deps;
   const router = Router();
 
   // List all events
@@ -377,6 +380,12 @@ export function createRoutes(deps: RoutesDeps): Router {
       });
     }
 
+    // wave26-d — broadcast to peer replicas.
+    const declaredEntry = registry.get(name);
+    if (declaredEntry) {
+      coordinator?.broadcast('declare', declaredEntry).catch(() => {});
+    }
+
     const response: Record<string, unknown> = {
       declared: name,
       version: result.version,
@@ -448,6 +457,8 @@ export function createRoutes(deps: RoutesDeps): Router {
 
       metricsObserver.observe(event.name, event.transport).catch(() => {});
       declared.push(event.name);
+      // wave26-d — broadcast each declared event to peer replicas.
+      if (after) coordinator?.broadcast('declare', after).catch(() => {});
     }
 
     res.status(201).json({ declared, count: declared.length });
@@ -476,6 +487,7 @@ export function createRoutes(deps: RoutesDeps): Router {
       namespace: entry.namespace,
       serviceName,
     });
+    coordinator?.broadcast('subscriber.add', { eventName: req.params.name, serviceName }).catch(() => {});
     res.status(201).json({ event: req.params.name, subscriber: serviceName });
   });
 
@@ -495,6 +507,7 @@ export function createRoutes(deps: RoutesDeps): Router {
       namespace: entry.namespace,
       serviceName: req.params.serviceName,
     });
+    coordinator?.broadcast('subscriber.remove', { eventName: req.params.name, serviceName: req.params.serviceName }).catch(() => {});
     res.json({ event: req.params.name, removedSubscriber: req.params.serviceName });
   });
 
@@ -576,6 +589,8 @@ export function createRoutes(deps: RoutesDeps): Router {
           by,
         });
       }
+      // wave26-d — broadcast to peer replicas.
+      coordinator?.broadcast('deprecate', { name, opts: { reason, by } }).catch(() => {});
       deprecated.push(name);
     }
 
@@ -635,6 +650,7 @@ export function createRoutes(deps: RoutesDeps): Router {
         version: before.version,
       });
     }
+    coordinator?.broadcast('remove', { name: req.params.name }).catch(() => {});
     res.json({ removed: req.params.name });
   });
 
@@ -663,6 +679,7 @@ export function createRoutes(deps: RoutesDeps): Router {
       reason: body.reason,
       by: body.by,
     });
+    coordinator?.broadcast('deprecate', { name: req.params.name, opts: { reason: body.reason, by: body.by } }).catch(() => {});
     res.json({ deprecated: entry.name, deprecation: entry.deprecation });
   });
 
@@ -679,6 +696,7 @@ export function createRoutes(deps: RoutesDeps): Router {
       eventName: entry.name,
       namespace: entry.namespace,
     });
+    coordinator?.broadcast('undeprecate', { name: req.params.name }).catch(() => {});
     res.json({ undeprecated: entry.name });
   });
 
