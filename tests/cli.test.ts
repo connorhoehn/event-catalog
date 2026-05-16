@@ -121,6 +121,13 @@ describe('cli: snapshot', () => {
     fetchMock.mockRestore();
   });
 
+  it('exits 1 when fetch throws a network error', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    expect(await snapshot(['--catalog-url=http://catalog'])).toBe(1);
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain('fetch failed');
+    fetchMock.mockRestore();
+  });
+
   describe('--from-source mode', () => {
     let stdoutSpy: ReturnType<typeof vi.spyOn>;
     let stdout: string;
