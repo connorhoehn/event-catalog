@@ -1057,4 +1057,92 @@ describe('EventCatalog Client Integration', () => {
       await catalog.disconnect();
     });
   });
+
+  describe('resyncInterval — periodic re-sync', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('fires a resync every 60 s while connected', async () => {
+      vi.useFakeTimers();
+
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      catalog.declare({ name: 'timer.event', schema: {}, transport: 'signal', producer: 'test-service' });
+
+      await catalog.connect();
+
+      const bulkCalls = () =>
+        fetchMock.mock.calls.filter(([url]: [string]) => url.includes('/api/events/bulk'));
+
+      expect(bulkCalls()).toHaveLength(1); // initial sync on connect
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(bulkCalls()).toHaveLength(2); // first interval tick
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(bulkCalls()).toHaveLength(3); // second interval tick
+
+      await catalog.disconnect();
+    });
+
+    it('disconnect() clears the resync interval — no further syncs after disconnect', async () => {
+      vi.useFakeTimers();
+
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      catalog.declare({ name: 'timer.event', schema: {}, transport: 'signal', producer: 'test-service' });
+
+      await catalog.connect();
+      await catalog.disconnect();
+
+      const countBefore = fetchMock.mock.calls.filter(([url]: [string]) =>
+        url.includes('/api/events/bulk'),
+      ).length;
+
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      const countAfter = fetchMock.mock.calls.filter(([url]: [string]) =>
+        url.includes('/api/events/bulk'),
+      ).length;
+
+      expect(countAfter).toBe(countBefore);
+    });
+
+    it('scheduleBackgroundSync() retries after initial sync failure', async () => {
+      vi.useFakeTimers();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      // syncToRemoteRegistry() does not check res.ok; it must *throw* to trigger retries
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url.includes('/health')) return new Response('ok', { status: 200 });
+        if (url.includes('/api/events/bulk')) throw new Error('ECONNREFUSED');
+        return new Response('not found', { status: 404 });
+      });
+
+      const catalog = new EventCatalog(makeConfig({ registryUrl: 'http://catalog.test' }));
+      catalog.declare({ name: 'bg.event', schema: {}, transport: 'signal', producer: 'test-service' });
+
+      // Don't await — connect() hangs on RetryManager until timers advance
+      const connectPromise = catalog.connect();
+
+      // RetryManager: maxRetries=2, baseDelay=1000, factor=2 → delays 1000 + 2000 = 3000ms
+      await vi.advanceTimersByTimeAsync(10_000);
+      await connectPromise;
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[event-catalog] registry sync failed after retries, scheduling background retry',
+      );
+
+      // Advance 5 s — scheduleBackgroundSync() first attempt fires
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      const bgWarn = warnSpy.mock.calls.find(c =>
+        typeof c[0] === 'string' && (c[0] as string).includes('background sync retry failed'),
+      );
+      expect(bgWarn).toBeDefined();
+      expect(String(bgWarn![0])).toContain('next attempt in 10000ms');
+
+      warnSpy.mockRestore();
+      await catalog.disconnect();
+    });
+  });
 });
