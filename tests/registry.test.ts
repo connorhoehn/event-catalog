@@ -233,4 +233,112 @@ describe('Registry', () => {
       expect(registry.remove('nonexistent')).toBe(false);
     });
   });
+
+  describe('resolve() — Phase E3.5 alias-aware lookup', () => {
+    beforeEach(() => {
+      registry.declare({
+        name: 'pipeline:run:started',
+        schema: {},
+        transport: 'signal',
+        producer: 'distributed-core',
+        aliases: [
+          { name: 'pipeline.run.started', until: '2026-12-01' },
+        ],
+      });
+    });
+
+    it('resolves a canonical name directly (no viaAlias)', () => {
+      const result = registry.resolve('pipeline:run:started');
+      expect(result).toBeDefined();
+      expect(result!.entry.name).toBe('pipeline:run:started');
+      expect(result!.viaAlias).toBeUndefined();
+    });
+
+    it('resolves a deprecated alias name to its canonical entry', () => {
+      const result = registry.resolve('pipeline.run.started');
+      expect(result).toBeDefined();
+      expect(result!.entry.name).toBe('pipeline:run:started');
+      expect(result!.viaAlias?.name).toBe('pipeline.run.started');
+      expect(result!.viaAlias?.until).toBe('2026-12-01');
+    });
+
+    it('returns undefined for an unknown name that is neither canonical nor alias', () => {
+      expect(registry.resolve('does.not.exist')).toBeUndefined();
+    });
+
+    it('returns undefined when no events are declared', () => {
+      const fresh = new Registry();
+      expect(fresh.resolve('any.name')).toBeUndefined();
+    });
+
+    it('returns the first canonical match even when an event has multiple aliases', () => {
+      registry.declare({
+        name: 'order:placed',
+        schema: {},
+        transport: 'durable',
+        producer: 'orders',
+        aliases: [
+          { name: 'order.placed' },
+          { name: 'order_placed' },
+        ],
+      });
+
+      expect(registry.resolve('order.placed')!.entry.name).toBe('order:placed');
+      expect(registry.resolve('order_placed')!.entry.name).toBe('order:placed');
+    });
+  });
+
+  describe('updateStats()', () => {
+    it('merges the supplied stats into entry.metadata', () => {
+      registry.declare({ name: 'ev.a', schema: {}, transport: 'signal', producer: 'svc' });
+      registry.updateStats('ev.a', { publishCount: 42 });
+      expect(registry.get('ev.a')!.metadata.publishCount).toBe(42);
+    });
+
+    it('is a no-op for unknown events (does not throw)', () => {
+      expect(() => registry.updateStats('ghost', { publishCount: 1 })).not.toThrow();
+    });
+
+    it('partial update leaves other fields untouched', () => {
+      registry.declare({ name: 'ev.b', schema: {}, transport: 'signal', producer: 'svc' });
+      registry.updateStats('ev.b', { publishCount: 10 });
+      registry.updateStats('ev.b', { errorCount: 2 });
+      const meta = registry.get('ev.b')!.metadata;
+      expect(meta.publishCount).toBe(10);
+      expect(meta.errorCount).toBe(2);
+    });
+  });
+
+  describe('list() subscriber + tag filters', () => {
+    beforeEach(() => {
+      registry.declare({ name: 'ev.x', schema: {}, transport: 'signal', producer: 'svc', tags: ['payments'] });
+      registry.declare({ name: 'ev.y', schema: {}, transport: 'durable', producer: 'svc', tags: ['payments', 'billing'] });
+      registry.declare({ name: 'ev.z', schema: {}, transport: 'signal', producer: 'svc' });
+      registry.addSubscriber('ev.x', 'consumer-a');
+      registry.addSubscriber('ev.y', 'consumer-a');
+      registry.addSubscriber('ev.z', 'consumer-b');
+    });
+
+    it('filters by subscriber — returns only events subscribed to by that service', () => {
+      const results = registry.list({ subscriber: 'consumer-a' });
+      expect(results.map(e => e.name).sort()).toEqual(['ev.x', 'ev.y']);
+    });
+
+    it('filters by subscriber — returns empty array for unknown service', () => {
+      expect(registry.list({ subscriber: 'no-such-consumer' })).toHaveLength(0);
+    });
+
+    it('filters by tag — returns events that carry that tag', () => {
+      const results = registry.list({ tag: 'payments' });
+      expect(results.map(e => e.name).sort()).toEqual(['ev.x', 'ev.y']);
+    });
+
+    it('filters by tag — narrower tag returns a subset', () => {
+      expect(registry.list({ tag: 'billing' }).map(e => e.name)).toEqual(['ev.y']);
+    });
+
+    it('filters by tag — unknown tag returns empty array', () => {
+      expect(registry.list({ tag: 'nope' })).toHaveLength(0);
+    });
+  });
 });
