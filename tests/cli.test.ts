@@ -403,6 +403,30 @@ describe('cli: manifest pin', () => {
     expect(await manifest(['pin', '--catalog-url=http://x', '--consumer=audit'])).toBe(2);
   });
 
+  it('exits 2 when the --snapshot file does not exist', async () => {
+    expect(await manifest([
+      'pin', '--catalog-url=http://x', '--consumer=audit', '--snapshot=/no/such/snap.json',
+    ])).toBe(2);
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain('cannot read');
+  });
+
+  it('exits 2 when the --snapshot file contains invalid JSON', async () => {
+    const f = writeTmp('bad.json', 'not json {{');
+    expect(await manifest([
+      'pin', '--catalog-url=http://x', '--consumer=audit', `--snapshot=${f}`,
+    ])).toBe(2);
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain('invalid JSON');
+  });
+
+  it('exits 1 when the catalog-url fetch throws a network error', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    expect(await manifest([
+      'pin', '--catalog-url=http://x', '--consumer=audit', `--events=a.x=${'a'.repeat(64)}`,
+    ])).toBe(1);
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain('fetch failed');
+    fetchMock.mockRestore();
+  });
+
   it('exits 1 on non-2xx HTTP response', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response('bad', { status: 400 }) as never,

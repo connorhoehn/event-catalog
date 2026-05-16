@@ -60,6 +60,14 @@ describe('cli: deprecate', () => {
     expect(await deprecate(['a.x', '--catalog-url=https://catalog'])).toBe(1);
     fetchMock.mockRestore();
   });
+
+  it('exits 1 when fetch throws a network error', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    expect(await deprecate(['a.x', '--catalog-url=https://catalog'])).toBe(1);
+    const all = errorSpy.mock.calls.flat().join('\n');
+    expect(all).toContain('fetch failed');
+    fetchMock.mockRestore();
+  });
 });
 
 describe('cli: undeprecate', () => {
@@ -76,6 +84,22 @@ describe('cli: undeprecate', () => {
 
   it('exits 2 without --catalog-url', async () => {
     expect(await undeprecate(['a.x'])).toBe(2);
+  });
+
+  it('exits 1 when fetch throws a network error', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    expect(await undeprecate(['a.x', '--catalog-url=https://catalog'])).toBe(1);
+    const all = errorSpy.mock.calls.flat().join('\n');
+    expect(all).toContain('fetch failed');
+    fetchMock.mockRestore();
+  });
+
+  it('exits 1 on non-2xx HTTP response', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('forbidden', { status: 403 }),
+    );
+    expect(await undeprecate(['a.x', '--catalog-url=https://catalog'])).toBe(1);
+    fetchMock.mockRestore();
   });
 });
 
@@ -116,6 +140,25 @@ describe('cli: asyncapi', () => {
 
   it('exits 2 without --catalog-url', async () => {
     expect(await asyncapi([])).toBe(2);
+  });
+
+  it('exits 1 when fetch throws a network error', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    expect(await asyncapi(['--catalog-url=https://catalog'])).toBe(1);
+    const all = errorSpy.mock.calls.flat().join('\n');
+    expect(all).toContain('fetch failed');
+    fetchMock.mockRestore();
+  });
+
+  it('exits 1 when writing the output file fails', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('{"asyncapi":"3.0.0"}', { status: 200 }),
+    );
+    // Pass a directory path as the output file — writeFileSync will throw.
+    expect(await asyncapi(['--catalog-url=https://catalog', `--output=${tmpDir}`])).toBe(1);
+    const all = errorSpy.mock.calls.flat().join('\n');
+    expect(all).toContain('write failed');
+    fetchMock.mockRestore();
   });
 
   it('exits 1 on non-2xx HTTP', async () => {
