@@ -48,8 +48,8 @@ export class MetricsObserver {
     }, this.durablePollIntervalMs);
   }
 
-  async observe(eventName: string, transport: 'signal' | 'durable'): Promise<void> {
-    if (transport === 'signal') {
+  async observe(eventName: string, transport: 'signal' | 'durable' | 'both'): Promise<void> {
+    if (transport === 'signal' || transport === 'both') {
       await this.observeSignal(eventName);
     }
   }

@@ -164,6 +164,31 @@ describe('MetricsObserver', () => {
       await observer.observe('my.event', 'signal');
       expect(signal.subscribe).toHaveBeenCalledOnce();
     });
+
+    it('observe("both") subscribes to the signal channel', async () => {
+      const signal = makeSignal();
+      const observer = new MetricsObserver({
+        registry, signal: signal as any, durable: makeDurable() as any,
+        metrics: makeMetrics() as any,
+      });
+
+      await observer.observe('both.event', 'both');
+      expect(signal.subscribe).toHaveBeenCalledWith('both.event', expect.any(Function));
+    });
+
+    it('start() observes signal for a "both"-transport registry entry', async () => {
+      const signal = makeSignal();
+      registry.declare({ name: 'hybrid.event', schema: {}, transport: 'both', producer: 'svc' });
+      const observer = new MetricsObserver({
+        registry, signal: signal as any, durable: makeDurable() as any,
+        metrics: makeMetrics() as any,
+      });
+
+      await observer.start();
+      await observer.stop();
+
+      expect(signal.subscribe).toHaveBeenCalledWith('hybrid.event', expect.any(Function));
+    });
   });
 
   describe('observeSignal error path', () => {
