@@ -781,6 +781,40 @@ describe('Server Routes', () => {
       expect(bumps[0]!.version).toBe(2);
     });
 
+    it('event.version.bumped carries violations[] when compat-break accepted in warn mode', async () => {
+      // v1: requires field "id"
+      await request(app).post('/api/events').send({
+        name: 'compat.warn.evt',
+        schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+        transport: 'signal',
+        producer: 'svc',
+      });
+      seen.length = 0;
+      delete process.env.EVENT_CATALOG_STRICT;
+
+      // v2: adds a new required field "name" — backward-incompatible
+      const res = await request(app).post('/api/events').send({
+        name: 'compat.warn.evt',
+        schema: {
+          type: 'object',
+          properties: { id: { type: 'string' }, name: { type: 'string' } },
+          required: ['id', 'name'],
+        },
+        transport: 'signal',
+        producer: 'svc',
+      });
+
+      expect(res.status).toBe(201);
+      expect(Array.isArray(res.body.violations)).toBe(true);
+      expect(res.body.violations.length).toBeGreaterThan(0);
+
+      const bumps = seen.filter((e) => e.kind === 'event.version.bumped');
+      expect(bumps).toHaveLength(1);
+      expect(bumps[0]!.version).toBe(2);
+      expect(Array.isArray(bumps[0]!.violations)).toBe(true);
+      expect(bumps[0]!.violations!.length).toBeGreaterThan(0);
+    });
+
     it('POST /api/events/:name/subscribers emits subscriber.added', async () => {
       registry.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
       seen.length = 0;
