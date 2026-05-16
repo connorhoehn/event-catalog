@@ -174,6 +174,12 @@ describe('POST /api/heartbeat + GET /api/subscribers (wave24-b)', () => {
     expect(res.status).toBe(400);
   });
 
+  it('POST /api/heartbeat returns 400 when serviceName is an empty string', async () => {
+    const res = await request(app).post('/api/heartbeat').send({ serviceName: '' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/serviceName is required/);
+  });
+
   it('GET /api/subscribers lists everyone with their lastSeenAt', async () => {
     const res = await request(app).get('/api/subscribers');
     expect(res.status).toBe(200);

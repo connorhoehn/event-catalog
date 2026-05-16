@@ -190,6 +190,13 @@ describe('manifest routes', () => {
     expect(after.status).toBe(404);
   });
 
+  it('DELETE /api/manifests/:consumer returns 404 when no manifest exists for that consumer', async () => {
+    const { app } = makeApp();
+    const res = await request(app).delete('/api/manifests/nonexistent-consumer');
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/No manifest to remove/);
+  });
+
   it('GET /api/manifests/check/all reports drift across consumers', async () => {
     const { app, registry } = makeApp();
     registry.declare({ name: 'a.x', schema: { type: 'object' }, transport: 'signal', producer: 's' });
