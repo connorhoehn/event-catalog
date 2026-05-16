@@ -13,7 +13,7 @@ info:
 
     Source of truth for shapes: `src/server/routes.ts` and
     `src/types/index.ts`.
-  version: 0.3.5
+  version: 0.4.0
   license:
     name: UNLICENSED
 servers:
@@ -33,6 +33,8 @@ tags:
     description: Per-transport runtime introspection (signal channels, durable queues, DLQ)
   - name: ops
     description: Health, metrics, root endpoints
+  - name: deprecation
+    description: Event lifecycle — deprecation, poison-event detection
 
 paths:
   /health:
@@ -1092,6 +1094,387 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/events/poisoned:
+    get:
+      tags: [deprecation]
+      summary: List events that exceeded the failure threshold (wave26-e)
+      responses:
+        '200':
+          description: Poisoned events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count, items]
+                properties:
+                  count: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/PoisonState' }
+
+  /api/events/bulk/deprecate:
+    post:
+      tags: [deprecation]
+      summary: Bulk-deprecate N events with a shared reason (wave26-f)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [names]
+              properties:
+                names:
+                  type: array
+                  minItems: 1
+                  items: { type: string }
+                reason: { type: string }
+                by: { type: string }
+      responses:
+        '200':
+          description: Deprecation results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deprecated, notFound, total]
+                properties:
+                  deprecated:
+                    type: array
+                    items: { type: string }
+                  notFound:
+                    type: array
+                    items: { type: string }
+                  total: { type: integer }
+        '400':
+          description: Missing names or all events not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/events/bulk/export:
+    get:
+      tags: [events]
+      summary: JSON export of N event declarations (wave26-f)
+      description: |
+        Returns a JSON archive with schema + fingerprint for each named event.
+        Sets `Content-Disposition: attachment` so browsers download the file.
+        When no `names` param is provided, exports all events.
+      parameters:
+        - in: query
+          name: names
+          schema: { type: string }
+          description: Comma-separated list of event names. Omit to export all.
+      responses:
+        '200':
+          description: Export archive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [eventCount, events, exportedAt]
+                properties:
+                  eventCount: { type: integer }
+                  events:
+                    type: array
+                    items: { $ref: '#/components/schemas/RegistryEntry' }
+                  exportedAt: { type: string, format: date-time }
+
+  /api/events/{name}/deprecate:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    post:
+      tags: [deprecation]
+      summary: Mark an event deprecated (wave25-a)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+                by: { type: string }
+      responses:
+        '200':
+          description: Event deprecated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deprecated, deprecation]
+                properties:
+                  deprecated: { type: string }
+                  deprecation: { $ref: '#/components/schemas/DeprecationInfo' }
+        '404':
+          description: Event not declared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [deprecation]
+      summary: Remove deprecation from an event (wave25-a)
+      responses:
+        '200':
+          description: Undeprecated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  undeprecated: { type: string }
+        '404':
+          description: Event not declared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/events/{name}/producers/observed:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    get:
+      tags: [events]
+      summary: Observed vs declared producer attribution (wave26-c)
+      description: |
+        Returns the declared producers alongside producers actually observed
+        emitting the event (via envelope metadata). Flags undeclared producers
+        and declared producers that have gone silent.
+      responses:
+        '200':
+          description: Attribution report
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [eventName, declared, observed, undeclaredProducers, deadDeclaredProducers, mismatch]
+                properties:
+                  eventName: { type: string }
+                  declared:
+                    type: array
+                    items: { type: string }
+                  observed:
+                    type: array
+                    items: { type: string }
+                  undeclaredProducers:
+                    type: array
+                    items: { type: string }
+                    description: Observed but not declared.
+                  deadDeclaredProducers:
+                    type: array
+                    items: { type: string }
+                    description: Declared but never observed.
+                  mismatch: { type: boolean }
+        '404':
+          description: Event not declared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/events/{name}/poison:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [deprecation]
+      summary: Clear poison state for an event (wave26-e)
+      responses:
+        '200':
+          description: Poison cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cleared, wasPoison]
+                properties:
+                  cleared: { type: string }
+                  wasPoison: { type: boolean }
+        '404':
+          description: Event not declared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/deprecated:
+    get:
+      tags: [deprecation]
+      summary: List all deprecated events (wave25-a)
+      responses:
+        '200':
+          description: Deprecated events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count, items]
+                properties:
+                  count: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, transport, version, deprecation]
+                      properties:
+                        name: { type: string }
+                        namespace: { type: string }
+                        transport: { type: string, enum: [signal, durable, both] }
+                        version: { type: integer }
+                        deprecation: { $ref: '#/components/schemas/DeprecationInfo' }
+
+  /api/namespaces:
+    get:
+      tags: [topology]
+      summary: List namespaces with event counts (Phase E7)
+      responses:
+        '200':
+          description: Namespace list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count, items]
+                properties:
+                  count: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [namespace, eventCount]
+                      properties:
+                        namespace: { type: string }
+                        eventCount: { type: integer }
+
+  /api/namespaces/summary:
+    get:
+      tags: [topology]
+      summary: Namespace rollup summary with optional event list (wave25-b)
+      parameters:
+        - in: query
+          name: detail
+          schema: { type: string, enum: [summary, full] }
+          description: When `full`, each namespace row includes its event list.
+      responses:
+        '200':
+          description: Namespace summary
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count, items]
+                properties:
+                  count: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [namespace, eventCount, deprecatedCount, producerCount, subscriberCount, signalCount, durableCount]
+                      properties:
+                        namespace: { type: string }
+                        eventCount: { type: integer }
+                        deprecatedCount: { type: integer }
+                        producerCount: { type: integer }
+                        subscriberCount: { type: integer }
+                        signalCount: { type: integer }
+                        durableCount: { type: integer }
+                        events:
+                          type: array
+                          description: Present only when `?detail=full`.
+                          items:
+                            type: object
+                            properties:
+                              name: { type: string }
+                              transport: { type: string }
+                              version: { type: integer }
+                              deprecated: { type: boolean }
+
+  /api/health:
+    get:
+      tags: [ops]
+      summary: Health probe via API prefix (mirrors root /health)
+      responses:
+        '200':
+          description: Healthy or degraded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+        '503':
+          description: Unhealthy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+
+  /api/health/registry:
+    get:
+      tags: [ops]
+      summary: Richer registry health for the dashboard (wave26-b)
+      responses:
+        '200':
+          description: Registry health snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [registrySize, namespaceCount, deprecatedCount, orphanCount, capturedAt, signal, durable]
+                properties:
+                  registrySize: { type: integer }
+                  namespaceCount: { type: integer }
+                  deprecatedCount: { type: integer }
+                  orphanCount: { type: integer }
+                  manifestCount:
+                    type: [integer, 'null']
+                  signal:
+                    type: object
+                    properties:
+                      status: { type: string, enum: [healthy, degraded, unhealthy, disconnected] }
+                      latencyMs: { type: number }
+                  durable:
+                    type: object
+                    properties:
+                      status: { type: string, enum: [healthy, degraded, unhealthy, disconnected] }
+                      latencyMs: { type: number }
+                  capturedAt: { type: string, format: date-time }
+
+  /api/metrics:
+    get:
+      tags: [ops]
+      summary: Per-event publish-rate metrics via API prefix (wave26-a)
+      description: Returns a map of eventName → EventStats for all events with observed activity.
+      responses:
+        '200':
+          description: Metrics map
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: { $ref: '#/components/schemas/EventStats' }
+
+  /api/metrics/history:
+    get:
+      tags: [ops]
+      summary: Per-event publish-rate sparkline history (wave26-a)
+      description: Returns up to 60 samples of publish rate per event (one per collector tick).
+      parameters:
+        - in: query
+          name: eventName
+          schema: { type: string }
+          description: Restrict to one event. Omit for all events.
+      responses:
+        '200':
+          description: Rate history
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items: { type: number }
+
 components:
   schemas:
     EventDeclarationInput:
@@ -1404,3 +1787,21 @@ components:
                 properties:
                   consumerName: { type: string }
                   pinnedFingerprint: { type: string }
+
+    DeprecationInfo:
+      type: object
+      required: [deprecatedAt]
+      properties:
+        deprecatedAt: { type: string, format: date-time }
+        reason: { type: string }
+        by: { type: string }
+
+    PoisonState:
+      type: object
+      required: [eventName, failuresInWindow, poisonedAt, threshold, windowMs]
+      properties:
+        eventName: { type: string }
+        failuresInWindow: { type: integer }
+        poisonedAt: { type: string, format: date-time }
+        threshold: { type: integer }
+        windowMs: { type: integer }
