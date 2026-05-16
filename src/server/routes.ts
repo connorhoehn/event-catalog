@@ -444,19 +444,24 @@ export function createRoutes(deps: RoutesDeps): Router {
       // Snapshot the prior version BEFORE declare mutates `before` in
       // place (same gotcha as the singleton route above).
       const priorVersion = registry.get(event.name)?.version;
-      registry.declare({
-        name: event.name,
-        schema: event.schema ?? {},
-        transport: event.transport,
-        producer: event.producer ?? serviceName,
-        description: event.description,
-        tags: event.tags,
-        // Phase E7 — pass through explicit namespace if provided; the
-        // Registry auto-derives from the event name otherwise.
-        ...(typeof event.namespace === 'string' && event.namespace.length > 0
-          ? { namespace: event.namespace }
-          : {}),
-      });
+      try {
+        registry.declare({
+          name: event.name,
+          schema: event.schema ?? {},
+          transport: event.transport,
+          producer: event.producer ?? serviceName,
+          description: event.description,
+          tags: event.tags,
+          // Phase E7 — pass through explicit namespace if provided; the
+          // Registry auto-derives from the event name otherwise.
+          ...(typeof event.namespace === 'string' && event.namespace.length > 0
+            ? { namespace: event.namespace }
+            : {}),
+        });
+      } catch (err) {
+        console.warn(`[event-catalog] bulk declare skipped "${event.name}":`, (err as Error).message);
+        continue;
+      }
 
       // wave22-d — emit one audit record per declared event in the bulk.
       const after = registry.get(event.name);

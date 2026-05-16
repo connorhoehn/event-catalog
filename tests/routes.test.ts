@@ -396,6 +396,22 @@ describe('Server Routes', () => {
       expect(res.body.declared).toHaveLength(1);
       expect(res.body.declared[0]).toBe('valid:event');
     });
+
+    it('skips events with invalid schema shape without crashing the batch', async () => {
+      const res = await request(app)
+        .post('/api/events/bulk')
+        .send({
+          serviceName: 'platform-api',
+          events: [
+            { name: 'good:event', transport: 'signal', schema: { type: 'object' } },
+            { name: 'bad:schema', transport: 'signal', schema: { type: 'objct' } },
+          ],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.declared).toContain('good:event');
+      expect(res.body.declared).not.toContain('bad:schema');
+    });
   });
 
   // ─── GET /api/events/:name/stats ─────────────────────────────────────
