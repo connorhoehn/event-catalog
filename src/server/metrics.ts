@@ -25,6 +25,9 @@ export class MetricsCollector {
   private events = new Map<string, EventMetricHandles>();
   private readonly registry: MetricsRegistry;
   private readonly rateWindowSeconds: number;
+  /** wave26-a — ring buffer: eventName → last N rate snapshots. */
+  private readonly rateHistory = new Map<string, number[]>();
+  private readonly HISTORY_BUCKETS = 60;
 
   constructor(rateWindowSeconds = 60) {
     this.rateWindowSeconds = rateWindowSeconds;
@@ -87,6 +90,36 @@ export class MetricsCollector {
     }
 
     return result;
+  }
+
+  /**
+   * wave26-a — snapshot current rate for every tracked event into the
+   * ring buffer. Called from the server's periodic health interval so
+   * the sparkline data stays fresh without a dedicated timer.
+   */
+  tickRateHistory(): void {
+    for (const [name, handles] of this.events) {
+      const buf = this.rateHistory.get(name) ?? [];
+      buf.push(handles.rateTracker.rate());
+      if (buf.length > this.HISTORY_BUCKETS) buf.shift();
+      this.rateHistory.set(name, buf);
+    }
+  }
+
+  /**
+   * wave26-a — return rate history for one event or all events.
+   * When `eventName` is provided returns `{ [eventName]: number[] }`.
+   * When omitted returns the full `{ [eventName]: number[] }` map.
+   */
+  getHistory(eventName?: string): Record<string, number[]> {
+    if (eventName) {
+      return { [eventName]: this.rateHistory.get(eventName) ?? [] };
+    }
+    const out: Record<string, number[]> = {};
+    for (const [name, buf] of this.rateHistory) {
+      out[name] = buf;
+    }
+    return out;
   }
 
   reset(eventName?: string): void {

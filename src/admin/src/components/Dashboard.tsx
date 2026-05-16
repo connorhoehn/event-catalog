@@ -5,9 +5,12 @@ import Banner from '@ui/components/shared/Banner';
 import SkeletonCard from '@ui/components/shared/SkeletonCard';
 import { api, type EventEntry, type HealthStatus } from '../api';
 
+type RegistryHealth = Awaited<ReturnType<typeof api.getRegistryHealth>>;
+
 export function Dashboard() {
   const [events, setEvents] = useState<EventEntry[]>([]);
   const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [registryHealth, setRegistryHealth] = useState<RegistryHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -15,9 +18,11 @@ export function Dashboard() {
     Promise.all([
       api.getEvents(),
       api.getHealth(),
-    ]).then(([eventsRes, healthRes]) => {
+      api.getRegistryHealth().catch(() => null),
+    ]).then(([eventsRes, healthRes, regHealth]) => {
       setEvents(eventsRes.events);
       setHealth(healthRes);
+      setRegistryHealth(regHealth);
     }).catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
@@ -123,6 +128,37 @@ export function Dashboard() {
           </div>
           <div className="status-row">
             <span>Uptime: {formatUptime(health.uptime)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* wave26-b — registry health summary card */}
+      {registryHealth && (
+        <div className="transport-status" style={{ marginTop: 12 }}>
+          <h3>Registry Health</h3>
+          <div className="stats-grid" style={{ marginTop: 8 }}>
+            <div className="stat-card">
+              <div className="stat-value">{registryHealth.registrySize}</div>
+              <div className="stat-label">Registry Size</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{registryHealth.namespaceCount}</div>
+              <div className="stat-label">Namespaces</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{registryHealth.deprecatedCount}</div>
+              <div className="stat-label">Deprecated</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{registryHealth.orphanCount}</div>
+              <div className="stat-label">Orphans</div>
+            </div>
+            {registryHealth.manifestCount !== null && (
+              <div className="stat-card">
+                <div className="stat-value">{registryHealth.manifestCount}</div>
+                <div className="stat-label">Pinned Manifests</div>
+              </div>
+            )}
           </div>
         </div>
       )}

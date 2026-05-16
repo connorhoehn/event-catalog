@@ -346,6 +346,9 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     for (const [eventName, stats] of Object.entries(snapshot)) {
       await alertManager.onErrorThreshold(eventName, stats.errorCount);
     }
+
+    // wave26-a — snapshot rate history for sparklines on each health tick.
+    metrics.tickRateHistory();
   }, 15_000);
 
   // Start listening

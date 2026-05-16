@@ -189,4 +189,21 @@ describe('HTTP — namespace surface', () => {
     expect(res.body.total).toBe(3);
     expect(res.body.events.every((e: { namespace: string }) => e.namespace === 'a')).toBe(true);
   });
+
+  it('GET /api/namespaces returns {namespace, eventCount}[] sorted by name (Phase E7)', async () => {
+    const { app, registry } = makeApp();
+    registry.declare({ name: 'pipeline.run.started', schema: {}, transport: 'durable', producer: 'dc' });
+    registry.declare({ name: 'pipeline.run.done', schema: {}, transport: 'durable', producer: 'dc' });
+    registry.declare({ name: 'sfu.stream.started', schema: {}, transport: 'signal', producer: 'sfu' });
+
+    const res = await request(app).get('/api/namespaces');
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(2);
+    const byName = Object.fromEntries(res.body.items.map((i: { namespace: string; eventCount: number }) => [i.namespace, i.eventCount]));
+    expect(byName['pipeline']).toBe(2);
+    expect(byName['sfu']).toBe(1);
+    // sorted alphabetically
+    expect(res.body.items[0].namespace).toBe('pipeline');
+    expect(res.body.items[1].namespace).toBe('sfu');
+  });
 });

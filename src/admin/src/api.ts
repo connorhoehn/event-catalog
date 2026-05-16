@@ -181,6 +181,32 @@ export const api = {
     return request<HealthStatus>('/health');
   },
 
+  /** wave26-b — richer registry health for the Dashboard health card. */
+  getRegistryHealth() {
+    type RegistryHealth = {
+      registrySize: number;
+      namespaceCount: number;
+      deprecatedCount: number;
+      orphanCount: number;
+      manifestCount: number | null;
+      signal: ComponentHealth;
+      durable: ComponentHealth;
+      capturedAt: string;
+    };
+    return request<RegistryHealth>('/health/registry');
+  },
+
+  /** Phase E7 — simple namespace list. */
+  getNamespaces() {
+    return request<{ count: number; items: Array<{ namespace: string; eventCount: number }> }>('/namespaces');
+  },
+
+  /** wave26-a — per-event publish rate history (last 60 samples). */
+  getMetricsHistory(eventName?: string) {
+    const qs = eventName ? `?eventName=${encodeURIComponent(eventName)}` : '';
+    return request<Record<string, number[]>>(`/metrics/history${qs}`);
+  },
+
   getMetrics() {
     return request<Record<string, EventStats>>('/metrics');
   },

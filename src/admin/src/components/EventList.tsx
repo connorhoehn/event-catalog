@@ -6,16 +6,36 @@ import SkeletonCard from '@ui/components/shared/SkeletonCard';
 import Banner from '@ui/components/shared/Banner';
 import { api, type EventEntry } from '../api';
 
+function Sparkline({ data }: { data: number[] }) {
+  if (data.length < 2) return <span style={{ color: '#94a3b8', fontSize: 10 }}>—</span>;
+  const W = 52, H = 16;
+  const max = Math.max(...data, 0.001);
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - (v / max) * H;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', overflow: 'visible' }}>
+      <polyline points={pts} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function EventList() {
   const [events, setEvents] = useState<EventEntry[]>([]);
+  const [rateHistory, setRateHistory] = useState<Record<string, number[]>>({});
   const [filter, setFilter] = useState<{ transport?: string; producer?: string }>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    api.getEvents(filter)
-      .then(res => { setEvents(res.events); setError(null); })
+    Promise.all([
+      api.getEvents(filter),
+      api.getMetricsHistory().catch(() => ({} as Record<string, number[]>)),
+    ])
+      .then(([eventsRes, history]) => { setEvents(eventsRes.events); setRateHistory(history); setError(null); })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [filter]);
@@ -65,6 +85,7 @@ export function EventList() {
               <th>Transport</th>
               <th>Producer</th>
               <th>Subscribers</th>
+              <th>Sparkline (60s)</th>
               <th>Publish Rate</th>
               <th>Total</th>
               <th>Errors</th>
@@ -87,6 +108,7 @@ export function EventList() {
                 </td>
                 <td>{Array.isArray(event.producer) ? event.producer.join(', ') : event.producer}</td>
                 <td>{event.subscribers.length}</td>
+                <td><Sparkline data={rateHistory[event.name] ?? []} /></td>
                 <td className="mono">{event.stats?.publishRate.toFixed(2)}/s</td>
                 <td className="mono">{event.stats?.publishCount.toLocaleString() ?? '0'}</td>
                 <td className={`mono ${(event.stats?.errorCount ?? 0) > 0 ? 'text-error' : ''}`}>

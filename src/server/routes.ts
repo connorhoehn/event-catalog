@@ -561,6 +561,19 @@ export function createRoutes(deps: RoutesDeps): Router {
     res.json({ count: items.length, items });
   });
 
+  // Phase E7 — simple namespace list: {namespace, eventCount}[]. Lighter
+  // than /namespaces/summary for callers that only need the count.
+  router.get('/namespaces', (_req: Request, res: Response) => {
+    const nsMap = new Map<string, number>();
+    for (const entry of registry.list()) {
+      nsMap.set(entry.namespace, (nsMap.get(entry.namespace) ?? 0) + 1);
+    }
+    const items = Array.from(nsMap.entries())
+      .map(([namespace, eventCount]) => ({ namespace, eventCount }))
+      .sort((a, b) => a.namespace.localeCompare(b.namespace));
+    res.json({ count: items.length, items });
+  });
+
   // wave25-b — namespace browser. Returns one row per namespace with
   // event/producer/subscriber/deprecated counts and a transport split.
   // The admin UI's /namespaces page uses this for the at-a-glance grid.
@@ -955,9 +968,45 @@ export function createRoutes(deps: RoutesDeps): Router {
     });
   });
 
+  // wave26-b — richer registry health snapshot for k8s readiness probes
+  // and the admin Dashboard health summary card. Returns the same
+  // transport health plus registry-specific counters.
+  router.get('/health/registry', async (_req: Request, res: Response) => {
+    const all = registry.list();
+    const nsSet = new Set(all.map(e => e.namespace));
+    const deprecatedCount = all.filter(e => !!e.deprecation).length;
+    const orphanCount = all.filter(e => e.subscribers.length === 0).length;
+    const [signalHealth, durableHealth] = await Promise.all([
+      signal.healthCheck(),
+      durable.healthCheck(),
+    ]);
+    let manifestCount: number | null = null;
+    if (manifestStore) {
+      try { manifestCount = (await manifestStore.list()).length; } catch { /* best-effort */ }
+    }
+    res.json({
+      registrySize: registry.size(),
+      namespaceCount: nsSet.size,
+      deprecatedCount,
+      orphanCount,
+      manifestCount,
+      signal: signalHealth,
+      durable: durableHealth,
+      capturedAt: new Date().toISOString(),
+    });
+  });
+
   // All metrics snapshot
   router.get('/metrics', (_req: Request, res: Response) => {
     res.json(metrics.snapshot());
+  });
+
+  // wave26-a — per-event publish rate history for sparklines. Returns
+  // the last 60 rate snapshots per event (one sample ~every 15s = ~15min
+  // of coverage). Used by EventList to draw inline sparklines.
+  router.get('/metrics/history', (_req: Request, res: Response) => {
+    const eventName = typeof _req.query.eventName === 'string' ? _req.query.eventName : undefined;
+    res.json(metrics.getHistory(eventName));
   });
 
   // Signal transport channels

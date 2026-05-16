@@ -109,4 +109,33 @@ describe('MetricsCollector', () => {
       expect(metrics.getStats('nonexistent')).toBeNull();
     });
   });
+
+  describe('tickRateHistory / getHistory (wave26-a)', () => {
+    it('getHistory returns empty for an untracked event', () => {
+      expect(metrics.getHistory('event:x')).toEqual({ 'event:x': [] });
+    });
+
+    it('getHistory returns all events when no name given', () => {
+      metrics.recordPublish('event:a');
+      metrics.tickRateHistory();
+      const all = metrics.getHistory();
+      expect(Object.keys(all)).toContain('event:a');
+      expect(Array.isArray(all['event:a'])).toBe(true);
+    });
+
+    it('tickRateHistory accumulates one sample per tick', () => {
+      metrics.recordPublish('event:a');
+      metrics.tickRateHistory();
+      metrics.tickRateHistory();
+      const hist = metrics.getHistory('event:a');
+      expect(hist['event:a']).toHaveLength(2);
+    });
+
+    it('caps the buffer at 60 samples', () => {
+      metrics.recordPublish('event:a');
+      for (let i = 0; i < 65; i++) metrics.tickRateHistory();
+      const hist = metrics.getHistory('event:a');
+      expect(hist['event:a']!.length).toBe(60);
+    });
+  });
 });
