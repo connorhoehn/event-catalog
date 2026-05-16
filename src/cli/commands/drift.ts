@@ -1,11 +1,16 @@
 // src/cli/commands/drift.ts
 //
-// wave24-a — `event-catalog drift --catalog-url=<url> --against=<file>`.
-// Fetches the live `/api/fingerprints` manifest and diffs it against a
-// previously-saved snapshot. Prints added / removed / changed events.
+// wave24-a — `event-catalog drift --against=<file>` with two source modes
+// for the "live" side:
 //
-// Exits non-zero when any drift is detected — CI gates can wire this
-// to fail builds that would publish a schema change.
+//   --catalog-url=<url>          fetch /api/fingerprints from a running server
+//   --registry-snapshot=<file>   read a committed snapshot file (offline)
+//
+// Offline mode is what producer CI uses: the shipped
+// `contracts/registry.snapshot.json` in `@connorhoehn/event-catalog`
+// is the authoritative side, the producer's snapshot is `--against`.
+//
+// Exits non-zero when any drift is detected.
 
 import { readFileSync } from 'node:fs';
 
@@ -15,9 +20,18 @@ interface Manifest {
 
 export async function drift(args: string[]): Promise<number> {
   const url = getArg(args, 'catalog-url');
+  const registrySnapshotFile = getArg(args, 'registry-snapshot');
   const against = getArg(args, 'against');
-  if (!url || !against) {
-    console.error('usage: event-catalog drift --catalog-url=<url> --against=<snapshot.json>');
+
+  if (!against || (!url && !registrySnapshotFile)) {
+    console.error(
+      'usage: event-catalog drift --against=<snapshot.json> '
+      + '(--catalog-url=<url> | --registry-snapshot=<file>)',
+    );
+    return 2;
+  }
+  if (url && registrySnapshotFile) {
+    console.error('event-catalog drift: pass only one of --catalog-url / --registry-snapshot');
     return 2;
   }
 
@@ -30,16 +44,27 @@ export async function drift(args: string[]): Promise<number> {
   }
 
   let live: Manifest;
-  try {
-    const res = await fetch(`${url.replace(/\/$/, '')}/api/fingerprints`);
-    if (!res.ok) {
-      console.error(`event-catalog drift: HTTP ${res.status}`);
+  if (url) {
+    try {
+      const res = await fetch(`${url.replace(/\/$/, '')}/api/fingerprints`);
+      if (!res.ok) {
+        console.error(`event-catalog drift: HTTP ${res.status}`);
+        return 1;
+      }
+      live = (await res.json()) as Manifest;
+    } catch (err) {
+      console.error(`event-catalog drift: fetch failed: ${(err as Error).message}`);
       return 1;
     }
-    live = (await res.json()) as Manifest;
-  } catch (err) {
-    console.error(`event-catalog drift: fetch failed: ${(err as Error).message}`);
-    return 1;
+  } else {
+    try {
+      live = JSON.parse(readFileSync(registrySnapshotFile!, 'utf8')) as Manifest;
+    } catch (err) {
+      console.error(
+        `event-catalog drift: cannot read registry snapshot "${registrySnapshotFile}": ${(err as Error).message}`,
+      );
+      return 2;
+    }
   }
 
   const added: string[] = [];

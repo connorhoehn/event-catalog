@@ -24,9 +24,14 @@ USAGE
   event-catalog [server] [--port=N] [--redis-url=URL] [--message-queue-url=URL]
   event-catalog lint <file>
   event-catalog snapshot --catalog-url=<url> [--namespace=X]
-  event-catalog drift --catalog-url=<url> --against=<snapshot.json>
+  event-catalog snapshot --from-source --declarations=<path> [--export=N]
+                          [--namespace=X]
+  event-catalog drift --against=<snapshot.json>
+                       (--catalog-url=<url> | --registry-snapshot=<file>)
   event-catalog manifest pin --catalog-url=<url> --consumer=<name>
                               [--snapshot=<file> | --events=name=fp,...]
+  event-catalog manifest verify --against=<consumed.manifest.json>
+                                 --registry-snapshot=<registry.snapshot.json>
   event-catalog deprecate <name> --catalog-url=<url> [--reason=...] [--by=...]
   event-catalog undeprecate <name> --catalog-url=<url>
   event-catalog asyncapi --catalog-url=<url> [--output=file] [--namespace=ns]
@@ -34,9 +39,19 @@ USAGE
   event-catalog --help
 
 EXAMPLES
+  # live mode (requires running catalog server)
   event-catalog snapshot --catalog-url=https://catalog > snapshot.json
   event-catalog drift --catalog-url=https://catalog --against=snapshot.json
-  event-catalog lint declarations.json
+
+  # offline mode for producer CI (no server, no network)
+  event-catalog snapshot --from-source --declarations=src/event-declarations.ts \\
+      > contracts/produced.snapshot.json
+  event-catalog drift --against=contracts/produced.snapshot.json \\
+      --registry-snapshot=node_modules/@connorhoehn/event-catalog/contracts/registry.snapshot.json
+  event-catalog manifest verify --against=contracts/consumed.manifest.json \\
+      --registry-snapshot=node_modules/@connorhoehn/event-catalog/contracts/registry.snapshot.json
+
+  # consumer pinning (live)
   event-catalog manifest pin --catalog-url=https://catalog \\
       --consumer=audit-worker --snapshot=current.json
 

@@ -1,6 +1,6 @@
 {
   "name": "@connorhoehn/event-catalog",
-  "version": "0.3.31",
+  "version": "0.3.32",
   "description": "Unified event registry and transport layer — schema enforcement, metrics, and admin UI over Redis pub/sub and message-queue",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,6 +14,10 @@
       "default": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "contracts"
+  ],
   "scripts": {
     "dev": "tsx watch src/cli/index.ts",
     "dev:stack": "bash scripts/dev.sh",
@@ -22,7 +26,8 @@
     "start": "node dist/cli/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "snapshot:regen": "tsx scripts/regen-registry-snapshot.ts"
   },
   "engines": {
     "node": ">=20.0.0"
