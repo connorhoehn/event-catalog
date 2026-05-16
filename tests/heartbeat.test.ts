@@ -104,6 +104,33 @@ describe('Registry heartbeat (wave24-b)', () => {
     expect(reg.get('b.y')!.subscribers).toEqual([]);
   });
 
+  it('pruneStaleSubscribers retains fresh subscriber while evicting the stale one (registry/index.ts:316)', () => {
+    const reg = new Registry();
+    reg.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
+
+    // Stamp stale-svc at T=0 by controlling the clock.
+    vi.setSystemTime(0);
+    reg.addSubscriber('a.x', 'stale-svc');
+
+    // Stamp fresh-svc 10 minutes later.
+    vi.setSystemTime(600_000);
+    reg.addSubscriber('a.x', 'fresh-svc');
+    vi.useRealTimers();
+
+    // nowMs = 700_000, ttl = 60_000 → cutoff = 640_000.
+    // stale-svc stamped at 0 → stale (0 < 640_000).
+    // fresh-svc stamped at 600_000 → fresh (600_000 < 640_000 → also stale!).
+    // Need wider gap: nowMs = 700_000, ttl = 60_000 → cutoff = 640_000.
+    // fresh-svc at 600_000 < 640_000 → still pruned.
+    // Let's use: nowMs = 700_000, ttl = 200_000 → cutoff = 500_000.
+    // stale-svc at 0 < 500_000 → pruned.
+    // fresh-svc at 600_000 > 500_000 → retained.
+    const pruned = reg.pruneStaleSubscribers(200_000, 700_000);
+    expect(pruned).toHaveLength(1);
+    expect(pruned[0]!.serviceName).toBe('stale-svc');
+    expect(reg.get('a.x')!.subscribers).toEqual(['fresh-svc']);
+  });
+
   it('eventsSubscribedBy returns the right list', () => {
     const reg = new Registry();
     reg.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
