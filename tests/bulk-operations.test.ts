@@ -128,6 +128,26 @@ describe('GET /api/events/bulk/export', () => {
   });
 });
 
+describe('POST /api/events/bulk — per-event producer overrides serviceName (routes.ts:454)', () => {
+  it('uses event.producer when set instead of falling back to serviceName', async () => {
+    const { app, registry } = createApp();
+
+    const res = await request(app)
+      .post('/api/events/bulk')
+      .send({
+        serviceName: 'fallback-svc',
+        events: [
+          { name: 'override.event', schema: { type: 'object' }, transport: 'signal', producer: 'override-svc' },
+          { name: 'fallback.event', schema: { type: 'object' }, transport: 'signal' },
+        ],
+      });
+
+    expect(res.status).toBe(201);
+    expect(registry.get('override.event')?.producer).toBe('override-svc');
+    expect(registry.get('fallback.event')?.producer).toBe('fallback-svc');
+  });
+});
+
 describe('POST /api/events/bulk — malformed entry skip (routes.ts:442)', () => {
   it('skips entries missing name or transport and only declares valid ones', async () => {
     const { app, registry } = createApp();
