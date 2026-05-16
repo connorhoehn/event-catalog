@@ -29,7 +29,8 @@
     "lint": "tsc --noEmit",
     "snapshot:regen": "tsx scripts/regen-registry-snapshot.ts",
     "prepublishOnly": "tsx scripts/regen-registry-snapshot.ts",
-    "openapi:check": "tsx scripts/openapi-check.ts"
+    "openapi:check": "tsx scripts/openapi-check.ts",
+    "test:e2e": "playwright test"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -44,6 +45,7 @@
     "ulid": "^2.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.14.0",
