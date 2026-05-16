@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { makeHealthHandler } from '../src/server/health.js';
@@ -77,5 +77,47 @@ describe('makeHealthHandler — tri-state', () => {
     expect(res.body.checks[0].id).toBe('redis');
     expect(res.body.checks[0].status).toBe('unhealthy');
     expect((res.body.checks[0].details as { error: string }).error).toBe('boom');
+  });
+});
+
+describe('makeHealthHandler — timeout path', () => {
+  it('marks a check unhealthy when it does not resolve within timeoutMs', async () => {
+    // Use a real 2ms timeout and a check that takes 50ms — the timeout fires first.
+    const handler = makeHealthHandler({
+      service: 'event-catalog',
+      version: '0.1.0',
+      checks: [
+        {
+          id: 'slow-check',
+          check: () =>
+            new Promise<{ status: 'healthy' }>((resolve) =>
+              setTimeout(() => resolve({ status: 'healthy' }), 50),
+            ),
+        },
+      ],
+      timeoutMs: 2,
+    });
+
+    const res = await request(makeApp(handler)).get('/health');
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe('unhealthy');
+    const check = res.body.checks[0] as { id: string; status: string; details: { error: string } };
+    expect(check.id).toBe('slow-check');
+    expect(check.status).toBe('unhealthy');
+    expect(check.details.error).toContain('timed out');
+  }, 500);
+
+  it('uses custom timeoutMs — fast check resolves well within timeout', async () => {
+    const handler = makeHealthHandler({
+      service: 'event-catalog',
+      version: '0.1.0',
+      checks: [
+        { id: 'fast', check: async () => ({ status: 'healthy' as const }) },
+      ],
+      timeoutMs: 200,
+    });
+
+    const res = await request(makeApp(handler)).get('/health').expect(200);
+    expect(res.body.status).toBe('healthy');
   });
 });
