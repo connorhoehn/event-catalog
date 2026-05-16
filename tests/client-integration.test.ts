@@ -1179,6 +1179,31 @@ describe('EventCatalog Client Integration', () => {
       await sub.unsubscribe();
       await catalog.disconnect();
     });
+
+    it('transport:both subscribe routes to the durable polling path (not signal)', async () => {
+      fetchMock.mockImplementation(async (url: string | URL | Request, opts?: RequestInit) => {
+        const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : (url as Request).url;
+        if (urlStr.includes('/health')) return new Response('ok', { status: 200 });
+        return new Response(JSON.stringify({ messages: [] }), { status: 200 });
+      });
+
+      const catalog = new EventCatalog(makeConfig());
+      catalog.declare({ name: 'hybrid.event', schema: {}, transport: 'both', producer: 'test-service' });
+      await catalog.connect();
+      fetchMock.mockClear();
+
+      const sub = catalog.subscribe('hybrid.event', vi.fn(), { pollingInterval: 0 });
+      await new Promise(r => setTimeout(r, 20));
+
+      // Should hit the durable queue poll endpoint (not signal Redis subscribe)
+      const queueCalls = fetchMock.mock.calls.filter(([url]: [string]) =>
+        url.includes('hybrid-event'),
+      );
+      expect(queueCalls.length).toBeGreaterThan(0);
+
+      await sub.unsubscribe();
+      await catalog.disconnect();
+    });
   });
 
   describe('resyncInterval — periodic re-sync', () => {
