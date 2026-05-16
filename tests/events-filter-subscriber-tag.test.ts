@@ -90,6 +90,35 @@ describe('GET /api/events?subscriber=', () => {
     });
 });
 
+// ─── GET /api/events?producer= with array-producer ────────────────────────────
+
+describe('GET /api/events?producer= — array-producer (registry/index.ts:219)', () => {
+    it('finds an event when querying by any one of its array producers', async () => {
+        const registry = new Registry();
+        // Array producer — two authoritative sources for this event.
+        registry.declare({ name: 'order.shipped', schema: {}, transport: 'durable', producer: ['platform-api', 'billing-service'] });
+        // Single-producer control event.
+        registry.declare({ name: 'user.created', schema: {}, transport: 'signal', producer: 'auth-service' });
+        const app = createApp(registry);
+
+        // Both array-producer values should independently return the event.
+        const res1 = await request(app).get('/api/events?producer=platform-api');
+        expect(res1.status).toBe(200);
+        expect(res1.body.events.map((e: { name: string }) => e.name)).toContain('order.shipped');
+        expect(res1.body.events.map((e: { name: string }) => e.name)).not.toContain('user.created');
+
+        const res2 = await request(app).get('/api/events?producer=billing-service');
+        expect(res2.status).toBe(200);
+        expect(res2.body.events.map((e: { name: string }) => e.name)).toContain('order.shipped');
+        expect(res2.body.events.map((e: { name: string }) => e.name)).not.toContain('user.created');
+
+        // A producer not in the array should not return the event.
+        const res3 = await request(app).get('/api/events?producer=other-service');
+        expect(res3.status).toBe(200);
+        expect(res3.body.events.map((e: { name: string }) => e.name)).not.toContain('order.shipped');
+    });
+});
+
 // ─── GET /api/events?tag= ─────────────────────────────────────────────────────
 
 describe('GET /api/events?tag=', () => {
