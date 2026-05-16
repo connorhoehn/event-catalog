@@ -1,6 +1,6 @@
 import type { Registry } from '../registry/index.js';
 import type { SignalTransport } from '../client/signal.js';
-import type { DurableTransport } from '../client/durable.js';
+import { DurableTransport } from '../client/durable.js';
 import type { MetricsCollector } from './metrics.js';
 import { tapEmitter } from './tap-emitter.js';
 import type { ProducerAttributionStore } from './producer-attribution.js';
