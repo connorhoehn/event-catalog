@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
 import { createRoutes, type RoutesDeps } from '../src/server/routes.js';
+import { auditEmitter, type AuditEvent } from '../src/server/audit-emitter.js';
 
 function createApp() {
   const registry = new Registry();
@@ -150,5 +151,98 @@ describe('POST /api/events/bulk — invalid-schema recovery', () => {
       expect.any(String),
     );
     warnSpy.mockRestore();
+  });
+});
+
+describe('POST /api/events/bulk — audit emission', () => {
+  let seen: AuditEvent[];
+  const handler = (e: AuditEvent) => seen.push(e);
+
+  beforeEach(() => {
+    seen = [];
+    auditEmitter.on('audit', handler);
+  });
+
+  afterEach(() => {
+    auditEmitter.off('audit', handler);
+  });
+
+  it('emits event.declared for each new event in the bulk', async () => {
+    const { app } = createApp();
+    await request(app)
+      .post('/api/events/bulk')
+      .send({
+        serviceName: 'batch-svc',
+        events: [
+          { name: 'bulk.alpha', schema: { type: 'object' }, transport: 'signal' },
+          { name: 'bulk.beta', schema: { type: 'object' }, transport: 'durable' },
+        ],
+      })
+      .expect(201);
+
+    const declared = seen.filter((e) => e.kind === 'event.declared');
+    expect(declared).toHaveLength(2);
+    const names = declared.map((e) => e.eventName);
+    expect(names).toContain('bulk.alpha');
+    expect(names).toContain('bulk.beta');
+    expect(declared[0]!.namespace).toBeDefined();
+    expect(declared[0]!.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('emits event.version.bumped when bulk re-declares an existing event with a new schema', async () => {
+    const { app, registry } = createApp();
+    registry.declare({
+      name: 'versioned.event', schema: { type: 'object' }, transport: 'signal', producer: 'svc',
+      compatibilityMode: 'none',
+    });
+
+    await request(app)
+      .post('/api/events/bulk')
+      .send({
+        serviceName: 'svc',
+        events: [
+          { name: 'versioned.event', schema: { type: 'object', properties: { id: { type: 'string' } } }, transport: 'signal', compatibilityMode: 'none' },
+        ],
+      })
+      .expect(201);
+
+    const bumps = seen.filter((e) => e.kind === 'event.version.bumped');
+    expect(bumps).toHaveLength(1);
+    expect(bumps[0]!.eventName).toBe('versioned.event');
+    expect(bumps[0]!.version).toBe(2);
+  });
+});
+
+describe('POST /api/events/bulk/deprecate — audit emission', () => {
+  let seen: AuditEvent[];
+  const handler = (e: AuditEvent) => seen.push(e);
+
+  beforeEach(() => {
+    seen = [];
+    auditEmitter.on('audit', handler);
+  });
+
+  afterEach(() => {
+    auditEmitter.off('audit', handler);
+  });
+
+  it('emits event.deprecated for each successfully deprecated event', async () => {
+    const { app, registry } = createApp();
+
+    await request(app)
+      .post('/api/events/bulk/deprecate')
+      .send({ names: ['user.signed-up', 'order.placed'], reason: 'sunset', by: 'ops' })
+      .expect(200);
+
+    const deprecations = seen.filter((e) => e.kind === 'event.deprecated');
+    expect(deprecations).toHaveLength(2);
+    const names = deprecations.map((e) => e.eventName);
+    expect(names).toContain('user.signed-up');
+    expect(names).toContain('order.placed');
+    expect(deprecations[0]!.reason).toBe('sunset');
+    expect(deprecations[0]!.by).toBe('ops');
+
+    // Unused — suppress TS warning
+    void registry;
   });
 });
