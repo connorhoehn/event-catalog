@@ -138,4 +138,82 @@ describe('MetricsCollector', () => {
       expect(hist['event:a']!.length).toBe(60);
     });
   });
+
+  describe('snapshotToRedis / restoreFromRedis', () => {
+    function makeRedis(store: Record<string, string> = {}) {
+      return {
+        set: async (key: string, value: string) => { store[key] = value; },
+        get: async (key: string) => store[key] ?? null,
+        _store: store,
+      };
+    }
+
+    it('snapshotToRedis writes JSON with publishCount and errorCount', async () => {
+      metrics.recordPublish('order.created');
+      metrics.recordPublish('order.created');
+      metrics.recordError('order.created');
+
+      const redis = makeRedis();
+      await metrics.snapshotToRedis(redis as never);
+
+      const raw = Object.values(redis._store)[0]!;
+      const data = JSON.parse(raw) as Record<string, { publishCount: number; errorCount: number }>;
+      expect(data['order.created'].publishCount).toBe(2);
+      expect(data['order.created'].errorCount).toBe(1);
+    });
+
+    it('snapshotToRedis includes all tracked events', async () => {
+      metrics.recordPublish('ev.a');
+      metrics.recordPublish('ev.b');
+      metrics.recordPublish('ev.b');
+
+      const redis = makeRedis();
+      await metrics.snapshotToRedis(redis as never);
+
+      const raw = Object.values(redis._store)[0]!;
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      expect(Object.keys(data).sort()).toEqual(['ev.a', 'ev.b']);
+    });
+
+    it('restoreFromRedis is a no-op when no snapshot exists', async () => {
+      const redis = makeRedis();
+      await metrics.restoreFromRedis(redis as never);
+      expect(metrics.snapshot()).toEqual({});
+    });
+
+    it('restoreFromRedis rehydrates publishCount and errorCount', async () => {
+      const store: Record<string, string> = {};
+      const redis = makeRedis(store);
+
+      // Write a synthetic snapshot (mimic what snapshotToRedis would write)
+      metrics.recordPublish('ship.event');
+      metrics.recordPublish('ship.event');
+      metrics.recordError('ship.event');
+      await metrics.snapshotToRedis(redis as never);
+
+      // Start fresh and restore
+      const fresh = new MetricsCollector(60);
+      await fresh.restoreFromRedis(redis as never);
+
+      const stats = fresh.getStats('ship.event');
+      expect(stats).not.toBeNull();
+      expect(stats!.publishCount).toBe(2);
+      expect(stats!.errorCount).toBe(1);
+    });
+
+    it('restoreFromRedis round-trips multiple events', async () => {
+      const redis = makeRedis();
+
+      metrics.recordPublish('ev.x');
+      metrics.recordPublish('ev.x');
+      metrics.recordPublish('ev.y');
+      await metrics.snapshotToRedis(redis as never);
+
+      const fresh = new MetricsCollector(60);
+      await fresh.restoreFromRedis(redis as never);
+
+      expect(fresh.getStats('ev.x')!.publishCount).toBe(2);
+      expect(fresh.getStats('ev.y')!.publishCount).toBe(1);
+    });
+  });
 });
