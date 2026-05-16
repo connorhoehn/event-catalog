@@ -463,6 +463,40 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     unsubscribe();
   });
 
+  it('disposed onDeadLetter callback is NOT invoked when a message dead-letters', async () => {
+    const envelope = makeEnvelope({ eventName: 'poison.event' });
+    const queueMsg = makeQueueMessage('msg-dispose', envelope);
+
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                                          // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail (attempt 1)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 2 → fail (attempt 2) → dead-letter
+      .mockResolvedValueOnce({ ok: true })                                          // DELETE after dead-letter
+      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const t = new DurableTransport({ url: 'http://mq:3004', maxProcessingAttempts: 2 });
+    await t.connect();
+
+    const cb1 = vi.fn();
+    const cb2 = vi.fn();
+    const dispose = t.onDeadLetter(cb1);
+    t.onDeadLetter(cb2);
+    dispose(); // remove cb1 before any dead-letter fires
+
+    const handler = vi.fn().mockRejectedValue(new Error('poison'));
+    const unsubscribe = t.subscribe('test-queue', handler, { pollingInterval: 0 });
+
+    await new Promise(r => setTimeout(r, 100));
+
+    expect(cb1).not.toHaveBeenCalled();
+    expect(cb2).toHaveBeenCalledOnce();
+
+    unsubscribe();
+  });
+
   it('unsubscribe() aborts the poll loop and stops further fetches', async () => {
     const fetchSpy = vi.fn()
       .mockResolvedValueOnce({ ok: true })                                    // connect /health
