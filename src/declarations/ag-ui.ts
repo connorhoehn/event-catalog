@@ -1,6 +1,6 @@
 // src/declarations/ag-ui.ts
 //
-// AG-UI v0.1.x protocol event taxonomy — 28 event types across 7 categories.
+// AG-UI v0.1.x protocol event taxonomy — 29 event types across 7 categories.
 //
 // AG-UI is the streaming protocol used by @connorhoehnslalom/ui-components/agents
 // to communicate agent lifecycle, text streaming, tool calls, state snapshots,
@@ -602,7 +602,7 @@ export const agUiMetaEvent: EventDeclaration = {
 // Exports
 // ---------------------------------------------------------------------------
 
-/** All 28 AG-UI v0.1.x event declarations. */
+/** All 29 AG-UI v0.1.x event declarations. */
 export const agUiDeclarations: readonly EventDeclaration[] = [
   // Lifecycle
   agUiRunStarted,
