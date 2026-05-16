@@ -68,6 +68,18 @@ describe('DurableTransport', () => {
       expect(t.isConnected()).toBe(true);
     });
 
+    it('logs warn when health ping throws (message-queue not reachable)', async () => {
+      fetchSpy.mockRejectedValue(new Error('ECONNREFUSED'));
+      const t = new DurableTransport({ url: 'http://mq:3004' });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await t.connect();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('message-queue not reachable at http://mq:3004'),
+        'ECONNREFUSED',
+      );
+      warnSpy.mockRestore();
+    });
+
     it('is idempotent — second connect() skips the health ping', async () => {
       const t = new DurableTransport({ url: 'http://mq:3004' });
       await t.connect();
@@ -701,5 +713,83 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     unsubscribe();
     errorSpy.mockRestore();
     vi.useRealTimers();
+  });
+});
+
+describe('DurableTransport — ensureQueue() warn paths', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function makeConnected(url = 'http://mq:3004') {
+    fetchSpy.mockResolvedValueOnce({ ok: true }); // health ping
+    const t = new DurableTransport({ url });
+    await t.connect();
+    return t;
+  }
+
+  it('logs warn when DLQ putQueue fails (dlqAfterAttempts declared)', async () => {
+    const t = await makeConnected();
+    fetchSpy
+      .mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'error' }) // DLQ PUT → fail
+      .mockResolvedValueOnce({ ok: true, status: 201 });                            // main queue PUT → ok
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await t.ensureQueue('my-queue', { dlqAfterAttempts: 3 });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('DLQ ensure for "my-queue-dlq" failed'),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('logs warn and accepts drift when queue already exists with differing config (409)', async () => {
+    const t = await makeConnected();
+    fetchSpy.mockResolvedValueOnce({
+      ok: false, status: 409,
+      json: async () => ({ conflicts: { retention: 'mismatch' } }),
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await t.ensureQueue('existing-queue');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"existing-queue" exists with differing config'),
+      expect.stringContaining('mismatch'),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('logs warn when PUT returns a non-200/201/409 status', async () => {
+    const t = await makeConnected();
+    fetchSpy.mockResolvedValueOnce({
+      ok: false, status: 503,
+      text: async () => 'service unavailable',
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await t.ensureQueue('flaky-queue');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('ensureQueue "flaky-queue" failed: 503 service unavailable'),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('logs warn when PUT fetch throws a network error', async () => {
+    const t = await makeConnected();
+    fetchSpy.mockRejectedValueOnce(new Error('ECONNRESET'));
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await t.ensureQueue('error-queue');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('ensureQueue "error-queue" error:'),
+      'ECONNRESET',
+    );
+    warnSpy.mockRestore();
   });
 });

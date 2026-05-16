@@ -641,4 +641,21 @@ describe('SignalTransport', () => {
       expect(metrics.lastPublishedAt).not.toBeNull();
     });
   });
+
+  describe('publishChannelMessage()', () => {
+    it('logs warn and returns 0 when not connected', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const result = await transport.publishChannelMessage('channel:abc', {
+        channelId: 'channel:abc',
+        payload: {},
+        metadata: { id: 'm1', producer: 'gw', timestamp: Date.now() },
+        targetNodes: [],
+      } as any);
+      expect(result).toBe(0);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('not connected, skipping channel-message publish to channel:abc'),
+      );
+      warnSpy.mockRestore();
+    });
+  });
 });
