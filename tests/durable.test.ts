@@ -556,4 +556,36 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     // Allow at most 1 in-flight fetch to complete after the abort signal fires
     expect(countAfter - countAtUnsubscribe).toBeLessThanOrEqual(1);
   });
+
+  it('dlqCapacity evicts oldest entry when the DLQ is full', async () => {
+    const msgA = makeQueueMessage('msg-a', makeEnvelope({ eventName: 'event.a' }));
+    const msgB = makeQueueMessage('msg-b', makeEnvelope({ eventName: 'event.b' }));
+
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                                                   // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })                                      // ensureQueue PUT
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgA] }) })         // poll 1 → msg-a attempt 1 (warn)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgA] }) })         // poll 2 → msg-a attempt 2 → dead-letter
+      .mockResolvedValueOnce({ ok: true })                                                   // DELETE msg-a
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgB] }) })         // poll 3 → msg-b attempt 1 (warn)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgB] }) })         // poll 4 → msg-b attempt 2 → dead-letter
+      .mockResolvedValueOnce({ ok: true })                                                   // DELETE msg-b
+      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });                // subsequent polls
+
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const t = new DurableTransport({ url: 'http://mq:3004', maxProcessingAttempts: 2, dlqCapacity: 1 });
+    await t.connect();
+
+    const handler = vi.fn().mockRejectedValue(new Error('fail'));
+    const unsubscribe = t.subscribe('test-queue', handler, { pollingInterval: 0 });
+
+    await new Promise(r => setTimeout(r, 150));
+
+    const dlq = t.getDLQ();
+    expect(dlq).toHaveLength(1);
+    expect(dlq[0]!.messageId).toBe('msg-b'); // msg-a was evicted when msg-b was added
+
+    unsubscribe();
+  });
 });
