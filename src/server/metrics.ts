@@ -146,7 +146,12 @@ export class MetricsCollector {
     const raw = await redis.get(SNAPSHOT_KEY);
     if (!raw) return;
 
-    const data = JSON.parse(raw) as Record<string, PersistedEventMetrics>;
+    let data: Record<string, PersistedEventMetrics>;
+    try {
+      data = JSON.parse(raw) as Record<string, PersistedEventMetrics>;
+    } catch {
+      return;
+    }
     for (const [eventName, persisted] of Object.entries(data)) {
       const handles = this.getOrCreate(eventName);
       handles.publishCounter.reset();

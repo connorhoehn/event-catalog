@@ -181,6 +181,12 @@ describe('MetricsCollector', () => {
       expect(metrics.snapshot()).toEqual({});
     });
 
+    it('restoreFromRedis is a no-op when snapshot is corrupt JSON', async () => {
+      const redis = makeRedis({ 'event-catalog:metrics:snapshot': 'not-valid-json{{{' });
+      await expect(metrics.restoreFromRedis(redis as never)).resolves.toBeUndefined();
+      expect(metrics.snapshot()).toEqual({});
+    });
+
     it('restoreFromRedis rehydrates publishCount and errorCount', async () => {
       const store: Record<string, string> = {};
       const redis = makeRedis(store);
