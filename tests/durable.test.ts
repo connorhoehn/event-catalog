@@ -136,3 +136,119 @@ describe('DurableTransport', () => {
     });
   });
 });
+
+describe('DurableTransport — getQueueAttributes()', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns parsed attributes on ok response', async () => {
+    const attrs = { ApproximateNumberOfMessages: 7, ApproximateNumberOfMessagesNotVisible: 2 };
+    fetchSpy.mockResolvedValue({ ok: true, json: async () => attrs });
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    const result = await t.getQueueAttributes('my-queue');
+    expect(result).toEqual(attrs);
+    expect(fetchSpy).toHaveBeenCalledWith('http://mq:3004/queues/my-queue/attributes');
+  });
+
+  it('returns null on non-ok response', async () => {
+    fetchSpy.mockResolvedValue({ ok: false, status: 404 });
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    const result = await t.getQueueAttributes('missing-queue');
+    expect(result).toBeNull();
+  });
+
+  it('returns null on network error', async () => {
+    fetchSpy.mockRejectedValue(new Error('ECONNREFUSED'));
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    const result = await t.getQueueAttributes('bad-queue');
+    expect(result).toBeNull();
+  });
+
+  it('URL-encodes special characters in queue name', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, json: async () => ({}) });
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    await t.getQueueAttributes('my queue/name');
+    expect(fetchSpy).toHaveBeenCalledWith('http://mq:3004/queues/my%20queue%2Fname/attributes');
+  });
+});
+
+describe('DurableTransport — getMetrics() / getAllMetrics()', () => {
+  it('getMetrics() with no arg returns empty Map on fresh instance', () => {
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    const result = t.getMetrics();
+    expect(result).toBeInstanceOf(Map);
+    expect((result as Map<string, unknown>).size).toBe(0);
+  });
+
+  it('getMetrics(queueName) returns undefined for unknown queue', () => {
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    expect(t.getMetrics('nonexistent-queue')).toBeUndefined();
+  });
+
+  it('getAllMetrics() returns an independent copy of the metrics map', () => {
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    const m1 = t.getAllMetrics();
+    const m2 = t.getAllMetrics();
+    // Two separate Map instances
+    expect(m1).not.toBe(m2);
+    expect(m1.size).toBe(0);
+  });
+});
+
+describe('DurableTransport — getDLQ() / drainDLQ()', () => {
+  it('getDLQ() returns empty array on fresh instance', () => {
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    const dlq = t.getDLQ();
+    expect(Array.isArray(dlq)).toBe(true);
+    expect(dlq).toHaveLength(0);
+  });
+
+  it('drainDLQ() returns empty array and leaves the queue empty', () => {
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    const drained = t.drainDLQ();
+    expect(drained).toHaveLength(0);
+    expect(t.getDLQ()).toHaveLength(0);
+  });
+
+  it('getDLQ() returns a snapshot copy (mutating the result does not affect internal state)', () => {
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    const snap1 = t.getDLQ();
+    // Push to the snapshot — should not affect a subsequent call
+    snap1.push({} as never);
+    expect(t.getDLQ()).toHaveLength(0);
+  });
+});
+
+describe('DurableTransport — onDeadLetter()', () => {
+  it('registers a callback that can be disposed', () => {
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    const cb = vi.fn();
+    const dispose = t.onDeadLetter(cb);
+    expect(typeof dispose).toBe('function');
+    // Dispose removes the callback (tested indirectly: no crash, returns function)
+    dispose();
+  });
+
+  it('multiple callbacks can be registered independently', () => {
+    const t = new DurableTransport({ url: 'http://mq:3004' });
+    const cb1 = vi.fn();
+    const cb2 = vi.fn();
+    const dispose1 = t.onDeadLetter(cb1);
+    t.onDeadLetter(cb2);
+    // dispose1 removes only cb1; cb2 remains registered
+    dispose1();
+    // After dispose, subsequent fresh registrations still work
+    const cb3 = vi.fn();
+    const dispose3 = t.onDeadLetter(cb3);
+    expect(typeof dispose3).toBe('function');
+    dispose3();
+  });
+});
