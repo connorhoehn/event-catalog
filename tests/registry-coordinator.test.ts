@@ -196,6 +196,38 @@ describe('RegistryCoordinator', () => {
     expect(publishLog).toHaveLength(0);
   });
 
+  it('broadcast swallows publish errors and logs a warning', async () => {
+    const registry = new Registry();
+    const coord = await makeCoordinator(registry);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Inject a failing publish on the internal pub client
+    const pubClient = (coord as any).pubClient as ReturnType<typeof createMockClient>;
+    pubClient.publish.mockRejectedValueOnce(new Error('connection lost'));
+
+    await expect(coord.broadcast('declare', { name: 'x' })).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('broadcast failed'),
+      'connection lost',
+    );
+
+    warnSpy.mockRestore();
+    await coord.stop();
+  });
+
+  it('start() is idempotent — second call is a no-op', async () => {
+    const registry = new Registry();
+    const coord = new RegistryCoordinator();
+    await coord.start('redis://localhost:6379', registry);
+    await coord.start('redis://localhost:6379', registry); // second call: _started is true → early return
+
+    // Only one subscription handler should be registered for the channel
+    const handlers = subscriptions.get(MUTATIONS_CHANNEL);
+    expect(handlers?.size).toBe(1);
+
+    await coord.stop();
+  });
+
   it('handles malformed JSON in incoming mutation without crashing', async () => {
     const registry = new Registry();
     const coord = await makeCoordinator(registry);
@@ -219,6 +251,28 @@ describe('RegistryCoordinator', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('unknown mutation kind'),
       'unknown-future-kind',
+    );
+
+    warnSpy.mockRestore();
+    await coord.stop();
+  });
+
+  it('swallows and logs when applyMutation throws (e.g. invalid schema in remote declare)', async () => {
+    const registry = new Registry();
+    const coord = await makeCoordinator(registry);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    deliver(MUTATIONS_CHANNEL, JSON.stringify({
+      replicaId: 'peer-replica',
+      kind: 'declare',
+      payload: { name: 'bad.event', schema: { type: 'objct' }, transport: 'signal', producer: 'svc' },
+    }));
+
+    expect(registry.get('bad.event')).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('failed to apply remote mutation'),
+      expect.stringContaining('invalid JSON Schema shape'),
+      'declare',
     );
 
     warnSpy.mockRestore();
