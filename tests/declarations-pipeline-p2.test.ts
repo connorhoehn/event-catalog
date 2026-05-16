@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { Registry } from '../src/registry/index.js';
 import {
     pipelineP2Declarations,
@@ -15,6 +15,8 @@ import { pipelineP1Declarations } from '../src/declarations/pipeline-p1';
 import { pipelineDeclarations } from '../src/declarations/pipeline';
 import {
     pipelineRaftStateMachineDeclarations,
+    pipelineRaftDeclarations,
+    pipelineRaftRunStarted,
     pipelineRaftRunSynthesized,
     pipelineRaftRunUpdated,
     pipelineRaftRunCheckpointed,
@@ -336,5 +338,70 @@ describe('pipelineEventDeclarations includes P2 events (wave20-a)', () => {
     it('has no duplicate names', () => {
         const names = pipelineEventDeclarations.map((d) => d.name);
         expect(new Set(names).size).toBe(names.length);
+    });
+});
+
+describe('pipelineRaftDeclarations (full 5-event array)', () => {
+    it('exports exactly 5 declarations', () => {
+        expect(pipelineRaftDeclarations).toHaveLength(5);
+    });
+
+    it('contains pipeline:raft:run:started (absent from SM-only array)', () => {
+        const fullNames = pipelineRaftDeclarations.map((d) => d.name);
+        const smNames = pipelineRaftStateMachineDeclarations.map((d) => d.name);
+        expect(fullNames).toContain('pipeline:raft:run:started');
+        expect(smNames).not.toContain('pipeline:raft:run:started');
+    });
+
+    it('bulk-registers all 5 events in a fresh registry without errors', () => {
+        const registry = new Registry();
+        for (const decl of pipelineRaftDeclarations) {
+            const result = registry.declare(decl);
+            expect(result.compatible).toBe(true);
+        }
+        expect(registry.size()).toBe(5);
+    });
+
+    it('all 5 declarations have signal transport + platform-api producer', () => {
+        for (const decl of pipelineRaftDeclarations) {
+            expect(decl.transport).toBe('signal');
+            expect(decl.producer).toBe('platform-api');
+        }
+    });
+
+    describe('pipelineRaftRunStarted payload validation', () => {
+        let registry: Registry;
+
+        beforeEach(() => {
+            registry = new Registry();
+            registry.declare(pipelineRaftRunStarted);
+        });
+
+        it('accepts a valid payload with runId and full slot', () => {
+            expect(registry.validate('pipeline:raft:run:started', {
+                runId: 'run_abc',
+                slot: {
+                    runId: 'run_abc',
+                    status: 'running',
+                    lastAppliedIndex: 0,
+                    pipelineId: 'pipe_001',
+                    pipelineVersion: 3,
+                    ownerNodeId: 'node_42',
+                    checkpoint: {},
+                },
+            }).valid).toBe(true);
+        });
+
+        it('rejects a payload missing runId', () => {
+            expect(registry.validate('pipeline:raft:run:started', {
+                slot: { runId: 'run_abc', status: 'running', lastAppliedIndex: 0 },
+            }).valid).toBe(false);
+        });
+
+        it('rejects a payload missing slot', () => {
+            expect(registry.validate('pipeline:raft:run:started', {
+                runId: 'run_abc',
+            }).valid).toBe(false);
+        });
     });
 });
