@@ -3,6 +3,7 @@ import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
 import { MetricsObserver } from '../src/server/metrics-observer.js';
 import { tapEmitter } from '../src/server/tap-emitter.js';
+import { auditEmitter } from '../src/server/audit-emitter.js';
 
 // Minimal stub factories —— only the methods MetricsObserver actually calls.
 const makeSignal = (connected = true) => ({
@@ -32,6 +33,7 @@ describe('MetricsObserver', () => {
   beforeEach(() => {
     registry = new Registry();
     tapEmitter.removeAllListeners('publish');
+    auditEmitter.removeAllListeners('audit');
     vi.useFakeTimers();
   });
 
@@ -280,6 +282,84 @@ describe('MetricsObserver', () => {
       expect(taps[0].eventName).toBe('chat.msg');
       expect(taps[0].namespace).toBe('chat');
       expect(taps[0].transport).toBe('signal');
+    });
+  });
+
+  describe('maybePoison path (poison detection)', () => {
+    it('calls poisonDetector.recordFailure when signal.subscribe errors', async () => {
+      const signal = makeSignal();
+      signal.subscribe.mockRejectedValue(new Error('redis down'));
+      const poisonDetector = { recordFailure: vi.fn().mockReturnValue(false) };
+
+      const observer = new MetricsObserver({
+        registry, signal: signal as any, durable: makeDurable() as any,
+        metrics: makeMetrics() as any, poisonDetector: poisonDetector as any,
+      });
+
+      await observer.observe('bad.event', 'signal');
+      expect(poisonDetector.recordFailure).toHaveBeenCalledWith('bad.event');
+    });
+
+    it('emits event.poisoned audit event when poisonDetector.recordFailure returns true', async () => {
+      registry.declare({ name: 'toxic.event', schema: {}, transport: 'signal', producer: 'svc', namespace: 'toxic' });
+
+      const signal = makeSignal();
+      signal.subscribe.mockRejectedValue(new Error('boom'));
+      const poisonDetector = { recordFailure: vi.fn().mockReturnValue(true) };
+
+      const auditEvents: any[] = [];
+      auditEmitter.on('audit', (e) => auditEvents.push(e));
+
+      const observer = new MetricsObserver({
+        registry, signal: signal as any, durable: makeDurable() as any,
+        metrics: makeMetrics() as any, poisonDetector: poisonDetector as any,
+      });
+
+      await observer.observe('toxic.event', 'signal');
+
+      expect(auditEvents).toHaveLength(1);
+      expect(auditEvents[0].kind).toBe('event.poisoned');
+      expect(auditEvents[0].eventName).toBe('toxic.event');
+      expect(auditEvents[0].namespace).toBe('toxic');
+    });
+
+    it('does not emit audit event when poisonDetector.recordFailure returns false', async () => {
+      const signal = makeSignal();
+      signal.subscribe.mockRejectedValue(new Error('timeout'));
+      const poisonDetector = { recordFailure: vi.fn().mockReturnValue(false) };
+
+      const auditEvents: any[] = [];
+      auditEmitter.on('audit', (e) => auditEvents.push(e));
+
+      const observer = new MetricsObserver({
+        registry, signal: signal as any, durable: makeDurable() as any,
+        metrics: makeMetrics() as any, poisonDetector: poisonDetector as any,
+      });
+
+      await observer.observe('meh.event', 'signal');
+      expect(auditEvents).toHaveLength(0);
+    });
+  });
+
+  describe('pollDurableStats — error delta', () => {
+    it('calls recordError for each unit of failed-delta', async () => {
+      registry.declare({ name: 'q.event', schema: {}, transport: 'durable', producer: 'svc' });
+
+      // failed:2 with prevErrors=0 → delta=2 → recordError called twice
+      const durable = makeDurable(null, { sent: 0, received: 0, failed: 2, inFlight: 0 });
+      const metrics = makeMetrics();
+
+      const observer = new MetricsObserver({
+        registry, signal: makeSignal() as any, durable: durable as any,
+        metrics: metrics as any, durablePollIntervalMs: 100,
+      });
+
+      await observer.start();
+      await vi.advanceTimersByTimeAsync(101);
+      await observer.stop();
+
+      expect(metrics.recordError).toHaveBeenCalledTimes(2);
+      expect(metrics.recordError).toHaveBeenCalledWith('q.event');
     });
   });
 });
