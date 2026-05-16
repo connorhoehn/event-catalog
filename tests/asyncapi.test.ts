@@ -113,6 +113,46 @@ describe('buildAsyncApiSpec (wave24-c)', () => {
     const ordersMsg = Object.values(spec.components.messages).find((m: any) => m.name === 'orders.placed') as any;
     expect(ordersMsg.tags.map((t: any) => t.name).sort()).toEqual(['lifecycle', 'orders']);
   });
+
+  it('deprecated event message gets a synthetic "deprecated" tag and x-deprecated extension', () => {
+    const reg = fixtureRegistry();
+    reg.deprecate('orders.placed', { reason: 'Use orders.submitted instead', by: 'migration-team' });
+
+    const spec = buildAsyncApiSpec(reg) as any;
+    const ordersMsg = Object.values(spec.components.messages).find((m: any) => m.name === 'orders.placed') as any;
+
+    const tagNames: string[] = ordersMsg.tags.map((t: any) => t.name);
+    expect(tagNames).toContain('deprecated');
+    // Original tags are preserved alongside the synthetic one
+    expect(tagNames).toContain('orders');
+    expect(tagNames).toContain('lifecycle');
+
+    expect(ordersMsg['x-deprecated']).toBeDefined();
+    expect(ordersMsg['x-deprecated'].reason).toBe('Use orders.submitted instead');
+    expect(ordersMsg['x-deprecated'].by).toBe('migration-team');
+  });
+
+  it('non-deprecated event does NOT get a synthetic deprecated tag', () => {
+    const spec = buildAsyncApiSpec(fixtureRegistry()) as any;
+    const ordersMsg = Object.values(spec.components.messages).find((m: any) => m.name === 'orders.placed') as any;
+
+    const tagNames: string[] = (ordersMsg.tags ?? []).map((t: any) => t.name);
+    expect(tagNames).not.toContain('deprecated');
+    expect(ordersMsg['x-deprecated']).toBeUndefined();
+  });
+
+  it('deprecated event with no reason uses fallback description in the deprecated tag', () => {
+    const reg = new Registry();
+    reg.declare({ name: 'gone.event', schema: {}, transport: 'signal', producer: 'svc' });
+    reg.deprecate('gone.event'); // no reason or by
+
+    const spec = buildAsyncApiSpec(reg) as any;
+    const msg = Object.values(spec.components.messages)[0] as any;
+    const deprecatedTag = msg.tags.find((t: any) => t.name === 'deprecated');
+
+    expect(deprecatedTag).toBeDefined();
+    expect(deprecatedTag.description).toBe('Deprecated event.');
+  });
 });
 
 describe('GET /api/asyncapi', () => {
