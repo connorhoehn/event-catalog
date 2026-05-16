@@ -117,43 +117,42 @@ describe('validateSchemaShape', () => {
       expect(r.errors[0]).toMatch(/oneOf.*must be an array/);
     });
 
-    it('`type` array with an invalid entry (schema-shape.ts:55)', () => {
-      const r = validateSchemaShape({ type: ['string', 'badtype'] });
-      expect(r.ok).toBe(false);
-      expect(r.errors[0]).toMatch(/type\[\].*invalid entry.*"badtype"/);
-    });
-
-    it('`properties` that is not an object map (schema-shape.ts:84)', () => {
-      const r = validateSchemaShape({ properties: ['x', 'y'] });
-      expect(r.ok).toBe(false);
-      expect(r.errors[0]).toMatch(/properties.*must be an object map/);
-    });
-
-    it('`items` that is neither a schema nor an array (schema-shape.ts:104)', () => {
-      const r = validateSchemaShape({ type: 'array', items: 42 });
+    it('`items` as a primitive (string) — not object or array', () => {
+      const r = validateSchemaShape({ type: 'array', items: 'string' });
       expect(r.ok).toBe(false);
       expect(r.errors[0]).toMatch(/items.*must be a schema object or array of schemas/);
     });
 
-    it('`additionalProperties` that is not a schema or boolean is rejected', () => {
-      // An array is neither a schema object nor a boolean — should error.
-      const r = validateSchemaShape({ type: 'object', additionalProperties: ['x'] });
+    it('`additionalProperties` as a string — not boolean or schema object', () => {
+      const r = validateSchemaShape({ type: 'object', additionalProperties: 'yes' });
       expect(r.ok).toBe(false);
       expect(r.errors[0]).toMatch(/additionalProperties.*must be a schema or boolean/);
     });
 
-    it('`not` with an invalid sub-schema bubbles up the error', () => {
-      // `not` recursively calls validateSchemaShape on its value.
-      const r = validateSchemaShape({ not: { type: 'badtype' } });
+    it('union `type` with an invalid entry (e.g. ["strng", "null"])', () => {
+      const r = validateSchemaShape({ type: ['strng', 'null'] });
       expect(r.ok).toBe(false);
-      expect(r.errors[0]).toMatch(/not.*type.*"badtype"/);
+      expect(r.errors[0]).toMatch(/type\[\].*invalid entry.*strng/);
+    });
+
+    it('`properties` set to null — not an object map', () => {
+      const r = validateSchemaShape({ type: 'object', properties: null });
+      expect(r.ok).toBe(false);
+      expect(r.errors[0]).toMatch(/properties.*must be an object map/);
     });
   });
 
-  describe('`not` keyword (valid recursion)', () => {
+  describe('`not` keyword', () => {
     it('accepts a valid `not` sub-schema', () => {
       const r = validateSchemaShape({ not: { type: 'string' } });
-      expect(r).toEqual({ ok: true, errors: [] });
+      expect(r.ok).toBe(true);
+      expect(r.errors).toHaveLength(0);
+    });
+
+    it('rejects an invalid `not` sub-schema and includes the path', () => {
+      const r = validateSchemaShape({ not: { type: 'strng' } });
+      expect(r.ok).toBe(false);
+      expect(r.errors[0]).toMatch(/\.not\.type.*strng/);
     });
   });
 });
