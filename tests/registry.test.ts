@@ -576,3 +576,45 @@ describe('Registry', () => {
     });
   });
 });
+
+describe('validate + checkSchemaCompat edge cases (registry/index.ts:423-456)', () => {
+  let registry: Registry;
+
+  beforeEach(() => {
+    registry = new Registry();
+  });
+
+  it('validate() returns valid:true for an empty-schema event without running Ajv (index.ts:423)', () => {
+    registry.declare({ name: 'empty.schema', schema: {}, transport: 'signal', producer: 'svc' });
+    // Any payload passes when schema is empty — Ajv is never invoked.
+    expect(registry.validate('empty.schema', null)).toEqual({ valid: true });
+    expect(registry.validate('empty.schema', { anything: true })).toEqual({ valid: true });
+  });
+
+  it('validate() returns valid:false with a descriptive error for an undeclared event', () => {
+    const result = registry.validate('no.such.event', {});
+    expect(result.valid).toBe(false);
+    expect(result.errors![0]!.message).toMatch(/not declared/);
+  });
+
+  it('checkSchemaCompat() returns compatible:true with no violations for a non-existent event (index.ts:448)', () => {
+    // Event never declared — no existing schema to check against, so any proposal is compatible.
+    const result = registry.checkSchemaCompat('ghost.event', { type: 'object' });
+    expect(result.compatible).toBe(true);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("runCompatCheck() with mode='none' allows any schema change (index.ts:455)", () => {
+    registry.declare({
+      name: 'flex.event',
+      schema: { type: 'object', required: ['id'] },
+      transport: 'signal',
+      producer: 'svc',
+      compatibilityMode: 'none',
+    });
+    // Remove required field — breaking change under backward/full — but 'none' bypasses all checks.
+    const result = registry.checkSchemaCompat('flex.event', { type: 'object' });
+    expect(result.compatible).toBe(true);
+    expect(result.violations).toEqual([]);
+  });
+});
