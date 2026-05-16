@@ -1136,6 +1136,54 @@ describe('routes → metricsObserver.observe() wiring', () => {
   });
 });
 
+describe('POST /events — E3 field type-guards (routes.ts:359-360)', () => {
+  function makeE3App() {
+    const registry = new Registry();
+    const app = createApp({
+      registry,
+      metrics: new MetricsCollector(60),
+      metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
+      signal: { isConnected: () => true, healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }), getAllMetrics: () => new Map(), getHistory: async () => [] } as unknown as RoutesDeps['signal'],
+      durable: { isConnected: () => true, healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }), getAllMetrics: () => new Map() } as unknown as RoutesDeps['durable'],
+      dlqStore: {} as unknown as RoutesDeps['dlqStore'],
+      startedAt: Date.now(),
+    });
+    return { app, registry };
+  }
+
+  it('retention (number) is stored on the registry entry', async () => {
+    const { app, registry } = makeE3App();
+    await request(app).post('/api/events').send({
+      name: 'ret.event', schema: {}, transport: 'durable', producer: 'svc', retention: 86400,
+    }).expect(201);
+    expect(registry.get('ret.event')?.retention).toBe(86400);
+  });
+
+  it('retention (string) is silently ignored — type guard routes.ts:359', async () => {
+    const { app, registry } = makeE3App();
+    await request(app).post('/api/events').send({
+      name: 'ret.event', schema: {}, transport: 'durable', producer: 'svc', retention: '86400',
+    }).expect(201);
+    expect(registry.get('ret.event')?.retention).toBeUndefined();
+  });
+
+  it('fifo: true is stored on the registry entry', async () => {
+    const { app, registry } = makeE3App();
+    await request(app).post('/api/events').send({
+      name: 'fifo.event', schema: {}, transport: 'durable', producer: 'svc', fifo: true,
+    }).expect(201);
+    expect(registry.get('fifo.event')?.fifo).toBe(true);
+  });
+
+  it('fifo: "true" (string) is silently ignored — type guard routes.ts:360', async () => {
+    const { app, registry } = makeE3App();
+    await request(app).post('/api/events').send({
+      name: 'fifo.event', schema: {}, transport: 'durable', producer: 'svc', fifo: 'true',
+    }).expect(201);
+    expect(registry.get('fifo.event')?.fifo).toBeUndefined();
+  });
+});
+
 describe('POST /events with aliases round-trip (routes.ts:363)', () => {
   it('aliases passed via HTTP are stored and resolve() finds the event by legacy name', async () => {
     const registry = new Registry();
