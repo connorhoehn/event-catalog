@@ -251,6 +251,18 @@ export const api = {
     return request<{ removed: string }>(`/transports/durable/dlq/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
+  /** wave26-c — observed vs declared producer attribution for an event. */
+  getObservedProducers(eventName: string) {
+    return request<{
+      eventName: string;
+      declared: string[];
+      observed: string[];
+      undeclaredProducers: string[];
+      deadDeclaredProducers: string[];
+      mismatch: boolean;
+    }>(`/events/${encodeURIComponent(eventName)}/producers/observed`);
+  },
+
   /** wave24-b — list subscribers with their lastSeenAt timestamps. */
   getSubscribers(staleAfterSeconds?: number) {
     const qs = staleAfterSeconds && staleAfterSeconds > 0 ? `?staleAfter=${staleAfterSeconds}` : '';

@@ -16,6 +16,7 @@ import { RedisManifestStore } from './manifest-store.js';
 import { createRoutes } from './routes.js';
 import { makeHealthHandler } from './health.js';
 import { PromMetrics } from './prom-metrics.js';
+import { ProducerAttributionStore } from './producer-attribution.js';
 import { readFileSync } from 'node:fs';
 import type { RegistryEntry } from '../types/index.js';
 
@@ -167,7 +168,8 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     additionalHandlers: onDeadLetter,
   }));
 
-  const metricsObserver = new MetricsObserver({ registry, signal, durable, metrics });
+  const attribution = new ProducerAttributionStore();
+  const metricsObserver = new MetricsObserver({ registry, signal, durable, metrics, attribution });
   await metricsObserver.start().catch(err => {
     console.warn('[server] metrics observer start failed:', (err as Error).message);
   });
@@ -255,7 +257,7 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   const manifestStore = new RedisManifestStore(redisClient);
 
   // Admin API
-  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog, manifestStore });
+  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution });
   // Phase 20-d — auth middleware injection (optional). Mounted before
   // the /api router so it gates every admin endpoint. The catalog
   // itself ships with no auth on purpose (local dev / in-cluster

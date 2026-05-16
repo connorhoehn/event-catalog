@@ -7,12 +7,21 @@ import { api, type EventEntry, type EventStats } from '../api';
 import { FingerprintChip } from './FingerprintChip';
 import { SchemaDiffToggle } from './SchemaDiff';
 
+interface ObservedProducers {
+  declared: string[];
+  observed: string[];
+  undeclaredProducers: string[];
+  deadDeclaredProducers: string[];
+  mismatch: boolean;
+}
+
 export function EventDetail() {
   const { name } = useParams<{ name: string }>();
   const [event, setEvent] = useState<EventEntry | null>(null);
   const [history, setHistory] = useState<unknown[]>([]);
   const [stats, setStats] = useState<EventStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [observedProducers, setObservedProducers] = useState<ObservedProducers | null>(null);
 
   useEffect(() => {
     if (!name) return;
@@ -21,10 +30,12 @@ export function EventDetail() {
     Promise.all([
       api.getEvent(decoded),
       api.getEventHistory(decoded, 20),
-    ]).then(([eventRes, historyRes]) => {
+      api.getObservedProducers(decoded).catch(() => null),
+    ]).then(([eventRes, historyRes, observedRes]) => {
       setEvent(eventRes);
       setStats(eventRes.stats);
       setHistory(historyRes.messages);
+      if (observedRes) setObservedProducers(observedRes);
     }).catch(err => setError(err.message));
   }, [name]);
 
@@ -63,6 +74,11 @@ export function EventDetail() {
         {event.version ? <Chip tone="neutral">v{event.version}</Chip> : null}
         <FingerprintChip fingerprint={event.schemaFingerprint} />
         {event.deprecation ? <Chip tone="danger">deprecated</Chip> : null}
+        {observedProducers?.mismatch ? (
+          <Chip tone="warning" title={`Undeclared: ${observedProducers.undeclaredProducers.join(', ') || 'none'} | Dead declared: ${observedProducers.deadDeclaredProducers.join(', ') || 'none'}`}>
+            producer mismatch
+          </Chip>
+        ) : null}
       </div>
 
       {event.description && <p className="description">{event.description}</p>}
@@ -150,8 +166,37 @@ export function EventDetail() {
         <section className="detail-section">
           <h3>Registration</h3>
           <dl className="info-list">
-            <dt>Producer</dt>
+            <dt>Declared Producer</dt>
             <dd>{Array.isArray(event.producer) ? event.producer.join(', ') : event.producer}</dd>
+            {observedProducers && observedProducers.observed.length > 0 ? (
+              <>
+                <dt>Observed Producers</dt>
+                <dd style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {observedProducers.observed.map(p => (
+                    <Chip
+                      key={p}
+                      tone={observedProducers.undeclaredProducers.includes(p) ? 'warning' : 'success'}
+                      size="xs"
+                      title={observedProducers.undeclaredProducers.includes(p) ? 'Undeclared publisher' : 'Declared publisher'}
+                    >
+                      {p}
+                    </Chip>
+                  ))}
+                </dd>
+              </>
+            ) : null}
+            {observedProducers && observedProducers.deadDeclaredProducers.length > 0 ? (
+              <>
+                <dt>Dead Declared</dt>
+                <dd style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {observedProducers.deadDeclaredProducers.map(p => (
+                    <Chip key={p} tone="neutral" size="xs" title="Declared but never published">
+                      {p}
+                    </Chip>
+                  ))}
+                </dd>
+              </>
+            ) : null}
             <dt>Transport</dt>
             <dd>{event.transport === 'signal' ? 'Signal (Redis Pub/Sub — Ephemeral)' : 'Durable (Message Queue — At-Least-Once)'}</dd>
             <dt>Registered</dt>

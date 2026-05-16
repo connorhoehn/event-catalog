@@ -11,6 +11,7 @@ import { DurableTransport } from '../client/durable.js';
 import type { DLQStore } from './dlq-store.js';
 import type { EventDeclaration } from '../types/index.js';
 import type { PromMetrics } from './prom-metrics.js';
+import type { ProducerAttributionStore } from './producer-attribution.js';
 
 export interface RoutesDeps {
   registry: Registry;
@@ -35,6 +36,8 @@ export interface RoutesDeps {
    * the catalog returns a per-consumer drift report on demand.
    */
   manifestStore?: import('./manifest-store.js').ManifestStore;
+  /** wave26-c — tracks actual observed publishers per event. */
+  attribution?: ProducerAttributionStore;
 }
 
 /**
@@ -61,7 +64,7 @@ function resolveCompatMode(
 }
 
 export function createRoutes(deps: RoutesDeps): Router {
-  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics, auditLog, manifestStore } = deps;
+  const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution } = deps;
   const router = Router();
 
   // List all events
@@ -484,6 +487,29 @@ export function createRoutes(deps: RoutesDeps): Router {
       serviceName: req.params.serviceName,
     });
     res.json({ event: req.params.name, removedSubscriber: req.params.serviceName });
+  });
+
+  // wave26-c — observed vs declared producer attribution
+  router.get('/events/:name/producers/observed', (req: Request, res: Response) => {
+    const entry = registry.get(req.params.name);
+    if (!entry) {
+      res.status(404).json({ error: `Event "${req.params.name}" not found` });
+      return;
+    }
+    const declared = Array.isArray(entry.producer) ? entry.producer : [entry.producer];
+    const observed = attribution ? attribution.getObserved(req.params.name) : [];
+    const declaredSet = new Set(declared);
+    const observedSet = new Set(observed);
+    const undeclaredProducers = observed.filter(p => !declaredSet.has(p));
+    const deadDeclaredProducers = declared.filter(p => !observedSet.has(p));
+    res.json({
+      eventName: req.params.name,
+      declared,
+      observed,
+      undeclaredProducers,
+      deadDeclaredProducers,
+      mismatch: undeclaredProducers.length > 0 || deadDeclaredProducers.length > 0,
+    });
   });
 
   // Delete an event declaration

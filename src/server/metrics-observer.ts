@@ -3,12 +3,14 @@ import type { SignalTransport } from '../client/signal.js';
 import type { DurableTransport } from '../client/durable.js';
 import type { MetricsCollector } from './metrics.js';
 import { tapEmitter } from './tap-emitter.js';
+import type { ProducerAttributionStore } from './producer-attribution.js';
 
 export class MetricsObserver {
   private readonly registry: Registry;
   private readonly signal: SignalTransport;
   private readonly durable: DurableTransport;
   private readonly metrics: MetricsCollector;
+  private readonly attribution?: ProducerAttributionStore;
   private readonly signalUnsubscribes = new Map<string, () => Promise<void>>();
   private durablePollTimer: ReturnType<typeof setInterval> | null = null;
   private readonly durablePollIntervalMs: number;
@@ -18,12 +20,14 @@ export class MetricsObserver {
     signal: SignalTransport;
     durable: DurableTransport;
     metrics: MetricsCollector;
+    attribution?: ProducerAttributionStore;
     durablePollIntervalMs?: number;
   }) {
     this.registry = deps.registry;
     this.signal = deps.signal;
     this.durable = deps.durable;
     this.metrics = deps.metrics;
+    this.attribution = deps.attribution;
     this.durablePollIntervalMs = deps.durablePollIntervalMs ?? 5000;
   }
 
@@ -64,15 +68,18 @@ export class MetricsObserver {
     try {
       const unsub = await this.signal.subscribe(eventName, (envelope) => {
         this.metrics.recordPublish(eventName);
+        // wave26-c — record the actual publisher for attribution tracking.
+        const actualProducer = (envelope.metadata as { producer?: string }).producer;
+        if (actualProducer && this.attribution) {
+          this.attribution.record(eventName, actualProducer);
+        }
         // Phase E8 — also surface the observation on the live-flow tap.
-        // No back-pressure: subscribers (SSE clients) consume async and
-        // apply their own sample knob.
         const entry = this.registry.get(eventName);
         if (entry) {
           tapEmitter.publish({
             eventName,
             namespace: entry.namespace,
-            producer: Array.isArray(entry.producer) ? entry.producer[0]! : entry.producer,
+            producer: actualProducer ?? (Array.isArray(entry.producer) ? entry.producer[0]! : entry.producer),
             transport: 'signal',
             timestamp: new Date().toISOString(),
             channel: typeof entry.channel === 'string' ? entry.channel : eventName,
