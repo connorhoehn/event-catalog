@@ -10,6 +10,7 @@ const mockPublishClient = {
   unsubscribe: vi.fn().mockResolvedValue(undefined),
   xAdd: vi.fn().mockResolvedValue('1234-0'),
   xRange: vi.fn().mockResolvedValue([]),
+  ping: vi.fn().mockResolvedValue('PONG'),
   on: vi.fn(),
 };
 
@@ -406,6 +407,70 @@ describe('SignalTransport', () => {
       await transport.connect();
       await transport.disconnect();
       expect(transport.isConnected()).toBe(false);
+    });
+  });
+
+  describe('healthCheck()', () => {
+    it('returns disconnected when not connected (no ping call)', async () => {
+      const result = await transport.healthCheck();
+      expect(result.status).toBe('disconnected');
+      expect(result.latencyMs).toBe(0);
+      expect(mockPublishClient.ping).not.toHaveBeenCalled();
+    });
+
+    it('returns connected with latencyMs when ping returns PONG', async () => {
+      await transport.connect();
+      mockPublishClient.ping.mockResolvedValue('PONG');
+      const result = await transport.healthCheck();
+      expect(result.status).toBe('connected');
+      expect(typeof result.latencyMs).toBe('number');
+    });
+
+    it('returns degraded when ping returns non-PONG value', async () => {
+      await transport.connect();
+      mockPublishClient.ping.mockResolvedValue('OK');
+      const result = await transport.healthCheck();
+      expect(result.status).toBe('degraded');
+    });
+
+    it('returns disconnected when ping throws a non-timeout error', async () => {
+      await transport.connect();
+      mockPublishClient.ping.mockRejectedValue(new Error('redis down'));
+      const result = await transport.healthCheck();
+      expect(result.status).toBe('disconnected');
+    });
+  });
+
+  describe('getMetrics() / getAllMetrics()', () => {
+    it('getMetrics() with no arg returns empty Map on fresh instance', () => {
+      const result = transport.getMetrics();
+      expect(result).toBeInstanceOf(Map);
+      expect((result as Map<string, unknown>).size).toBe(0);
+    });
+
+    it('getMetrics(channel) returns undefined for unknown channel', () => {
+      expect(transport.getMetrics('unknown.channel')).toBeUndefined();
+    });
+
+    it('getAllMetrics() returns an independent copy of the metrics map', () => {
+      const m1 = transport.getAllMetrics();
+      const m2 = transport.getAllMetrics();
+      expect(m1).not.toBe(m2);
+      expect(m1.size).toBe(0);
+    });
+
+    it('getMetrics(channel) returns metrics after publish populates them', async () => {
+      await transport.connect();
+      const envelope = {
+        eventName: 'user.created',
+        payload: {},
+        metadata: { id: 'e1', producer: 'auth', timestamp: Date.now() },
+      };
+      await transport.publish('user.created', envelope);
+      const metrics = transport.getMetrics('user.created') as { publishCount: number; lastPublishedAt: string | null; subscriberCount: number };
+      expect(metrics).toBeDefined();
+      expect(metrics.publishCount).toBe(1);
+      expect(metrics.lastPublishedAt).not.toBeNull();
     });
   });
 });
