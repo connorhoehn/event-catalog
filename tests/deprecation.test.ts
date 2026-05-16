@@ -108,6 +108,22 @@ describe('wave25-a — HTTP routes', () => {
     expect(registry.get('a.x')?.deprecation).toBeUndefined();
   });
 
+  it('DELETE /api/events/:name/deprecate returns 404 when event is not deprecated', async () => {
+    const { app, registry } = makeApp();
+    registry.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
+    // a.x is declared but NOT deprecated
+    const res = await request(app).delete('/api/events/a.x/deprecate');
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/was not deprecated or does not exist/);
+  });
+
+  it('DELETE /api/events/:name/deprecate returns 404 for unknown event', async () => {
+    const { app } = makeApp();
+    const res = await request(app).delete('/api/events/no.such/deprecate');
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/was not deprecated or does not exist/);
+  });
+
   it('GET /api/deprecated lists deprecated entries with metadata', async () => {
     const { app, registry } = makeApp();
     registry.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });

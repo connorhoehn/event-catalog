@@ -163,6 +163,13 @@ describe('DELETE /api/events/:name/poison', () => {
     expect(res.body.wasPoison).toBe(false);
   });
 
+  it('returns 404 when poison detector is not wired', async () => {
+    const app = createApp(undefined);
+    const res = await request(app).delete('/api/events/user.signed-up/poison');
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/poison detector not enabled/);
+  });
+
   it('emits event.poison.cleared audit event when clearing a poisoned event', async () => {
     const { auditEmitter } = await import('../src/server/audit-emitter.js');
     const seen: Array<{ kind: string; eventName: string }> = [];
