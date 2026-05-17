@@ -189,7 +189,7 @@ describe('DurableTransport — getQueueAttributes()', () => {
     const t = new DurableTransport({ url: 'http://mq:3004' });
     const result = await t.getQueueAttributes('my-queue');
     expect(result).toEqual(attrs);
-    expect(fetchSpy).toHaveBeenCalledWith('http://mq:3004/queues/my-queue/attributes');
+    expect(fetchSpy).toHaveBeenCalledWith('http://mq:3004/api/v1/queues/my-queue/attributes');
   });
 
   it('returns null on non-ok response', async () => {
@@ -210,7 +210,7 @@ describe('DurableTransport — getQueueAttributes()', () => {
     fetchSpy.mockResolvedValue({ ok: true, json: async () => ({}) });
     const t = new DurableTransport({ url: 'http://mq:3004' });
     await t.getQueueAttributes('my queue/name');
-    expect(fetchSpy).toHaveBeenCalledWith('http://mq:3004/queues/my%20queue%2Fname/attributes');
+    expect(fetchSpy).toHaveBeenCalledWith('http://mq:3004/api/v1/queues/my%20queue%2Fname/attributes');
   });
 });
 
@@ -311,7 +311,7 @@ describe('DurableTransport — publish()', () => {
     await t.publish('test-queue', makeEnvelope());
 
     const publishCall = fetchSpy.mock.calls[2];
-    expect(publishCall![0]).toBe('http://mq:3004/queues/test-queue/messages');
+    expect(publishCall![0]).toBe('http://mq:3004/api/v1/queues/test-queue/messages');
     expect(publishCall![1]).toMatchObject({ method: 'POST' });
 
     const metrics = t.getMetrics('test-queue') as { sent: number; failed: number };

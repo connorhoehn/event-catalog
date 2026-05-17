@@ -19,7 +19,7 @@ function findPutCalls(): Array<[string, RequestInit]> {
 }
 
 describe('DurableTransport.ensureQueue (Phase 4.2)', () => {
-  it('issues PUT /queues/:name on first ensure', async () => {
+  it('issues PUT /api/v1/queues/:name on first ensure', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ status: 'created' }), { status: 201 }));
     const transport = new DurableTransport({ url: 'http://mq:3004' });
     await transport.ensureQueue('test-queue');
@@ -27,7 +27,7 @@ describe('DurableTransport.ensureQueue (Phase 4.2)', () => {
     const puts = findPutCalls();
     expect(puts).toHaveLength(1);
     const [url] = puts[0];
-    expect(url).toBe('http://mq:3004/queues/test-queue');
+    expect(url).toBe('http://mq:3004/api/v1/queues/test-queue');
   });
 
   it('passes declared retention + fifo as snake_case config fields', async () => {
@@ -51,8 +51,8 @@ describe('DurableTransport.ensureQueue (Phase 4.2)', () => {
 
     const puts = findPutCalls();
     expect(puts).toHaveLength(2);
-    expect(puts[0][0]).toBe('http://mq:3004/queues/main-q-dlq');
-    expect(puts[1][0]).toBe('http://mq:3004/queues/main-q');
+    expect(puts[0][0]).toBe('http://mq:3004/api/v1/queues/main-q-dlq');
+    expect(puts[1][0]).toBe('http://mq:3004/api/v1/queues/main-q');
     const mainBody = JSON.parse((puts[1][1].body as string));
     expect(mainBody.configuration.redrive_policy).toEqual({
       dead_letter_target_arn: 'arn:message-queue:queue:main-q-dlq',
@@ -69,7 +69,7 @@ describe('DurableTransport.ensureQueue (Phase 4.2)', () => {
     });
 
     const puts = findPutCalls();
-    expect(puts[0][0]).toBe('http://mq:3004/queues/shared-dlq');
+    expect(puts[0][0]).toBe('http://mq:3004/api/v1/queues/shared-dlq');
     const mainBody = JSON.parse((puts[1][1].body as string));
     expect(mainBody.configuration.redrive_policy.dead_letter_target_arn)
       .toBe('arn:message-queue:queue:shared-dlq');
