@@ -424,6 +424,96 @@ describe('DLQStore.clear()', () => {
     });
 });
 
+describe('DLQStore.clear() — BatchWrite UnprocessedItems handling', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('retries UnprocessedItems and only counts items DDB actually accepted', async () => {
+        // 3 entries → one BatchWrite of 3 DeleteRequests.
+        // First send returns 1 unprocessed (DDB throttled it).
+        // Second send returns 0 unprocessed (retry succeeded).
+        const entries = [
+            makeEntry({ id: 'a', sk: '1#a' }),
+            makeEntry({ id: 'b', sk: '1#b' }),
+            makeEntry({ id: 'c', sk: '1#c' }),
+        ];
+        const client = makeMockClient([
+            { Items: entries },
+            {
+                UnprocessedItems: {
+                    'test-dlq': [
+                        { DeleteRequest: { Key: { pk: entries[2]!.pk, sk: entries[2]!.sk } } },
+                    ],
+                },
+            },
+            {}, // retry succeeds — no UnprocessedItems
+        ]);
+        const noDelay = vi.fn().mockResolvedValue(undefined);
+        const store = new DLQStore(client, 'test-dlq', noDelay);
+
+        const deleted = await store.clear();
+
+        expect(deleted).toBe(3);
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        // 1 Scan + 2 BatchWrites (initial + 1 retry).
+        expect(send).toHaveBeenCalledTimes(3);
+        expect(send.mock.calls[1]![0]).toBeInstanceOf(BatchWriteCommand);
+        expect(send.mock.calls[2]![0]).toBeInstanceOf(BatchWriteCommand);
+        // The retry batch contains exactly the previously-unprocessed item.
+        const retryCmd = send.mock.calls[2]![0];
+        expect(
+            (retryCmd.input as { RequestItems: Record<string, unknown[]> })
+                .RequestItems['test-dlq']!.length,
+        ).toBe(1);
+        // Backoff invoked exactly once (between initial send and 1 retry).
+        expect(noDelay).toHaveBeenCalledTimes(1);
+        expect(noDelay).toHaveBeenCalledWith(0);
+    });
+
+    it('throws if UnprocessedItems persists past the retry budget', async () => {
+        const entries = [makeEntry({ id: 'a', sk: '1#a' })];
+        // Scan response + 6 BatchWrite responses (initial + 5 retries),
+        // each returning the same unprocessed item.
+        const stuck = {
+            UnprocessedItems: {
+                'test-dlq': [
+                    { DeleteRequest: { Key: { pk: entries[0]!.pk, sk: entries[0]!.sk } } },
+                ],
+            },
+        };
+        const client = makeMockClient([
+            { Items: entries },
+            stuck, stuck, stuck, stuck, stuck, stuck,
+        ]);
+        const noDelay = vi.fn().mockResolvedValue(undefined);
+        const store = new DLQStore(client, 'test-dlq', noDelay);
+
+        await expect(store.clear()).rejects.toThrow(
+            /BatchWrite deletes still unprocessed after 5 retries/,
+        );
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        // 1 Scan + 6 BatchWrites (initial + 5 retries).
+        expect(send).toHaveBeenCalledTimes(7);
+        // Backoff called 5 times (between each of the 5 retries).
+        expect(noDelay).toHaveBeenCalledTimes(5);
+    });
+
+    it('treats a missing UnprocessedItems field as zero unprocessed (no retry)', async () => {
+        // Real DDB responses can omit UnprocessedItems entirely on full success.
+        const entries = [makeEntry({ id: 'a', sk: '1#a' })];
+        const client = makeMockClient([
+            { Items: entries },
+            { /* no UnprocessedItems key at all */ },
+        ]);
+        const noDelay = vi.fn().mockResolvedValue(undefined);
+        const store = new DLQStore(client, 'test-dlq', noDelay);
+
+        const deleted = await store.clear();
+
+        expect(deleted).toBe(1);
+        expect(noDelay).not.toHaveBeenCalled();
+    });
+});
+
 describe('DLQStore.put()', () => {
     afterEach(() => {
         vi.restoreAllMocks();

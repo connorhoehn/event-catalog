@@ -27,11 +27,17 @@ export interface DLQListOptions {
 }
 
 const DEFAULT_TTL_SECONDS = 30 * 86400;
+const BATCH_WRITE_MAX_RETRIES = 5;
+const defaultBackoff = (attempt: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
 
 export class DLQStore {
   constructor(
     private readonly client: DynamoDBDocumentClient,
     private readonly tableName: string,
+    // Injectable for tests; defaults to exponential backoff
+    // (50ms, 100ms, 200ms, 400ms, 800ms).
+    private readonly backoff: (attempt: number) => Promise<void> = defaultBackoff,
   ) {}
 
   /**
@@ -145,14 +151,11 @@ export class DLQStore {
 
       for (let i = 0; i < entries.length; i += 25) {
         const batch = entries.slice(i, i + 25);
-        await this.client.send(new BatchWriteCommand({
-          RequestItems: {
-            [this.tableName]: batch.map(entry => ({
-              DeleteRequest: { Key: { pk: entry.pk, sk: entry.sk } },
-            })),
-          },
-        }));
-        deleted += batch.length;
+        deleted += await this.batchDeleteWithRetry(
+          batch.map(entry => ({
+            DeleteRequest: { Key: { pk: entry.pk, sk: entry.sk } },
+          })),
+        );
       }
 
       ExclusiveStartKey = result.LastEvaluatedKey as
@@ -161,6 +164,32 @@ export class DLQStore {
     } while (ExclusiveStartKey);
 
     return deleted;
+  }
+
+  // BatchWriteItem partial-success handling: DDB returns failed/throttled
+  // DeleteRequests in `UnprocessedItems` rather than failing the call.
+  // Retry those with exponential backoff and only count items actually
+  // accepted by DDB toward `deleted`. Same silent-drift hazard class as
+  // the pagination fixes (commits c088584 / 5b0e2a9 / bbeaeca).
+  private async batchDeleteWithRetry(
+    requests: Array<{ DeleteRequest: { Key: { pk: string; sk: string } } }>,
+  ): Promise<number> {
+    let pending = requests;
+    for (let attempt = 0; ; attempt++) {
+      const result = await this.client.send(new BatchWriteCommand({
+        RequestItems: { [this.tableName]: pending },
+      }));
+      const unprocessed = (result.UnprocessedItems?.[this.tableName] ?? []) as typeof pending;
+      if (unprocessed.length === 0) return requests.length;
+      if (attempt >= BATCH_WRITE_MAX_RETRIES) {
+        throw new Error(
+          `DLQStore.clear: ${unprocessed.length} of ${requests.length} ` +
+          `BatchWrite deletes still unprocessed after ${BATCH_WRITE_MAX_RETRIES} retries`,
+        );
+      }
+      await this.backoff(attempt);
+      pending = unprocessed;
+    }
   }
 
   async findById(id: string): Promise<DLQEntry | null> {
