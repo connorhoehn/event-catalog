@@ -253,7 +253,7 @@ code changes.
   region planned.
 - ~~E5.5 — Schema fingerprinting~~ — **PROMOTED to Phase E6** below.
 
-### Phase E6 — Schema fingerprinting (1 wave — in progress) 🎯
+### Phase E6 — Schema fingerprinting ✅ COMPLETE
 
 **Goal:** Deterministic content-addressable identifier for each schema so
 consumers detect drift locally (cache + compare) without a registry round-trip.
@@ -266,10 +266,14 @@ consumers detect drift locally (cache + compare) without a registry round-trip.
   `POST /api/events` 201 response.**
 - [x] **E6.4 — Enrich 409 `COMPAT_VIOLATION`** with `currentFingerprint` +
   `proposedFingerprint` so callers diff in one round-trip.
-- [ ] **E6.5 — History fingerprints on `SchemaHistoryEntry`** (V2, deferred —
-  promote when a consumer wants "is my cached version in your history?").
-- [ ] **E6.6 — Admin UI display.** Short 12-char prefix on event detail page,
-  schema-diff fingerprint deltas. (Phase E8 work.)
+- [x] **E6.5 — History fingerprints on `SchemaHistoryEntry`.**
+  `migrateHistoryFingerprints()` in `src/registry/index.ts:69` backfills
+  on `load()`; `declare()` stamps fingerprint on every new history push
+  (`src/registry/index.ts:118`). Hub task #16.
+- [x] **E6.6 — Admin UI display.** `FingerprintChip` component at
+  `src/admin/src/components/FingerprintChip.tsx` (12-char prefix);
+  rendered in `EventDetail.tsx:75` (event-level) and `EventDetail.tsx:154`
+  (per-history-entry).
 
 **Success criteria:**
 - `GET /api/events/:name` returns a stable 64-char hex `schemaFingerprint`.
@@ -277,20 +281,21 @@ consumers detect drift locally (cache + compare) without a registry round-trip.
   fingerprint (no spurious version bump from key reordering).
 - A breaking re-declare under strict mode returns 409 with both fingerprints.
 
-### Phase E7 — Namespaces (2 waves — planned)
+### Phase E7 — Namespaces (E7.1 + E7.2 shipped; E7.3 deferred to v0.5)
 
 **Goal:** Organize ~110 declared events into domain groups for ergonomic
 filtering, admin-UI grouping, and a clear filter axis on the live-flow view.
 Explicitly **not multi-tenancy**.
 
-- [ ] **E7.1 — Add `namespace?: string` to `EventDeclaration`** with
+- [x] **E7.1 — Add `namespace?: string` to `EventDeclaration`** with
   auto-derive from dotted prefix (`name.split('.')[0]`) when missing. Filter
-  on `GET /api/events?namespace=X` and `GET /api/topology?namespace=X`. Tag
-  release v0.3.9.
-- [ ] **E7.2 — Backfill explicit namespaces** across all declarations:
-  `event-catalog/src/declarations/*.ts`, `live-video-streaming/src/event-declarations.js`,
-  `websocket-gateway/src/observability/gateway-event-declarations.ts`. Bump
-  event-catalog pin in LVS and gateway.
+  on `GET /api/events?namespace=X` and `GET /api/topology?namespace=X`.
+  `resolveNamespace()` at `src/registry/index.ts:165`; `GET /api/namespaces`
+  at `src/server/routes.ts:739`. Hub task #18.
+- [x] **E7.2 — Backfill explicit namespaces** across all declarations in
+  this repo's `src/declarations/*.ts` (pipeline / pipeline-p1 / pipeline-p2
+  / pipeline-raft / ag-ui / gateway-signal). LVS + gateway pin bumps tracked
+  separately as cross-repo handoffs when this repo cuts new tags.
 - [ ] **E7.3 — Hard-required namespace in v0.5** (future) — remove
   auto-derive, lint at declaration time.
 
@@ -302,25 +307,28 @@ service-level 13). No cross-namespace events; no migration ambiguity.
 - Admin UI groups events by namespace with tabs/pills.
 - Live-flow view (Phase E8) accepts namespace as a filter.
 
-### Phase E8 — Live flow observability (2 waves — planned)
+### Phase E8 — Live flow observability ✅ COMPLETE
 
 **Goal:** Operators see events firing in real time. The admin UI gets a
 "Flow" view using the **shared `PipelineCanvas` node editor from
 `~/Projects/ui-components/src/components/pipelines/`** — the same component
 `websocket-gateway` already uses for pipeline replay.
 
-- [ ] **E8.1 — Server-side tap (SSE).** Process-internal `EventEmitter` patched
-  into `SignalTransport.publish` and `DurableTransport.publish`. New
-  `GET /api/flow` SSE endpoint with filters `?eventName, ?transport, ?producer,
-  ?namespace, ?sample`. Tag release v0.3.10.
-- [ ] **E8.2 — Admin UI: Topology refresh.** Replace existing topology
-  component with `PipelineCanvas`-driven graph. Custom `EventNode` +
-  `ServiceNode` types; dagre layout from existing utility.
-- [ ] **E8.3 — Admin UI: Live flow overlay.** SSE client subscribes to
-  `/api/flow`; maps incoming events to `replayEdgeStates` dict (`active` →
-  fade after 800ms). Pause/resume, sample slider, filter controls.
-- [ ] **E8.4 — Namespace clustering** on the graph (SVG overlay), plus
-  fingerprint chip on event detail panes (closes E6.6).
+- [x] **E8.1 — Server-side tap (SSE).** `TapEmitter` singleton at
+  `src/server/tap-emitter.ts`; `MetricsObserver` wires signal/durable
+  publishes into the tap (`src/server/metrics-observer.ts`). `GET /api/flow`
+  SSE endpoint registered in `src/server/routes.ts:4` import with the
+  documented filters. Hub task #20.
+- [x] **E8.2 — Admin UI: Topology refresh.** `TopologyView.tsx` rebuilt on
+  `@xyflow/react`; custom `EventNode` (`src/admin/src/components/topology/
+  EventNode.tsx`) + `ServiceNode` (`ServiceNode.tsx`); layout helper at
+  `topology/layout.ts`.
+- [x] **E8.3 — Admin UI: Live flow overlay.** `FlowView.tsx` (287 lines)
+  + `topology/useFlowTap.ts` open an `EventSource` on `/api/flow` with a
+  filter querystring; tap events drive edge-state animation.
+- [x] **E8.4 — Namespace clustering** on the graph (SVG overlay) via
+  `NamespaceClusters` rendered in `TopologyView.tsx:181` and
+  `FlowView.tsx:256`; fingerprint chip on event detail panes (closes E6.6).
 
 **Success criteria:**
 - Operator opens the admin UI's Flow tab, sees events pulsing on edges
