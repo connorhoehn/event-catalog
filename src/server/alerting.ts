@@ -89,22 +89,35 @@ export class AlertManager {
     const lastTime = this.lastAlerted.get(key);
     if (lastTime && now - lastTime < this.cooldownMs) return;
 
-    this.lastAlerted.set(key, now);
+    // Cooldown is intentionally NOT applied until we confirm the webhook
+    // accepted the alert (2xx). A transient failure — network error,
+    // timeout/abort, or non-2xx response — leaves the cooldown unset so
+    // the next attempt retries immediately. Otherwise a single hiccup
+    // would silently blackhole the next ${cooldownMs}ms of alerts for
+    // this key.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-
-      await fetch(this.webhookUrl!, {
+      const res = await fetch(this.webhookUrl!, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
 
-      clearTimeout(timeout);
+      if (!res.ok) {
+        console.warn(
+          `[alerting] webhook returned ${res.status} — alert not delivered, cooldown NOT applied`,
+        );
+        return;
+      }
+
+      this.lastAlerted.set(key, now);
     } catch (err) {
       console.warn('[alerting] webhook delivery failed:', (err as Error).message);
+    } finally {
+      clearTimeout(timeout);
     }
   }
 }

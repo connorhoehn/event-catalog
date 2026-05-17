@@ -137,5 +137,47 @@ describe('AlertManager', () => {
       );
       warnSpy.mockRestore();
     });
+
+    it('does NOT apply cooldown when fetch rejects — next call retries immediately', async () => {
+      // Regression for the cooldown-on-failure bug: a transient network
+      // hiccup must not silence the next cooldownMs of alerts for the
+      // same key.
+      fetchSpy = vi.fn().mockRejectedValueOnce(new Error('transient'));
+      vi.stubGlobal('fetch', fetchSpy);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const mgr = new AlertManager({ webhookUrl: 'http://hook/alert', cooldownMs: 60_000 });
+
+      await mgr.onHealthChange('redis', 'connected', 'disconnected');
+      expect(fetchSpy).toHaveBeenCalledOnce();
+
+      // Second attempt within cooldown window — must still fire because
+      // the previous attempt didn't actually deliver.
+      fetchSpy.mockResolvedValueOnce({ ok: true, status: 200 });
+      await mgr.onHealthChange('redis', 'connected', 'disconnected');
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+      warnSpy.mockRestore();
+    });
+
+    it('does NOT apply cooldown on non-2xx response — next call retries immediately', async () => {
+      // Webhook returning 5xx (or 4xx) means the alert was NOT accepted.
+      // Cooldown must not be applied so the next attempt retries.
+      fetchSpy = vi.fn().mockResolvedValueOnce({ ok: false, status: 503 });
+      vi.stubGlobal('fetch', fetchSpy);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const mgr = new AlertManager({ webhookUrl: 'http://hook/alert', cooldownMs: 60_000 });
+
+      await mgr.onHealthChange('redis', 'connected', 'disconnected');
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('webhook returned 503'),
+      );
+
+      fetchSpy.mockResolvedValueOnce({ ok: true, status: 200 });
+      await mgr.onHealthChange('redis', 'connected', 'disconnected');
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+      warnSpy.mockRestore();
+    });
   });
 });
