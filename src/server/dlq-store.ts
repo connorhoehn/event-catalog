@@ -100,28 +100,46 @@ export class DLQStore {
   }
 
   async clear(eventName?: string): Promise<number> {
-    const entries = eventName
-      ? await this.list({ eventName, limit: 1000 })
-      : await this.list({ limit: 1000 });
-
-    if (entries.length === 0) return 0;
-
-    const batches: DLQEntry[][] = [];
-    for (let i = 0; i < entries.length; i += 25) {
-      batches.push(entries.slice(i, i + 25));
-    }
-
+    // Paginate via LastEvaluatedKey so a partition (or table) larger than
+    // one DynamoDB page (1MB or the implicit Query/Scan cap) is fully
+    // drained. Without this loop, clear() silently leaves items past the
+    // first page and returns a deleted count that doesn't match reality.
+    // Same pagination hazard as findById (commit c088584 / hub #806).
+    const { ScanCommand } = await import('@aws-sdk/lib-dynamodb');
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
     let deleted = 0;
-    for (const batch of batches) {
-      await this.client.send(new BatchWriteCommand({
-        RequestItems: {
-          [this.tableName]: batch.map(entry => ({
-            DeleteRequest: { Key: { pk: entry.pk, sk: entry.sk } },
-          })),
-        },
-      }));
-      deleted += batch.length;
-    }
+
+    do {
+      const result = eventName
+        ? await this.client.send(new QueryCommand({
+            TableName: this.tableName,
+            KeyConditionExpression: 'pk = :pk',
+            ExpressionAttributeValues: { ':pk': `DLQ#${eventName}` },
+            ExclusiveStartKey,
+          }))
+        : await this.client.send(new ScanCommand({
+            TableName: this.tableName,
+            ExclusiveStartKey,
+          }));
+
+      const entries = (result.Items ?? []) as DLQEntry[];
+
+      for (let i = 0; i < entries.length; i += 25) {
+        const batch = entries.slice(i, i + 25);
+        await this.client.send(new BatchWriteCommand({
+          RequestItems: {
+            [this.tableName]: batch.map(entry => ({
+              DeleteRequest: { Key: { pk: entry.pk, sk: entry.sk } },
+            })),
+          },
+        }));
+        deleted += batch.length;
+      }
+
+      ExclusiveStartKey = result.LastEvaluatedKey as
+        | Record<string, unknown>
+        | undefined;
+    } while (ExclusiveStartKey);
 
     return deleted;
   }

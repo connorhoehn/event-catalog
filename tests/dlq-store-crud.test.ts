@@ -270,6 +270,73 @@ describe('DLQStore.clear()', () => {
         const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
         expect(send).toHaveBeenCalledTimes(3); // 1 scan + 2 batches
     });
+
+    it('paginates Scan with ExclusiveStartKey when the table spans multiple pages', async () => {
+        const page1 = [makeEntry({ id: 'p1-a' }), makeEntry({ id: 'p1-b' })];
+        const page2 = [makeEntry({ id: 'p2-a' })];
+        const page1Key = { pk: 'DLQ#orders.failed', sk: '2026-05-15T00:00:00.000Z#p1-b' };
+        // page1 list → batch-delete page1 → page2 list → batch-delete page2
+        const client = makeMockClient([
+            { Items: page1, LastEvaluatedKey: page1Key },
+            {},
+            { Items: page2 },
+            {},
+        ]);
+        const store = new DLQStore(client, 'test-dlq');
+
+        const deleted = await store.clear();
+
+        expect(deleted).toBe(3);
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        expect(send).toHaveBeenCalledTimes(4);
+        const secondListCmd = send.mock.calls[2]![0];
+        expect((secondListCmd.input as { ExclusiveStartKey?: unknown }).ExclusiveStartKey)
+            .toEqual(page1Key);
+    });
+
+    it('paginates Query (eventName) with ExclusiveStartKey when the partition spans multiple pages', async () => {
+        const page1 = [makeEntry({ id: 'q1-a' })];
+        const page2 = [makeEntry({ id: 'q2-a' })];
+        const page1Key = { pk: 'DLQ#orders.failed', sk: '2026-05-15T00:00:00.000Z#q1-a' };
+        const client = makeMockClient([
+            { Items: page1, LastEvaluatedKey: page1Key },
+            {},
+            { Items: page2 },
+            {},
+        ]);
+        const store = new DLQStore(client, 'test-dlq');
+
+        const deleted = await store.clear('orders.failed');
+
+        expect(deleted).toBe(2);
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        expect(send).toHaveBeenCalledTimes(4);
+        const firstListCmd = send.mock.calls[0]![0];
+        const secondListCmd = send.mock.calls[2]![0];
+        expect(firstListCmd).toBeInstanceOf(QueryCommand);
+        expect(secondListCmd).toBeInstanceOf(QueryCommand);
+        expect((secondListCmd.input as { ExclusiveStartKey?: unknown }).ExclusiveStartKey)
+            .toEqual(page1Key);
+    });
+
+    it('skips BatchWrite for empty intermediate pages but keeps paginating', async () => {
+        const page2 = [makeEntry({ id: 'p2-a' })];
+        const page1Key = { pk: 'DLQ#x', sk: '1#x' };
+        // page1 empty (with LastEvaluatedKey) → page2 returns 1 → batch-delete page2
+        const client = makeMockClient([
+            { Items: [], LastEvaluatedKey: page1Key },
+            { Items: page2 },
+            {},
+        ]);
+        const store = new DLQStore(client, 'test-dlq');
+
+        const deleted = await store.clear();
+
+        expect(deleted).toBe(1);
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        // 2 Scan calls + 1 BatchWriteCommand for page2; no BatchWrite for empty page1
+        expect(send).toHaveBeenCalledTimes(3);
+    });
 });
 
 describe('DLQStore.put()', () => {
