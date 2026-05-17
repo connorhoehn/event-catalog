@@ -92,4 +92,26 @@ describe('POST /api/transports/durable/dlq/clear', () => {
         await request(app).post('/api/transports/durable/dlq/clear');
         expect(clearFn).toHaveBeenCalledTimes(1);
     });
+
+    // ─── Input validation: reject malformed query strings rather than
+    //     silently coercing to phantom scopes (hub #898).
+    it('rejects duplicate ?eventName=A&eventName=B with 400 (array silently mis-targets the clear scope)', async () => {
+        const clearFn = vi.fn(async () => 0);
+        const app = createApp(clearFn);
+
+        const res = await request(app).post('/api/transports/durable/dlq/clear?eventName=A&eventName=B');
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/eventName/);
+        expect(clearFn).not.toHaveBeenCalled();
+    });
+
+    it('treats whitespace-only ?eventName= as no filter (full-clear) rather than scoping to a whitespace partition', async () => {
+        const clearFn = vi.fn(async () => 7);
+        const app = createApp(clearFn);
+
+        const res = await request(app).post('/api/transports/durable/dlq/clear?eventName=%20');
+        expect(res.status).toBe(200);
+        expect(res.body.cleared).toBe(7);
+        expect(clearFn).toHaveBeenCalledWith(undefined);
+    });
 });

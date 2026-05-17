@@ -69,6 +69,41 @@ function resolveCompatMode(
   return 'off';
 }
 
+const MAX_DLQ_LIMIT = 1000;
+
+// Express delivers duplicate `?eventName=A&eventName=B` as an array, which
+// silently coerces to `'A,B'` when passed to the DDB Query — wrong partition,
+// 0 entries, looks like a clean DLQ. Reject the array form loudly so
+// operators don't act on phantom-empty state. Same silent-drift hazard
+// class as the dlq-store pagination fixes (hub #806/#842/#858/#883).
+function parseDlqEventName(
+  raw: unknown,
+): { ok: true; value: string | undefined } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (typeof raw !== 'string') {
+    return { ok: false, error: 'eventName must be a single string' };
+  }
+  const trimmed = raw.trim();
+  return { ok: true, value: trimmed === '' ? undefined : trimmed };
+}
+
+function parseDlqLimit(
+  raw: unknown,
+): { ok: true; value: number | undefined } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (typeof raw !== 'string') {
+    return { ok: false, error: 'limit must be a single integer' };
+  }
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > MAX_DLQ_LIMIT) {
+    return {
+      ok: false,
+      error: `limit must be a positive integer ≤ ${MAX_DLQ_LIMIT}`,
+    };
+  }
+  return { ok: true, value: parsed };
+}
+
 export function createRoutes(deps: RoutesDeps): Router {
   const { registry, metrics, metricsObserver, signal, durable, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution, poisonDetector, coordinator } = deps;
   const router = Router();
@@ -1213,11 +1248,22 @@ export function createRoutes(deps: RoutesDeps): Router {
 
   // Durable transport dead-letter queue (persisted)
   router.get('/transports/durable/dlq', async (req: Request, res: Response) => {
-    const eventName = req.query.eventName as string | undefined;
-    const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+    const eventNameResult = parseDlqEventName(req.query.eventName);
+    if (!eventNameResult.ok) {
+      res.status(400).json({ error: eventNameResult.error });
+      return;
+    }
+    const limitResult = parseDlqLimit(req.query.limit);
+    if (!limitResult.ok) {
+      res.status(400).json({ error: limitResult.error });
+      return;
+    }
 
     try {
-      const entries = await dlqStore.list({ eventName, limit });
+      const entries = await dlqStore.list({
+        eventName: eventNameResult.value,
+        limit: limitResult.value,
+      });
       res.json({ messages: entries, total: entries.length });
     } catch (err) {
       const inMemory = durable.getDLQ();
@@ -1276,8 +1322,12 @@ export function createRoutes(deps: RoutesDeps): Router {
   // Bulk-clear DLQ entries. Optional ?eventName= scopes to one event.
   // Returns { cleared: N } so callers know how many entries were removed.
   router.post('/transports/durable/dlq/clear', async (req: Request, res: Response) => {
-    const eventName = req.query.eventName as string | undefined;
-    const cleared = await dlqStore.clear(eventName);
+    const eventNameResult = parseDlqEventName(req.query.eventName);
+    if (!eventNameResult.ok) {
+      res.status(400).json({ error: eventNameResult.error });
+      return;
+    }
+    const cleared = await dlqStore.clear(eventNameResult.value);
     res.json({ cleared });
   });
 

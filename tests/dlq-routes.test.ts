@@ -157,6 +157,80 @@ describe('GET /api/transports/durable/dlq', () => {
         expect(res.body.messages).toHaveLength(0);
         expect(res.body.total).toBe(0);
     });
+
+    // ─── Input validation: reject malformed query strings rather than
+    //     silently coercing to phantom-empty results (hub #898).
+    it('rejects duplicate ?eventName=A&eventName=B with 400 (array form silently mis-targets the Query)', async () => {
+        const listFn = vi.fn(async () => []);
+        const dlqStore = { list: listFn, remove: vi.fn(), findById: vi.fn(), put: vi.fn(), clear: vi.fn() } as unknown as RoutesDeps['dlqStore'];
+        const { app } = createApp({ dlqStore });
+
+        const res = await request(app).get('/api/transports/durable/dlq?eventName=A&eventName=B');
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/eventName/);
+        expect(listFn).not.toHaveBeenCalled();
+    });
+
+    it('rejects non-integer ?limit=abc with 400 (NaN limit silently asks DDB for NaN items)', async () => {
+        const listFn = vi.fn(async () => []);
+        const dlqStore = { list: listFn, remove: vi.fn(), findById: vi.fn(), put: vi.fn(), clear: vi.fn() } as unknown as RoutesDeps['dlqStore'];
+        const { app } = createApp({ dlqStore });
+
+        const res = await request(app).get('/api/transports/durable/dlq?limit=abc');
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/limit/);
+        expect(listFn).not.toHaveBeenCalled();
+    });
+
+    it('rejects non-positive ?limit=-5 with 400', async () => {
+        const listFn = vi.fn(async () => []);
+        const dlqStore = { list: listFn, remove: vi.fn(), findById: vi.fn(), put: vi.fn(), clear: vi.fn() } as unknown as RoutesDeps['dlqStore'];
+        const { app } = createApp({ dlqStore });
+
+        const res = await request(app).get('/api/transports/durable/dlq?limit=-5');
+        expect(res.status).toBe(400);
+        expect(listFn).not.toHaveBeenCalled();
+    });
+
+    it('rejects ?limit=0 with 400', async () => {
+        const listFn = vi.fn(async () => []);
+        const dlqStore = { list: listFn, remove: vi.fn(), findById: vi.fn(), put: vi.fn(), clear: vi.fn() } as unknown as RoutesDeps['dlqStore'];
+        const { app } = createApp({ dlqStore });
+
+        const res = await request(app).get('/api/transports/durable/dlq?limit=0');
+        expect(res.status).toBe(400);
+        expect(listFn).not.toHaveBeenCalled();
+    });
+
+    it('rejects ?limit above MAX_DLQ_LIMIT (1001) with 400', async () => {
+        const listFn = vi.fn(async () => []);
+        const dlqStore = { list: listFn, remove: vi.fn(), findById: vi.fn(), put: vi.fn(), clear: vi.fn() } as unknown as RoutesDeps['dlqStore'];
+        const { app } = createApp({ dlqStore });
+
+        const res = await request(app).get('/api/transports/durable/dlq?limit=1001');
+        expect(res.status).toBe(400);
+        expect(listFn).not.toHaveBeenCalled();
+    });
+
+    it('accepts ?limit at the MAX_DLQ_LIMIT boundary (1000)', async () => {
+        const listFn = vi.fn(async () => []);
+        const dlqStore = { list: listFn, remove: vi.fn(), findById: vi.fn(), put: vi.fn(), clear: vi.fn() } as unknown as RoutesDeps['dlqStore'];
+        const { app } = createApp({ dlqStore });
+
+        const res = await request(app).get('/api/transports/durable/dlq?limit=1000');
+        expect(res.status).toBe(200);
+        expect(listFn).toHaveBeenCalledWith({ eventName: undefined, limit: 1000 });
+    });
+
+    it('treats whitespace-only ?eventName=%20 as no filter rather than partition "%20"', async () => {
+        const listFn = vi.fn(async () => []);
+        const dlqStore = { list: listFn, remove: vi.fn(), findById: vi.fn(), put: vi.fn(), clear: vi.fn() } as unknown as RoutesDeps['dlqStore'];
+        const { app } = createApp({ dlqStore });
+
+        const res = await request(app).get('/api/transports/durable/dlq?eventName=%20%20');
+        expect(res.status).toBe(200);
+        expect(listFn).toHaveBeenCalledWith({ eventName: undefined, limit: undefined });
+    });
 });
 
 // ─── DELETE /api/transports/durable/dlq/:id ──────────────────────────────────
