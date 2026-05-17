@@ -591,6 +591,48 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     unsubscribe();
   });
 
+  it('a throwing onDeadLetter callback does not block sibling callbacks or the DELETE cleanup', async () => {
+    const envelope = makeEnvelope({ eventName: 'poison.event' });
+    const queueMsg = makeQueueMessage('msg-cb-throws', envelope);
+
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })                                          // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail → dead-letter
+      .mockResolvedValueOnce({ ok: true })                                          // DELETE after dead-letter
+      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const t = new DurableTransport({ url: 'http://mq:3004', maxProcessingAttempts: 1 });
+    await t.connect();
+
+    const cb1 = vi.fn(() => { throw new Error('cb1 boom'); });
+    const cb2 = vi.fn();
+    t.onDeadLetter(cb1);
+    t.onDeadLetter(cb2);
+
+    const handler = vi.fn().mockRejectedValue(new Error('poison'));
+    const unsubscribe = t.subscribe('test-queue', handler, { pollingInterval: 0 });
+
+    await new Promise(r => setTimeout(r, 100));
+
+    // Both callbacks are invoked; the thrown error from cb1 is swallowed so cb2 still fires.
+    expect(cb1).toHaveBeenCalledOnce();
+    expect(cb2).toHaveBeenCalledOnce();
+
+    // DLQ recorded the dead-letter despite the callback throw.
+    expect(t.getDLQ()).toHaveLength(1);
+
+    // DELETE still issued to drop the message from the source queue.
+    const deleteCalls = fetchSpy.mock.calls.filter(([url, opts]: [string, RequestInit]) =>
+      (url as string).includes('/messages/') && opts?.method === 'DELETE',
+    );
+    expect(deleteCalls).toHaveLength(1);
+
+    unsubscribe();
+  });
+
   it('unsubscribe() aborts the poll loop and stops further fetches', async () => {
     const fetchSpy = vi.fn()
       .mockResolvedValueOnce({ ok: true })                                    // connect /health
