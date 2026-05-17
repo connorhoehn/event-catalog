@@ -17,6 +17,13 @@ export class MetricsObserver {
   private readonly signalUnsubscribes = new Map<string, () => Promise<void>>();
   private durablePollTimer: ReturnType<typeof setInterval> | null = null;
   private readonly durablePollIntervalMs: number;
+  // Track durable transport counters separately from MetricsCollector's
+  // shared publishCount/errorCount. For transport:'both' events the
+  // signal observation path also bumps those shared counters, so using
+  // them as the "what we've attributed to durable so far" baseline
+  // makes the delta go negative and silently drops durable observations.
+  private readonly lastDurableSent = new Map<string, number>();
+  private readonly lastDurableFailed = new Map<string, number>();
 
   constructor(deps: {
     registry: Registry;
@@ -64,6 +71,11 @@ export class MetricsObserver {
       await unsub();
     }
     this.signalUnsubscribes.clear();
+    // Reset durable baselines so a restart against a fresh transport
+    // (counters back to 0) doesn't compute a negative delta from a
+    // stale high-water mark.
+    this.lastDurableSent.clear();
+    this.lastDurableFailed.clear();
   }
 
   private async observeSignal(eventName: string): Promise<void> {
@@ -121,7 +133,13 @@ export class MetricsObserver {
   }
 
   private async pollDurableStats(): Promise<void> {
-    const durableEvents = this.registry.list({ transport: 'durable' });
+    // Include transport:'both' — its durable side has the same SQS-style
+    // counters as a pure 'durable' event. The registry's transport filter
+    // is strict equality, so we widen here rather than calling list()
+    // twice.
+    const durableEvents = this.registry
+      .list()
+      .filter(e => e.transport === 'durable' || e.transport === 'both');
 
     for (const entry of durableEvents) {
       const queueName = DurableTransport.eventNameToQueueName(entry.name);
@@ -140,7 +158,7 @@ export class MetricsObserver {
         { sent: number; received: number; failed: number; inFlight: number } | undefined;
 
       if (transportMetrics) {
-        const seenBefore = this.metrics.getStats(entry.name)?.publishCount ?? 0;
+        const seenBefore = this.lastDurableSent.get(entry.name) ?? 0;
         const newSends = transportMetrics.sent - seenBefore;
         for (let i = 0; i < newSends; i++) {
           this.metrics.recordPublish(entry.name);
@@ -156,10 +174,16 @@ export class MetricsObserver {
             queue: queueName,
           });
         }
-        const prevErrors = this.metrics.getStats(entry.name)?.errorCount ?? 0;
+        if (transportMetrics.sent > seenBefore) {
+          this.lastDurableSent.set(entry.name, transportMetrics.sent);
+        }
+        const prevErrors = this.lastDurableFailed.get(entry.name) ?? 0;
         for (let i = 0; i < transportMetrics.failed - prevErrors; i++) {
           this.metrics.recordError(entry.name);
           this.maybePoison(entry.name);
+        }
+        if (transportMetrics.failed > prevErrors) {
+          this.lastDurableFailed.set(entry.name, transportMetrics.failed);
         }
       }
     }

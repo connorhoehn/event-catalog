@@ -472,4 +472,156 @@ describe('MetricsObserver', () => {
       expect(metrics.recordError).toHaveBeenCalledWith('q.event');
     });
   });
+
+  describe('pollDurableStats — transport:"both" cross-talk', () => {
+    // Regression: before this fix, pollDurableStats derived its
+    // "what I've already attributed" baseline from MetricsCollector's
+    // shared publishCount. For transport:'both' events, the signal
+    // observation handler also bumps that shared count, inflating the
+    // baseline above the durable transport's `sent` counter and
+    // turning the delta negative — durable observations were silently
+    // skipped on every subsequent poll.
+    it('counts durable sent-deltas independently of signal publishCount on transport:"both"', async () => {
+      registry.declare({
+        name: 'pipeline.run.completed',
+        schema: {},
+        transport: 'both',
+        producer: 'pipeline',
+        namespace: 'pipeline',
+      });
+
+      const durable = makeDurable(null, { sent: 2, received: 0, failed: 0, inFlight: 0 });
+      // Simulate signal observations having already bumped publishCount
+      // to 5 (e.g., 5 signal hits between transport boot and this poll).
+      // The durable delta must still register as 2, not be silently
+      // skipped because publishCount > transportMetrics.sent.
+      const metrics = makeMetrics();
+      metrics.getStats.mockReturnValue({
+        publishCount: 5,
+        errorCount: 0,
+        publishRate: 0,
+        lastPublishedAt: null,
+        subscriberCount: 0,
+      });
+
+      const observer = new MetricsObserver({
+        registry, signal: makeSignal() as any, durable: durable as any,
+        metrics: metrics as any, durablePollIntervalMs: 100,
+      });
+
+      await observer.start();
+      await vi.advanceTimersByTimeAsync(101);
+      await observer.stop();
+
+      // Pre-fix: 0 calls (newSends = 2 - 5 = -3, loop skipped).
+      // Post-fix: 2 calls (delta from per-observer lastDurableSent).
+      expect(metrics.recordPublish).toHaveBeenCalledTimes(2);
+      expect(metrics.recordPublish).toHaveBeenCalledWith('pipeline.run.completed');
+    });
+
+    it('counts durable failed-deltas independently of signal errorCount on transport:"both"', async () => {
+      registry.declare({
+        name: 'pipeline.approval.requested',
+        schema: {},
+        transport: 'both',
+        producer: 'pipeline',
+        namespace: 'pipeline',
+      });
+
+      const durable = makeDurable(null, { sent: 0, received: 0, failed: 3, inFlight: 0 });
+      const metrics = makeMetrics();
+      // Signal-side errors have already pushed errorCount to 7. Pre-fix
+      // the failed-delta would be 3 - 7 = -4 and the loop would be a
+      // no-op; durable failures vanish.
+      metrics.getStats.mockReturnValue({
+        publishCount: 0,
+        errorCount: 7,
+        publishRate: 0,
+        lastPublishedAt: null,
+        subscriberCount: 0,
+      });
+
+      const observer = new MetricsObserver({
+        registry, signal: makeSignal() as any, durable: durable as any,
+        metrics: metrics as any, durablePollIntervalMs: 100,
+      });
+
+      await observer.start();
+      await vi.advanceTimersByTimeAsync(101);
+      await observer.stop();
+
+      expect(metrics.recordError).toHaveBeenCalledTimes(3);
+      expect(metrics.recordError).toHaveBeenCalledWith('pipeline.approval.requested');
+    });
+
+    it('emits one durable tap event per sent-delta on transport:"both" even when publishCount > sent', async () => {
+      registry.declare({
+        name: 'recording.completed',
+        schema: {},
+        transport: 'both',
+        producer: 'sfu',
+        namespace: 'sfu',
+      });
+
+      const durable = makeDurable(null, { sent: 4, received: 0, failed: 0, inFlight: 0 });
+      const metrics = makeMetrics();
+      metrics.getStats.mockReturnValue({
+        publishCount: 10,
+        errorCount: 0,
+        publishRate: 0,
+        lastPublishedAt: null,
+        subscriberCount: 0,
+      });
+
+      const taps: any[] = [];
+      tapEmitter.on('publish', (e) => {
+        if (e.transport === 'durable') taps.push(e);
+      });
+
+      const observer = new MetricsObserver({
+        registry, signal: makeSignal() as any, durable: durable as any,
+        metrics: metrics as any, durablePollIntervalMs: 100,
+      });
+
+      await observer.start();
+      await vi.advanceTimersByTimeAsync(101);
+      await observer.stop();
+
+      expect(taps).toHaveLength(4);
+      for (const tap of taps) {
+        expect(tap.transport).toBe('durable');
+        expect(tap.eventName).toBe('recording.completed');
+      }
+    });
+
+    it('advances the durable baseline so the next poll only attributes new sends', async () => {
+      registry.declare({ name: 'social.post.created', schema: {}, transport: 'durable', producer: 'social' });
+
+      // Mutable counter so we can change between polls.
+      const counters = { sent: 3, received: 0, failed: 0, inFlight: 0 };
+      const durable = {
+        isConnected: vi.fn().mockReturnValue(true),
+        getQueueAttributes: vi.fn().mockResolvedValue(null),
+        getMetrics: vi.fn(() => ({ ...counters })),
+      };
+      const metrics = makeMetrics();
+
+      const observer = new MetricsObserver({
+        registry, signal: makeSignal() as any, durable: durable as any,
+        metrics: metrics as any, durablePollIntervalMs: 100,
+      });
+
+      await observer.start();
+      await vi.advanceTimersByTimeAsync(101);
+      // First poll: baseline=0, sent=3 → 3 recordPublish.
+      expect(metrics.recordPublish).toHaveBeenCalledTimes(3);
+
+      counters.sent = 5;
+      await vi.advanceTimersByTimeAsync(100);
+      // Second poll: baseline=3, sent=5 → 2 more (5 total).
+      expect(metrics.recordPublish).toHaveBeenCalledTimes(5);
+
+      await observer.stop();
+    });
+  });
 });
