@@ -65,27 +65,46 @@ export class DLQStore {
   }
 
   async list(opts: DLQListOptions = {}): Promise<DLQEntry[]> {
+    // Paginate via LastEvaluatedKey: DynamoDB's `Limit` caps items
+    // *evaluated* per page, not items returned. A 1MB page boundary
+    // (or single-partition Query cap) can short-return well below the
+    // caller's requested limit, silently hiding entries past the first
+    // page. Same hazard class as clear() and findById() (commits
+    // 5b0e2a9, c088584; hub #806, #849).
     const { eventName, limit = 100 } = opts;
-
-    if (eventName) {
-      const result = await this.client.send(new QueryCommand({
-        TableName: this.tableName,
-        KeyConditionExpression: 'pk = :pk',
-        ExpressionAttributeValues: { ':pk': `DLQ#${eventName}` },
-        Limit: limit,
-        ScanIndexForward: false,
-      }));
-      return (result.Items ?? []) as DLQEntry[];
-    }
-
-    // Without a specific eventName, scan all known partitions
-    // In practice this does a full table scan — acceptable for an admin/debug endpoint
     const { ScanCommand } = await import('@aws-sdk/lib-dynamodb');
-    const result = await this.client.send(new ScanCommand({
-      TableName: this.tableName,
-      Limit: limit,
-    }));
-    return (result.Items ?? []) as DLQEntry[];
+
+    const items: DLQEntry[] = [];
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
+
+    do {
+      const remaining = limit - items.length;
+      const result = eventName
+        ? await this.client.send(new QueryCommand({
+            TableName: this.tableName,
+            KeyConditionExpression: 'pk = :pk',
+            ExpressionAttributeValues: { ':pk': `DLQ#${eventName}` },
+            Limit: remaining,
+            ScanIndexForward: false,
+            ExclusiveStartKey,
+          }))
+        : await this.client.send(new ScanCommand({
+            TableName: this.tableName,
+            Limit: remaining,
+            ExclusiveStartKey,
+          }));
+
+      for (const entry of (result.Items ?? []) as DLQEntry[]) {
+        if (items.length >= limit) break;
+        items.push(entry);
+      }
+
+      ExclusiveStartKey = result.LastEvaluatedKey as
+        | Record<string, unknown>
+        | undefined;
+    } while (ExclusiveStartKey && items.length < limit);
+
+    return items;
   }
 
   async remove(id: string): Promise<boolean> {

@@ -85,6 +85,91 @@ describe('DLQStore.list()', () => {
         const cmd = send.mock.calls[0]![0];
         expect((cmd.input as { Limit: number }).Limit).toBe(5);
     });
+
+    it('paginates Scan with ExclusiveStartKey when results span multiple pages', async () => {
+        // Without pagination, the Scan's `Limit` cap silently short-returns
+        // at the 1MB page boundary, hiding entries past the first page.
+        const page1 = [makeEntry({ id: 'p1-a' }), makeEntry({ id: 'p1-b' })];
+        const page2 = [makeEntry({ id: 'p2-a' })];
+        const page1Key = { pk: 'DLQ#orders.failed', sk: '2026-05-15T00:00:00.000Z#p1-b' };
+        const client = makeMockClient([
+            { Items: page1, LastEvaluatedKey: page1Key },
+            { Items: page2 },
+        ]);
+        const store = new DLQStore(client, 'test-dlq');
+
+        const result = await store.list({ limit: 10 });
+
+        expect(result.map((e) => e.id)).toEqual(['p1-a', 'p1-b', 'p2-a']);
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        expect(send).toHaveBeenCalledTimes(2);
+        const secondCmd = send.mock.calls[1]![0];
+        expect((secondCmd.input as { ExclusiveStartKey?: unknown }).ExclusiveStartKey)
+            .toEqual(page1Key);
+    });
+
+    it('paginates Query (eventName) with ExclusiveStartKey when the partition spans multiple pages', async () => {
+        const page1 = [makeEntry({ id: 'q1-a' })];
+        const page2 = [makeEntry({ id: 'q2-a' })];
+        const page1Key = { pk: 'DLQ#orders.failed', sk: '2026-05-15T00:00:00.000Z#q1-a' };
+        const client = makeMockClient([
+            { Items: page1, LastEvaluatedKey: page1Key },
+            { Items: page2 },
+        ]);
+        const store = new DLQStore(client, 'test-dlq');
+
+        const result = await store.list({ eventName: 'orders.failed', limit: 10 });
+
+        expect(result.map((e) => e.id)).toEqual(['q1-a', 'q2-a']);
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        expect(send).toHaveBeenCalledTimes(2);
+        const firstCmd = send.mock.calls[0]![0];
+        const secondCmd = send.mock.calls[1]![0];
+        expect(firstCmd).toBeInstanceOf(QueryCommand);
+        expect(secondCmd).toBeInstanceOf(QueryCommand);
+        expect((secondCmd.input as { ExclusiveStartKey?: unknown }).ExclusiveStartKey)
+            .toEqual(page1Key);
+    });
+
+    it('stops paginating once the caller-requested limit is reached', async () => {
+        const page1 = [makeEntry({ id: 'a' }), makeEntry({ id: 'b' }), makeEntry({ id: 'c' })];
+        const page1Key = { pk: 'DLQ#x', sk: '1#x' };
+        // Page 1 already satisfies limit=2 — must NOT issue a second call.
+        const client = makeMockClient([
+            { Items: page1, LastEvaluatedKey: page1Key },
+        ]);
+        const store = new DLQStore(client, 'test-dlq');
+
+        const result = await store.list({ limit: 2 });
+
+        expect(result.map((e) => e.id)).toEqual(['a', 'b']);
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    it('decrements the per-page Limit as items accumulate', async () => {
+        // After page 1 returns 3 of the 5 requested, page 2 must ask for
+        // only the remaining 2 — not the original 5 — so we don't over-read.
+        const page1 = [
+            makeEntry({ id: 'a' }),
+            makeEntry({ id: 'b' }),
+            makeEntry({ id: 'c' }),
+        ];
+        const page1Key = { pk: 'DLQ#x', sk: '1#x' };
+        const client = makeMockClient([
+            { Items: page1, LastEvaluatedKey: page1Key },
+            { Items: [makeEntry({ id: 'd' }), makeEntry({ id: 'e' })] },
+        ]);
+        const store = new DLQStore(client, 'test-dlq');
+
+        await store.list({ limit: 5 });
+
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        const firstCmd = send.mock.calls[0]![0];
+        const secondCmd = send.mock.calls[1]![0];
+        expect((firstCmd.input as { Limit: number }).Limit).toBe(5);
+        expect((secondCmd.input as { Limit: number }).Limit).toBe(2);
+    });
 });
 
 describe('DLQStore.findById()', () => {
