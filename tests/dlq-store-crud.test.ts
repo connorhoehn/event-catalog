@@ -119,6 +119,55 @@ describe('DLQStore.findById()', () => {
         const cmd = send.mock.calls[0]![0];
         expect((cmd.input as { FilterExpression: string }).FilterExpression).toBe('id = :id');
     });
+
+    it('does not cap the Scan with Limit:1 (would silently skip filtered items past the first page)', async () => {
+        const entry = makeEntry({ id: 'abc-123' });
+        const client = makeMockClient([{ Items: [entry] }]);
+        const store = new DLQStore(client, 'test-dlq');
+
+        await store.findById('abc-123');
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        const cmd = send.mock.calls[0]![0];
+        expect((cmd.input as { Limit?: number }).Limit).toBeUndefined();
+    });
+
+    it('paginates with ExclusiveStartKey when the match is past the first scanned page', async () => {
+        const entry = makeEntry({ id: 'late-id' });
+        const page1Key = { pk: 'DLQ#orders.failed', sk: '2026-05-15T00:00:00.000Z#prev' };
+        // Page 1: empty (filter matched nothing on this page, but more to scan)
+        // Page 2: contains the match, no LastEvaluatedKey (table exhausted)
+        const client = makeMockClient([
+            { Items: [], LastEvaluatedKey: page1Key },
+            { Items: [entry] },
+        ]);
+        const store = new DLQStore(client, 'test-dlq');
+
+        const found = await store.findById('late-id');
+
+        expect(found).not.toBeNull();
+        expect(found!.id).toBe('late-id');
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        expect(send).toHaveBeenCalledTimes(2);
+        const secondCmd = send.mock.calls[1]![0];
+        expect((secondCmd.input as { ExclusiveStartKey?: unknown }).ExclusiveStartKey).toEqual(page1Key);
+    });
+
+    it('returns null after scanning every page without a match', async () => {
+        const page1Key = { pk: 'DLQ#a', sk: '1#a' };
+        const page2Key = { pk: 'DLQ#b', sk: '1#b' };
+        const client = makeMockClient([
+            { Items: [], LastEvaluatedKey: page1Key },
+            { Items: [], LastEvaluatedKey: page2Key },
+            { Items: [] }, // no more pages
+        ]);
+        const store = new DLQStore(client, 'test-dlq');
+
+        const found = await store.findById('ghost');
+
+        expect(found).toBeNull();
+        const { send } = client as unknown as { send: ReturnType<typeof vi.fn> };
+        expect(send).toHaveBeenCalledTimes(3);
+    });
 });
 
 describe('DLQStore.remove()', () => {

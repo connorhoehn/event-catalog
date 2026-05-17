@@ -127,13 +127,25 @@ export class DLQStore {
   }
 
   async findById(id: string): Promise<DLQEntry | null> {
+    // Paginate the Scan: DynamoDB applies `Limit` to items evaluated,
+    // not to items matched by `FilterExpression`. Capping at 1 would
+    // silently miss entries past the first scanned page. Loop on
+    // LastEvaluatedKey until found or table exhausted.
     const { ScanCommand } = await import('@aws-sdk/lib-dynamodb');
-    const result = await this.client.send(new ScanCommand({
-      TableName: this.tableName,
-      FilterExpression: 'id = :id',
-      ExpressionAttributeValues: { ':id': id },
-      Limit: 1,
-    }));
-    return (result.Items?.[0] as DLQEntry) ?? null;
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.client.send(new ScanCommand({
+        TableName: this.tableName,
+        FilterExpression: 'id = :id',
+        ExpressionAttributeValues: { ':id': id },
+        ExclusiveStartKey,
+      }));
+      const found = result.Items?.[0] as DLQEntry | undefined;
+      if (found) return found;
+      ExclusiveStartKey = result.LastEvaluatedKey as
+        | Record<string, unknown>
+        | undefined;
+    } while (ExclusiveStartKey);
+    return null;
   }
 }
