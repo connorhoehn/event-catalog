@@ -81,6 +81,26 @@ describe('wave25-b — GET /api/namespaces/summary', () => {
     expect(res.body.items).toEqual([]);
   });
 
+  it("counts transport:'both' events toward signalCount AND durableCount", async () => {
+    const { app, registry } = makeApp();
+    // A namespace with one of each transport. The 'both' event fires on
+    // signal AND durable, so it must contribute to both counts — not be
+    // silently dropped by strict equality (same bug pattern as the
+    // metrics-observer pollDurableStats fix).
+    registry.declare({ name: 'mix.sig', schema: {}, transport: 'signal', producer: 'svc' });
+    registry.declare({ name: 'mix.dur', schema: {}, transport: 'durable', producer: 'svc' });
+    registry.declare({ name: 'mix.both', schema: {}, transport: 'both', producer: 'svc' });
+
+    const res = await request(app).get('/api/namespaces/summary');
+    expect(res.status).toBe(200);
+    const mix = res.body.items.find((r: { namespace: string }) => r.namespace === 'mix')!;
+    expect(mix.eventCount).toBe(3);
+    // signal-only (1) + both (1) = 2
+    expect(mix.signalCount).toBe(2);
+    // durable-only (1) + both (1) = 2
+    expect(mix.durableCount).toBe(2);
+  });
+
   it('counts all producers when producer is an array (routes.ts:791 array-producer branch)', async () => {
     const { app, registry } = makeApp();
     // Two declared producers on one event — should contribute 2 to producerCount.

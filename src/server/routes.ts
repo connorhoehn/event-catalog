@@ -821,8 +821,12 @@ export function createRoutes(deps: RoutesDeps): Router {
       }
       row.eventCount += 1;
       if (entry.deprecation) row.deprecatedCount += 1;
-      if (entry.transport === 'signal') row.signalCount += 1;
-      if (entry.transport === 'durable') row.durableCount += 1;
+      // transport:'both' fires on BOTH signal and durable, so it must
+      // contribute to each count. Strict equality silently dropped it,
+      // matching the same drift hazard fixed in metrics-observer
+      // pollDurableStats (commit 5c5debc).
+      if (entry.transport === 'signal' || entry.transport === 'both') row.signalCount += 1;
+      if (entry.transport === 'durable' || entry.transport === 'both') row.durableCount += 1;
       const producers = Array.isArray(entry.producer) ? entry.producer : [entry.producer];
       for (const p of producers) row.producers.add(p);
       for (const s of entry.subscribers) row.subscribers.add(s);
