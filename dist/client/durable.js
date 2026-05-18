@@ -4,6 +4,8 @@ exports.DurableTransport = void 0;
 const transport_1 = require("distributed-core/transport");
 class DurableTransport {
     url;
+    /** message-queue's canonical versioned queue surface (Roadmap 4.1). */
+    queuesBase;
     retryAttempts;
     retryBaseMs;
     maxProcessingAttempts;
@@ -19,6 +21,7 @@ class DurableTransport {
     deadLetterCallbacks = [];
     constructor(config) {
         this.url = config.url.replace(/\/$/, '');
+        this.queuesBase = `${this.url}/api/v1/queues`;
         this.retryAttempts = config.retryAttempts ?? 3;
         this.retryBaseMs = config.retryBaseMs ?? 100;
         this.maxProcessingAttempts = config.maxProcessingAttempts ?? 3;
@@ -124,12 +127,12 @@ class DurableTransport {
         return config;
     }
     /**
-     * Single PUT to /queues/{name}. Returns true on 200/201, false on 409
+     * Single PUT to /api/v1/queues/{name}. Returns true on 200/201, false on 409
      * (logs the conflict diff) or any other status / network error.
      */
     async putQueue(queueName, configuration) {
         try {
-            const res = await fetch(`${this.url}/queues/${encodeURIComponent(queueName)}`, {
+            const res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ configuration }),
@@ -162,7 +165,7 @@ class DurableTransport {
         });
         try {
             await this.retryManager.execute(async () => {
-                const res = await fetch(`${this.url}/queues/${encodeURIComponent(queueName)}/messages`, {
+                const res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body,
@@ -197,7 +200,7 @@ class DurableTransport {
     }
     async getQueueAttributes(queueName) {
         try {
-            const res = await fetch(`${this.url}/queues/${encodeURIComponent(queueName)}/attributes`);
+            const res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/attributes`);
             if (!res.ok)
                 return null;
             return await res.json();
@@ -263,7 +266,7 @@ class DurableTransport {
                 let data;
                 try {
                     data = await this.pollRetryManager.execute(async () => {
-                        const res = await fetch(`${this.url}/queues/${encodeURIComponent(queueName)}/messages?` +
+                        const res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages?` +
                             `max_messages=${batchSize}&visibility_timeout=${visibilityTimeout}`, { signal });
                         if (!res.ok) {
                             throw new Error(`message-queue returned ${res.status}`);
@@ -285,7 +288,7 @@ class DurableTransport {
                         const envelope = JSON.parse(msg.body);
                         await handler(envelope);
                         // Delete on success — processing succeeded
-                        await fetch(`${this.url}/queues/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(msg.receipt_handle)}`, { method: 'DELETE' });
+                        await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(msg.receipt_handle)}`, { method: 'DELETE' });
                         this.incrementMetric(queueName, 'received');
                         this.decrementInFlight(queueName);
                         // Clear attempt counter on success
@@ -320,7 +323,7 @@ class DurableTransport {
                                 catch { /* ignore callback errors */ }
                             }
                             // Delete from source queue so it's not redelivered
-                            await fetch(`${this.url}/queues/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(msg.receipt_handle)}`, { method: 'DELETE' }).catch(() => { });
+                            await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(msg.receipt_handle)}`, { method: 'DELETE' }).catch(() => { });
                             this.messageAttempts.delete(msg.message_id);
                             console.error(`[durable-transport] message ${msg.message_id} dead-lettered after ${attemptCount} attempts in "${queueName}"`);
                         }

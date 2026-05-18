@@ -56,6 +56,30 @@ class Registry {
         for (const [name, json] of Object.entries(entries)) {
             this.events.set(name, JSON.parse(json));
         }
+        this.migrateHistoryFingerprints();
+    }
+    /**
+     * Phase E6.5 — backfill `fingerprint` on `schemaHistory` entries that
+     * lack it (entries persisted before wave19-h, when the field was
+     * introduced). Idempotent: returns 0 when every history entry already
+     * carries a fingerprint. Called from `load()` after Redis hydration;
+     * exposed publicly so a one-shot CLI / test can drive it.
+     */
+    migrateHistoryFingerprints() {
+        let backfilled = 0;
+        for (const [name, entry] of this.events) {
+            let touched = false;
+            for (const hist of entry.schemaHistory) {
+                if (!hist.fingerprint) {
+                    hist.fingerprint = (0, fingerprint_1.computeSchemaFingerprint)(hist.schema ?? {});
+                    backfilled++;
+                    touched = true;
+                }
+            }
+            if (touched)
+                this.persist(name, entry);
+        }
+        return backfilled;
     }
     declare(event) {
         // wave22-a — meta-validate the schema shape before anything else.

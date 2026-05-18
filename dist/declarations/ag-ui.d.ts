@@ -1,0 +1,33 @@
+import type { EventDeclaration } from '../types/index';
+export declare const agUiRunStarted: EventDeclaration;
+export declare const agUiRunFinished: EventDeclaration;
+export declare const agUiRunError: EventDeclaration;
+export declare const agUiStepStarted: EventDeclaration;
+export declare const agUiStepFinished: EventDeclaration;
+export declare const agUiTextMessageStart: EventDeclaration;
+export declare const agUiTextMessageContent: EventDeclaration;
+export declare const agUiTextMessageEnd: EventDeclaration;
+export declare const agUiTextMessageChunk: EventDeclaration;
+export declare const agUiToolCallStart: EventDeclaration;
+export declare const agUiToolCallArgs: EventDeclaration;
+export declare const agUiToolCallEnd: EventDeclaration;
+export declare const agUiToolCallResult: EventDeclaration;
+export declare const agUiToolCallChunk: EventDeclaration;
+export declare const agUiStateSnapshot: EventDeclaration;
+export declare const agUiStateDelta: EventDeclaration;
+export declare const agUiMessagesSnapshot: EventDeclaration;
+export declare const agUiActivitySnapshot: EventDeclaration;
+export declare const agUiActivityDelta: EventDeclaration;
+export declare const agUiReasoningMessageStart: EventDeclaration;
+export declare const agUiReasoningMessageContent: EventDeclaration;
+export declare const agUiReasoningMessageEnd: EventDeclaration;
+export declare const agUiReasoningMessageChunk: EventDeclaration;
+export declare const agUiReasoningStart: EventDeclaration;
+export declare const agUiReasoningEnd: EventDeclaration;
+export declare const agUiReasoningEncryptedValue: EventDeclaration;
+export declare const agUiRaw: EventDeclaration;
+export declare const agUiCustom: EventDeclaration;
+export declare const agUiMetaEvent: EventDeclaration;
+/** All 29 AG-UI v0.1.x event declarations. */
+export declare const agUiDeclarations: readonly EventDeclaration[];
+//# sourceMappingURL=ag-ui.d.ts.map

@@ -10,6 +10,14 @@ export declare class Registry implements IRegistry {
     private subscriberHeartbeats;
     constructor(redis?: RedisClientType);
     load(): Promise<void>;
+    /**
+     * Phase E6.5 — backfill `fingerprint` on `schemaHistory` entries that
+     * lack it (entries persisted before wave19-h, when the field was
+     * introduced). Idempotent: returns 0 when every history entry already
+     * carries a fingerprint. Called from `load()` after Redis hydration;
+     * exposed publicly so a one-shot CLI / test can drive it.
+     */
+    migrateHistoryFingerprints(): number;
     declare(event: EventDeclaration): DeclareResult;
     get(name: string): RegistryEntry | undefined;
     /**

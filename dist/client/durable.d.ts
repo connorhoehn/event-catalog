@@ -51,6 +51,8 @@ type MessageHandler = (envelope: EventEnvelope) => Promise<void>;
 export type DeadLetterCallback = (message: DeadLetteredMessage) => void;
 export declare class DurableTransport {
     private readonly url;
+    /** message-queue's canonical versioned queue surface (Roadmap 4.1). */
+    private readonly queuesBase;
     private readonly retryAttempts;
     private readonly retryBaseMs;
     private readonly maxProcessingAttempts;
@@ -93,7 +95,7 @@ export declare class DurableTransport {
      */
     private buildQueueConfig;
     /**
-     * Single PUT to /queues/{name}. Returns true on 200/201, false on 409
+     * Single PUT to /api/v1/queues/{name}. Returns true on 200/201, false on 409
      * (logs the conflict diff) or any other status / network error.
      */
     private putQueue;

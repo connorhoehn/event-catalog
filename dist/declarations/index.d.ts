@@ -4,4 +4,18 @@ export { pipelineRunStarted, pipelineRunCompleted, pipelineRunFailed, pipelineRu
 export { pipelineRaftRunStarted, pipelineRaftRunUpdated, pipelineRaftRunSynthesized, pipelineRaftRunCheckpointed, pipelineRaftRunTerminated, pipelineRaftDeclarations, pipelineRaftStateMachineDeclarations, } from './pipeline-raft';
 export { gatewaySignalDeclarations } from './gateway-signal';
 export { pipelineEventDeclarations, } from './pipeline-events';
+export { agUiDeclarations } from './ag-ui';
+import type { EventDeclaration } from '../types/index';
+/**
+ * The flat set of every event this repo declares on behalf of producers
+ * that don't import event-catalog directly (distributed-core et al).
+ * Used by `scripts/regen-registry-snapshot.ts` to build the shipped
+ * `contracts/registry.snapshot.json` that producer CI compares against.
+ *
+ * Each event name appears exactly once. Convenience re-exports
+ * (pipelineEventDeclarations, pipelineRaftStateMachineDeclarations) are
+ * excluded here because their events are already covered by the canonical
+ * per-phase arrays above — including them would produce silent duplicates.
+ */
+export declare const allDeclarations: readonly EventDeclaration[];
 //# sourceMappingURL=index.d.ts.map
