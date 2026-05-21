@@ -19,4 +19,5 @@ export { createValidatingPublisher, createPublisher, ValidationError, type Valid
 export { MQ_QUEUE_NAMES } from './queue-names';
 export type { MQQueueName } from './queue-names';
 export { DEPRECATED_DUAL_EMIT_ALIASES } from './declarations/deprecated-pipeline-aliases';
+export type { EventPayloadMap, EventPayload } from './generated/event-types';
 //# sourceMappingURL=index.d.ts.map

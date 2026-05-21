@@ -134,3 +134,7 @@ export type { MQQueueName } from './queue-names';
 // wave20-f — deprecated dot-form pipeline event names, derived from
 // the canonical colon-form declarations' `aliases` arrays.
 export { DEPRECATED_DUAL_EMIT_ALIASES } from './declarations/deprecated-pipeline-aliases';
+
+// Generated typed map from event name → payload shape.
+// Regenerate with: npm run generate-types
+export type { EventPayloadMap, EventPayload } from './generated/event-types';
