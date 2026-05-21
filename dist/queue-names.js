@@ -4,7 +4,7 @@
 // Shared MQ queue-name constants (wave7-d).
 //
 // Single source of truth for message-queue queue names used across services.
-// Both producers (pipeline-worker) and consumers (gateway) import from here
+// Both producers (platform-api) and consumers (gateway) import from here
 // so a rename is caught at compile time rather than silently at runtime.
 //
 // DO NOT duplicate these strings in any service. Import this module instead.
@@ -18,7 +18,7 @@ exports.MQ_QUEUE_NAMES = void 0;
  * coordinated with the MQ operator config.
  */
 exports.MQ_QUEUE_NAMES = {
-    /** Pipeline lifecycle + approval events (M4.4). Producer: pipeline-worker. Consumer: gateway. */
+    /** Pipeline lifecycle + approval events (M4.4). Producer: platform-api. Consumer: gateway. */
     PIPELINE_EVENTS: 'pipeline-events',
 };
 //# sourceMappingURL=queue-names.js.map

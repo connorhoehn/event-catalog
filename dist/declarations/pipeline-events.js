@@ -4,9 +4,8 @@
 // Wave 19 / Part A — consolidated pipelineEventDeclarations aggregate.
 //
 // Groups the 16 P0+P1 pipeline event declarations from existing EC modules
-// into a single named export so consumers (platform-api, pipeline-worker)
-// can bulk-register them with a single import rather than pulling from
-// multiple modules.
+// into a single named export so consumers (platform-api) can bulk-register
+// them with a single import rather than pulling from multiple modules.
 //
 // P0 — approval (2 signal + 2 durable):
 //   `pipeline:approval:requested`   (signal, alias via pipeline.approval.requested)

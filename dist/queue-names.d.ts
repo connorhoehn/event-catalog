@@ -6,7 +6,7 @@
  * coordinated with the MQ operator config.
  */
 export declare const MQ_QUEUE_NAMES: {
-    /** Pipeline lifecycle + approval events (M4.4). Producer: pipeline-worker. Consumer: gateway. */
+    /** Pipeline lifecycle + approval events (M4.4). Producer: platform-api. Consumer: gateway. */
     readonly PIPELINE_EVENTS: "pipeline-events";
 };
 export type MQQueueName = (typeof MQ_QUEUE_NAMES)[keyof typeof MQ_QUEUE_NAMES];
