@@ -138,3 +138,8 @@ export { DEPRECATED_DUAL_EMIT_ALIASES } from './declarations/deprecated-pipeline
 // Generated typed map from event name → payload shape.
 // Regenerate with: npm run generate-types
 export type { EventPayloadMap, EventPayload } from './generated/event-types';
+
+// E5 DLQ infrastructure — re-exported from ./dlq for consumers that import from root.
+export { DLQManager } from './dlq/DLQManager';
+export { InMemoryDLQStore } from './dlq/DLQStore';
+export type { DLQRecord, DLQReason, DLQQueryOptions, ReplayResult } from './dlq/types';

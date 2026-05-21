@@ -20,4 +20,7 @@ export { MQ_QUEUE_NAMES } from './queue-names';
 export type { MQQueueName } from './queue-names';
 export { DEPRECATED_DUAL_EMIT_ALIASES } from './declarations/deprecated-pipeline-aliases';
 export type { EventPayloadMap, EventPayload } from './generated/event-types';
+export { DLQManager } from './dlq/DLQManager';
+export { InMemoryDLQStore } from './dlq/DLQStore';
+export type { DLQRecord, DLQReason, DLQQueryOptions, ReplayResult } from './dlq/types';
 //# sourceMappingURL=index.d.ts.map
