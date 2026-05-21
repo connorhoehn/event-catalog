@@ -118,6 +118,15 @@ export {
   pipelineEventDeclarations,
 } from './declarations/index';
 
+// Producer-side validation wrapper (createValidatingPublisher / createPublisher).
+export {
+  createValidatingPublisher,
+  createPublisher,
+  ValidationError,
+  type ValidationMode,
+  type ValidatingPublisherOptions,
+} from './utils/validating-publisher';
+
 // Shared MQ queue-name constants (wave7-d — single source of truth).
 export { MQ_QUEUE_NAMES } from './queue-names';
 export type { MQQueueName } from './queue-names';
