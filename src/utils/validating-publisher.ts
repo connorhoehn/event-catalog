@@ -1,4 +1,5 @@
 import { Registry } from '../registry/index';
+import type { DLQManager } from '../dlq/DLQManager.js';
 
 export type ValidationMode = 'strict' | 'warn' | 'off';
 
@@ -7,9 +8,17 @@ export interface ValidatingPublisherOptions {
   mode?: ValidationMode;
   /**
    * Called on any validation failure, in both 'warn' and 'strict' modes.
-   * In 'strict' mode this fires before the ValidationError is thrown.
+   * In 'strict' mode this fires before the ValidationError is thrown
+   * (unless dlq is provided, in which case the record is routed to the
+   * DLQ instead of throwing).
    */
   onValidationError?: (eventName: string, errors: string[], payload: unknown) => void;
+  /**
+   * E5 DLQ integration. When provided and mode is 'strict', validation
+   * failures are routed to the DLQ instead of throwing a ValidationError.
+   * Valid payloads are still published normally.
+   */
+  dlq?: DLQManager;
 }
 
 /**
@@ -63,6 +72,16 @@ export function createValidatingPublisher<T>(
       }
 
       if (mode === 'strict') {
+        if (options?.dlq) {
+          // Route to DLQ instead of throwing — caller can inspect and replay.
+          await options.dlq.append(
+            eventName,
+            payload,
+            'VALIDATION_FAILED',
+            errors.join('; '),
+          );
+          return;
+        }
         throw new ValidationError(eventName, errors);
       }
 

@@ -40,6 +40,11 @@ function createValidatingPublisher(registry, eventName, publishFn, options) {
                 onError(eventName, errors, payload);
             }
             if (mode === 'strict') {
+                if (options?.dlq) {
+                    // Route to DLQ instead of throwing — caller can inspect and replay.
+                    await options.dlq.append(eventName, payload, 'VALIDATION_FAILED', errors.join('; '));
+                    return;
+                }
                 throw new ValidationError(eventName, errors);
             }
             // 'warn' — log and fall through to publish
