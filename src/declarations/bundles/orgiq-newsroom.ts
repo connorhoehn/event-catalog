@@ -1,0 +1,57 @@
+// src/declarations/bundles/orgiq-newsroom.ts
+//
+// "orgiq-newsroom" FeatureBundle — the combined realtime surface used by the
+// OrgIQ newsroom portal for collaborative research and article workflows.
+//
+// Channels:
+//   newsroom-researcher  presence + activity  (ResearcherPage)
+//   newsroom-briefs      presence             (BriefsPage)
+//   search               presence             (SearchPage)
+//   invoke               presence             (InvokePage)
+//   newsroom-articles    reactions            (ArticleDetailPage)
+//
+// This bundle references the *generic* ws.* event names from gateway-signal.ts.
+// The channel-scoped orgiq.* declarations in orgiq-signal.ts carry the
+// per-channel metadata; together they give drift-detection full coverage.
+//
+// Transport: 'signal' — all frames are ephemeral WS push via websocket-gateway.
+// Version bump policy: bump whenever OrgIQ adopts a new gateway channel or
+// realtime-modules hook (e.g. useChat, useFileUpload in Phase 2).
+
+import { computeFingerprint, type FeatureBundle } from '../../bundles/FeatureBundle.js';
+
+const _def: Omit<FeatureBundle, 'fingerprint'> = {
+  name: 'orgiq-newsroom',
+  version: '1.0.0',
+  transport: 'signal',
+  description:
+    'OrgIQ newsroom realtime surface — presence on 4 channels (newsroom-researcher, newsroom-briefs, search, invoke), activity feed on newsroom-researcher, and emoji reactions on newsroom-articles.',
+  events: [
+    // presence — all four channels use these frames
+    { name: 'ws.presence.set',           required: true  },
+    { name: 'ws.presence.update',        required: true  },
+    { name: 'ws.presence.subscribed',    required: true  },
+    { name: 'ws.presence.unsubscribed',  required: true  },
+    { name: 'ws.presence.data',          required: true  },
+    { name: 'ws.presence.offline',       required: true  },
+    // activity — newsroom-researcher channel
+    { name: 'ws.activity.subscribed',    required: true  },
+    { name: 'ws.activity.unsubscribed',  required: true  },
+    { name: 'ws.activity.published',     required: true  },
+    { name: 'ws.activity.history',       required: true  },
+    { name: 'ws.activity.event',         required: true  },
+    // reactions — newsroom-articles channel
+    { name: 'ws.reaction.subscribed',    required: true  },
+    { name: 'ws.reaction.sent',          required: true  },
+    { name: 'ws.reaction.received',      required: true  },
+    { name: 'ws.reaction.removed',       required: true  },
+    { name: 'ws.reaction.list',          required: true  },
+    // shared error frame
+    { name: 'ws.error',                  required: false },
+  ],
+};
+
+export const orgiqNewsroomBundle: FeatureBundle = {
+  ..._def,
+  fingerprint: computeFingerprint(_def),
+};

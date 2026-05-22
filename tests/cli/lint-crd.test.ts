@@ -95,11 +95,15 @@ describe('valid CRD with existing bundle', () => {
     expect(code).toBe(0);
   });
 
-  it('exits 0 for all 9 known bundles', async () => {
+  it('exits 0 for all 11 non-deprecated bundles', async () => {
+    // agentic-pipeline@1.0.0 is excluded — it is deprecated (exit 2); use
+    // agentic-pipeline-signal@1.0.0 or agentic-pipeline-durable@1.0.0 instead.
     const bundles = [
       'chat@1.0.0', 'presence@1.0.0', 'cursor@1.0.0',
-      'reactions@1.0.0', 'activity@1.0.0', 'agentic-pipeline@1.0.0',
+      'reactions@1.0.0', 'activity@1.0.0',
+      'agentic-pipeline-signal@1.0.0', 'agentic-pipeline-durable@1.0.0',
       'crdt-document@1.0.0', 'video-hangout@1.0.0', 'file-upload@1.0.0',
+      'orgiq-newsroom@1.0.0',
     ];
     for (const b of bundles) {
       const f = writeCrd(`${b.replace('@', '-').replace('.', '_')}.yaml`, makeCrdYaml({ eventBundle: b }));

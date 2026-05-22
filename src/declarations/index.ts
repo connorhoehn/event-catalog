@@ -48,6 +48,16 @@ export {
 export { gatewaySignalDeclarations } from './gateway-signal';
 
 export {
+  orgiqResearcherPresence,
+  orgiqResearcherActivity,
+  orgiqBriefsPresence,
+  orgiqSearchPresence,
+  orgiqInvokePresence,
+  orgiqArticlesReactions,
+  orgiqSignalDeclarations,
+} from './orgiq-signal';
+
+export {
   pipelineEventDeclarations,
 } from './pipeline-events';
 
@@ -60,6 +70,7 @@ import { pipelineP2Declarations } from './pipeline-p2';
 import { pipelineRaftDeclarations } from './pipeline-raft';
 import { gatewaySignalDeclarations } from './gateway-signal';
 import { agUiDeclarations } from './ag-ui';
+import { orgiqSignalDeclarations } from './orgiq-signal';
 
 /**
  * The flat set of every event this repo declares on behalf of producers
@@ -79,4 +90,5 @@ export const allDeclarations: readonly EventDeclaration[] = [
   ...pipelineRaftDeclarations,
   ...gatewaySignalDeclarations,
   ...agUiDeclarations,
+  ...orgiqSignalDeclarations,
 ];
