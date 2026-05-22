@@ -12,6 +12,7 @@ Walks YAML files (or a directory recursively), finds CRDs with `apiVersion: plat
 
 ```
 ec-lint-crd <path-to-yaml-file-or-dir> [--fix-fingerprints]
+ec-lint-crd --list-deprecated
 ec-lint-crd --help
 ```
 
@@ -19,6 +20,7 @@ ec-lint-crd --help
 |---|---|
 | `<path>` | YAML file or directory (scanned recursively) |
 | `--fix-fingerprints` | Rewrite stale fingerprints in-place with current catalog values |
+| `--list-deprecated` | List all currently-deprecated bundles (name, since, replacement) |
 | `--help`, `-h` | Show help |
 
 ## Exit Codes
@@ -109,6 +111,54 @@ This rewrites all pinned fingerprints in-place with the current catalog values. 
 Only CRDs with `apiVersion: platform.connorhoehn.dev/*` are checked. Standard Kubernetes resources (`apps/v1 Deployment`, `networking.k8s.io/v1 Ingress`, etc.) are silently skipped and do not affect the exit code.
 
 CRDs that have no `spec.eventBundle` field are also skipped.
+
+## Deprecation Workflow
+
+### Marking a bundle deprecated (admin API)
+
+Use the `PATCH /api/feature-bundles/:name/:version` endpoint to mark a bundle version deprecated:
+
+```sh
+curl -X PATCH http://localhost:3000/api/feature-bundles/chat/1.0.0 \
+  -H 'Content-Type: application/json' \
+  -d '{"deprecated": {"since": "2026-05-22", "replacement": "chat@2.0.0"}}'
+```
+
+The response returns the updated bundle with the `deprecated` field set. The fingerprint is unchanged (deprecation metadata is excluded from the hash so existing CRD pins remain valid).
+
+### Listing deprecated bundles
+
+```sh
+ec-lint-crd --list-deprecated
+```
+
+Example output:
+
+```
+Deprecated bundles:
+
+  chat@1.0.0  (deprecated since 2026-05-22 → replacement: chat@2.0.0)
+  legacy-presence@0.9.0  (deprecated since 2026-04-01)
+
+Total: 2 deprecated bundle(s)
+```
+
+### Deprecation lint in CI
+
+When a CRD references a deprecated bundle, `ec-lint-crd` exits with code 2 (warning, not error). Add a step to your pipeline to surface these warnings without blocking:
+
+```yaml
+- name: Validate CRD bundles (warn on deprecated)
+  run: |
+    npx ec-lint-crd crds/ || [ $? -eq 2 ]
+```
+
+To treat deprecated references as hard errors (strict mode), check for any non-zero exit:
+
+```yaml
+- name: Validate CRD bundles (strict)
+  run: npx ec-lint-crd crds/
+```
 
 ## Available Bundles
 

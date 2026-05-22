@@ -8,6 +8,7 @@
 //   GET    /by-fingerprint/:fp  -> find by fingerprint (must be before /:name)
 //   GET    /:name               -> get latest version
 //   GET    /:name/:version      -> get specific version
+//   PATCH  /:name/:version      -> mark bundle deprecated
 //   GET    /:name/crd-schema    -> JSON schema for a CRD referencing this bundle
 //   POST   /validate            -> validate a bundle against catalog, return errors[]
 
@@ -114,6 +115,35 @@ export function createBundleRoutes(deps: BundleRoutesDeps): Router {
       return;
     }
     res.json(bundle);
+  });
+
+  // PATCH /api/feature-bundles/:name/:version
+  // Mark a bundle version as deprecated.
+  // Body: { deprecated: { since: string, replacement?: string } }
+  // Returns: updated bundle (with deprecated field set + recomputed fingerprint)
+  router.patch('/:name/:version', (req: Request, res: Response) => {
+    const { name, version } = req.params;
+    const body = req.body as { deprecated?: { since?: unknown; replacement?: unknown } } | undefined;
+
+    if (!body?.deprecated || typeof body.deprecated.since !== 'string' || !body.deprecated.since.trim()) {
+      res.status(400).json({ error: 'body must include deprecated.since (non-empty string)' });
+      return;
+    }
+
+    const deprecation: { since: string; replacement?: string } = {
+      since: body.deprecated.since.trim(),
+    };
+    if (typeof body.deprecated.replacement === 'string' && body.deprecated.replacement.trim()) {
+      deprecation.replacement = body.deprecated.replacement.trim();
+    }
+
+    const updated = bundleRegistry.deprecate(name, version, deprecation);
+    if (!updated) {
+      res.status(404).json({ error: `Bundle "${name}" v${version} not found` });
+      return;
+    }
+
+    res.json(updated);
   });
 
   // GET /api/feature-bundles/:name

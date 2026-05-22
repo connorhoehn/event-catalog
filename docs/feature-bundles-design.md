@@ -309,7 +309,60 @@ realtime-modules adoption solidifies the canonical subset needed per feature.
 
 ---
 
-## 8. Open Questions
+## 8. Deprecation Policy
+
+### Marking a bundle deprecated
+
+A bundle version may be deprecated by setting the `deprecated` field:
+
+```typescript
+deprecated?: {
+  since: string;        // ISO 8601 date or semver milestone, e.g. "2026-05-22" or "v0.3.42"
+  replacement?: string; // Recommended upgrade path, e.g. "chat@2.0.0"
+}
+```
+
+Deprecation is applied at runtime via the admin API rather than by modifying the
+source declaration, so that:
+1. Existing CRD fingerprints remain valid (deprecated is excluded from the hash).
+2. The change is auditable via the admin API rather than requiring a library rebuild.
+3. The lint CLI can surface warnings without any file change.
+
+### Fingerprint stability guarantee
+
+The `deprecated` field is **excluded from the fingerprint computation**. This
+means marking a bundle deprecated does not invalidate any CRD that pins to that
+bundle's fingerprint. Operators upgrading from a deprecated bundle to its
+replacement must re-author their CRDs explicitly — they are never silently
+invalidated.
+
+### Lint integration
+
+`ec-lint-crd` treats deprecated bundle references as **warnings (exit 2)**, not
+errors. CRD operators receive actionable output:
+
+```
+CRD: ChatRoom/old-room (deploy/chatroom.yaml:14)
+  ✓ eventBundle: chat@1.0.0 exists
+  ! eventBundle: chat@1.0.0 — version is deprecated since 2026-05-22 — use chat@2.0.0 instead
+```
+
+Errors (bundle not found, fingerprint mismatch) remain exit code 1 and take
+precedence — if a file has both deprecated and missing-bundle issues the exit
+code is 1.
+
+### Lifecycle
+
+1. **Authoring**: `chat@1.0.0` ships. CRDs reference `chat@1.0.0`.
+2. **Evolution**: `chat@2.0.0` ships with extended events.
+3. **Deprecation**: Admin calls `PATCH /api/feature-bundles/chat/1.0.0` with `{ deprecated: { since: "2026-05-22", replacement: "chat@2.0.0" } }`.
+4. **Discovery**: `ec-lint-crd --list-deprecated` shows the deprecated bundle.
+5. **Migration**: CRD operators update their YAML to reference `chat@2.0.0` and run `ec-lint-crd --fix-fingerprints`.
+6. **Retirement**: After all consumers have migrated, `chat@1.0.0` can be removed from declarations and the library bumped to a new minor version.
+
+---
+
+## 9. Open Questions
 
 **Q1 — Versioning strategy: event-level vs. bundle-level.**
 If `ws.chat.message` schema bumps to version 5, does the `chat` bundle
