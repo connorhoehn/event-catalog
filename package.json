@@ -68,7 +68,7 @@
     "@aws-sdk/client-dynamodb": "^3.1045.0",
     "@aws-sdk/lib-dynamodb": "^3.1045.0",
     "cors": "^2.8.5",
-    "distributed-core": "github:connorhoehn/distributed-core#distributed-core-v0.31.0",
+    "distributed-core": "github:connorhoehn/distributed-core#e3a647b4cd586084c4bae15b30d3b881bf7ca035",
     "express": "^4.21.0",
     "redis": "^4.7.0",
     "ulid": "^2.3.0"
@@ -85,7 +85,7 @@
     "vitest": "^2.1.0"
   },
   "peerDependencies": {
-    "@connorhoehn/message-queue": "github:connorhoehnslalom/message-queue#v0.2.1"
+    "@connorhoehn/message-queue": "github:connorhoehnslalom/message-queue#1cef7bc52c52ad428565f45c35a23f78ae306188"
   },
   "peerDependenciesMeta": {
     "@connorhoehn/message-queue": {
