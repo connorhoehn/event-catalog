@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { EventEnvelope } from '../src/types/index.js';
 import { DurableTransport } from '../src/client/durable.js';
 
+// Helper: build a minimal Headers-like object for fetch mock responses
+function makeHeaders(entries: Record<string, string>): { get: (k: string) => string | null } {
+  return { get: (k: string) => entries[k.toLowerCase()] ?? null };
+}
+
 function makeEnvelope(overrides: Partial<EventEnvelope> = {}): EventEnvelope {
   return {
     eventName: 'test.event',
@@ -880,6 +885,185 @@ describe('DurableTransport — ensureQueue() warn paths', () => {
       expect.stringContaining('ensureQueue "error-queue" error:'),
       'ECONNRESET',
     );
+    warnSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DurableTransport — 429 / Retry-After backpressure handling
+// ---------------------------------------------------------------------------
+describe('DurableTransport — 429 backpressure handling', () => {
+  beforeEach(() => {
+    DurableTransport.resetBackpressureCounters();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    DurableTransport.resetBackpressureCounters();
+  });
+
+  function make429(retryAfter: string | null = '5'): Response {
+    return {
+      ok: false,
+      status: 429,
+      headers: makeHeaders(retryAfter !== null ? { 'retry-after': retryAfter } : {}),
+    } as unknown as Response;
+  }
+
+  function makeOk(): Response {
+    return { ok: true, status: 200 } as unknown as Response;
+  }
+
+  async function makeConnectedTransport(retryAttempts = 3, retryBaseMs = 10) {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true })               // connect /health
+      .mockResolvedValueOnce({ ok: true, status: 201 }); // ensureQueue PUT
+    vi.stubGlobal('fetch', fetchSpy);
+    const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts, retryBaseMs });
+    await t.connect();
+    return { t, fetchSpy };
+  }
+
+  it('429 with integer Retry-After: waits server-specified ms then retries and succeeds', async () => {
+    const { t, fetchSpy } = await makeConnectedTransport(3, 10);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    fetchSpy
+      .mockResolvedValueOnce(make429('5'))   // publish attempt 1 → 429 (5s)
+      .mockResolvedValueOnce(makeOk());      // publish attempt 2 → 200
+
+    const publishPromise = t.publish('q', makeEnvelope());
+    // Advance past the jittered wait (5000ms * 0.5 lower bound + buffer)
+    await vi.advanceTimersByTimeAsync(6000);
+    await publishPromise;
+
+    const metrics = t.getMetrics('q') as { sent: number; failed: number };
+    expect(metrics.sent).toBe(1);
+    expect(metrics.failed).toBe(0);
+    expect(DurableTransport.getBackpressureCount('q')).toBe(1);
+
+    const warnCalls = warnSpy.mock.calls.filter(c =>
+      typeof c[0] === 'string' && (c[0] as string).includes('mq_backpressure_observed_total'),
+    );
+    expect(warnCalls.length).toBeGreaterThanOrEqual(1);
+    expect(String(warnCalls[0]![0])).toContain('retry-after 5s');
+    warnSpy.mockRestore();
+  });
+
+  it('429 with HTTP-date Retry-After: parsed as delta from now', async () => {
+    const { t, fetchSpy } = await makeConnectedTransport(3, 10);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // 10 seconds in the future
+    const futureDate = new Date(Date.now() + 10_000).toUTCString();
+    fetchSpy
+      .mockResolvedValueOnce(make429(futureDate))  // attempt 1 → 429
+      .mockResolvedValueOnce(makeOk());             // attempt 2 → 200
+
+    const publishPromise = t.publish('q', makeEnvelope());
+    // Advance past ≥ 5s (jitter lower bound of 10s * 0.5)
+    await vi.advanceTimersByTimeAsync(11_000);
+    await publishPromise;
+
+    const metrics = t.getMetrics('q') as { sent: number };
+    expect(metrics.sent).toBe(1);
+    expect(DurableTransport.getBackpressureCount('q')).toBe(1);
+
+    const warnCalls = warnSpy.mock.calls.filter(c =>
+      typeof c[0] === 'string' && (c[0] as string).includes('mq_backpressure_observed_total'),
+    );
+    // retry-after header was ~10s, logged as "10s" (allow 9 or 10 due to real-clock drift)
+    expect(String(warnCalls[0]![0])).toMatch(/retry-after \d+s/);
+    warnSpy.mockRestore();
+  });
+
+  it('429 with no Retry-After header: falls back to RetryManager exponential default', async () => {
+    const { t, fetchSpy } = await makeConnectedTransport(3, 10);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    fetchSpy
+      .mockResolvedValueOnce(make429(null))  // attempt 1 → 429 (no header)
+      .mockResolvedValueOnce(makeOk());      // attempt 2 → 200
+
+    const publishPromise = t.publish('q', makeEnvelope());
+    // Default for attempt 1: retryBaseMs(10) * 2^0 = 10ms; jittered down to ≥ 5ms
+    await vi.advanceTimersByTimeAsync(100);
+    await publishPromise;
+
+    const metrics = t.getMetrics('q') as { sent: number };
+    expect(metrics.sent).toBe(1);
+    expect(DurableTransport.getBackpressureCount('q')).toBe(1);
+    warnSpy.mockRestore();
+  });
+
+  it('429 with absurd Retry-After (10 hours): capped at 5 min with cap-exceeded warn', async () => {
+    const { t, fetchSpy } = await makeConnectedTransport(3, 10);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    fetchSpy
+      .mockResolvedValueOnce(make429(String(10 * 3600)))  // 36000s = 10 hours
+      .mockResolvedValueOnce(makeOk());
+
+    const publishPromise = t.publish('q', makeEnvelope());
+    // Cap is 300_000ms (5 min); jitter brings it to ≥ 150_000ms; advance 300s
+    await vi.advanceTimersByTimeAsync(300_000 + 1000);
+    await publishPromise;
+
+    const capWarn = warnSpy.mock.calls.find(c =>
+      typeof c[0] === 'string' && (c[0] as string).includes('exceeds cap'),
+    );
+    expect(capWarn).toBeDefined();
+    expect(String(capWarn![0])).toContain('300000ms');
+
+    const metrics = t.getMetrics('q') as { sent: number };
+    expect(metrics.sent).toBe(1);
+    warnSpy.mockRestore();
+  });
+
+  it('429 that exceeds retry budget fails and increments failed metric', async () => {
+    const { t, fetchSpy } = await makeConnectedTransport(2, 10);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    fetchSpy
+      .mockResolvedValueOnce(make429('1'))  // attempt 1 → 429
+      .mockResolvedValueOnce(make429('1')); // attempt 2 → 429 (budget exhausted)
+
+    // Attach rejection handler immediately to avoid unhandled-rejection warning
+    const publishPromise = t.publish('q', makeEnvelope());
+    const rejectionCatcher = publishPromise.catch(() => {});
+
+    // Two waits of 1s each with jitter; advance 3s to be safe
+    await vi.advanceTimersByTimeAsync(3000);
+    await rejectionCatcher;
+
+    await expect(publishPromise).rejects.toThrow(
+      '[durable-transport] publish to "q" failed after 2 attempts',
+    );
+
+    const metrics = t.getMetrics('q') as { sent: number; failed: number };
+    expect(metrics.failed).toBe(1);
+    expect(metrics.sent).toBe(0);
+    expect(DurableTransport.getBackpressureCount('q')).toBe(2);
+    warnSpy.mockRestore();
+  });
+
+  it('200 after 429 wait: success metric is incremented (not failed)', async () => {
+    const { t, fetchSpy } = await makeConnectedTransport(3, 10);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    fetchSpy
+      .mockResolvedValueOnce(make429('0'))  // attempt 1 → 429 with 0s retry-after
+      .mockResolvedValueOnce(makeOk());     // attempt 2 → 200
+
+    const publishPromise = t.publish('q', makeEnvelope());
+    await vi.advanceTimersByTimeAsync(500);
+    await publishPromise;
+
+    const metrics = t.getMetrics('q') as { sent: number; failed: number };
+    expect(metrics.sent).toBe(1);
+    expect(metrics.failed).toBe(0);
     warnSpy.mockRestore();
   });
 });

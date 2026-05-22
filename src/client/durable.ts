@@ -1,6 +1,39 @@
 import { RetryManager } from 'distributed-core/transport';
 import type { EventEnvelope } from '../types/index';
 
+/** Max wait enforced on a server-driven Retry-After (5 minutes). */
+const BACKPRESSURE_MAX_WAIT_MS = 300_000;
+
+/**
+ * Parse an RFC 7231 Retry-After header value.
+ * Returns milliseconds to wait, or `undefined` if unparseable.
+ *
+ *   - Integer seconds: "30" → 30_000
+ *   - HTTP-date: "Wed, 21 Oct 2015 07:28:00 GMT" → delta from Date.now()
+ */
+function parseRetryAfterMs(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+
+  // Integer seconds?
+  const asInt = parseInt(trimmed, 10);
+  if (!isNaN(asInt) && String(asInt) === trimmed) {
+    return asInt * 1000;
+  }
+
+  // HTTP-date?
+  const ts = Date.parse(trimmed);
+  if (!isNaN(ts)) {
+    const delta = ts - Date.now();
+    return delta > 0 ? delta : 0;
+  }
+
+  return undefined;
+}
+
+/** Simple in-memory counter for backpressure observations. */
+const backpressureCounter: Map<string, number> = new Map();
+
 export interface DurableTransportConfig {
   url: string;
   retryAttempts?: number;
@@ -66,7 +99,6 @@ export class DurableTransport {
   private readonly retryBaseMs: number;
   private readonly maxProcessingAttempts: number;
   private readonly dlqCapacity: number;
-  private readonly retryManager: RetryManager;
   private readonly pollRetryManager: RetryManager;
   private connected = false;
   private activePollers = new Map<string, AbortController>();
@@ -83,14 +115,6 @@ export class DurableTransport {
     this.retryBaseMs = config.retryBaseMs ?? 100;
     this.maxProcessingAttempts = config.maxProcessingAttempts ?? 3;
     this.dlqCapacity = config.dlqCapacity ?? 10_000;
-    this.retryManager = new RetryManager({
-      maxRetries: this.retryAttempts - 1, // RetryManager does initial attempt + retries
-      baseDelay: this.retryBaseMs,
-      backoffFactor: 2,
-      jitter: false,
-      enableLogging: false,
-      name: 'durable-transport',
-    });
     this.pollRetryManager = new RetryManager({
       maxRetries: 2, // 3 total attempts (1 initial + 2 retries)
       baseDelay: 1000,
@@ -228,6 +252,29 @@ export class DurableTransport {
     }
   }
 
+  /**
+   * Increment and return the module-level backpressure counter for a queue.
+   * Exposed via `DurableTransport.getBackpressureCount()` for tests/metrics.
+   */
+  private recordBackpressure(queueName: string): number {
+    const prev = backpressureCounter.get(queueName) ?? 0;
+    backpressureCounter.set(queueName, prev + 1);
+    return prev + 1;
+  }
+
+  /** Return total backpressure events observed for a queue (or all queues). */
+  static getBackpressureCount(queueName?: string): number | Map<string, number> {
+    if (queueName !== undefined) {
+      return backpressureCounter.get(queueName) ?? 0;
+    }
+    return new Map(backpressureCounter);
+  }
+
+  /** Reset backpressure counters (useful in tests). */
+  static resetBackpressureCounters(): void {
+    backpressureCounter.clear();
+  }
+
   async publish(
     queueName: string,
     envelope: EventEnvelope,
@@ -243,24 +290,75 @@ export class DurableTransport {
       message_body: JSON.stringify(envelope),
     });
 
-    try {
-      await this.retryManager.execute(async () => {
-        const res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages`, {
+    const maxAttempts = this.retryAttempts;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body,
         });
-
-        if (!res.ok) {
-          throw new Error(`message-queue returned ${res.status}`);
+      } catch (err) {
+        // Network error — hand off to retry logic
+        if (attempt >= maxAttempts) {
+          this.incrementMetric(queueName, 'failed');
+          throw new Error(`[durable-transport] publish to "${queueName}" failed after ${maxAttempts} attempts: ${(err as Error).message}`);
         }
-      });
+        // Exponential back-off for network errors (mirrors RetryManager defaults)
+        const backoff = Math.min(this.retryBaseMs * Math.pow(2, attempt - 1), 30_000);
+        await this.sleepMs(backoff);
+        continue;
+      }
 
+      if (res.status === 429) {
+        // Server-driven backpressure — honour Retry-After
+        const count = this.recordBackpressure(queueName);
+        let waitMs = parseRetryAfterMs(res.headers.get('Retry-After'));
+        const retryManagerDefault = Math.min(this.retryBaseMs * Math.pow(2, attempt - 1), 30_000);
+        if (waitMs === undefined) {
+          waitMs = retryManagerDefault;
+        }
+        if (waitMs > BACKPRESSURE_MAX_WAIT_MS) {
+          console.warn(
+            `[durable-transport] backpressure on "${queueName}": Retry-After ${waitMs}ms exceeds cap ${BACKPRESSURE_MAX_WAIT_MS}ms; clamping`,
+          );
+          waitMs = BACKPRESSURE_MAX_WAIT_MS;
+        }
+        // Apply jitter: multiply by random in [0.5, 1.0)
+        const jittered = Math.round(waitMs * (0.5 + Math.random() * 0.5));
+        console.warn(
+          `[durable-transport] mq_backpressure_observed_total{queue="${queueName}"} ${count} — ` +
+          `retry-after ${Math.round(waitMs / 1000)}s jittered=${jittered}ms attempt=${attempt}/${maxAttempts}`,
+        );
+        if (attempt >= maxAttempts) {
+          this.incrementMetric(queueName, 'failed');
+          throw new Error(`[durable-transport] publish to "${queueName}" failed after ${maxAttempts} attempts: message-queue returned 429`);
+        }
+        await this.sleepMs(jittered);
+        continue;
+      }
+
+      if (!res.ok) {
+        // Other 4xx/5xx — use standard retry with exponential back-off
+        if (attempt >= maxAttempts) {
+          this.incrementMetric(queueName, 'failed');
+          throw new Error(`[durable-transport] publish to "${queueName}" failed after ${maxAttempts} attempts: message-queue returned ${res.status}`);
+        }
+        const backoff = Math.min(this.retryBaseMs * Math.pow(2, attempt - 1), 30_000);
+        await this.sleepMs(backoff);
+        continue;
+      }
+
+      // Success
       this.incrementMetric(queueName, 'sent');
-    } catch (err) {
-      this.incrementMetric(queueName, 'failed');
-      throw new Error(`[durable-transport] publish to "${queueName}" failed after ${this.retryAttempts} attempts: ${(err as Error).message}`);
+      return;
     }
+
+    // Should be unreachable, but satisfy TS
+    this.incrementMetric(queueName, 'failed');
+    throw new Error(`[durable-transport] publish to "${queueName}" failed after ${maxAttempts} attempts`);
   }
 
   subscribe(
@@ -463,6 +561,11 @@ export class DurableTransport {
         await this.sleep(pollingInterval, signal);
       }
     }
+  }
+
+  /** Unconditional sleep without an abort signal (used in publish retry loop). */
+  private sleepMs(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   private sleep(ms: number, signal: AbortSignal): Promise<void> {
