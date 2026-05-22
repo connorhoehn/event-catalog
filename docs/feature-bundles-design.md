@@ -362,7 +362,58 @@ code is 1.
 
 ---
 
-## 9. Open Questions
+## 9. Bundle Splitting for Transport Coherence
+
+A bundle must declare a single aggregate transport (`signal`, `durable`, or
+`both`). When a feature straddles transport boundaries — some events are
+signal-only, others need durable delivery — the bundle `validateBundle()`
+check will infer `both` even if the declaration says `signal`, producing a
+validation error.
+
+**Rule of thumb:** split a bundle when the transport *requirement* differs
+across sub-populations of its events. Apps that only need signaling should
+not be forced to subscribe to a durable-transport bundle, and vice versa.
+
+### Example: AgenticPipeline split (v0.3.45)
+
+`agentic-pipeline@1.0.0` was declared as `transport: 'signal'` but excluded
+`pipeline.approval.*` events because those have `transport: 'both'` in the
+catalog. That exclusion was a workaround, not a solution — approval events
+are core to the feature.
+
+The fix was to split into two coherent bundles:
+
+| Bundle | Transport | Events |
+|--------|-----------|--------|
+| `agentic-pipeline-signal@1.0.0` | `signal` | Run, step, join, breakpoint lifecycle events — WS frames only |
+| `agentic-pipeline-durable@1.0.0` | `durable` | `pipeline.approval.{requested,recorded,resolved}` — forwarded to the durable bus for restart-safe delivery |
+
+Apps that only need real-time WS observability subscribe to
+`agentic-pipeline-signal`. Apps needing durable workflow state (approval
+audit, worker restart-resume) subscribe to both.
+
+The old `agentic-pipeline@1.0.0` bundle is retained and marked
+`deprecated: { since: 'v0.3.45', replacement: 'agentic-pipeline-signal@1.0.0' }`
+so existing CRD fingerprint pins remain valid.
+
+### When NOT to split
+
+- When all events share the same transport and the only motive is grouping
+  by sub-feature: use optional `required: false` members instead.
+- When the feature genuinely uses `transport: 'both'` (signals duplicated
+  onto the durable bus): a single `transport: 'both'` bundle is correct.
+
+### CRD array support (pending)
+
+The dc-k8s-operator AgenticPipeline CRD currently holds a single
+`eventBundle: string` field. A future wave will extend the CRD schema to
+accept `eventBundles: [string]` (array). Until that lands, operators should
+set `eventBundle: 'agentic-pipeline-signal@1.0.0'` as the primary value
+and enumerate the durable bundle in an annotation comment.
+
+---
+
+## 10. Open Questions
 
 **Q1 — Versioning strategy: event-level vs. bundle-level.**
 If `ws.chat.message` schema bumps to version 5, does the `chat` bundle
@@ -396,7 +447,7 @@ upgrade window?
 
 ---
 
-## 9. Implementation Phasing
+## 11. Implementation Phasing
 
 ### Minimal v1 (2–4 hours)
 
@@ -429,7 +480,7 @@ upgrade window?
 
 ---
 
-## 10. Code Anchors — Implementation Landing Zones
+## 12. Code Anchors — Implementation Landing Zones
 
 | Concern | File |
 |---|---|
