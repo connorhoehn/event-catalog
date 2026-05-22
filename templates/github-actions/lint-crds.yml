@@ -1,0 +1,113 @@
+# Reusable workflow that lints all CRDs in a repo against the event-catalog bundle catalog.
+# Drop into .github/workflows/lint-crds.yml in any repo that holds CRDs.
+#
+# REQUIREMENTS
+#   The repo must have an EVENT_CATALOG_URL secret (or variable) pointing at a running
+#   event-catalog service. ec-lint-crd fetches bundle metadata from that URL at lint time.
+#
+# EXIT CODE BEHAVIOUR
+#   0 — all CRDs clean
+#   1 — at least one CRD has an error (missing bundle, stale fingerprint) → PR fails
+#   2 — warnings only (deprecated bundle reference) → pass by default, fail in strict mode
+#
+# USAGE
+#   Default (fail on errors, warn on deprecated):
+#     Uses this file as-is.
+#
+#   Strict mode (fail on errors AND warnings):
+#     Set the job env var STRICT_MODE: 'true'
+#     The "Lint CRDs (strict)" step below shows the pattern.
+
+name: Lint CRDs
+
+on:
+  pull_request:
+    paths:
+      - 'crds/**'
+      - 'k8s/**/*.yaml'
+      - 'docs/**/*.yaml'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    env:
+      EVENT_CATALOG_URL: ${{ secrets.EVENT_CATALOG_URL || vars.EVENT_CATALOG_URL || 'http://localhost:3010' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch enough history to diff against origin/main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install event-catalog CLI
+        run: npm install --no-save @connorhoehn/event-catalog@0.3.47
+
+      - name: Find changed CRD files
+        id: changes
+        run: |
+          # On a PR, diff staged changes against the merge base.
+          # Falls back to all YAML files if the base ref is unavailable.
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -n "$base" ]; then
+            changed=$(git diff --name-only "$base" HEAD -- '*.yaml' '*.yml' 2>/dev/null || true)
+          else
+            changed=$(find . -name '*.yaml' -o -name '*.yml' | head -200 || true)
+          fi
+          # Filter to paths that actually contain platform.connorhoehn.dev apiVersion
+          platform_files=""
+          for f in $changed; do
+            [ -f "$f" ] || continue
+            if grep -q 'apiVersion: platform.connorhoehn.dev' "$f" 2>/dev/null; then
+              platform_files="$platform_files $f"
+            fi
+          done
+          platform_files="${platform_files#"${platform_files%%[! ]*}"}"  # ltrim
+          echo "files=$platform_files" >> "$GITHUB_OUTPUT"
+          if [ -z "$platform_files" ]; then
+            echo "No platform CRD files changed — skipping lint."
+          else
+            echo "Platform CRD files to lint: $platform_files"
+          fi
+
+      - name: Lint changed CRDs
+        if: steps.changes.outputs.files != ''
+        run: |
+          # Exit code 1 = errors → step fails, PR is blocked.
+          # Exit code 2 = warnings only (deprecated) → step passes; see "strict" step below.
+          exit_code=0
+          for f in ${{ steps.changes.outputs.files }}; do
+            ./node_modules/.bin/ec-lint-crd "$f" || {
+              code=$?
+              [ $code -gt $exit_code ] && exit_code=$code
+            }
+          done
+          # Propagate errors (code 1) but absorb warnings-only (code 2)
+          [ $exit_code -le 1 ] && exit $exit_code || exit 0
+
+      - name: Lint changed CRDs (strict — fail on deprecated too)
+        if: steps.changes.outputs.files != '' && env.STRICT_MODE == 'true'
+        run: |
+          # In strict mode any non-zero exit (errors OR warnings) fails the PR.
+          for f in ${{ steps.changes.outputs.files }}; do
+            ./node_modules/.bin/ec-lint-crd "$f" || exit 1
+          done
+
+      - name: Bundle diff (event-catalog repo only)
+        if: github.repository == 'connorhoehn/event-catalog'
+        run: |
+          # Surface what events were added/removed/transitioned between HEAD and main.
+          # This step is informational — it does not fail the PR.
+          # Adapt the bundle names to the ones actually changed in this PR.
+          #
+          # Example (replace with real bundle names + versions):
+          #   ./node_modules/.bin/ec-bundle-diff chat@1.0.0 chat@1.1.0
+          #
+          # To enforce that a major bump is declared when required events are removed:
+          #   ./node_modules/.bin/ec-bundle-diff chat@1.0.0 chat@2.0.0 | \
+          #     grep "Suggested semver bump: major"
+          echo "Add ec-bundle-diff calls here to audit event set changes across bundle versions."
