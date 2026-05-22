@@ -128,7 +128,7 @@ export {
 } from './utils/validating-publisher';
 
 // Shared MQ queue-name constants (wave7-d — single source of truth).
-export { MQ_QUEUE_NAMES } from './queue-names';
+export { MQ_QUEUE_NAMES, ACTIVITY_RECORDED } from './queue-names';
 export type { MQQueueName } from './queue-names';
 
 // wave20-f — deprecated dot-form pipeline event names, derived from
@@ -143,3 +143,20 @@ export type { EventPayloadMap, EventPayload } from './generated/event-types';
 export { DLQManager } from './dlq/DLQManager';
 export { InMemoryDLQStore } from './dlq/DLQStore';
 export type { DLQRecord, DLQReason, DLQQueryOptions, ReplayResult } from './dlq/types';
+
+// FeatureBundle — capability-level event grouping for CRD pinning (v0.3.38).
+export type { FeatureBundle, EventReference, BundleValidationResult } from './bundles/FeatureBundle';
+export {
+  FeatureBundleRegistry,
+  computeFingerprint,
+  registerFeatureBundle,
+  getFeatureBundle,
+  listFeatureBundles,
+  validateBundle,
+  findBundleByFingerprint,
+  getCrdSchema,
+} from './bundles/FeatureBundle';
+// Sample bundle declarations.
+export { chatBundle } from './declarations/bundles/chat';
+export { presenceBundle } from './declarations/bundles/presence';
+export { allBundles } from './declarations/bundles/index';

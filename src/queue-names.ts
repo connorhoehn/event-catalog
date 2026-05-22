@@ -18,6 +18,19 @@
 export const MQ_QUEUE_NAMES = {
   /** Pipeline lifecycle + approval events (M4.4). Producer: platform-api. Consumer: gateway. */
   PIPELINE_EVENTS: 'pipeline-events',
+  /**
+   * Activity recording events (Block A.1). Producer: gateway (ActivityService).
+   * Multi-consumer: platform-api + any analytics consumer (e.g. orgiq-analytics-group).
+   * Registering here makes multi-consumer fan-out first-class and prevents
+   * silent string drift between producer and consumer config.
+   */
+  ACTIVITY_RECORDED: 'activity.recorded',
 } as const;
 
 export type MQQueueName = (typeof MQ_QUEUE_NAMES)[keyof typeof MQ_QUEUE_NAMES];
+
+/**
+ * Standalone re-export for callers that only need the activity.recorded
+ * constant without importing the full MQ_QUEUE_NAMES map.
+ */
+export const ACTIVITY_RECORDED = MQ_QUEUE_NAMES.ACTIVITY_RECORDED;
