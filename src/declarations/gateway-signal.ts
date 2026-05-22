@@ -190,6 +190,36 @@ export const wsCursorRemove: EventDeclaration = {
     }, ['action', 'channel', 'clientId']),
 };
 
+/** Broadcast to all channel subscribers when a client clears their cursor. */
+export const wsCursorClear: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.cursor.clear',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to channel subscribers when a client clears (removes) their cursor from the canvas.',
+    tags: [...BASE_TAGS, 'cursor'],
+    schema: wsSchema('cursor', {
+        action: { type: 'string', const: 'clear' },
+        channel: { type: 'string' },
+        clientId: { type: 'string' },
+    }, ['action', 'channel', 'clientId']),
+};
+
+/** Batched cursor position update for multiple clients, sent as a single frame. */
+export const wsCursorBatch: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.cursor.batch',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Batched cursor positions for multiple clients delivered in a single frame to reduce message volume.',
+    tags: [...BASE_TAGS, 'cursor'],
+    schema: wsSchema('cursor', {
+        action: { type: 'string', const: 'batch' },
+        channel: { type: 'string' },
+        cursors: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    }, ['action', 'channel', 'cursors']),
+};
+
 /** Current cursor list for a channel, sent in response to a `get` request. */
 export const wsCursorList: EventDeclaration = {
     namespace: 'ws',
@@ -374,6 +404,40 @@ export const wsCrdtUpdate: EventDeclaration = {
 };
 
 /**
+ * Client-initiated request to sync Y.js state with a peer.
+ * Note: frame type is `crdt:sync-request`.
+ */
+export const wsCrdtSyncRequest: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.crdt.sync-request',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Client-initiated Y.js state vector sent to the gateway to request missing updates from peers.',
+    tags: [...BASE_TAGS, 'crdt'],
+    schema: wsSchema('crdt:sync-request', {
+        channel: { type: 'string' },
+        stateVector: { type: 'string', description: 'base64-encoded Y.js state vector' },
+    }, ['channel', 'stateVector']),
+};
+
+/**
+ * Gateway response to a sync-request, containing the missing Y.js updates.
+ * Note: frame type is `crdt:sync-response`.
+ */
+export const wsCrdtSyncResponse: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.crdt.sync-response',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Gateway response to a sync-request containing the Y.js updates needed to bring the client up to date.',
+    tags: [...BASE_TAGS, 'crdt'],
+    schema: wsSchema('crdt:sync-response', {
+        channel: { type: 'string' },
+        update: { type: 'string', description: 'base64-encoded Y.js update diff' },
+    }, ['channel', 'update']),
+};
+
+/**
  * Sent to all subscribers when a snapshot restore replaces the document.
  * Note: frame type is `crdt:doc-replaced`.
  */
@@ -529,6 +593,52 @@ export const wsReactionReceived: EventDeclaration = {
     }, ['action', 'data']),
 };
 
+/** Broadcast to channel subscribers when a reaction is removed. */
+export const wsReactionRemoved: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.reaction.removed',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to all reaction channel subscribers when a previously sent reaction is removed.',
+    tags: [...BASE_TAGS, 'reaction'],
+    schema: wsSchema('reaction', {
+        action: { type: 'string', const: 'reaction_removed' },
+        data: {
+            type: 'object',
+            properties: {
+                id: { type: 'string' },
+                clientId: { type: 'string' },
+                channel: { type: 'string' },
+                emoji: { type: 'string' },
+            },
+            required: ['id', 'channel'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
+/** List of current reactions in a channel, sent in response to a list request. */
+export const wsReactionList: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.reaction.list',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Current reaction list for a channel, sent in response to a list request.',
+    tags: [...BASE_TAGS, 'reaction'],
+    schema: wsSchema('reaction', {
+        action: { type: 'string', const: 'reaction_list' },
+        data: {
+            type: 'object',
+            properties: {
+                channel: { type: 'string' },
+                reactions: { type: 'array', items: { type: 'object', additionalProperties: true } },
+            },
+            required: ['channel'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
 /** Confirmation sent to the sender after their reaction is broadcast. */
 export const wsReactionSent: EventDeclaration = {
     namespace: 'ws',
@@ -614,6 +724,52 @@ export const wsCallEnded: EventDeclaration = {
     description: 'Call ended signal broadcast to all parties.',
     tags: [...BASE_TAGS, 'call'],
     schema: callSchema('ended'),
+};
+
+/** Broadcast when a participant enables their video feed. */
+export const wsCallVideoOn: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.call.video-on',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to call participants when a participant enables their video feed.',
+    tags: [...BASE_TAGS, 'call'],
+    schema: wsSchema('call', {
+        action: { type: 'string', const: 'video-on' },
+        data: {
+            type: 'object',
+            properties: {
+                callId: { type: 'string' },
+                participantId: { type: 'string' },
+                userId: { type: 'string' },
+            },
+            required: ['callId', 'participantId'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
+/** Broadcast when a participant disables their video feed. */
+export const wsCallVideoOff: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.call.video-off',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to call participants when a participant disables their video feed.',
+    tags: [...BASE_TAGS, 'call'],
+    schema: wsSchema('call', {
+        action: { type: 'string', const: 'video-off' },
+        data: {
+            type: 'object',
+            properties: {
+                callId: { type: 'string' },
+                participantId: { type: 'string' },
+                userId: { type: 'string' },
+            },
+            required: ['callId', 'participantId'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
 };
 
 // ===========================================================================
@@ -729,6 +885,124 @@ export const wsPipelineEvent: EventDeclaration = {
 };
 
 // ===========================================================================
+// UPLOAD frames — presigned URL upload lifecycle pushed via WebSocket
+// ===========================================================================
+
+/** Acknowledgement that the gateway received a file upload request and is issuing a presigned URL. */
+export const wsUploadRequested: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.upload.requested',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Acknowledgement sent when the gateway receives a file upload request from a client.',
+    tags: [...BASE_TAGS, 'upload'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'requested' },
+        data: {
+            type: 'object',
+            properties: {
+                clientId: { type: 'string' },
+                channel: { type: 'string' },
+                filename: { type: 'string' },
+                size: { type: 'number' },
+                mimeType: { type: 'string' },
+            },
+            required: ['clientId', 'channel', 'filename'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
+/** Presigned upload URL issued to the requesting client. */
+export const wsUploadUrlIssued: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.upload.url-issued',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Presigned S3 upload URL issued to the client so they can PUT the file directly.',
+    tags: [...BASE_TAGS, 'upload'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'url-issued' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                presignedUrl: { type: 'string' },
+                expiresAt: { type: 'string', description: 'ISO-8601' },
+            },
+            required: ['uploadId', 'presignedUrl', 'expiresAt'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
+/** Broadcast to the channel when a file upload completes successfully. */
+export const wsUploadCompleted: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.upload.completed',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to the channel when a file upload completes and a download URL is available.',
+    tags: [...BASE_TAGS, 'upload'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'completed' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                downloadUrl: { type: 'string' },
+            },
+            required: ['uploadId', 'downloadUrl'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
+/** Sent to the uploading client when a file upload fails. */
+export const wsUploadFailed: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.upload.failed',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Sent to the uploading client when the file upload fails at any stage.',
+    tags: [...BASE_TAGS, 'upload'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'failed' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                error: { type: 'string' },
+            },
+            required: ['uploadId', 'error'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
+/** Sent to the channel after a security scan completes on the uploaded file. */
+export const wsUploadScanned: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.upload.scanned',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Sent to the channel after a security scan completes on the uploaded file, reporting clean or infected status.',
+    tags: [...BASE_TAGS, 'upload'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'scanned' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                status: { type: 'string', enum: ['clean', 'infected'] },
+            },
+            required: ['uploadId', 'status'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
+// ===========================================================================
 // ERROR frame — src/core/message-router.ts + all service sendError() methods
 // ===========================================================================
 
@@ -770,6 +1044,8 @@ export const gatewaySignalDeclarations: EventDeclaration[] = [
     wsCursorRemove,
     wsCursorList,
     wsCursorModes,
+    wsCursorClear,
+    wsCursorBatch,
     // activity
     wsActivitySubscribed,
     wsActivityUnsubscribed,
@@ -782,6 +1058,8 @@ export const gatewaySignalDeclarations: EventDeclaration[] = [
     wsCrdtSnapshot,
     wsCrdtUpdate,
     wsCrdtDocReplaced,
+    wsCrdtSyncRequest,
+    wsCrdtSyncResponse,
     // presence
     wsPresenceSet,
     wsPresenceUpdate,
@@ -792,6 +1070,8 @@ export const gatewaySignalDeclarations: EventDeclaration[] = [
     // reaction
     wsReactionSubscribed,
     wsReactionReceived,
+    wsReactionRemoved,
+    wsReactionList,
     wsReactionSent,
     // call
     wsCallInvite,
@@ -799,6 +1079,14 @@ export const gatewaySignalDeclarations: EventDeclaration[] = [
     wsCallDeclined,
     wsCallCancelled,
     wsCallEnded,
+    wsCallVideoOn,
+    wsCallVideoOff,
+    // upload
+    wsUploadRequested,
+    wsUploadUrlIssued,
+    wsUploadCompleted,
+    wsUploadFailed,
+    wsUploadScanned,
     // pipeline WS push frames
     wsPipelineSubscribed,
     wsPipelineUnsubscribed,
