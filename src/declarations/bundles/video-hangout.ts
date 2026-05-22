@@ -15,14 +15,17 @@ const _def: Omit<FeatureBundle, 'fingerprint'> = {
   description: 'LVS video session lifecycle — invite, accept, decline, cancel, and end video calls over WebSocket. Media streaming is WHIP/WHEP via LVS.',
   events: [
     // Session lifecycle — mapped to ws.call.* (closest existing names)
-    { name: 'ws.call.invite',      required: true  },   // session.created / session.invited
-    { name: 'ws.call.accepted',    required: true  },   // session.joined
-    { name: 'ws.call.declined',    required: true  },   // session.declined
-    { name: 'ws.call.cancelled',   required: true  },   // session.cancelled
-    { name: 'ws.call.ended',       required: true  },   // session.ended / session.left
-    { name: 'ws.call.video-on',    required: true  },   // participant.video-on
-    { name: 'ws.call.video-off',   required: true  },   // participant.video-off
-    { name: 'ws.error',            required: false },
+    { name: 'ws.call.invite',               required: true  },   // session.created / session.invited
+    { name: 'ws.call.accepted',             required: true  },   // session.joined
+    { name: 'ws.call.declined',             required: true  },   // session.declined
+    { name: 'ws.call.cancelled',            required: true  },   // session.cancelled
+    { name: 'ws.call.ended',                required: true  },   // session.ended / session.left
+    { name: 'ws.call.video-on',             required: true  },   // participant.video-on
+    { name: 'ws.call.video-off',            required: true  },   // participant.video-off
+    // Recording lifecycle
+    { name: 'ws.call.recording-started',    required: true  },
+    { name: 'ws.call.recording-completed',  required: true  },
+    { name: 'ws.error',                     required: false },
   ],
 };
 

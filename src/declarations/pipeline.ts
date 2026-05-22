@@ -99,6 +99,46 @@ export const pipelineApprovalRecorded: EventDeclaration = {
 };
 
 /**
+ * `pipeline.approval.resolved` — emitted when the approval gate is fully
+ * resolved: all required approvers have acted AND the aggregate decision
+ * (approve or reject) is final. Distinct from `pipeline.approval.recorded`
+ * which fires per-approver; this fires once per gate closure.
+ *
+ * Dual-transport (same reasoning as `.requested`): signal for real-time
+ * dashboard updates, durable so downstream workers see the gate outcome
+ * after a restart.
+ */
+export const pipelineApprovalResolved: EventDeclaration = {
+  namespace: 'pipeline',
+  name: 'pipeline.approval.resolved',
+  description:
+    'An approval gate has reached a final decision (all required approvers '
+    + 'have acted). `decision` is the aggregate outcome; `by` is the deciding '
+    + 'approver ID for single-approver gates or the last to vote for '
+    + 'multi-approver gates.',
+  transport: 'both',
+  producer: ['distributed-core', 'platform-api'],
+  tags: ['pipeline', 'approval', 'p0'],
+  schema: {
+    type: 'object',
+    properties: {
+      runId: { type: 'string' },
+      stepId: { type: 'string' },
+      approvalId: { type: 'string' },
+      decision: { type: 'string', enum: ['approved', 'rejected'] },
+      by: { type: 'string', description: 'User ID of the deciding (last) approver' },
+      reason: { type: 'string', description: 'Optional human-readable rationale' },
+      resolvedAt: { type: 'number' },
+    },
+    required: ['runId', 'stepId', 'approvalId', 'decision', 'by', 'resolvedAt'],
+    additionalProperties: true,
+  },
+  aliases: [
+    { name: 'pipeline:approval:resolved', deprecated: true },
+  ],
+};
+
+/**
  * `pipeline.run.checkpoint` — signal-only. Emitted by `PipelineExecutor`
  * after every N successful steps (cadence configured per-executor) as a
  * WAL-replayable snapshot of the in-flight run. Consumed by audit
@@ -148,5 +188,6 @@ export const pipelineRunCheckpoint: EventDeclaration = {
 export const pipelineDeclarations: EventDeclaration[] = [
   pipelineApprovalRequested,
   pipelineApprovalRecorded,
+  pipelineApprovalResolved,
   pipelineRunCheckpoint,
 ];

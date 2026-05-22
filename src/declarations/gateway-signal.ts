@@ -454,6 +454,55 @@ export const wsCrdtDocReplaced: EventDeclaration = {
     }, ['channel']),
 };
 
+/**
+ * Emitted when the gateway persists a Y.Doc state snapshot to durable storage.
+ * Used for recovery flows — clients can request the latest stored snapshot
+ * instead of replaying the full update log.
+ */
+export const wsCrdtSnapshotStored: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.crdt.snapshot-stored',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast when a Y.Doc state snapshot is durably stored by the gateway. Carries the snapshot ID and byte size so clients can decide whether to fetch the new baseline.',
+    tags: [...BASE_TAGS, 'crdt', 'snapshot'],
+    schema: wsSchema('crdt:snapshot-stored', {
+        docId: { type: 'string' },
+        snapshotId: { type: 'string' },
+        size: { type: 'number', description: 'Size in bytes of the stored snapshot' },
+    }, ['docId', 'snapshotId', 'size']),
+};
+
+/**
+ * Batched Y.js awareness updates forwarded to channel subscribers.
+ * Coalescing multiple individual awareness ticks into a single frame reduces
+ * WebSocket frame overhead for channels with many concurrent editors.
+ */
+export const wsCrdtAwarenessBatch: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.crdt.awareness-batch',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Batched Y.js awareness updates (cursor positions, user metadata) forwarded to CRDT channel subscribers in a single frame to reduce overhead.',
+    tags: [...BASE_TAGS, 'crdt', 'awareness'],
+    schema: wsSchema('crdt:awareness-batch', {
+        docId: { type: 'string' },
+        updates: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    clientId: { type: 'number' },
+                    awareness: { type: 'object', additionalProperties: true },
+                },
+                required: ['clientId'],
+                additionalProperties: true,
+            },
+            description: 'Array of per-client awareness state updates',
+        },
+    }, ['docId', 'updates']),
+};
+
 // ===========================================================================
 // PRESENCE frames — src/realtime-fanout/presence-service.ts
 // ===========================================================================
@@ -772,6 +821,52 @@ export const wsCallVideoOff: EventDeclaration = {
     }, ['action', 'data']),
 };
 
+/** Broadcast to all call participants when server-side recording begins. */
+export const wsCallRecordingStarted: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.call.recording-started',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to all call participants when server-side recording of the session starts.',
+    tags: [...BASE_TAGS, 'call', 'recording'],
+    schema: wsSchema('call', {
+        action: { type: 'string', const: 'recording-started' },
+        data: {
+            type: 'object',
+            properties: {
+                sessionId: { type: 'string' },
+                recordingId: { type: 'string' },
+                format: { type: 'string', description: 'Recording format (e.g. "mp4", "webm")' },
+            },
+            required: ['sessionId', 'recordingId', 'format'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
+/** Broadcast to all call participants when server-side recording finishes and a download is available. */
+export const wsCallRecordingCompleted: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.call.recording-completed',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to all call participants when recording ends and a download URL for the recording is available.',
+    tags: [...BASE_TAGS, 'call', 'recording'],
+    schema: wsSchema('call', {
+        action: { type: 'string', const: 'recording-completed' },
+        data: {
+            type: 'object',
+            properties: {
+                sessionId: { type: 'string' },
+                recordingId: { type: 'string' },
+                downloadUrl: { type: 'string' },
+            },
+            required: ['sessionId', 'recordingId', 'downloadUrl'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
 // ===========================================================================
 // PIPELINE WS push frames — src/services/pipeline-service.ts
 //
@@ -1002,6 +1097,58 @@ export const wsUploadScanned: EventDeclaration = {
     }, ['action', 'data']),
 };
 
+/**
+ * Sent to the uploading client when a security scan finds a threat and the
+ * file is quarantined. The presigned download URL is revoked; the client
+ * should display an error and optionally prompt for re-upload.
+ */
+export const wsUploadScanQuarantined: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.upload.scan-quarantined',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Sent to the uploading client when a security scan detects a threat. The file is quarantined and the download URL is revoked.',
+    tags: [...BASE_TAGS, 'upload', 'security'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'scan-quarantined' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                reason: { type: 'string', description: 'Human-readable quarantine reason (e.g. threat name)' },
+            },
+            required: ['uploadId', 'reason'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
+/**
+ * Sent to the uploading client when a previously issued presigned download
+ * URL is explicitly revoked (e.g. after quarantine, policy change, or TTL
+ * expiry before download).
+ */
+export const wsUploadUrlRevoked: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.upload.url-revoked',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Sent to the uploading client when a presigned download URL is explicitly revoked. Clients should discard any cached URL.',
+    tags: [...BASE_TAGS, 'upload', 'security'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'url-revoked' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                reason: { type: 'string', description: 'Reason for revocation (e.g. "quarantine", "policy", "expired")' },
+            },
+            required: ['uploadId', 'reason'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+
 // ===========================================================================
 // ERROR frame — src/core/message-router.ts + all service sendError() methods
 // ===========================================================================
@@ -1060,6 +1207,8 @@ export const gatewaySignalDeclarations: EventDeclaration[] = [
     wsCrdtDocReplaced,
     wsCrdtSyncRequest,
     wsCrdtSyncResponse,
+    wsCrdtSnapshotStored,
+    wsCrdtAwarenessBatch,
     // presence
     wsPresenceSet,
     wsPresenceUpdate,
@@ -1081,12 +1230,16 @@ export const gatewaySignalDeclarations: EventDeclaration[] = [
     wsCallEnded,
     wsCallVideoOn,
     wsCallVideoOff,
+    wsCallRecordingStarted,
+    wsCallRecordingCompleted,
     // upload
     wsUploadRequested,
     wsUploadUrlIssued,
     wsUploadCompleted,
     wsUploadFailed,
     wsUploadScanned,
+    wsUploadScanQuarantined,
+    wsUploadUrlRevoked,
     // pipeline WS push frames
     wsPipelineSubscribed,
     wsPipelineUnsubscribed,

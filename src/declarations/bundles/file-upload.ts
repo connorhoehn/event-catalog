@@ -13,12 +13,15 @@ const _def: Omit<FeatureBundle, 'fingerprint'> = {
   transport: 'signal',
   description: 'File upload lifecycle — presigned URL flow (REST) with upload progress and scan-result delivery via WebSocket.',
   events: [
-    { name: 'ws.upload.requested',    required: true  },
-    { name: 'ws.upload.url-issued',   required: true  },
-    { name: 'ws.upload.completed',    required: true  },
-    { name: 'ws.upload.failed',       required: true  },
-    { name: 'ws.upload.scanned',      required: true  },
-    { name: 'ws.error',               required: false },
+    { name: 'ws.upload.requested',        required: true  },
+    { name: 'ws.upload.url-issued',       required: true  },
+    { name: 'ws.upload.completed',        required: true  },
+    { name: 'ws.upload.failed',           required: true  },
+    { name: 'ws.upload.scanned',          required: true  },
+    // Security enforcement outcomes
+    { name: 'ws.upload.scan-quarantined', required: true  },
+    { name: 'ws.upload.url-revoked',      required: true  },
+    { name: 'ws.error',                   required: false },
   ],
 };
 
