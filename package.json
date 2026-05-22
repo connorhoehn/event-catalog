@@ -83,7 +83,7 @@
     "vitest": "^2.1.0"
   },
   "peerDependencies": {
-    "@connorhoehn/message-queue": "github:connorhoehnslalom/message-queue#v0.2.0"
+    "@connorhoehn/message-queue": "github:connorhoehnslalom/message-queue#v0.2.1"
   },
   "peerDependenciesMeta": {
     "@connorhoehn/message-queue": {
