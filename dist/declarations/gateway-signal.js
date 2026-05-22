@@ -24,7 +24,8 @@
 //   src/services/{call,pipeline}-service.ts
 //   src/core/message-router.ts
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.gatewaySignalDeclarations = exports.wsError = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtDocReplaced = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
+exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionList = exports.wsReactionRemoved = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorBatch = exports.wsCursorClear = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
+exports.gatewaySignalDeclarations = exports.wsError = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = void 0;
 const PRODUCER = 'websocket-gateway';
 const BASE_TAGS = ['gateway', 'signal', `producer:${PRODUCER}`];
 // ---------------------------------------------------------------------------
@@ -171,6 +172,34 @@ exports.wsCursorRemove = {
         channel: { type: 'string' },
         clientId: { type: 'string' },
     }, ['action', 'channel', 'clientId']),
+};
+/** Broadcast to all channel subscribers when a client clears their cursor. */
+exports.wsCursorClear = {
+    namespace: 'ws',
+    name: 'ws.cursor.clear',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to channel subscribers when a client clears (removes) their cursor from the canvas.',
+    tags: [...BASE_TAGS, 'cursor'],
+    schema: wsSchema('cursor', {
+        action: { type: 'string', const: 'clear' },
+        channel: { type: 'string' },
+        clientId: { type: 'string' },
+    }, ['action', 'channel', 'clientId']),
+};
+/** Batched cursor position update for multiple clients, sent as a single frame. */
+exports.wsCursorBatch = {
+    namespace: 'ws',
+    name: 'ws.cursor.batch',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Batched cursor positions for multiple clients delivered in a single frame to reduce message volume.',
+    tags: [...BASE_TAGS, 'cursor'],
+    schema: wsSchema('cursor', {
+        action: { type: 'string', const: 'batch' },
+        channel: { type: 'string' },
+        cursors: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    }, ['action', 'channel', 'cursors']),
 };
 /** Current cursor list for a channel, sent in response to a `get` request. */
 exports.wsCursorList = {
@@ -343,6 +372,38 @@ exports.wsCrdtUpdate = {
     }, ['channel', 'update']),
 };
 /**
+ * Client-initiated request to sync Y.js state with a peer.
+ * Note: frame type is `crdt:sync-request`.
+ */
+exports.wsCrdtSyncRequest = {
+    namespace: 'ws',
+    name: 'ws.crdt.sync-request',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Client-initiated Y.js state vector sent to the gateway to request missing updates from peers.',
+    tags: [...BASE_TAGS, 'crdt'],
+    schema: wsSchema('crdt:sync-request', {
+        channel: { type: 'string' },
+        stateVector: { type: 'string', description: 'base64-encoded Y.js state vector' },
+    }, ['channel', 'stateVector']),
+};
+/**
+ * Gateway response to a sync-request, containing the missing Y.js updates.
+ * Note: frame type is `crdt:sync-response`.
+ */
+exports.wsCrdtSyncResponse = {
+    namespace: 'ws',
+    name: 'ws.crdt.sync-response',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Gateway response to a sync-request containing the Y.js updates needed to bring the client up to date.',
+    tags: [...BASE_TAGS, 'crdt'],
+    schema: wsSchema('crdt:sync-response', {
+        channel: { type: 'string' },
+        update: { type: 'string', description: 'base64-encoded Y.js update diff' },
+    }, ['channel', 'update']),
+};
+/**
  * Sent to all subscribers when a snapshot restore replaces the document.
  * Note: frame type is `crdt:doc-replaced`.
  */
@@ -487,6 +548,50 @@ exports.wsReactionReceived = {
         },
     }, ['action', 'data']),
 };
+/** Broadcast to channel subscribers when a reaction is removed. */
+exports.wsReactionRemoved = {
+    namespace: 'ws',
+    name: 'ws.reaction.removed',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to all reaction channel subscribers when a previously sent reaction is removed.',
+    tags: [...BASE_TAGS, 'reaction'],
+    schema: wsSchema('reaction', {
+        action: { type: 'string', const: 'reaction_removed' },
+        data: {
+            type: 'object',
+            properties: {
+                id: { type: 'string' },
+                clientId: { type: 'string' },
+                channel: { type: 'string' },
+                emoji: { type: 'string' },
+            },
+            required: ['id', 'channel'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+/** List of current reactions in a channel, sent in response to a list request. */
+exports.wsReactionList = {
+    namespace: 'ws',
+    name: 'ws.reaction.list',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Current reaction list for a channel, sent in response to a list request.',
+    tags: [...BASE_TAGS, 'reaction'],
+    schema: wsSchema('reaction', {
+        action: { type: 'string', const: 'reaction_list' },
+        data: {
+            type: 'object',
+            properties: {
+                channel: { type: 'string' },
+                reactions: { type: 'array', items: { type: 'object', additionalProperties: true } },
+            },
+            required: ['channel'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
 /** Confirmation sent to the sender after their reaction is broadcast. */
 exports.wsReactionSent = {
     namespace: 'ws',
@@ -565,6 +670,50 @@ exports.wsCallEnded = {
     description: 'Call ended signal broadcast to all parties.',
     tags: [...BASE_TAGS, 'call'],
     schema: callSchema('ended'),
+};
+/** Broadcast when a participant enables their video feed. */
+exports.wsCallVideoOn = {
+    namespace: 'ws',
+    name: 'ws.call.video-on',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to call participants when a participant enables their video feed.',
+    tags: [...BASE_TAGS, 'call'],
+    schema: wsSchema('call', {
+        action: { type: 'string', const: 'video-on' },
+        data: {
+            type: 'object',
+            properties: {
+                callId: { type: 'string' },
+                participantId: { type: 'string' },
+                userId: { type: 'string' },
+            },
+            required: ['callId', 'participantId'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+/** Broadcast when a participant disables their video feed. */
+exports.wsCallVideoOff = {
+    namespace: 'ws',
+    name: 'ws.call.video-off',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to call participants when a participant disables their video feed.',
+    tags: [...BASE_TAGS, 'call'],
+    schema: wsSchema('call', {
+        action: { type: 'string', const: 'video-off' },
+        data: {
+            type: 'object',
+            properties: {
+                callId: { type: 'string' },
+                participantId: { type: 'string' },
+                userId: { type: 'string' },
+            },
+            required: ['callId', 'participantId'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
 };
 // ===========================================================================
 // PIPELINE WS push frames — src/services/pipeline-service.ts
@@ -672,6 +821,118 @@ exports.wsPipelineEvent = {
     }, ['eventType', 'channel']),
 };
 // ===========================================================================
+// UPLOAD frames — presigned URL upload lifecycle pushed via WebSocket
+// ===========================================================================
+/** Acknowledgement that the gateway received a file upload request and is issuing a presigned URL. */
+exports.wsUploadRequested = {
+    namespace: 'ws',
+    name: 'ws.upload.requested',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Acknowledgement sent when the gateway receives a file upload request from a client.',
+    tags: [...BASE_TAGS, 'upload'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'requested' },
+        data: {
+            type: 'object',
+            properties: {
+                clientId: { type: 'string' },
+                channel: { type: 'string' },
+                filename: { type: 'string' },
+                size: { type: 'number' },
+                mimeType: { type: 'string' },
+            },
+            required: ['clientId', 'channel', 'filename'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+/** Presigned upload URL issued to the requesting client. */
+exports.wsUploadUrlIssued = {
+    namespace: 'ws',
+    name: 'ws.upload.url-issued',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Presigned S3 upload URL issued to the client so they can PUT the file directly.',
+    tags: [...BASE_TAGS, 'upload'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'url-issued' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                presignedUrl: { type: 'string' },
+                expiresAt: { type: 'string', description: 'ISO-8601' },
+            },
+            required: ['uploadId', 'presignedUrl', 'expiresAt'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+/** Broadcast to the channel when a file upload completes successfully. */
+exports.wsUploadCompleted = {
+    namespace: 'ws',
+    name: 'ws.upload.completed',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to the channel when a file upload completes and a download URL is available.',
+    tags: [...BASE_TAGS, 'upload'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'completed' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                downloadUrl: { type: 'string' },
+            },
+            required: ['uploadId', 'downloadUrl'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+/** Sent to the uploading client when a file upload fails. */
+exports.wsUploadFailed = {
+    namespace: 'ws',
+    name: 'ws.upload.failed',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Sent to the uploading client when the file upload fails at any stage.',
+    tags: [...BASE_TAGS, 'upload'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'failed' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                error: { type: 'string' },
+            },
+            required: ['uploadId', 'error'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+/** Sent to the channel after a security scan completes on the uploaded file. */
+exports.wsUploadScanned = {
+    namespace: 'ws',
+    name: 'ws.upload.scanned',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Sent to the channel after a security scan completes on the uploaded file, reporting clean or infected status.',
+    tags: [...BASE_TAGS, 'upload'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'scanned' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                status: { type: 'string', enum: ['clean', 'infected'] },
+            },
+            required: ['uploadId', 'status'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+// ===========================================================================
 // ERROR frame — src/core/message-router.ts + all service sendError() methods
 // ===========================================================================
 /** Generic error frame sent when any service encounters a client-visible error. */
@@ -710,6 +971,8 @@ exports.gatewaySignalDeclarations = [
     exports.wsCursorRemove,
     exports.wsCursorList,
     exports.wsCursorModes,
+    exports.wsCursorClear,
+    exports.wsCursorBatch,
     // activity
     exports.wsActivitySubscribed,
     exports.wsActivityUnsubscribed,
@@ -722,6 +985,8 @@ exports.gatewaySignalDeclarations = [
     exports.wsCrdtSnapshot,
     exports.wsCrdtUpdate,
     exports.wsCrdtDocReplaced,
+    exports.wsCrdtSyncRequest,
+    exports.wsCrdtSyncResponse,
     // presence
     exports.wsPresenceSet,
     exports.wsPresenceUpdate,
@@ -732,6 +997,8 @@ exports.gatewaySignalDeclarations = [
     // reaction
     exports.wsReactionSubscribed,
     exports.wsReactionReceived,
+    exports.wsReactionRemoved,
+    exports.wsReactionList,
     exports.wsReactionSent,
     // call
     exports.wsCallInvite,
@@ -739,6 +1006,14 @@ exports.gatewaySignalDeclarations = [
     exports.wsCallDeclined,
     exports.wsCallCancelled,
     exports.wsCallEnded,
+    exports.wsCallVideoOn,
+    exports.wsCallVideoOff,
+    // upload
+    exports.wsUploadRequested,
+    exports.wsUploadUrlIssued,
+    exports.wsUploadCompleted,
+    exports.wsUploadFailed,
+    exports.wsUploadScanned,
     // pipeline WS push frames
     exports.wsPipelineSubscribed,
     exports.wsPipelineUnsubscribed,

@@ -16,11 +16,16 @@ export { buildChannelMessageEnvelope, buildSignalMessage, isChannelMessageEnvelo
 export type { ChannelMessageEnvelope, SignalMessage, BuildChannelMessageEnvelopeArgs, BuildSignalMessageArgs, DirectMessageEnvelope, BuildDirectMessageEnvelopeArgs, BroadcastEnvelope, BuildBroadcastEnvelopeArgs, DecodeResult, } from './types/envelopes';
 export { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpoint, pipelineDeclarations, pipelineP1Declarations, pipelineRunStarted, pipelineRunCompleted, pipelineRunFailed, pipelineRunOrphaned, pipelineRunReassigned, pipelineRunResumedFromStep, pipelineRunRetry, pipelineRunStuck, pipelineStepBreakpoint, pipelineJoinWaiting, pipelineJoinFired, pipelineP2Declarations, pipelineRaftRunStarted, pipelineRaftRunUpdated, pipelineRaftRunSynthesized, pipelineRaftRunCheckpointed, pipelineRaftRunTerminated, pipelineRaftDeclarations, pipelineRaftStateMachineDeclarations, pipelineEventDeclarations, } from './declarations/index';
 export { createValidatingPublisher, createPublisher, ValidationError, type ValidationMode, type ValidatingPublisherOptions, } from './utils/validating-publisher';
-export { MQ_QUEUE_NAMES } from './queue-names';
+export { MQ_QUEUE_NAMES, ACTIVITY_RECORDED } from './queue-names';
 export type { MQQueueName } from './queue-names';
 export { DEPRECATED_DUAL_EMIT_ALIASES } from './declarations/deprecated-pipeline-aliases';
 export type { EventPayloadMap, EventPayload } from './generated/event-types';
 export { DLQManager } from './dlq/DLQManager';
 export { InMemoryDLQStore } from './dlq/DLQStore';
 export type { DLQRecord, DLQReason, DLQQueryOptions, ReplayResult } from './dlq/types';
+export type { FeatureBundle, EventReference, BundleValidationResult } from './bundles/FeatureBundle';
+export { FeatureBundleRegistry, computeFingerprint, registerFeatureBundle, getFeatureBundle, listFeatureBundles, validateBundle, findBundleByFingerprint, getCrdSchema, } from './bundles/FeatureBundle';
+export { chatBundle } from './declarations/bundles/chat';
+export { presenceBundle } from './declarations/bundles/presence';
+export { allBundles } from './declarations/bundles/index';
 //# sourceMappingURL=index.d.ts.map

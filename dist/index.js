@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = exports.decodeBroadcastEnvelope = exports.decodeDirectMessageEnvelope = exports.decodeChannelMessageEnvelope = exports.isBroadcastEnvelope = exports.isDirectMessageEnvelope = exports.broadcastEnvelopeSchema = exports.broadcastRedisChannel = exports.buildBroadcastEnvelope = exports.directMessageEnvelopeSchema = exports.directMessageRedisChannel = exports.buildDirectMessageEnvelope = exports.channelMessageEnvelopeSchema = exports.signalMessageSchema = exports.channelNodesRedisKey = exports.channelMessageRedisChannel = exports.isChannelMessageEnvelope = exports.buildSignalMessage = exports.buildChannelMessageEnvelope = exports.resolveNamespace = exports.deriveNamespace = exports.validateSchemaShape = exports.computeSchemaFingerprint = exports.stableStringify = exports.checkForwardCompat = exports.checkBackwardCompat = exports.DurableTransport = exports.SignalTransport = exports.Registry = exports.EventCatalog = void 0;
-exports.InMemoryDLQStore = exports.DLQManager = exports.DEPRECATED_DUAL_EMIT_ALIASES = exports.MQ_QUEUE_NAMES = exports.ValidationError = exports.createPublisher = exports.createValidatingPublisher = exports.pipelineEventDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = void 0;
+exports.allBundles = exports.presenceBundle = exports.chatBundle = exports.getCrdSchema = exports.findBundleByFingerprint = exports.validateBundle = exports.listFeatureBundles = exports.getFeatureBundle = exports.registerFeatureBundle = exports.computeFingerprint = exports.FeatureBundleRegistry = exports.InMemoryDLQStore = exports.DLQManager = exports.DEPRECATED_DUAL_EMIT_ALIASES = exports.ACTIVITY_RECORDED = exports.MQ_QUEUE_NAMES = exports.ValidationError = exports.createPublisher = exports.createValidatingPublisher = exports.pipelineEventDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = void 0;
 var index_1 = require("./client/index");
 Object.defineProperty(exports, "EventCatalog", { enumerable: true, get: function () { return index_1.EventCatalog; } });
 var index_2 = require("./registry/index");
@@ -93,6 +93,7 @@ Object.defineProperty(exports, "ValidationError", { enumerable: true, get: funct
 // Shared MQ queue-name constants (wave7-d — single source of truth).
 var queue_names_1 = require("./queue-names");
 Object.defineProperty(exports, "MQ_QUEUE_NAMES", { enumerable: true, get: function () { return queue_names_1.MQ_QUEUE_NAMES; } });
+Object.defineProperty(exports, "ACTIVITY_RECORDED", { enumerable: true, get: function () { return queue_names_1.ACTIVITY_RECORDED; } });
 // wave20-f — deprecated dot-form pipeline event names, derived from
 // the canonical colon-form declarations' `aliases` arrays.
 var deprecated_pipeline_aliases_1 = require("./declarations/deprecated-pipeline-aliases");
@@ -102,4 +103,20 @@ var DLQManager_1 = require("./dlq/DLQManager");
 Object.defineProperty(exports, "DLQManager", { enumerable: true, get: function () { return DLQManager_1.DLQManager; } });
 var DLQStore_1 = require("./dlq/DLQStore");
 Object.defineProperty(exports, "InMemoryDLQStore", { enumerable: true, get: function () { return DLQStore_1.InMemoryDLQStore; } });
+var FeatureBundle_1 = require("./bundles/FeatureBundle");
+Object.defineProperty(exports, "FeatureBundleRegistry", { enumerable: true, get: function () { return FeatureBundle_1.FeatureBundleRegistry; } });
+Object.defineProperty(exports, "computeFingerprint", { enumerable: true, get: function () { return FeatureBundle_1.computeFingerprint; } });
+Object.defineProperty(exports, "registerFeatureBundle", { enumerable: true, get: function () { return FeatureBundle_1.registerFeatureBundle; } });
+Object.defineProperty(exports, "getFeatureBundle", { enumerable: true, get: function () { return FeatureBundle_1.getFeatureBundle; } });
+Object.defineProperty(exports, "listFeatureBundles", { enumerable: true, get: function () { return FeatureBundle_1.listFeatureBundles; } });
+Object.defineProperty(exports, "validateBundle", { enumerable: true, get: function () { return FeatureBundle_1.validateBundle; } });
+Object.defineProperty(exports, "findBundleByFingerprint", { enumerable: true, get: function () { return FeatureBundle_1.findBundleByFingerprint; } });
+Object.defineProperty(exports, "getCrdSchema", { enumerable: true, get: function () { return FeatureBundle_1.getCrdSchema; } });
+// Sample bundle declarations.
+var chat_1 = require("./declarations/bundles/chat");
+Object.defineProperty(exports, "chatBundle", { enumerable: true, get: function () { return chat_1.chatBundle; } });
+var presence_1 = require("./declarations/bundles/presence");
+Object.defineProperty(exports, "presenceBundle", { enumerable: true, get: function () { return presence_1.presenceBundle; } });
+var index_4 = require("./declarations/bundles/index");
+Object.defineProperty(exports, "allBundles", { enumerable: true, get: function () { return index_4.allBundles; } });
 //# sourceMappingURL=index.js.map

@@ -17,6 +17,10 @@ export declare const wsCursorUnsubscribed: EventDeclaration;
 export declare const wsCursorUpdate: EventDeclaration;
 /** Broadcast when a client disconnects and their cursor should be removed. */
 export declare const wsCursorRemove: EventDeclaration;
+/** Broadcast to all channel subscribers when a client clears their cursor. */
+export declare const wsCursorClear: EventDeclaration;
+/** Batched cursor position update for multiple clients, sent as a single frame. */
+export declare const wsCursorBatch: EventDeclaration;
 /** Current cursor list for a channel, sent in response to a `get` request. */
 export declare const wsCursorList: EventDeclaration;
 /** Supported cursor modes (freeform, table, text, canvas). */
@@ -49,6 +53,16 @@ export declare const wsCrdtSnapshot: EventDeclaration;
  */
 export declare const wsCrdtUpdate: EventDeclaration;
 /**
+ * Client-initiated request to sync Y.js state with a peer.
+ * Note: frame type is `crdt:sync-request`.
+ */
+export declare const wsCrdtSyncRequest: EventDeclaration;
+/**
+ * Gateway response to a sync-request, containing the missing Y.js updates.
+ * Note: frame type is `crdt:sync-response`.
+ */
+export declare const wsCrdtSyncResponse: EventDeclaration;
+/**
  * Sent to all subscribers when a snapshot restore replaces the document.
  * Note: frame type is `crdt:doc-replaced`.
  */
@@ -69,6 +83,10 @@ export declare const wsPresenceOffline: EventDeclaration;
 export declare const wsReactionSubscribed: EventDeclaration;
 /** Broadcast to all channel subscribers when a reaction is sent. */
 export declare const wsReactionReceived: EventDeclaration;
+/** Broadcast to channel subscribers when a reaction is removed. */
+export declare const wsReactionRemoved: EventDeclaration;
+/** List of current reactions in a channel, sent in response to a list request. */
+export declare const wsReactionList: EventDeclaration;
 /** Confirmation sent to the sender after their reaction is broadcast. */
 export declare const wsReactionSent: EventDeclaration;
 export declare const wsCallInvite: EventDeclaration;
@@ -76,6 +94,10 @@ export declare const wsCallAccepted: EventDeclaration;
 export declare const wsCallDeclined: EventDeclaration;
 export declare const wsCallCancelled: EventDeclaration;
 export declare const wsCallEnded: EventDeclaration;
+/** Broadcast when a participant enables their video feed. */
+export declare const wsCallVideoOn: EventDeclaration;
+/** Broadcast when a participant disables their video feed. */
+export declare const wsCallVideoOff: EventDeclaration;
 /** Subscription confirmation for a pipeline channel. */
 export declare const wsPipelineSubscribed: EventDeclaration;
 /** Unsubscription confirmation for a pipeline channel. */
@@ -101,6 +123,16 @@ export declare const wsPipelineHistory: EventDeclaration;
  * Note: frame type is `pipeline:event`.
  */
 export declare const wsPipelineEvent: EventDeclaration;
+/** Acknowledgement that the gateway received a file upload request and is issuing a presigned URL. */
+export declare const wsUploadRequested: EventDeclaration;
+/** Presigned upload URL issued to the requesting client. */
+export declare const wsUploadUrlIssued: EventDeclaration;
+/** Broadcast to the channel when a file upload completes successfully. */
+export declare const wsUploadCompleted: EventDeclaration;
+/** Sent to the uploading client when a file upload fails. */
+export declare const wsUploadFailed: EventDeclaration;
+/** Sent to the channel after a security scan completes on the uploaded file. */
+export declare const wsUploadScanned: EventDeclaration;
 /** Generic error frame sent when any service encounters a client-visible error. */
 export declare const wsError: EventDeclaration;
 /**

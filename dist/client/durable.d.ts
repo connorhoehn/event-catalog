@@ -57,7 +57,6 @@ export declare class DurableTransport {
     private readonly retryBaseMs;
     private readonly maxProcessingAttempts;
     private readonly dlqCapacity;
-    private readonly retryManager;
     private readonly pollRetryManager;
     private connected;
     private activePollers;
@@ -99,6 +98,15 @@ export declare class DurableTransport {
      * (logs the conflict diff) or any other status / network error.
      */
     private putQueue;
+    /**
+     * Increment and return the module-level backpressure counter for a queue.
+     * Exposed via `DurableTransport.getBackpressureCount()` for tests/metrics.
+     */
+    private recordBackpressure;
+    /** Return total backpressure events observed for a queue (or all queues). */
+    static getBackpressureCount(queueName?: string): number | Map<string, number>;
+    /** Reset backpressure counters (useful in tests). */
+    static resetBackpressureCounters(): void;
     publish(queueName: string, envelope: EventEnvelope, queueOptions?: EnsureQueueOptions): Promise<void>;
     subscribe(queueName: string, handler: MessageHandler, options?: DurableSubscribeOptions): () => void;
     getQueueAttributes(queueName: string): Promise<Record<string, unknown> | null>;
@@ -113,6 +121,8 @@ export declare class DurableTransport {
         latencyMs: number;
     }>;
     private pollLoop;
+    /** Unconditional sleep without an abort signal (used in publish retry loop). */
+    private sleepMs;
     private sleep;
     private incrementMetric;
     private decrementInFlight;
