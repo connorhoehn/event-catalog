@@ -14,6 +14,8 @@ import { ensureTable } from './dynamo-setup.js';
 import { startAuditLog } from './audit-log.js';
 import { RedisManifestStore } from './manifest-store.js';
 import { createRoutes } from './routes.js';
+import { createBundleRoutes } from './bundle-routes.js';
+import { FeatureBundleRegistry } from '../bundles/FeatureBundle.js';
 import { makeHealthHandler } from './health.js';
 import { PromMetrics } from './prom-metrics.js';
 import { ProducerAttributionStore } from './producer-attribution.js';
@@ -276,6 +278,10 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     app.use('/api', authMiddleware);
   }
   app.use('/api', routes);
+
+  // FeatureBundle admin surface — CRD query endpoints for dc-k8s-operator.
+  const bundleRegistry = new FeatureBundleRegistry();
+  app.use('/api/feature-bundles', createBundleRoutes({ bundleRegistry, registry }));
 
   // Static admin UI (production)
   app.use(express.static(new URL('../admin/dist', import.meta.url).pathname));
