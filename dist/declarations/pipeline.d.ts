@@ -22,6 +22,17 @@ export declare const pipelineApprovalRequested: EventDeclaration;
  */
 export declare const pipelineApprovalRecorded: EventDeclaration;
 /**
+ * `pipeline.approval.resolved` — emitted when the approval gate is fully
+ * resolved: all required approvers have acted AND the aggregate decision
+ * (approve or reject) is final. Distinct from `pipeline.approval.recorded`
+ * which fires per-approver; this fires once per gate closure.
+ *
+ * Dual-transport (same reasoning as `.requested`): signal for real-time
+ * dashboard updates, durable so downstream workers see the gate outcome
+ * after a restart.
+ */
+export declare const pipelineApprovalResolved: EventDeclaration;
+/**
  * `pipeline.run.checkpoint` — signal-only. Emitted by `PipelineExecutor`
  * after every N successful steps (cadence configured per-executor) as a
  * WAL-replayable snapshot of the in-flight run. Consumed by audit

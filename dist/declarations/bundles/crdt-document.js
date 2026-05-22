@@ -22,6 +22,8 @@ const _def = {
         { name: 'ws.crdt.doc-replaced', required: true },
         { name: 'ws.crdt.sync-request', required: true },
         { name: 'ws.crdt.sync-response', required: true },
+        { name: 'ws.crdt.snapshot-stored', required: true },
+        { name: 'ws.crdt.awareness-batch', required: true },
         { name: 'ws.error', required: false },
     ],
 };

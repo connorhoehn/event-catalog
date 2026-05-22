@@ -5,7 +5,7 @@
 // Importing this module at boot time registers the bundles in the
 // module-level singleton via registerFeatureBundle().
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.allBundles = exports.fileUploadBundle = exports.videoHangoutBundle = exports.crdtDocumentBundle = exports.agenticPipelineBundle = exports.activityBundle = exports.reactionsBundle = exports.cursorBundle = exports.presenceBundle = exports.chatBundle = void 0;
+exports.allBundles = exports.orgiqNewsroomBundle = exports.fileUploadBundle = exports.videoHangoutBundle = exports.crdtDocumentBundle = exports.agenticPipelineDurableBundle = exports.agenticPipelineSignalBundle = exports.agenticPipelineBundle = exports.activityBundle = exports.reactionsBundle = exports.cursorBundle = exports.presenceBundle = exports.chatBundle = void 0;
 var chat_js_1 = require("./chat.js");
 Object.defineProperty(exports, "chatBundle", { enumerable: true, get: function () { return chat_js_1.chatBundle; } });
 var presence_js_1 = require("./presence.js");
@@ -16,14 +16,21 @@ var reactions_js_1 = require("./reactions.js");
 Object.defineProperty(exports, "reactionsBundle", { enumerable: true, get: function () { return reactions_js_1.reactionsBundle; } });
 var activity_js_1 = require("./activity.js");
 Object.defineProperty(exports, "activityBundle", { enumerable: true, get: function () { return activity_js_1.activityBundle; } });
+// Deprecated: use agenticPipelineSignalBundle + agenticPipelineDurableBundle instead.
 var agentic_pipeline_js_1 = require("./agentic-pipeline.js");
 Object.defineProperty(exports, "agenticPipelineBundle", { enumerable: true, get: function () { return agentic_pipeline_js_1.agenticPipelineBundle; } });
+var agentic_pipeline_signal_js_1 = require("./agentic-pipeline-signal.js");
+Object.defineProperty(exports, "agenticPipelineSignalBundle", { enumerable: true, get: function () { return agentic_pipeline_signal_js_1.agenticPipelineSignalBundle; } });
+var agentic_pipeline_durable_js_1 = require("./agentic-pipeline-durable.js");
+Object.defineProperty(exports, "agenticPipelineDurableBundle", { enumerable: true, get: function () { return agentic_pipeline_durable_js_1.agenticPipelineDurableBundle; } });
 var crdt_document_js_1 = require("./crdt-document.js");
 Object.defineProperty(exports, "crdtDocumentBundle", { enumerable: true, get: function () { return crdt_document_js_1.crdtDocumentBundle; } });
 var video_hangout_js_1 = require("./video-hangout.js");
 Object.defineProperty(exports, "videoHangoutBundle", { enumerable: true, get: function () { return video_hangout_js_1.videoHangoutBundle; } });
 var file_upload_js_1 = require("./file-upload.js");
 Object.defineProperty(exports, "fileUploadBundle", { enumerable: true, get: function () { return file_upload_js_1.fileUploadBundle; } });
+var orgiq_newsroom_js_1 = require("./orgiq-newsroom.js");
+Object.defineProperty(exports, "orgiqNewsroomBundle", { enumerable: true, get: function () { return orgiq_newsroom_js_1.orgiqNewsroomBundle; } });
 const FeatureBundle_js_1 = require("../../bundles/FeatureBundle.js");
 const chat_js_2 = require("./chat.js");
 const presence_js_2 = require("./presence.js");
@@ -31,9 +38,12 @@ const cursor_js_2 = require("./cursor.js");
 const reactions_js_2 = require("./reactions.js");
 const activity_js_2 = require("./activity.js");
 const agentic_pipeline_js_2 = require("./agentic-pipeline.js");
+const agentic_pipeline_signal_js_2 = require("./agentic-pipeline-signal.js");
+const agentic_pipeline_durable_js_2 = require("./agentic-pipeline-durable.js");
 const crdt_document_js_2 = require("./crdt-document.js");
 const video_hangout_js_2 = require("./video-hangout.js");
 const file_upload_js_2 = require("./file-upload.js");
+const orgiq_newsroom_js_2 = require("./orgiq-newsroom.js");
 /** All v1 bundle definitions, in declaration order. */
 exports.allBundles = [
     chat_js_2.chatBundle,
@@ -41,10 +51,13 @@ exports.allBundles = [
     cursor_js_2.cursorBundle,
     reactions_js_2.reactionsBundle,
     activity_js_2.activityBundle,
-    agentic_pipeline_js_2.agenticPipelineBundle,
+    agentic_pipeline_js_2.agenticPipelineBundle, // deprecated — kept for fingerprint backward compat
+    agentic_pipeline_signal_js_2.agenticPipelineSignalBundle,
+    agentic_pipeline_durable_js_2.agenticPipelineDurableBundle,
     crdt_document_js_2.crdtDocumentBundle,
     video_hangout_js_2.videoHangoutBundle,
     file_upload_js_2.fileUploadBundle,
+    orgiq_newsroom_js_2.orgiqNewsroomBundle,
 ];
 // Register each bundle in the module-level singleton at import time.
 // Idempotent: re-importing this module after the first load is a no-op

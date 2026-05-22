@@ -304,20 +304,23 @@ function fixFingerprints(file, crds) {
 async function lintCrd(args) {
     const fixMode = args.includes('--fix-fingerprints');
     const helpMode = args.includes('--help') || args.includes('-h');
+    const listDeprecatedMode = args.includes('--list-deprecated');
     const HELP = `
 ec-lint-crd — validate Kubernetes CRD YAML files against the event-catalog bundle registry
 
 USAGE
   ec-lint-crd <path-to-yaml-file-or-dir> [--fix-fingerprints]
+  ec-lint-crd --list-deprecated
   ec-lint-crd --help
 
 ARGUMENTS
   <path>              YAML file or directory to scan (recursive)
   --fix-fingerprints  Rewrite stale fingerprints in-place with current catalog values
+  --list-deprecated   List all currently deprecated bundles with replacement info
   --help, -h          Show this help
 
 EXIT CODES
-  0   All checked CRDs are valid
+  0   All checked CRDs are valid (or --list-deprecated ran cleanly)
   1   At least one CRD has an error (bundle not found, fingerprint mismatch)
   2   Usage error or warnings only (deprecated bundles)
 
@@ -325,6 +328,7 @@ EXAMPLES
   ec-lint-crd crds/
   ec-lint-crd deploy/chatroom.yaml
   ec-lint-crd crds/ --fix-fingerprints
+  ec-lint-crd --list-deprecated
 
 CI INTEGRATION (GitHub Actions)
   - name: Validate CRD bundles
@@ -332,6 +336,25 @@ CI INTEGRATION (GitHub Actions)
 `.trim();
     if (helpMode) {
         console.log(HELP);
+        return 0;
+    }
+    // --list-deprecated: print all deprecated bundles and exit 0
+    if (listDeprecatedMode) {
+        const all = (0, FeatureBundle_js_1.listFeatureBundles)();
+        const deprecated = all.filter((b) => b.deprecated !== undefined);
+        if (deprecated.length === 0) {
+            console.log('ec-lint-crd: no deprecated bundles found');
+            return 0;
+        }
+        console.log('Deprecated bundles:');
+        console.log('');
+        for (const b of deprecated) {
+            const since = b.deprecated.since;
+            const replacement = b.deprecated.replacement ? ` → replacement: ${b.deprecated.replacement}` : '';
+            console.log(`  ${b.name}@${b.version}  (deprecated since ${since}${replacement})`);
+        }
+        console.log('');
+        console.log(`Total: ${deprecated.length} deprecated bundle(s)`);
         return 0;
     }
     const paths = args.filter((a) => !a.startsWith('--'));

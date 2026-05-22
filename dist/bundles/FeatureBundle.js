@@ -244,6 +244,38 @@ class FeatureBundleRegistry {
         }
         return undefined;
     }
+    /**
+     * Mark a specific bundle version as deprecated. Updates the in-place entry
+     * and recomputes the fingerprint because deprecation metadata changes the
+     * bundle definition (the hash excludes deprecated, so the fingerprint is
+     * unchanged — see computeFingerprint). This mutates the stored entry so
+     * subsequent gets() return the updated deprecated field.
+     *
+     * Returns the updated bundle, or undefined if the bundle/version is not found.
+     */
+    deprecate(name, version, deprecation) {
+        const versions = this._store.get(name);
+        if (!versions)
+            return undefined;
+        const idx = versions.findIndex((b) => b.version === version);
+        if (idx < 0)
+            return undefined;
+        const existing = versions[idx];
+        // Re-stamp fingerprint: deprecated field is excluded from hash but we
+        // regenerate to ensure consistency with any future algorithm changes.
+        const updated = {
+            ...existing,
+            deprecated: deprecation,
+            fingerprint: computeFingerprint(existing),
+        };
+        versions[idx] = updated;
+        this._store.set(name, versions);
+        return updated;
+    }
+    /** Returns all registered bundles that have a `deprecated` field set. */
+    listDeprecated() {
+        return this.list().filter((b) => b.deprecated !== undefined);
+    }
 }
 exports.FeatureBundleRegistry = FeatureBundleRegistry;
 //# sourceMappingURL=FeatureBundle.js.map

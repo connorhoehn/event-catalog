@@ -19,6 +19,9 @@ const _def = {
         { name: 'ws.upload.completed', required: true },
         { name: 'ws.upload.failed', required: true },
         { name: 'ws.upload.scanned', required: true },
+        // Security enforcement outcomes
+        { name: 'ws.upload.scan-quarantined', required: true },
+        { name: 'ws.upload.url-revoked', required: true },
         { name: 'ws.error', required: false },
     ],
 };

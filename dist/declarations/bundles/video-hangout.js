@@ -23,6 +23,9 @@ const _def = {
         { name: 'ws.call.ended', required: true }, // session.ended / session.left
         { name: 'ws.call.video-on', required: true }, // participant.video-on
         { name: 'ws.call.video-off', required: true }, // participant.video-off
+        // Recording lifecycle
+        { name: 'ws.call.recording-started', required: true },
+        { name: 'ws.call.recording-completed', required: true },
         { name: 'ws.error', required: false },
     ],
 };

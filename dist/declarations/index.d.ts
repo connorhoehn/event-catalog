@@ -3,6 +3,7 @@ export { pipelineP1Declarations, } from './pipeline-p1';
 export { pipelineRunStarted, pipelineRunCompleted, pipelineRunFailed, pipelineRunOrphaned, pipelineRunReassigned, pipelineRunResumedFromStep, pipelineRunRetry, pipelineRunStuck, pipelineStepBreakpoint, pipelineJoinWaiting, pipelineJoinFired, pipelineP2Declarations, } from './pipeline-p2';
 export { pipelineRaftRunStarted, pipelineRaftRunUpdated, pipelineRaftRunSynthesized, pipelineRaftRunCheckpointed, pipelineRaftRunTerminated, pipelineRaftDeclarations, pipelineRaftStateMachineDeclarations, } from './pipeline-raft';
 export { gatewaySignalDeclarations } from './gateway-signal';
+export { orgiqResearcherPresence, orgiqResearcherActivity, orgiqBriefsPresence, orgiqSearchPresence, orgiqInvokePresence, orgiqArticlesReactions, orgiqSignalDeclarations, } from './orgiq-signal';
 export { pipelineEventDeclarations, } from './pipeline-events';
 export { agUiDeclarations } from './ag-ui';
 import type { EventDeclaration } from '../types/index';

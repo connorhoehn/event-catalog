@@ -67,6 +67,18 @@ export declare const wsCrdtSyncResponse: EventDeclaration;
  * Note: frame type is `crdt:doc-replaced`.
  */
 export declare const wsCrdtDocReplaced: EventDeclaration;
+/**
+ * Emitted when the gateway persists a Y.Doc state snapshot to durable storage.
+ * Used for recovery flows — clients can request the latest stored snapshot
+ * instead of replaying the full update log.
+ */
+export declare const wsCrdtSnapshotStored: EventDeclaration;
+/**
+ * Batched Y.js awareness updates forwarded to channel subscribers.
+ * Coalescing multiple individual awareness ticks into a single frame reduces
+ * WebSocket frame overhead for channels with many concurrent editors.
+ */
+export declare const wsCrdtAwarenessBatch: EventDeclaration;
 /** Sent to the client when their presence is successfully set/updated. */
 export declare const wsPresenceSet: EventDeclaration;
 /** Broadcast to channel subscribers when a client's presence changes. */
@@ -98,6 +110,10 @@ export declare const wsCallEnded: EventDeclaration;
 export declare const wsCallVideoOn: EventDeclaration;
 /** Broadcast when a participant disables their video feed. */
 export declare const wsCallVideoOff: EventDeclaration;
+/** Broadcast to all call participants when server-side recording begins. */
+export declare const wsCallRecordingStarted: EventDeclaration;
+/** Broadcast to all call participants when server-side recording finishes and a download is available. */
+export declare const wsCallRecordingCompleted: EventDeclaration;
 /** Subscription confirmation for a pipeline channel. */
 export declare const wsPipelineSubscribed: EventDeclaration;
 /** Unsubscription confirmation for a pipeline channel. */
@@ -133,6 +149,18 @@ export declare const wsUploadCompleted: EventDeclaration;
 export declare const wsUploadFailed: EventDeclaration;
 /** Sent to the channel after a security scan completes on the uploaded file. */
 export declare const wsUploadScanned: EventDeclaration;
+/**
+ * Sent to the uploading client when a security scan finds a threat and the
+ * file is quarantined. The presigned download URL is revoked; the client
+ * should display an error and optionally prompt for re-upload.
+ */
+export declare const wsUploadScanQuarantined: EventDeclaration;
+/**
+ * Sent to the uploading client when a previously issued presigned download
+ * URL is explicitly revoked (e.g. after quarantine, policy change, or TTL
+ * expiry before download).
+ */
+export declare const wsUploadUrlRevoked: EventDeclaration;
 /** Generic error frame sent when any service encounters a client-visible error. */
 export declare const wsError: EventDeclaration;
 /**

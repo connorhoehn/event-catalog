@@ -24,8 +24,8 @@
 //   src/services/{call,pipeline}-service.ts
 //   src/core/message-router.ts
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionList = exports.wsReactionRemoved = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorBatch = exports.wsCursorClear = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
-exports.gatewaySignalDeclarations = exports.wsError = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = void 0;
+exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallRecordingCompleted = exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionList = exports.wsReactionRemoved = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtAwarenessBatch = exports.wsCrdtSnapshotStored = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorBatch = exports.wsCursorClear = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
+exports.gatewaySignalDeclarations = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = void 0;
 const PRODUCER = 'websocket-gateway';
 const BASE_TAGS = ['gateway', 'signal', `producer:${PRODUCER}`];
 // ---------------------------------------------------------------------------
@@ -419,6 +419,53 @@ exports.wsCrdtDocReplaced = {
         snapshot: { type: 'string', description: 'base64-encoded restored state' },
     }, ['channel']),
 };
+/**
+ * Emitted when the gateway persists a Y.Doc state snapshot to durable storage.
+ * Used for recovery flows — clients can request the latest stored snapshot
+ * instead of replaying the full update log.
+ */
+exports.wsCrdtSnapshotStored = {
+    namespace: 'ws',
+    name: 'ws.crdt.snapshot-stored',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast when a Y.Doc state snapshot is durably stored by the gateway. Carries the snapshot ID and byte size so clients can decide whether to fetch the new baseline.',
+    tags: [...BASE_TAGS, 'crdt', 'snapshot'],
+    schema: wsSchema('crdt:snapshot-stored', {
+        docId: { type: 'string' },
+        snapshotId: { type: 'string' },
+        size: { type: 'number', description: 'Size in bytes of the stored snapshot' },
+    }, ['docId', 'snapshotId', 'size']),
+};
+/**
+ * Batched Y.js awareness updates forwarded to channel subscribers.
+ * Coalescing multiple individual awareness ticks into a single frame reduces
+ * WebSocket frame overhead for channels with many concurrent editors.
+ */
+exports.wsCrdtAwarenessBatch = {
+    namespace: 'ws',
+    name: 'ws.crdt.awareness-batch',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Batched Y.js awareness updates (cursor positions, user metadata) forwarded to CRDT channel subscribers in a single frame to reduce overhead.',
+    tags: [...BASE_TAGS, 'crdt', 'awareness'],
+    schema: wsSchema('crdt:awareness-batch', {
+        docId: { type: 'string' },
+        updates: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    clientId: { type: 'number' },
+                    awareness: { type: 'object', additionalProperties: true },
+                },
+                required: ['clientId'],
+                additionalProperties: true,
+            },
+            description: 'Array of per-client awareness state updates',
+        },
+    }, ['docId', 'updates']),
+};
 // ===========================================================================
 // PRESENCE frames — src/realtime-fanout/presence-service.ts
 // ===========================================================================
@@ -715,6 +762,50 @@ exports.wsCallVideoOff = {
         },
     }, ['action', 'data']),
 };
+/** Broadcast to all call participants when server-side recording begins. */
+exports.wsCallRecordingStarted = {
+    namespace: 'ws',
+    name: 'ws.call.recording-started',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to all call participants when server-side recording of the session starts.',
+    tags: [...BASE_TAGS, 'call', 'recording'],
+    schema: wsSchema('call', {
+        action: { type: 'string', const: 'recording-started' },
+        data: {
+            type: 'object',
+            properties: {
+                sessionId: { type: 'string' },
+                recordingId: { type: 'string' },
+                format: { type: 'string', description: 'Recording format (e.g. "mp4", "webm")' },
+            },
+            required: ['sessionId', 'recordingId', 'format'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+/** Broadcast to all call participants when server-side recording finishes and a download is available. */
+exports.wsCallRecordingCompleted = {
+    namespace: 'ws',
+    name: 'ws.call.recording-completed',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Broadcast to all call participants when recording ends and a download URL for the recording is available.',
+    tags: [...BASE_TAGS, 'call', 'recording'],
+    schema: wsSchema('call', {
+        action: { type: 'string', const: 'recording-completed' },
+        data: {
+            type: 'object',
+            properties: {
+                sessionId: { type: 'string' },
+                recordingId: { type: 'string' },
+                downloadUrl: { type: 'string' },
+            },
+            required: ['sessionId', 'recordingId', 'downloadUrl'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
 // ===========================================================================
 // PIPELINE WS push frames — src/services/pipeline-service.ts
 //
@@ -932,6 +1023,56 @@ exports.wsUploadScanned = {
         },
     }, ['action', 'data']),
 };
+/**
+ * Sent to the uploading client when a security scan finds a threat and the
+ * file is quarantined. The presigned download URL is revoked; the client
+ * should display an error and optionally prompt for re-upload.
+ */
+exports.wsUploadScanQuarantined = {
+    namespace: 'ws',
+    name: 'ws.upload.scan-quarantined',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Sent to the uploading client when a security scan detects a threat. The file is quarantined and the download URL is revoked.',
+    tags: [...BASE_TAGS, 'upload', 'security'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'scan-quarantined' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                reason: { type: 'string', description: 'Human-readable quarantine reason (e.g. threat name)' },
+            },
+            required: ['uploadId', 'reason'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+/**
+ * Sent to the uploading client when a previously issued presigned download
+ * URL is explicitly revoked (e.g. after quarantine, policy change, or TTL
+ * expiry before download).
+ */
+exports.wsUploadUrlRevoked = {
+    namespace: 'ws',
+    name: 'ws.upload.url-revoked',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Sent to the uploading client when a presigned download URL is explicitly revoked. Clients should discard any cached URL.',
+    tags: [...BASE_TAGS, 'upload', 'security'],
+    schema: wsSchema('upload', {
+        action: { type: 'string', const: 'url-revoked' },
+        data: {
+            type: 'object',
+            properties: {
+                uploadId: { type: 'string' },
+                reason: { type: 'string', description: 'Reason for revocation (e.g. "quarantine", "policy", "expired")' },
+            },
+            required: ['uploadId', 'reason'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
 // ===========================================================================
 // ERROR frame — src/core/message-router.ts + all service sendError() methods
 // ===========================================================================
@@ -987,6 +1128,8 @@ exports.gatewaySignalDeclarations = [
     exports.wsCrdtDocReplaced,
     exports.wsCrdtSyncRequest,
     exports.wsCrdtSyncResponse,
+    exports.wsCrdtSnapshotStored,
+    exports.wsCrdtAwarenessBatch,
     // presence
     exports.wsPresenceSet,
     exports.wsPresenceUpdate,
@@ -1008,12 +1151,16 @@ exports.gatewaySignalDeclarations = [
     exports.wsCallEnded,
     exports.wsCallVideoOn,
     exports.wsCallVideoOff,
+    exports.wsCallRecordingStarted,
+    exports.wsCallRecordingCompleted,
     // upload
     exports.wsUploadRequested,
     exports.wsUploadUrlIssued,
     exports.wsUploadCompleted,
     exports.wsUploadFailed,
     exports.wsUploadScanned,
+    exports.wsUploadScanQuarantined,
+    exports.wsUploadUrlRevoked,
     // pipeline WS push frames
     exports.wsPipelineSubscribed,
     exports.wsPipelineUnsubscribed,

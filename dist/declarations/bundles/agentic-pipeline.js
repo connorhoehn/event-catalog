@@ -1,13 +1,15 @@
 "use strict";
 // src/declarations/bundles/agentic-pipeline.ts
 //
-// "agentic-pipeline" FeatureBundle — pipeline lifecycle and step events.
+// "agentic-pipeline" FeatureBundle — DEPRECATED since v0.3.45.
 //
-// Transport is 'signal': all pipeline lifecycle events use the in-process signal
-// bus. Approval events (pipeline.approval.*) have transport 'both' and are
-// intentionally excluded here to keep this bundle transport-coherent.
-// Canonical names use the colon-separated form (pipeline:* namespace);
-// dot-form aliases exist for backward compat but are deprecated.
+// Superseded by the transport-coherent split:
+//   agentic-pipeline-signal@1.0.0  — WS lifecycle events (transport: signal)
+//   agentic-pipeline-durable@1.0.0 — approval + audit events (transport: durable)
+//
+// This bundle is retained for backward compat so existing CRD fingerprint pins
+// remain valid. The deprecated field is set and the bundle keeps working; CRD
+// operators should migrate to the new names.
 //
 // Sources: pipeline-p1.ts, pipeline-p2.ts.
 Object.defineProperty(exports, "__esModule", { value: true });
@@ -17,7 +19,11 @@ const _def = {
     name: 'agentic-pipeline',
     version: '1.0.0',
     transport: 'signal',
-    description: 'Pipeline lifecycle and step events — run, step, join, and breakpoint events for agentic pipelines. Approval events (pipeline.approval.*) use transport both and are tracked separately.',
+    description: 'DEPRECATED — use agentic-pipeline-signal@1.0.0 (WS lifecycle) + agentic-pipeline-durable@1.0.0 (approval/audit). Pipeline lifecycle and step events — run, step, join, and breakpoint events for agentic pipelines.',
+    deprecated: {
+        since: 'v0.3.45',
+        replacement: 'agentic-pipeline-signal@1.0.0',
+    },
     events: [
         // Run lifecycle (pipeline-p2.ts)
         { name: 'pipeline:run:started', required: true },

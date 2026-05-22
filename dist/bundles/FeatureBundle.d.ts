@@ -107,5 +107,20 @@ export declare class FeatureBundleRegistry {
     list(): FeatureBundle[];
     validate(bundle: FeatureBundle, registry: IRegistry): BundleValidationResult;
     findByFingerprint(fingerprint: string): FeatureBundle | undefined;
+    /**
+     * Mark a specific bundle version as deprecated. Updates the in-place entry
+     * and recomputes the fingerprint because deprecation metadata changes the
+     * bundle definition (the hash excludes deprecated, so the fingerprint is
+     * unchanged — see computeFingerprint). This mutates the stored entry so
+     * subsequent gets() return the updated deprecated field.
+     *
+     * Returns the updated bundle, or undefined if the bundle/version is not found.
+     */
+    deprecate(name: string, version: string, deprecation: {
+        since: string;
+        replacement?: string;
+    }): FeatureBundle | undefined;
+    /** Returns all registered bundles that have a `deprecated` field set. */
+    listDeprecated(): FeatureBundle[];
 }
 //# sourceMappingURL=FeatureBundle.d.ts.map
