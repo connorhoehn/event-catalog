@@ -439,8 +439,18 @@ class DurableTransport {
                 resolve();
                 return;
             }
-            const timer = setTimeout(resolve, ms);
-            signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+            // The abort listener has `{once:true}` so IT cleans up if abort
+            // fires — but in the steady-state poll loop, abort rarely fires
+            // and each sleep iteration leaks a listener (2199+ observed in
+            // gateway logs at ~1/sec poll cadence → MaxListenersExceeded).
+            // Explicit cleanup on timer expiry closes the leak: when the
+            // timer fires normally, remove the abort listener BEFORE resolve.
+            const onAbort = () => { clearTimeout(timer); resolve(); };
+            const timer = setTimeout(() => {
+                signal.removeEventListener('abort', onAbort);
+                resolve();
+            }, ms);
+            signal.addEventListener('abort', onAbort, { once: true });
         });
     }
     incrementMetric(queueName, field) {
