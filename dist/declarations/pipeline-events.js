@@ -33,7 +33,7 @@
 // constants here — add them to the appropriate module and then include
 // them in the list below.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pipelineEventDeclarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineLlmResponse = exports.pipelineLlmPrompt = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineStepBreakpoint = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunStuck = exports.pipelineRunCancelled = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
+exports.pipelineEventDeclarations = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineLlmResponse = exports.pipelineLlmPrompt = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineStepBreakpoint = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunStuck = exports.pipelineRunCancelled = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
 const pipeline_1 = require("./pipeline");
 Object.defineProperty(exports, "pipelineApprovalRequested", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRequested; } });
 Object.defineProperty(exports, "pipelineApprovalRecorded", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRecorded; } });
@@ -60,6 +60,11 @@ Object.defineProperty(exports, "pipelineRunStuck", { enumerable: true, get: func
 Object.defineProperty(exports, "pipelineStepBreakpoint", { enumerable: true, get: function () { return pipeline_p2_1.pipelineStepBreakpoint; } });
 Object.defineProperty(exports, "pipelineJoinWaiting", { enumerable: true, get: function () { return pipeline_p2_1.pipelineJoinWaiting; } });
 Object.defineProperty(exports, "pipelineJoinFired", { enumerable: true, get: function () { return pipeline_p2_1.pipelineJoinFired; } });
+const pipeline_judge_1 = require("./pipeline-judge");
+Object.defineProperty(exports, "pipelineJudgeStarted", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeStarted; } });
+Object.defineProperty(exports, "pipelineJudgeScored", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeScored; } });
+Object.defineProperty(exports, "pipelineJudgeFailed", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeFailed; } });
+Object.defineProperty(exports, "pipelineJudgeBudgetExceeded", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeBudgetExceeded; } });
 /**
  * Consolidated list of P0+P1+P2 pipeline event declarations for
  * bulk-registration by consumers.
@@ -112,5 +117,10 @@ exports.pipelineEventDeclarations = [
     // P2 — join bookkeeping (wave20-a)
     pipeline_p2_1.pipelineJoinWaiting,
     pipeline_p2_1.pipelineJoinFired,
+    // P3 / wave 3 — llm:judge step (producer: platform-api, not DC)
+    pipeline_judge_1.pipelineJudgeStarted,
+    pipeline_judge_1.pipelineJudgeScored,
+    pipeline_judge_1.pipelineJudgeFailed,
+    pipeline_judge_1.pipelineJudgeBudgetExceeded,
 ];
 //# sourceMappingURL=pipeline-events.js.map

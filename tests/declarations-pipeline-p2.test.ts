@@ -318,8 +318,8 @@ describe('pipelineRaftStateMachineDeclarations (wave20-a)', () => {
 });
 
 describe('pipelineEventDeclarations includes P2 events (wave20-a)', () => {
-    it('exports 23 declarations (P0:3 + P1:11 + P2:9)', () => {
-        expect(pipelineEventDeclarations).toHaveLength(23);
+    it('exports 27 declarations (P0:3 + P1:11 + P2:9 + Judge:4)', () => {
+        expect(pipelineEventDeclarations).toHaveLength(27);
     });
 
     it('contains all P2 run lifecycle events', () => {

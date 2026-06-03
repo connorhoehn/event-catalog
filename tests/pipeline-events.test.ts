@@ -26,15 +26,19 @@ import {
     pipelineContextPatchReverted,
     pipelineLlmPrompt,
     pipelineLlmResponse,
+    pipelineJudgeStarted,
+    pipelineJudgeScored,
+    pipelineJudgeFailed,
+    pipelineJudgeBudgetExceeded,
 } from '../src/declarations/pipeline-events';
 
 // ---------------------------------------------------------------------------
 // Aggregate shape tests
 // ---------------------------------------------------------------------------
 
-describe('pipelineEventDeclarations aggregate (wave19-a / wave20-a)', () => {
-    it('exports exactly 23 declarations (P0:3 + P1:11 + P2:9)', () => {
-        expect(pipelineEventDeclarations).toHaveLength(23);
+describe('pipelineEventDeclarations aggregate (wave19-a / wave20-a / wave3-judge)', () => {
+    it('exports exactly 27 declarations (P0:3 + P1:11 + P2:9 + Judge:4)', () => {
+        expect(pipelineEventDeclarations).toHaveLength(27);
     });
 
     it('has no duplicate names', () => {
@@ -475,5 +479,138 @@ describe('P1 LLM observability declarations', () => {
             tokensIn: 100,
             at: '2026-05-15T10:00:00.000Z',
         }).valid).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Judge (wave 3) — name / transport / producer + schema
+// ---------------------------------------------------------------------------
+
+describe('pipeline:judge:* declarations', () => {
+    it('all four are signal transport with platform-api producer', () => {
+        for (const d of [pipelineJudgeStarted, pipelineJudgeScored, pipelineJudgeFailed, pipelineJudgeBudgetExceeded]) {
+            expect(d.transport).toBe('signal');
+            expect(d.producer).toBe('platform-api');
+        }
+    });
+
+    it('aggregate contains every judge event by name', () => {
+        const names = pipelineEventDeclarations.map((d) => d.name);
+        expect(names).toContain('pipeline:judge:started');
+        expect(names).toContain('pipeline:judge:scored');
+        expect(names).toContain('pipeline:judge:failed');
+        expect(names).toContain('pipeline:judge:budget-exceeded');
+    });
+
+    it('validates pipeline:judge:started with full envelope', () => {
+        const registry = new Registry();
+        registry.declare(pipelineJudgeStarted);
+
+        expect(registry.validate('pipeline:judge:started', {
+            runId: 'run_01',
+            stepId: 'step_judge',
+            pipelineId: 'pl_42',
+            rubricId: 'rubric.helpfulness',
+            rubricVersion: 1,
+            judgeModel: 'claude-sonnet-4-6',
+            mode: 'absolute',
+            at: '2026-06-02T10:00:00.000Z',
+        }).valid).toBe(true);
+    });
+
+    it('rejects pipeline:judge:started when mode is invalid enum value', () => {
+        const registry = new Registry();
+        registry.declare(pipelineJudgeStarted);
+
+        expect(registry.validate('pipeline:judge:started', {
+            runId: 'run_01',
+            stepId: 'step_judge',
+            pipelineId: 'pl_42',
+            rubricId: 'rubric.helpfulness',
+            rubricVersion: 1,
+            judgeModel: 'claude-sonnet-4-6',
+            mode: 'pairwise',
+            at: '2026-06-02T10:00:00.000Z',
+        }).valid).toBe(false);
+    });
+
+    it('validates pipeline:judge:scored with result + usage envelope', () => {
+        const registry = new Registry();
+        registry.declare(pipelineJudgeScored);
+
+        expect(registry.validate('pipeline:judge:scored', {
+            runId: 'run_01',
+            stepId: 'step_judge',
+            pipelineId: 'pl_42',
+            judgmentId: 'jdg_1',
+            rubricId: 'rubric.helpfulness',
+            judgeModel: 'claude-sonnet-4-6',
+            result: { judgmentId: 'jdg_1', overallScore: 0.82 },
+            usage: { inputTokens: 1200, outputTokens: 250, cacheReadTokens: 0, cacheCreationTokens: 0 },
+            costUsd: 0.0072,
+            cacheHitRatio: 0,
+            latencyMs: 1850,
+            at: '2026-06-02T10:00:00.000Z',
+        }).valid).toBe(true);
+    });
+
+    it('rejects pipeline:judge:scored when judgmentId is missing', () => {
+        const registry = new Registry();
+        registry.declare(pipelineJudgeScored);
+
+        expect(registry.validate('pipeline:judge:scored', {
+            runId: 'run_01',
+            stepId: 'step_judge',
+            pipelineId: 'pl_42',
+            rubricId: 'rubric.helpfulness',
+            judgeModel: 'claude-sonnet-4-6',
+            result: {},
+            usage: { inputTokens: 0, outputTokens: 0 },
+            costUsd: 0,
+            latencyMs: 0,
+            at: '2026-06-02T10:00:00.000Z',
+        }).valid).toBe(false);
+    });
+
+    it('validates pipeline:judge:failed with a known reason enum', () => {
+        const registry = new Registry();
+        registry.declare(pipelineJudgeFailed);
+
+        expect(registry.validate('pipeline:judge:failed', {
+            runId: 'run_01',
+            stepId: 'step_judge',
+            reason: 'malformed',
+            error: 'extractor returned null after retry',
+            tokensIn: 200,
+            tokensOut: 50,
+            costUsd: 0.0015,
+            latencyMs: 900,
+            at: '2026-06-02T10:00:00.000Z',
+        }).valid).toBe(true);
+    });
+
+    it('rejects pipeline:judge:failed when reason is not in the enum', () => {
+        const registry = new Registry();
+        registry.declare(pipelineJudgeFailed);
+
+        expect(registry.validate('pipeline:judge:failed', {
+            runId: 'run_01',
+            stepId: 'step_judge',
+            reason: 'something-else',
+            error: 'idk',
+            at: '2026-06-02T10:00:00.000Z',
+        }).valid).toBe(false);
+    });
+
+    it('validates pipeline:judge:budget-exceeded with just envelope + pipelineId', () => {
+        const registry = new Registry();
+        registry.declare(pipelineJudgeBudgetExceeded);
+
+        expect(registry.validate('pipeline:judge:budget-exceeded', {
+            runId: 'run_01',
+            stepId: 'step_judge',
+            pipelineId: 'pl_42',
+            at: '2026-06-02T10:00:00.000Z',
+        }).valid).toBe(true);
     });
 });

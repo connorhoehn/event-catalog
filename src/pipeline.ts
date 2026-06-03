@@ -89,3 +89,14 @@ export {
 export {
   DEPRECATED_DUAL_EMIT_ALIASES,
 } from './declarations/deprecated-pipeline-aliases';
+
+// ---------------------------------------------------------------------------
+// Wave 3 / JUDGE-EC: pipeline:judge:* declarations (producer: platform-api)
+// ---------------------------------------------------------------------------
+export {
+  pipelineJudgeStarted,
+  pipelineJudgeScored,
+  pipelineJudgeFailed,
+  pipelineJudgeBudgetExceeded,
+  pipelineJudgeDeclarations,
+} from './declarations/pipeline-judge';

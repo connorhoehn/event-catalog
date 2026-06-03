@@ -77,11 +77,13 @@ beforeEach(() => {
 });
 
 describe('pipeline declarations — exports (wave1-ec-1)', () => {
-  it('exports exactly three P0 pipeline declarations from the aggregate', () => {
-    expect(pipelineDeclarations).toHaveLength(3);
+  it('exports the P0 pipeline declarations from the aggregate', () => {
+    // 4 entries: requested, recorded, resolved, run.checkpoint
+    expect(pipelineDeclarations).toHaveLength(4);
     expect(pipelineDeclarations.map((d) => d.name).sort()).toEqual([
       'pipeline.approval.recorded',
       'pipeline.approval.requested',
+      'pipeline.approval.resolved',
       'pipeline.run.checkpoint',
     ]);
   });
@@ -118,13 +120,13 @@ describe('pipeline declarations — exports (wave1-ec-1)', () => {
 });
 
 describe('pipeline declarations — registry.declare() (wave1-ec-1)', () => {
-  it('all three declarations register cleanly via the Registry', () => {
+  it('all declarations register cleanly via the Registry', () => {
     const registry = new Registry();
     for (const decl of pipelineDeclarations) {
       const result = registry.declare(decl);
       expect(result.compatible).toBe(true);
     }
-    expect(registry.size()).toBe(3);
+    expect(registry.size()).toBe(4);
 
     const approvalReq = registry.get('pipeline.approval.requested')!;
     expect(approvalReq.transport).toBe('both');

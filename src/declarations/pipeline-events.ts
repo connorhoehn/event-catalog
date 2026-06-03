@@ -64,6 +64,13 @@ import {
     pipelineJoinFired,
 } from './pipeline-p2';
 
+import {
+    pipelineJudgeStarted,
+    pipelineJudgeScored,
+    pipelineJudgeFailed,
+    pipelineJudgeBudgetExceeded,
+} from './pipeline-judge';
+
 // Re-export individual constants for selective use.
 export {
     // P0 approval (both transports)
@@ -97,6 +104,11 @@ export {
     // P2 join
     pipelineJoinWaiting,
     pipelineJoinFired,
+    // P3 / wave 3 — llm:judge step
+    pipelineJudgeStarted,
+    pipelineJudgeScored,
+    pipelineJudgeFailed,
+    pipelineJudgeBudgetExceeded,
 };
 
 /**
@@ -151,4 +163,9 @@ export const pipelineEventDeclarations = [
     // P2 — join bookkeeping (wave20-a)
     pipelineJoinWaiting,
     pipelineJoinFired,
+    // P3 / wave 3 — llm:judge step (producer: platform-api, not DC)
+    pipelineJudgeStarted,
+    pipelineJudgeScored,
+    pipelineJudgeFailed,
+    pipelineJudgeBudgetExceeded,
 ];
