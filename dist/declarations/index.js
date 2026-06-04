@@ -10,7 +10,7 @@
 // own its declaration. Service-owned events still live in the producing
 // service's own source tree per the charter.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.allDeclarations = exports.agUiDeclarations = exports.pipelineJudgeDeclarations = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.pipelineEventDeclarations = exports.orgiqSignalDeclarations = exports.orgiqArticlesReactions = exports.orgiqInvokePresence = exports.orgiqSearchPresence = exports.orgiqBriefsPresence = exports.orgiqResearcherActivity = exports.orgiqResearcherPresence = exports.gatewaySignalDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
+exports.allDeclarations = exports.agUiDeclarations = exports.pipelineImageVisionDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionStarted = exports.pipelineJudgeDeclarations = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.pipelineEventDeclarations = exports.orgiqSignalDeclarations = exports.orgiqArticlesReactions = exports.orgiqInvokePresence = exports.orgiqSearchPresence = exports.orgiqBriefsPresence = exports.orgiqResearcherActivity = exports.orgiqResearcherPresence = exports.gatewaySignalDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
 var pipeline_1 = require("./pipeline");
 Object.defineProperty(exports, "pipelineApprovalRequested", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRequested; } });
 Object.defineProperty(exports, "pipelineApprovalRecorded", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRecorded; } });
@@ -57,6 +57,11 @@ Object.defineProperty(exports, "pipelineJudgeScored", { enumerable: true, get: f
 Object.defineProperty(exports, "pipelineJudgeFailed", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeFailed; } });
 Object.defineProperty(exports, "pipelineJudgeBudgetExceeded", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeBudgetExceeded; } });
 Object.defineProperty(exports, "pipelineJudgeDeclarations", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeDeclarations; } });
+var pipeline_image_vision_1 = require("./pipeline-image-vision");
+Object.defineProperty(exports, "pipelineImageVisionStarted", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionStarted; } });
+Object.defineProperty(exports, "pipelineImageVisionAnalyzed", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionAnalyzed; } });
+Object.defineProperty(exports, "pipelineImageVisionFailed", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionFailed; } });
+Object.defineProperty(exports, "pipelineImageVisionDeclarations", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionDeclarations; } });
 var ag_ui_1 = require("./ag-ui");
 Object.defineProperty(exports, "agUiDeclarations", { enumerable: true, get: function () { return ag_ui_1.agUiDeclarations; } });
 const pipeline_2 = require("./pipeline");
@@ -67,6 +72,7 @@ const gateway_signal_2 = require("./gateway-signal");
 const ag_ui_2 = require("./ag-ui");
 const orgiq_signal_2 = require("./orgiq-signal");
 const pipeline_judge_2 = require("./pipeline-judge");
+const pipeline_image_vision_2 = require("./pipeline-image-vision");
 /**
  * The flat set of every event this repo declares on behalf of producers
  * that don't import event-catalog directly (distributed-core et al).
@@ -84,6 +90,7 @@ exports.allDeclarations = [
     ...pipeline_p2_2.pipelineP2Declarations,
     ...pipeline_raft_2.pipelineRaftDeclarations,
     ...pipeline_judge_2.pipelineJudgeDeclarations,
+    ...pipeline_image_vision_2.pipelineImageVisionDeclarations,
     ...gateway_signal_2.gatewaySignalDeclarations,
     ...ag_ui_2.agUiDeclarations,
     ...orgiq_signal_2.orgiqSignalDeclarations,

@@ -100,3 +100,13 @@ export {
   pipelineJudgeBudgetExceeded,
   pipelineJudgeDeclarations,
 } from './declarations/pipeline-judge';
+
+// ---------------------------------------------------------------------------
+// Wave 4 / VISION-EC: pipeline:image:vision:* declarations (producer: platform-api)
+// ---------------------------------------------------------------------------
+export {
+  pipelineImageVisionStarted,
+  pipelineImageVisionAnalyzed,
+  pipelineImageVisionFailed,
+  pipelineImageVisionDeclarations,
+} from './declarations/pipeline-image-vision';

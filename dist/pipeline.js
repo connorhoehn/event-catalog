@@ -14,6 +14,7 @@
 // src/declarations/. This file re-exports them without modification.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineJudgeDeclarations = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.DEPRECATED_DUAL_EMIT_ALIASES = exports.pipelineEventDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumeFromStep = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineLlmStreamOpened = exports.pipelineLlmResponse = exports.pipelineLlmToken = exports.pipelineLlmPrompt = exports.pipelineStepAttemptFailed = exports.pipelineStepAttemptStarted = exports.pipelineStepHeartbeat = exports.pipelineStepCancelled = exports.pipelineStepSkipped = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunResumed = exports.pipelineRunPaused = exports.pipelineRunCancelled = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
+exports.pipelineImageVisionDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionStarted = void 0;
 // ---------------------------------------------------------------------------
 // EC-1: P0 approval + checkpoint (dot-form, dual-transport)
 // ---------------------------------------------------------------------------
@@ -89,4 +90,12 @@ Object.defineProperty(exports, "pipelineJudgeScored", { enumerable: true, get: f
 Object.defineProperty(exports, "pipelineJudgeFailed", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeFailed; } });
 Object.defineProperty(exports, "pipelineJudgeBudgetExceeded", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeBudgetExceeded; } });
 Object.defineProperty(exports, "pipelineJudgeDeclarations", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeDeclarations; } });
+// ---------------------------------------------------------------------------
+// Wave 4 / VISION-EC: pipeline:image:vision:* declarations (producer: platform-api)
+// ---------------------------------------------------------------------------
+var pipeline_image_vision_1 = require("./declarations/pipeline-image-vision");
+Object.defineProperty(exports, "pipelineImageVisionStarted", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionStarted; } });
+Object.defineProperty(exports, "pipelineImageVisionAnalyzed", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionAnalyzed; } });
+Object.defineProperty(exports, "pipelineImageVisionFailed", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionFailed; } });
+Object.defineProperty(exports, "pipelineImageVisionDeclarations", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionDeclarations; } });
 //# sourceMappingURL=pipeline.js.map

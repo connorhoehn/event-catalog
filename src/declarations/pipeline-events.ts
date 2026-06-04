@@ -71,6 +71,12 @@ import {
     pipelineJudgeBudgetExceeded,
 } from './pipeline-judge';
 
+import {
+    pipelineImageVisionStarted,
+    pipelineImageVisionAnalyzed,
+    pipelineImageVisionFailed,
+} from './pipeline-image-vision';
+
 // Re-export individual constants for selective use.
 export {
     // P0 approval (both transports)
@@ -109,6 +115,10 @@ export {
     pipelineJudgeScored,
     pipelineJudgeFailed,
     pipelineJudgeBudgetExceeded,
+    // P3 / wave 4 — image:vision-analyze step
+    pipelineImageVisionStarted,
+    pipelineImageVisionAnalyzed,
+    pipelineImageVisionFailed,
 };
 
 /**
@@ -168,4 +178,8 @@ export const pipelineEventDeclarations = [
     pipelineJudgeScored,
     pipelineJudgeFailed,
     pipelineJudgeBudgetExceeded,
+    // P3 / wave 4 — image:vision-analyze step (producer: platform-api, not DC)
+    pipelineImageVisionStarted,
+    pipelineImageVisionAnalyzed,
+    pipelineImageVisionFailed,
 ];

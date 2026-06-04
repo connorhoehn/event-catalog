@@ -5,4 +5,5 @@ export { pipelineRaftRunStarted, pipelineRaftRunUpdated, pipelineRaftRunSynthesi
 export { pipelineEventDeclarations, } from './declarations/pipeline-events';
 export { DEPRECATED_DUAL_EMIT_ALIASES, } from './declarations/deprecated-pipeline-aliases';
 export { pipelineJudgeStarted, pipelineJudgeScored, pipelineJudgeFailed, pipelineJudgeBudgetExceeded, pipelineJudgeDeclarations, } from './declarations/pipeline-judge';
+export { pipelineImageVisionStarted, pipelineImageVisionAnalyzed, pipelineImageVisionFailed, pipelineImageVisionDeclarations, } from './declarations/pipeline-image-vision';
 //# sourceMappingURL=pipeline.d.ts.map

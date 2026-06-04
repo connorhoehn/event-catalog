@@ -33,7 +33,7 @@
 // constants here — add them to the appropriate module and then include
 // them in the list below.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pipelineEventDeclarations = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineLlmResponse = exports.pipelineLlmPrompt = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineStepBreakpoint = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunStuck = exports.pipelineRunCancelled = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
+exports.pipelineEventDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionStarted = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineLlmResponse = exports.pipelineLlmPrompt = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineStepBreakpoint = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunStuck = exports.pipelineRunCancelled = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
 const pipeline_1 = require("./pipeline");
 Object.defineProperty(exports, "pipelineApprovalRequested", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRequested; } });
 Object.defineProperty(exports, "pipelineApprovalRecorded", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRecorded; } });
@@ -65,6 +65,10 @@ Object.defineProperty(exports, "pipelineJudgeStarted", { enumerable: true, get: 
 Object.defineProperty(exports, "pipelineJudgeScored", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeScored; } });
 Object.defineProperty(exports, "pipelineJudgeFailed", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeFailed; } });
 Object.defineProperty(exports, "pipelineJudgeBudgetExceeded", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeBudgetExceeded; } });
+const pipeline_image_vision_1 = require("./pipeline-image-vision");
+Object.defineProperty(exports, "pipelineImageVisionStarted", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionStarted; } });
+Object.defineProperty(exports, "pipelineImageVisionAnalyzed", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionAnalyzed; } });
+Object.defineProperty(exports, "pipelineImageVisionFailed", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionFailed; } });
 /**
  * Consolidated list of P0+P1+P2 pipeline event declarations for
  * bulk-registration by consumers.
@@ -122,5 +126,9 @@ exports.pipelineEventDeclarations = [
     pipeline_judge_1.pipelineJudgeScored,
     pipeline_judge_1.pipelineJudgeFailed,
     pipeline_judge_1.pipelineJudgeBudgetExceeded,
+    // P3 / wave 4 — image:vision-analyze step (producer: platform-api, not DC)
+    pipeline_image_vision_1.pipelineImageVisionStarted,
+    pipeline_image_vision_1.pipelineImageVisionAnalyzed,
+    pipeline_image_vision_1.pipelineImageVisionFailed,
 ];
 //# sourceMappingURL=pipeline-events.js.map

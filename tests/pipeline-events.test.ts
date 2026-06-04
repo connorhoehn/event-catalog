@@ -30,6 +30,9 @@ import {
     pipelineJudgeScored,
     pipelineJudgeFailed,
     pipelineJudgeBudgetExceeded,
+    pipelineImageVisionStarted,
+    pipelineImageVisionAnalyzed,
+    pipelineImageVisionFailed,
 } from '../src/declarations/pipeline-events';
 
 // ---------------------------------------------------------------------------
@@ -37,8 +40,8 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('pipelineEventDeclarations aggregate (wave19-a / wave20-a / wave3-judge)', () => {
-    it('exports exactly 27 declarations (P0:3 + P1:11 + P2:9 + Judge:4)', () => {
-        expect(pipelineEventDeclarations).toHaveLength(27);
+    it('exports exactly 30 declarations (P0:3 + P1:11 + P2:9 + Judge:4 + Vision:3)', () => {
+        expect(pipelineEventDeclarations).toHaveLength(30);
     });
 
     it('has no duplicate names', () => {
@@ -612,5 +615,117 @@ describe('pipeline:judge:* declarations', () => {
             pipelineId: 'pl_42',
             at: '2026-06-02T10:00:00.000Z',
         }).valid).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// image:vision-analyze (wave 4) — name / transport / producer + schema
+// ---------------------------------------------------------------------------
+
+describe('pipeline:image:vision:* declarations', () => {
+    it('all three are signal transport with platform-api producer', () => {
+        for (const d of [pipelineImageVisionStarted, pipelineImageVisionAnalyzed, pipelineImageVisionFailed]) {
+            expect(d.transport).toBe('signal');
+            expect(d.producer).toBe('platform-api');
+        }
+    });
+
+    it('aggregate contains every vision event by name', () => {
+        const names = pipelineEventDeclarations.map((d) => d.name);
+        expect(names).toContain('pipeline:image:vision:started');
+        expect(names).toContain('pipeline:image:vision:analyzed');
+        expect(names).toContain('pipeline:image:vision:failed');
+    });
+
+    it('validates pipeline:image:vision:started with full envelope', () => {
+        const registry = new Registry();
+        registry.declare(pipelineImageVisionStarted);
+
+        expect(registry.validate('pipeline:image:vision:started', {
+            runId: 'run_01',
+            stepId: 'step_vision',
+            pipelineId: 'pl_42',
+            imageId: 'img_01H1234ABCDE',
+            visionModel: 'claude-sonnet-4-6',
+            hasSchema: true,
+            at: '2026-06-04T10:00:00.000Z',
+        }).valid).toBe(true);
+    });
+
+    it('rejects pipeline:image:vision:started when imageId is missing', () => {
+        const registry = new Registry();
+        registry.declare(pipelineImageVisionStarted);
+
+        expect(registry.validate('pipeline:image:vision:started', {
+            runId: 'run_01',
+            stepId: 'step_vision',
+            pipelineId: 'pl_42',
+            visionModel: 'claude-sonnet-4-6',
+            hasSchema: false,
+            at: '2026-06-04T10:00:00.000Z',
+        }).valid).toBe(false);
+    });
+
+    it('validates pipeline:image:vision:analyzed with result + usage envelope', () => {
+        const registry = new Registry();
+        registry.declare(pipelineImageVisionAnalyzed);
+
+        expect(registry.validate('pipeline:image:vision:analyzed', {
+            runId: 'run_01',
+            stepId: 'step_vision',
+            pipelineId: 'pl_42',
+            visionId: 'vis_1',
+            imageId: 'img_1',
+            visionModel: 'claude-sonnet-4-6',
+            result: { caption: 'a dog on a beach', tags: ['dog', 'beach'] },
+            usage: { inputTokens: 1200, outputTokens: 80, imageTokens: 1100 },
+            costUsd: 0.0036,
+            latencyMs: 2300,
+            at: '2026-06-04T10:00:00.000Z',
+        }).valid).toBe(true);
+    });
+
+    it('rejects pipeline:image:vision:analyzed when visionId is missing', () => {
+        const registry = new Registry();
+        registry.declare(pipelineImageVisionAnalyzed);
+
+        expect(registry.validate('pipeline:image:vision:analyzed', {
+            runId: 'run_01',
+            stepId: 'step_vision',
+            pipelineId: 'pl_42',
+            imageId: 'img_1',
+            visionModel: 'claude-sonnet-4-6',
+            result: {},
+            usage: {},
+            costUsd: 0,
+            latencyMs: 0,
+            at: '2026-06-04T10:00:00.000Z',
+        }).valid).toBe(false);
+    });
+
+    it('validates pipeline:image:vision:failed with known reason enum', () => {
+        const registry = new Registry();
+        registry.declare(pipelineImageVisionFailed);
+
+        expect(registry.validate('pipeline:image:vision:failed', {
+            runId: 'run_01',
+            stepId: 'step_vision',
+            reason: 'image-fetch',
+            error: 'ImageBlobStore returned null for img_missing',
+            at: '2026-06-04T10:00:00.000Z',
+        }).valid).toBe(true);
+    });
+
+    it('rejects pipeline:image:vision:failed when reason is not in the enum', () => {
+        const registry = new Registry();
+        registry.declare(pipelineImageVisionFailed);
+
+        expect(registry.validate('pipeline:image:vision:failed', {
+            runId: 'run_01',
+            stepId: 'step_vision',
+            reason: 'whatever',
+            error: 'idk',
+            at: '2026-06-04T10:00:00.000Z',
+        }).valid).toBe(false);
     });
 });
