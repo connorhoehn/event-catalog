@@ -1,10 +1,13 @@
 // src/declarations/pipeline-events.ts
 //
-// Wave 19 / Part A — consolidated pipelineEventDeclarations aggregate.
+// Consolidated pipelineEventDeclarations aggregate (P0–P3 / 31 entries
+// as of v0.3.51; grew from 16 P0+P1 entries in Wave 19 / Part A).
 //
-// Groups the 16 P0+P1 pipeline event declarations from existing EC modules
-// into a single named export so consumers (platform-api) can bulk-register
-// them with a single import rather than pulling from multiple modules.
+// Groups every pipeline event declaration from the per-tier EC modules
+// (pipeline.ts, pipeline-p1.ts, pipeline-p2.ts, pipeline-judge.ts,
+// pipeline-image-vision.ts) into a single named export so consumers
+// (platform-api) can bulk-register them with a single import rather
+// than pulling from multiple modules.
 //
 // P0 — approval (2 signal + 2 durable):
 //   `pipeline:approval:requested`   (signal, alias via pipeline.approval.requested)

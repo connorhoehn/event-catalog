@@ -7,13 +7,15 @@
 // dispatches into the handler; the handler emits these events via
 // `helpers.emit(...)` on the executor's EventBus.
 //
-// Transport is `signal` for all three — these are UI/observability
+// Transport is `signal` for all four — these are UI/observability
 // signals, never durable. Persistence of the VisionResult happens via
 // VisionResultRepository (DDB).
 //
-// Wire shape mirrors `pipeline-judge.ts` exactly. Three events form the
+// Wire shape mirrors `pipeline-judge.ts` exactly. Four events form the
 // step lifecycle:
-//   started → (analyzed | failed)
+//   started → (token×N) → (analyzed | failed)
+// The token event was added in the streaming wave (commit fc7f7f0) to
+// surface CLI text-delta chunks to the frontend in real time.
 // There is no budget-exceeded event on the vision family — cost gating
 // is out of scope per the v1 design.
 
