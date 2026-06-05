@@ -44,7 +44,7 @@ function visionSchema(
 }
 
 // ---------------------------------------------------------------------------
-// Lifecycle: started → (analyzed | failed)
+// Lifecycle: started → (token×N) → (analyzed | failed)
 // ---------------------------------------------------------------------------
 
 export const pipelineImageVisionStarted: EventDeclaration = {
@@ -72,6 +72,45 @@ export const pipelineImageVisionStarted: EventDeclaration = {
             },
         },
         ['pipelineId', 'imageId', 'visionModel', 'hasSchema'],
+    ),
+};
+
+/**
+ * Per-token stream event during the vision call's response phase. Fires
+ * once per `content_block_delta` text chunk from the Claude Code CLI's
+ * stream-json output. Subscribers use this to render live typing in the
+ * frontend (same pattern as `pipeline.llm.token`).
+ *
+ * Hot path — high volume. Subscribers MUST be cheap (in-memory state
+ * mutation only; no IO, no network, no DDB). The handler dispatches
+ * fire-and-forget so a slow subscriber can't backpressure the model loop.
+ */
+export const pipelineImageVisionToken: EventDeclaration = {
+    namespace: 'pipeline',
+    name: 'pipeline:image:vision:token',
+    transport: 'signal',
+    producer: PRODUCER,
+    description:
+        'Per-token text delta emitted as the CLI streams the model response. UI subscribers fold this into a live preview; ignore when off-screen.',
+    tags: [...TAGS_BASE, 'streaming', 'hot-path'],
+    schema: visionSchema(
+        {
+            pipelineId: { type: 'string' },
+            imageId: { type: 'string' },
+            seq: {
+                type: 'number',
+                description: 'Monotonic per-call counter starting at 1. Allows subscribers to detect drops or out-of-order delivery in transports that don\'t preserve order.',
+            },
+            delta: {
+                type: 'string',
+                description: 'The new text appended since the previous token event.',
+            },
+            accumulated: {
+                type: 'string',
+                description: 'Full response text so far. Convenience for subscribers that don\'t track their own accumulator.',
+            },
+        },
+        ['pipelineId', 'imageId', 'seq', 'delta', 'accumulated'],
     ),
 };
 
@@ -176,6 +215,7 @@ export const pipelineImageVisionFailed: EventDeclaration = {
  */
 export const pipelineImageVisionDeclarations: EventDeclaration[] = [
     pipelineImageVisionStarted,
+    pipelineImageVisionToken,
     pipelineImageVisionAnalyzed,
     pipelineImageVisionFailed,
 ];

@@ -73,6 +73,7 @@ import {
 
 import {
     pipelineImageVisionStarted,
+    pipelineImageVisionToken,
     pipelineImageVisionAnalyzed,
     pipelineImageVisionFailed,
 } from './pipeline-image-vision';
@@ -117,6 +118,7 @@ export {
     pipelineJudgeBudgetExceeded,
     // P3 / wave 4 — image:vision-analyze step
     pipelineImageVisionStarted,
+    pipelineImageVisionToken,
     pipelineImageVisionAnalyzed,
     pipelineImageVisionFailed,
 };
@@ -180,6 +182,7 @@ export const pipelineEventDeclarations = [
     pipelineJudgeBudgetExceeded,
     // P3 / wave 4 — image:vision-analyze step (producer: platform-api, not DC)
     pipelineImageVisionStarted,
+    pipelineImageVisionToken,
     pipelineImageVisionAnalyzed,
     pipelineImageVisionFailed,
 ];

@@ -31,6 +31,7 @@ import {
     pipelineJudgeFailed,
     pipelineJudgeBudgetExceeded,
     pipelineImageVisionStarted,
+    pipelineImageVisionToken,
     pipelineImageVisionAnalyzed,
     pipelineImageVisionFailed,
 } from '../src/declarations/pipeline-events';
@@ -40,8 +41,8 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('pipelineEventDeclarations aggregate (wave19-a / wave20-a / wave3-judge)', () => {
-    it('exports exactly 30 declarations (P0:3 + P1:11 + P2:9 + Judge:4 + Vision:3)', () => {
-        expect(pipelineEventDeclarations).toHaveLength(30);
+    it('exports exactly 31 declarations (P0:3 + P1:11 + P2:9 + Judge:4 + Vision:4)', () => {
+        expect(pipelineEventDeclarations).toHaveLength(31);
     });
 
     it('has no duplicate names', () => {
@@ -623,8 +624,8 @@ describe('pipeline:judge:* declarations', () => {
 // ---------------------------------------------------------------------------
 
 describe('pipeline:image:vision:* declarations', () => {
-    it('all three are signal transport with platform-api producer', () => {
-        for (const d of [pipelineImageVisionStarted, pipelineImageVisionAnalyzed, pipelineImageVisionFailed]) {
+    it('all four are signal transport with platform-api producer', () => {
+        for (const d of [pipelineImageVisionStarted, pipelineImageVisionToken, pipelineImageVisionAnalyzed, pipelineImageVisionFailed]) {
             expect(d.transport).toBe('signal');
             expect(d.producer).toBe('platform-api');
         }
@@ -633,8 +634,40 @@ describe('pipeline:image:vision:* declarations', () => {
     it('aggregate contains every vision event by name', () => {
         const names = pipelineEventDeclarations.map((d) => d.name);
         expect(names).toContain('pipeline:image:vision:started');
+        expect(names).toContain('pipeline:image:vision:token');
         expect(names).toContain('pipeline:image:vision:analyzed');
         expect(names).toContain('pipeline:image:vision:failed');
+    });
+
+    it('validates pipeline:image:vision:token with delta+accumulated', () => {
+        const registry = new Registry();
+        registry.declare(pipelineImageVisionToken);
+
+        expect(registry.validate('pipeline:image:vision:token', {
+            runId: 'run_01',
+            stepId: 'step_vision',
+            pipelineId: 'pl_42',
+            imageId: 'img_1',
+            seq: 1,
+            delta: 'The',
+            accumulated: 'The',
+            at: '2026-06-04T10:00:00.000Z',
+        }).valid).toBe(true);
+    });
+
+    it('rejects pipeline:image:vision:token when seq is missing', () => {
+        const registry = new Registry();
+        registry.declare(pipelineImageVisionToken);
+
+        expect(registry.validate('pipeline:image:vision:token', {
+            runId: 'run_01',
+            stepId: 'step_vision',
+            pipelineId: 'pl_42',
+            imageId: 'img_1',
+            delta: 'The',
+            accumulated: 'The',
+            at: '2026-06-04T10:00:00.000Z',
+        }).valid).toBe(false);
     });
 
     it('validates pipeline:image:vision:started with full envelope', () => {

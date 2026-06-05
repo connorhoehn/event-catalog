@@ -71,6 +71,7 @@ export {
 
 export {
   pipelineImageVisionStarted,
+  pipelineImageVisionToken,
   pipelineImageVisionAnalyzed,
   pipelineImageVisionFailed,
   pipelineImageVisionDeclarations,
