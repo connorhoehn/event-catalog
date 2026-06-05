@@ -27,20 +27,28 @@ const TAGS_BASE = ['pipeline', 'image', 'vision', 'producer:platform-api'];
 /**
  * Common envelope for `pipeline:image:vision:*` events. All three carry
  * `{ runId, stepId, at }` at minimum; per-event extras add on top.
+ *
+ * `omitAtFromRequired` — when true, `at` is still a declared property
+ * (for docs) but NOT added to `required`. Used by the hot-path token
+ * event where `at` was removed to save per-event allocation cost.
  */
 function visionSchema(
     extra: Record<string, unknown>,
     required: string[],
+    opts: { omitAtFromRequired?: boolean } = {},
 ): Record<string, unknown> {
+    const baseRequired = opts.omitAtFromRequired
+        ? ['runId', 'stepId', ...required]
+        : ['runId', 'stepId', ...required, 'at'];
     return {
         type: 'object',
         properties: {
             runId: { type: 'string' },
             stepId: { type: 'string' },
-            at: { type: 'string', description: 'ISO-8601 timestamp' },
+            at: { type: 'string', description: 'ISO-8601 timestamp (optional on hot-path token events)' },
             ...extra,
         },
-        required: ['runId', 'stepId', ...required, 'at'],
+        required: baseRequired,
         additionalProperties: true,
     };
 }
@@ -93,7 +101,7 @@ export const pipelineImageVisionToken: EventDeclaration = {
     transport: 'signal',
     producer: PRODUCER,
     description:
-        'Per-token text delta emitted as the CLI streams the model response. UI subscribers fold this into a live preview; ignore when off-screen.',
+        'Per-token text delta emitted as the CLI streams the model response. UI subscribers accumulate deltas locally into a live preview; ignore when off-screen.',
     tags: [...TAGS_BASE, 'streaming', 'hot-path'],
     schema: visionSchema(
         {
@@ -107,12 +115,9 @@ export const pipelineImageVisionToken: EventDeclaration = {
                 type: 'string',
                 description: 'The new text appended since the previous token event.',
             },
-            accumulated: {
-                type: 'string',
-                description: 'Full response text so far. Convenience for subscribers that don\'t track their own accumulator.',
-            },
         },
-        ['pipelineId', 'imageId', 'seq', 'delta', 'accumulated'],
+        ['pipelineId', 'imageId', 'seq', 'delta'],
+        { omitAtFromRequired: true },
     ),
 };
 
@@ -193,6 +198,7 @@ export const pipelineImageVisionFailed: EventDeclaration = {
                     'input-resolution',
                     'malformed',
                     'aborted',
+                    'refusal',
                     'unknown',
                 ],
                 description: 'Discriminator for the failure mode.',

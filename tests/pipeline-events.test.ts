@@ -639,7 +639,7 @@ describe('pipeline:image:vision:* declarations', () => {
         expect(names).toContain('pipeline:image:vision:failed');
     });
 
-    it('validates pipeline:image:vision:token with delta+accumulated', () => {
+    it('validates pipeline:image:vision:token with delta+seq (no accumulated required)', () => {
         const registry = new Registry();
         registry.declare(pipelineImageVisionToken);
 
@@ -650,8 +650,21 @@ describe('pipeline:image:vision:* declarations', () => {
             imageId: 'img_1',
             seq: 1,
             delta: 'The',
-            accumulated: 'The',
             at: '2026-06-04T10:00:00.000Z',
+        }).valid).toBe(true);
+    });
+
+    it('validates pipeline:image:vision:token without at (at is not required on token)', () => {
+        const registry = new Registry();
+        registry.declare(pipelineImageVisionToken);
+
+        expect(registry.validate('pipeline:image:vision:token', {
+            runId: 'run_01',
+            stepId: 'step_vision',
+            pipelineId: 'pl_42',
+            imageId: 'img_1',
+            seq: 2,
+            delta: ' world',
         }).valid).toBe(true);
     });
 
@@ -665,7 +678,6 @@ describe('pipeline:image:vision:* declarations', () => {
             pipelineId: 'pl_42',
             imageId: 'img_1',
             delta: 'The',
-            accumulated: 'The',
             at: '2026-06-04T10:00:00.000Z',
         }).valid).toBe(false);
     });
@@ -749,6 +761,19 @@ describe('pipeline:image:vision:* declarations', () => {
         }).valid).toBe(true);
     });
 
+    it('validates pipeline:image:vision:failed with reason=refusal', () => {
+        const registry = new Registry();
+        registry.declare(pipelineImageVisionFailed);
+
+        expect(registry.validate('pipeline:image:vision:failed', {
+            runId: 'run_01',
+            stepId: 'step_vision',
+            reason: 'refusal',
+            error: 'model refused to analyze the image',
+            at: '2026-06-04T10:00:00.000Z',
+        }).valid).toBe(true);
+    });
+
     it('rejects pipeline:image:vision:failed when reason is not in the enum', () => {
         const registry = new Registry();
         registry.declare(pipelineImageVisionFailed);
@@ -758,6 +783,19 @@ describe('pipeline:image:vision:* declarations', () => {
             stepId: 'step_vision',
             reason: 'whatever',
             error: 'idk',
+            at: '2026-06-04T10:00:00.000Z',
+        }).valid).toBe(false);
+    });
+
+    it('rejects pipeline:image:vision:failed when reason=http-error (dropped from enum)', () => {
+        const registry = new Registry();
+        registry.declare(pipelineImageVisionFailed);
+
+        expect(registry.validate('pipeline:image:vision:failed', {
+            runId: 'run_01',
+            stepId: 'step_vision',
+            reason: 'http-error',
+            error: 'HTTP 429',
             at: '2026-06-04T10:00:00.000Z',
         }).valid).toBe(false);
     });
