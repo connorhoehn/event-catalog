@@ -35,7 +35,7 @@ vi.mock('redis', () => ({
   }),
 }));
 
-vi.mock('distributed-core/dist/transport/CircuitBreaker', () => ({
+vi.mock('distributed-core/transport', () => ({
   CircuitBreaker: class MockCircuitBreaker {
     private _forceOpen = false;
 
