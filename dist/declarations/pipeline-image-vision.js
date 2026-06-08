@@ -8,38 +8,47 @@
 // dispatches into the handler; the handler emits these events via
 // `helpers.emit(...)` on the executor's EventBus.
 //
-// Transport is `signal` for all three — these are UI/observability
+// Transport is `signal` for all four — these are UI/observability
 // signals, never durable. Persistence of the VisionResult happens via
 // VisionResultRepository (DDB).
 //
-// Wire shape mirrors `pipeline-judge.ts` exactly. Three events form the
+// Wire shape mirrors `pipeline-judge.ts` exactly. Four events form the
 // step lifecycle:
-//   started → (analyzed | failed)
+//   started → (token×N) → (analyzed | failed)
+// The token event was added in the streaming wave (commit fc7f7f0) to
+// surface CLI text-delta chunks to the frontend in real time.
 // There is no budget-exceeded event on the vision family — cost gating
 // is out of scope per the v1 design.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pipelineImageVisionDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionStarted = void 0;
+exports.pipelineImageVisionDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionToken = exports.pipelineImageVisionStarted = void 0;
 const PRODUCER = 'platform-api';
 const TAGS_BASE = ['pipeline', 'image', 'vision', 'producer:platform-api'];
 /**
  * Common envelope for `pipeline:image:vision:*` events. All three carry
  * `{ runId, stepId, at }` at minimum; per-event extras add on top.
+ *
+ * `omitAtFromRequired` — when true, `at` is still a declared property
+ * (for docs) but NOT added to `required`. Used by the hot-path token
+ * event where `at` was removed to save per-event allocation cost.
  */
-function visionSchema(extra, required) {
+function visionSchema(extra, required, opts = {}) {
+    const baseRequired = opts.omitAtFromRequired
+        ? ['runId', 'stepId', ...required]
+        : ['runId', 'stepId', ...required, 'at'];
     return {
         type: 'object',
         properties: {
             runId: { type: 'string' },
             stepId: { type: 'string' },
-            at: { type: 'string', description: 'ISO-8601 timestamp' },
+            at: { type: 'string', description: 'ISO-8601 timestamp (optional on hot-path token events)' },
             ...extra,
         },
-        required: ['runId', 'stepId', ...required, 'at'],
+        required: baseRequired,
         additionalProperties: true,
     };
 }
 // ---------------------------------------------------------------------------
-// Lifecycle: started → (analyzed | failed)
+// Lifecycle: started → (token×N) → (analyzed | failed)
 // ---------------------------------------------------------------------------
 exports.pipelineImageVisionStarted = {
     namespace: 'pipeline',
@@ -63,6 +72,36 @@ exports.pipelineImageVisionStarted = {
             description: 'True when the step config supplied an outputSchema for structured extraction.',
         },
     }, ['pipelineId', 'imageId', 'visionModel', 'hasSchema']),
+};
+/**
+ * Per-token stream event during the vision call's response phase. Fires
+ * once per `content_block_delta` text chunk from the Claude Code CLI's
+ * stream-json output. Subscribers use this to render live typing in the
+ * frontend (same pattern as `pipeline.llm.token`).
+ *
+ * Hot path — high volume. Subscribers MUST be cheap (in-memory state
+ * mutation only; no IO, no network, no DDB). The handler dispatches
+ * fire-and-forget so a slow subscriber can't backpressure the model loop.
+ */
+exports.pipelineImageVisionToken = {
+    namespace: 'pipeline',
+    name: 'pipeline:image:vision:token',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'Per-token text delta emitted as the CLI streams the model response. UI subscribers accumulate deltas locally into a live preview; ignore when off-screen.',
+    tags: [...TAGS_BASE, 'streaming', 'hot-path'],
+    schema: visionSchema({
+        pipelineId: { type: 'string' },
+        imageId: { type: 'string' },
+        seq: {
+            type: 'number',
+            description: 'Monotonic per-call counter starting at 1. Allows subscribers to detect drops or out-of-order delivery in transports that don\'t preserve order.',
+        },
+        delta: {
+            type: 'string',
+            description: 'The new text appended since the previous token event.',
+        },
+    }, ['pipelineId', 'imageId', 'seq', 'delta'], { omitAtFromRequired: true }),
 };
 exports.pipelineImageVisionAnalyzed = {
     namespace: 'pipeline',
@@ -133,6 +172,7 @@ exports.pipelineImageVisionFailed = {
                 'input-resolution',
                 'malformed',
                 'aborted',
+                'refusal',
                 'unknown',
             ],
             description: 'Discriminator for the failure mode.',
@@ -153,6 +193,7 @@ exports.pipelineImageVisionFailed = {
  */
 exports.pipelineImageVisionDeclarations = [
     exports.pipelineImageVisionStarted,
+    exports.pipelineImageVisionToken,
     exports.pipelineImageVisionAnalyzed,
     exports.pipelineImageVisionFailed,
 ];

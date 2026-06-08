@@ -6,7 +6,7 @@ export { gatewaySignalDeclarations } from './gateway-signal';
 export { orgiqResearcherPresence, orgiqResearcherActivity, orgiqBriefsPresence, orgiqSearchPresence, orgiqInvokePresence, orgiqArticlesReactions, orgiqSignalDeclarations, } from './orgiq-signal';
 export { pipelineEventDeclarations, } from './pipeline-events';
 export { pipelineJudgeStarted, pipelineJudgeScored, pipelineJudgeFailed, pipelineJudgeBudgetExceeded, pipelineJudgeDeclarations, } from './pipeline-judge';
-export { pipelineImageVisionStarted, pipelineImageVisionAnalyzed, pipelineImageVisionFailed, pipelineImageVisionDeclarations, } from './pipeline-image-vision';
+export { pipelineImageVisionStarted, pipelineImageVisionToken, pipelineImageVisionAnalyzed, pipelineImageVisionFailed, pipelineImageVisionDeclarations, } from './pipeline-image-vision';
 export { agUiDeclarations } from './ag-ui';
 import type { EventDeclaration } from '../types/index';
 /**

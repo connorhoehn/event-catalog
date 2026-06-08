@@ -131,6 +131,24 @@ export {
 export { MQ_QUEUE_NAMES, ACTIVITY_RECORDED } from './queue-names';
 export type { MQQueueName } from './queue-names';
 
+// Channel recording profile registry — single source of truth for
+// recording-shape configuration consumed by LVS, platform-api, and WSG.
+// See live-video-streaming/.agent/ADR-002-recording-profiles.md.
+export {
+  RECORDING_PROFILES,
+  RECORDING_PROFILE_REGISTRY,
+  RECORDING_PROFILE_REGISTRY_VERSION,
+  InvalidRecordingProfileError,
+  isRecordingProfile,
+  validateRecordingProfile,
+  resolveRecordingProfile,
+} from './declarations/recording-profiles';
+export type {
+  RecordingProfile,
+  RecordingProfileDef,
+  StoredRecordingConfig,
+} from './declarations/recording-profiles';
+
 // wave20-f — deprecated dot-form pipeline event names, derived from
 // the canonical colon-form declarations' `aliases` arrays.
 export { DEPRECATED_DUAL_EMIT_ALIASES } from './declarations/deprecated-pipeline-aliases';

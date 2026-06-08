@@ -1,11 +1,14 @@
 "use strict";
 // src/declarations/pipeline-events.ts
 //
-// Wave 19 / Part A — consolidated pipelineEventDeclarations aggregate.
+// Consolidated pipelineEventDeclarations aggregate (P0–P3 / 31 entries
+// as of v0.3.51; grew from 16 P0+P1 entries in Wave 19 / Part A).
 //
-// Groups the 16 P0+P1 pipeline event declarations from existing EC modules
-// into a single named export so consumers (platform-api) can bulk-register
-// them with a single import rather than pulling from multiple modules.
+// Groups every pipeline event declaration from the per-tier EC modules
+// (pipeline.ts, pipeline-p1.ts, pipeline-p2.ts, pipeline-judge.ts,
+// pipeline-image-vision.ts) into a single named export so consumers
+// (platform-api) can bulk-register them with a single import rather
+// than pulling from multiple modules.
 //
 // P0 — approval (2 signal + 2 durable):
 //   `pipeline:approval:requested`   (signal, alias via pipeline.approval.requested)
@@ -33,7 +36,7 @@
 // constants here — add them to the appropriate module and then include
 // them in the list below.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pipelineEventDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionStarted = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineLlmResponse = exports.pipelineLlmPrompt = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineStepBreakpoint = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunStuck = exports.pipelineRunCancelled = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
+exports.pipelineEventDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionToken = exports.pipelineImageVisionStarted = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineLlmResponse = exports.pipelineLlmPrompt = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineStepBreakpoint = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunStuck = exports.pipelineRunCancelled = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
 const pipeline_1 = require("./pipeline");
 Object.defineProperty(exports, "pipelineApprovalRequested", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRequested; } });
 Object.defineProperty(exports, "pipelineApprovalRecorded", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRecorded; } });
@@ -67,6 +70,7 @@ Object.defineProperty(exports, "pipelineJudgeFailed", { enumerable: true, get: f
 Object.defineProperty(exports, "pipelineJudgeBudgetExceeded", { enumerable: true, get: function () { return pipeline_judge_1.pipelineJudgeBudgetExceeded; } });
 const pipeline_image_vision_1 = require("./pipeline-image-vision");
 Object.defineProperty(exports, "pipelineImageVisionStarted", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionStarted; } });
+Object.defineProperty(exports, "pipelineImageVisionToken", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionToken; } });
 Object.defineProperty(exports, "pipelineImageVisionAnalyzed", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionAnalyzed; } });
 Object.defineProperty(exports, "pipelineImageVisionFailed", { enumerable: true, get: function () { return pipeline_image_vision_1.pipelineImageVisionFailed; } });
 /**
@@ -128,6 +132,7 @@ exports.pipelineEventDeclarations = [
     pipeline_judge_1.pipelineJudgeBudgetExceeded,
     // P3 / wave 4 — image:vision-analyze step (producer: platform-api, not DC)
     pipeline_image_vision_1.pipelineImageVisionStarted,
+    pipeline_image_vision_1.pipelineImageVisionToken,
     pipeline_image_vision_1.pipelineImageVisionAnalyzed,
     pipeline_image_vision_1.pipelineImageVisionFailed,
 ];
