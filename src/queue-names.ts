@@ -25,6 +25,23 @@ export const MQ_QUEUE_NAMES = {
    * silent string drift between producer and consumer config.
    */
   ACTIVITY_RECORDED: 'activity.recorded',
+  /**
+   * Hangout-recording transcription jobs. Producer: platform-api (lvsWebhooks
+   * on recording.completed when transcribe flag set). Consumer: the
+   * transcription-worker container (live-video-streaming/services/
+   * transcription-worker). Payload carries {recordingId, callId, tracks[]}
+   * — worker fetches per-peer mp4s and runs faster-whisper per leg.
+   * Long-running: visibility_timeout=3600s, dlq after 3 attempts.
+   */
+  TRANSCRIPTION_JOBS: 'transcription-jobs',
+  /**
+   * Transcript-ready handoff for LLM summarization. Producer:
+   * transcription-worker (after writing transcript.json). Consumer:
+   * platform-api summary subscriber (calls createLLMClient + COE-style
+   * markdown prompt). Separate queue from TRANSCRIPTION_JOBS so the two
+   * consumers don't compete for messages on the same queue.
+   */
+  TRANSCRIPTION_SUMMARIES: 'transcription-summaries',
 } as const;
 
 export type MQQueueName = (typeof MQ_QUEUE_NAMES)[keyof typeof MQ_QUEUE_NAMES];
@@ -34,3 +51,13 @@ export type MQQueueName = (typeof MQ_QUEUE_NAMES)[keyof typeof MQ_QUEUE_NAMES];
  * constant without importing the full MQ_QUEUE_NAMES map.
  */
 export const ACTIVITY_RECORDED = MQ_QUEUE_NAMES.ACTIVITY_RECORDED;
+
+/**
+ * Standalone re-export for the transcription-jobs queue.
+ */
+export const TRANSCRIPTION_JOBS = MQ_QUEUE_NAMES.TRANSCRIPTION_JOBS;
+
+/**
+ * Standalone re-export for the transcription-summaries queue.
+ */
+export const TRANSCRIPTION_SUMMARIES = MQ_QUEUE_NAMES.TRANSCRIPTION_SUMMARIES;
