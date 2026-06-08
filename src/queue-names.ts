@@ -32,16 +32,23 @@ export const MQ_QUEUE_NAMES = {
    * transcription-worker). Payload carries {recordingId, callId, tracks[]}
    * — worker fetches per-peer mp4s and runs faster-whisper per leg.
    * Long-running: visibility_timeout=3600s, dlq after 3 attempts.
+   *
+   * Name matches the auto-derived queue from event-catalog's
+   * `transcription:job.queued` event (colon → dash, dot → dash). The
+   * `queue:` field on catalog.declare() is informational; the durable
+   * transport always routes by event-name-derived queue, so consumer
+   * + producer must align on this string.
    */
-  TRANSCRIPTION_JOBS: 'transcription-jobs',
+  TRANSCRIPTION_JOBS: 'transcription-job-queued',
   /**
    * Transcript-ready handoff for LLM summarization. Producer:
    * transcription-worker (after writing transcript.json). Consumer:
    * platform-api summary subscriber (calls createLLMClient + COE-style
    * markdown prompt). Separate queue from TRANSCRIPTION_JOBS so the two
-   * consumers don't compete for messages on the same queue.
+   * consumers don't compete for messages on the same queue. Name
+   * matches `transcription:transcript.ready` event-catalog derivation.
    */
-  TRANSCRIPTION_SUMMARIES: 'transcription-summaries',
+  TRANSCRIPTION_SUMMARIES: 'transcription-transcript-ready',
 } as const;
 
 export type MQQueueName = (typeof MQ_QUEUE_NAMES)[keyof typeof MQ_QUEUE_NAMES];
