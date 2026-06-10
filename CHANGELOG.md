@@ -7,6 +7,46 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.3.55] - 2026-06-10
+
+Wave A2 — declare the WebSocket client-frame contract.
+(Versions 0.3.2–0.3.54 predate the resumption of this changelog; see git
+history for those releases.)
+
+### Added
+
+- **`src/declarations/client-frames.ts`** — 37 new declarations:
+  - 25 OUTBOUND client→gateway frames (`client.<service>.<action>`,
+    namespace `client`, producer `realtime-modules-client`, tag
+    `client-frame`) covering every `{ service, action, channel, ... }`
+    frame the `@connorhoehn/realtime-modules/client` hooks send:
+    chat (3), presence (3), reaction (1), activity (3), crdt (4),
+    fileupload (3), videohangout (6), generic `subscribe` multiplexer (2).
+  - 12 INBOUND gateway→client push frames missing from
+    `gateway-signal.ts` (namespace `ws`, tag `client-contract`):
+    `ws.presence.joined`/`.left`, `ws.fileupload.progress`/`.scanning`/
+    `.cancelled`, `ws.videohangout.participant`/`.media`,
+    `ws.notification.new`/`.read`/`.bulk-update`,
+    `ws.capability.updated`, `ws.feature-flag.updated`.
+  - Known naming tensions (videohangout:* vs ws.call.*, fileupload:* vs
+    ws.upload.*, scanning-vs-scanned, presence:joined vs type:"presence"
+    action frames) are documented in declaration descriptions — no wire
+    renames in this wave.
+- **`src/generated/client-frames.ts`** (new typegen output) —
+  `ClientFramePayloadMap`, `ClientFramePayload<K>`, plus per-service
+  `<Service>OutboundFrame` (8) and `<Service>InboundFrame` (14) union
+  types. Exported on the new `./client-frames` package subpath;
+  `ClientFramePayloadMap`/`ClientFramePayload` and the three declaration
+  arrays (`clientFrameDeclarations`,
+  `clientFrameOutboundDeclarations`, `clientContractInboundDeclarations`)
+  are also re-exported from the package root.
+- `scripts/generate-types.ts` now emits both generated files.
+
+### Notes
+
+- `contracts/registry.snapshot.json` regenerated — strictly additive
+  (37 added, 0 changed, 0 removed); 143 → 180 events.
+
 ## [0.3.1] - 2026-05-14
 
 Fixup release for `0.3.0` — ship missing `dist/declarations/` compiled

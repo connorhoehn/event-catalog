@@ -22,6 +22,8 @@ export { RECORDING_PROFILES, RECORDING_PROFILE_REGISTRY, RECORDING_PROFILE_REGIS
 export type { RecordingProfile, RecordingProfileDef, StoredRecordingConfig, } from './declarations/recording-profiles';
 export { DEPRECATED_DUAL_EMIT_ALIASES } from './declarations/deprecated-pipeline-aliases';
 export type { EventPayloadMap, EventPayload } from './generated/event-types';
+export { clientFrameOutboundDeclarations, clientContractInboundDeclarations, clientFrameDeclarations, } from './declarations/index';
+export type { ClientFramePayloadMap, ClientFramePayload } from './generated/client-frames';
 export { DLQManager } from './dlq/DLQManager';
 export { InMemoryDLQStore } from './dlq/DLQStore';
 export type { DLQRecord, DLQReason, DLQQueryOptions, ReplayResult } from './dlq/types';

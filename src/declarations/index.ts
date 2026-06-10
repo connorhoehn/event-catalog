@@ -48,6 +48,12 @@ export {
 export { gatewaySignalDeclarations } from './gateway-signal';
 
 export {
+  clientFrameOutboundDeclarations,
+  clientContractInboundDeclarations,
+  clientFrameDeclarations,
+} from './client-frames';
+
+export {
   orgiqResearcherPresence,
   orgiqResearcherActivity,
   orgiqBriefsPresence,
@@ -85,6 +91,7 @@ import { pipelineP1Declarations } from './pipeline-p1';
 import { pipelineP2Declarations } from './pipeline-p2';
 import { pipelineRaftDeclarations } from './pipeline-raft';
 import { gatewaySignalDeclarations } from './gateway-signal';
+import { clientFrameDeclarations } from './client-frames';
 import { agUiDeclarations } from './ag-ui';
 import { orgiqSignalDeclarations } from './orgiq-signal';
 import { pipelineJudgeDeclarations } from './pipeline-judge';
@@ -109,6 +116,7 @@ export const allDeclarations: readonly EventDeclaration[] = [
   ...pipelineJudgeDeclarations,
   ...pipelineImageVisionDeclarations,
   ...gatewaySignalDeclarations,
+  ...clientFrameDeclarations,
   ...agUiDeclarations,
   ...orgiqSignalDeclarations,
 ];

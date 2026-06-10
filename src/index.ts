@@ -157,6 +157,16 @@ export { DEPRECATED_DUAL_EMIT_ALIASES } from './declarations/deprecated-pipeline
 // Regenerate with: npm run generate-types
 export type { EventPayloadMap, EventPayload } from './generated/event-types';
 
+// Wave A2 — client→gateway WS frame contract (client.* namespace) plus
+// the inbound gateway→client additions consumed by realtime-modules hooks.
+// Per-service Inbound/Outbound union types live on the ./client-frames subpath.
+export {
+  clientFrameOutboundDeclarations,
+  clientContractInboundDeclarations,
+  clientFrameDeclarations,
+} from './declarations/index';
+export type { ClientFramePayloadMap, ClientFramePayload } from './generated/client-frames';
+
 // E5 DLQ infrastructure — re-exported from ./dlq for consumers that import from root.
 export { DLQManager } from './dlq/DLQManager';
 export { InMemoryDLQStore } from './dlq/DLQStore';

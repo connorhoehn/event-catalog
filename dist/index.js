@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = exports.decodeBroadcastEnvelope = exports.decodeDirectMessageEnvelope = exports.decodeChannelMessageEnvelope = exports.isBroadcastEnvelope = exports.isDirectMessageEnvelope = exports.broadcastEnvelopeSchema = exports.broadcastRedisChannel = exports.buildBroadcastEnvelope = exports.directMessageEnvelopeSchema = exports.directMessageRedisChannel = exports.buildDirectMessageEnvelope = exports.channelMessageEnvelopeSchema = exports.signalMessageSchema = exports.channelNodesRedisKey = exports.channelMessageRedisChannel = exports.isChannelMessageEnvelope = exports.buildSignalMessage = exports.buildChannelMessageEnvelope = exports.resolveNamespace = exports.deriveNamespace = exports.validateSchemaShape = exports.computeSchemaFingerprint = exports.stableStringify = exports.checkForwardCompat = exports.checkBackwardCompat = exports.DurableTransport = exports.SignalTransport = exports.Registry = exports.EventCatalog = void 0;
-exports.allBundles = exports.presenceBundle = exports.chatBundle = exports.getCrdSchema = exports.findBundleByFingerprint = exports.validateBundle = exports.listFeatureBundles = exports.getFeatureBundle = exports.registerFeatureBundle = exports.computeFingerprint = exports.FeatureBundleRegistry = exports.InMemoryDLQStore = exports.DLQManager = exports.DEPRECATED_DUAL_EMIT_ALIASES = exports.resolveRecordingProfile = exports.validateRecordingProfile = exports.isRecordingProfile = exports.InvalidRecordingProfileError = exports.RECORDING_PROFILE_REGISTRY_VERSION = exports.RECORDING_PROFILE_REGISTRY = exports.RECORDING_PROFILES = exports.ACTIVITY_RECORDED = exports.MQ_QUEUE_NAMES = exports.ValidationError = exports.createPublisher = exports.createValidatingPublisher = exports.pipelineEventDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = void 0;
+exports.allBundles = exports.presenceBundle = exports.chatBundle = exports.getCrdSchema = exports.findBundleByFingerprint = exports.validateBundle = exports.listFeatureBundles = exports.getFeatureBundle = exports.registerFeatureBundle = exports.computeFingerprint = exports.FeatureBundleRegistry = exports.InMemoryDLQStore = exports.DLQManager = exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.DEPRECATED_DUAL_EMIT_ALIASES = exports.resolveRecordingProfile = exports.validateRecordingProfile = exports.isRecordingProfile = exports.InvalidRecordingProfileError = exports.RECORDING_PROFILE_REGISTRY_VERSION = exports.RECORDING_PROFILE_REGISTRY = exports.RECORDING_PROFILES = exports.ACTIVITY_RECORDED = exports.MQ_QUEUE_NAMES = exports.ValidationError = exports.createPublisher = exports.createValidatingPublisher = exports.pipelineEventDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = void 0;
 var index_1 = require("./client/index");
 Object.defineProperty(exports, "EventCatalog", { enumerable: true, get: function () { return index_1.EventCatalog; } });
 var index_2 = require("./registry/index");
@@ -109,6 +109,13 @@ Object.defineProperty(exports, "resolveRecordingProfile", { enumerable: true, ge
 // the canonical colon-form declarations' `aliases` arrays.
 var deprecated_pipeline_aliases_1 = require("./declarations/deprecated-pipeline-aliases");
 Object.defineProperty(exports, "DEPRECATED_DUAL_EMIT_ALIASES", { enumerable: true, get: function () { return deprecated_pipeline_aliases_1.DEPRECATED_DUAL_EMIT_ALIASES; } });
+// Wave A2 — client→gateway WS frame contract (client.* namespace) plus
+// the inbound gateway→client additions consumed by realtime-modules hooks.
+// Per-service Inbound/Outbound union types live on the ./client-frames subpath.
+var index_4 = require("./declarations/index");
+Object.defineProperty(exports, "clientFrameOutboundDeclarations", { enumerable: true, get: function () { return index_4.clientFrameOutboundDeclarations; } });
+Object.defineProperty(exports, "clientContractInboundDeclarations", { enumerable: true, get: function () { return index_4.clientContractInboundDeclarations; } });
+Object.defineProperty(exports, "clientFrameDeclarations", { enumerable: true, get: function () { return index_4.clientFrameDeclarations; } });
 // E5 DLQ infrastructure — re-exported from ./dlq for consumers that import from root.
 var DLQManager_1 = require("./dlq/DLQManager");
 Object.defineProperty(exports, "DLQManager", { enumerable: true, get: function () { return DLQManager_1.DLQManager; } });
@@ -128,6 +135,6 @@ var chat_1 = require("./declarations/bundles/chat");
 Object.defineProperty(exports, "chatBundle", { enumerable: true, get: function () { return chat_1.chatBundle; } });
 var presence_1 = require("./declarations/bundles/presence");
 Object.defineProperty(exports, "presenceBundle", { enumerable: true, get: function () { return presence_1.presenceBundle; } });
-var index_4 = require("./declarations/bundles/index");
-Object.defineProperty(exports, "allBundles", { enumerable: true, get: function () { return index_4.allBundles; } });
+var index_5 = require("./declarations/bundles/index");
+Object.defineProperty(exports, "allBundles", { enumerable: true, get: function () { return index_5.allBundles; } });
 //# sourceMappingURL=index.js.map

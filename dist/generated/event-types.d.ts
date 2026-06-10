@@ -29,6 +29,17 @@ export interface EventPayloadMap {
         decidedAt: number;
         [key: string]: unknown;
     };
+    /** An approval gate has reached a final decision (all required approvers have acted). `decision` is the aggregate outcome; `by` is the deciding approver ID for single-approver gates or the last to vote for multi-approver gates. */
+    'pipeline.approval.resolved': {
+        runId: string;
+        stepId: string;
+        approvalId: string;
+        decision: 'approved' | 'rejected';
+        by: string;
+        reason?: string;
+        resolvedAt: number;
+        [key: string]: unknown;
+    };
     /** A periodic snapshot of a running pipeline's execution context + frontier, emitted on the signal bus by distributed-core for audit and replay. Signal-only — durable replay relies on step-completion events, not the checkpoint stream. */
     'pipeline.run.checkpoint': {
         runId: string;
@@ -339,6 +350,118 @@ export interface EventPayloadMap {
             [key: string]: unknown;
         };
     };
+    /** JudgeStepHandler entered the LLM-as-judge call after resolving inputs and passing the budget gate. */
+    'pipeline:judge:started': {
+        runId: string;
+        stepId: string;
+        at: string;
+        pipelineId: string;
+        rubricId: string;
+        rubricVersion: number;
+        judgeModel: string;
+        mode: 'absolute' | 'comparison';
+        [key: string]: unknown;
+    };
+    /** Judge call completed successfully. Carries the full JudgmentResult (per-criterion scores + aggregated overall) plus usage/cost metrics for UI rendering and cost rollups. */
+    'pipeline:judge:scored': {
+        runId: string;
+        stepId: string;
+        at: string;
+        pipelineId: string;
+        judgmentId: string;
+        rubricId: string;
+        judgeModel: string;
+        result: Record<string, unknown>;
+        usage: {
+            inputTokens?: number;
+            outputTokens?: number;
+            cacheReadTokens?: number;
+            cacheCreationTokens?: number;
+            [key: string]: unknown;
+        };
+        costUsd: number;
+        cacheHitRatio?: number;
+        latencyMs: number;
+        [key: string]: unknown;
+    };
+    /** Judge call did not produce a usable JudgmentResult — input resolution failed, model returned malformed JSON after retry, the CLI subprocess exited non-zero, or the call was aborted. Usage/cost still propagate when available so cost accounting stays honest (rule #1). */
+    'pipeline:judge:failed': {
+        runId: string;
+        stepId: string;
+        at: string;
+        reason: 'input-resolution' | 'malformed' | 'aborted' | 'budget-exhausted' | 'unknown';
+        error: string;
+        tokensIn?: number;
+        tokensOut?: number;
+        costUsd?: number;
+        latencyMs?: number;
+        [key: string]: unknown;
+    };
+    /** JudgeBudgetGuard reported the daily budget exhausted before the LLM call. Step completes with `{skipped:"budget-exhausted"}` output — the judge is signal, not a correctness gate, so the step does not fail the run. */
+    'pipeline:judge:budget-exceeded': {
+        runId: string;
+        stepId: string;
+        at: string;
+        pipelineId: string;
+        [key: string]: unknown;
+    };
+    /** VisionStepHandler entered the LLM-vision call after resolving the image ref and prompt template. */
+    'pipeline:image:vision:started': {
+        runId: string;
+        stepId: string;
+        at: string;
+        pipelineId: string;
+        imageId: string;
+        visionModel: string;
+        hasSchema: boolean;
+        [key: string]: unknown;
+    };
+    /** Per-token text delta emitted as the CLI streams the model response. UI subscribers accumulate deltas locally into a live preview; ignore when off-screen. */
+    'pipeline:image:vision:token': {
+        runId: string;
+        stepId: string;
+        at?: string;
+        pipelineId: string;
+        imageId: string;
+        seq: number;
+        delta: string;
+        [key: string]: unknown;
+    };
+    /** Vision call completed successfully. Carries the full VisionResult plus usage/cost telemetry for UI rendering and audit drill-in. */
+    'pipeline:image:vision:analyzed': {
+        runId: string;
+        stepId: string;
+        at: string;
+        pipelineId: string;
+        visionId: string;
+        imageId: string;
+        visionModel: string;
+        result: Record<string, unknown>;
+        usage: {
+            inputTokens?: number;
+            outputTokens?: number;
+            imageTokens?: number;
+            [key: string]: unknown;
+        };
+        costUsd: number;
+        latencyMs: number;
+        [key: string]: unknown;
+    };
+    /** Vision call did not produce a usable VisionResult — image fetch failed, model returned malformed JSON after retry, the CLI subprocess exited non-zero, or the call was aborted. Usage/cost still propagate when available so telemetry stays honest. */
+    'pipeline:image:vision:failed': {
+        runId: string;
+        stepId: string;
+        at: string;
+        pipelineId?: string;
+        imageId?: string;
+        reason: 'image-fetch' | 'input-resolution' | 'malformed' | 'aborted' | 'refusal' | 'unknown';
+        error: string;
+        tokensIn?: number;
+        tokensOut?: number;
+        costUsd?: number;
+        latencyMs?: number;
+        [key: string]: unknown;
+    };
     /** Confirmation sent to a client when they successfully join a chat channel. */
     'ws.chat.joined': {
         type: 'chat';
@@ -434,6 +557,24 @@ export interface EventPayloadMap {
         modes?: Record<string, unknown>;
         [key: string]: unknown;
     };
+    /** Broadcast to channel subscribers when a client clears (removes) their cursor from the canvas. */
+    'ws.cursor.clear': {
+        type: 'cursor';
+        timestamp?: string;
+        action: 'clear';
+        channel: string;
+        clientId: string;
+        [key: string]: unknown;
+    };
+    /** Batched cursor positions for multiple clients delivered in a single frame to reduce message volume. */
+    'ws.cursor.batch': {
+        type: 'cursor';
+        timestamp?: string;
+        action: 'batch';
+        channel: string;
+        cursors: Record<string, unknown>[];
+        [key: string]: unknown;
+    };
     /** Subscription confirmation for an activity channel. */
     'ws.activity.subscribed': {
         type: 'activity';
@@ -521,6 +662,43 @@ export interface EventPayloadMap {
         snapshot?: string;
         [key: string]: unknown;
     };
+    /** Client-initiated Y.js state vector sent to the gateway to request missing updates from peers. */
+    'ws.crdt.sync-request': {
+        type: 'crdt:sync-request';
+        timestamp?: string;
+        channel: string;
+        stateVector: string;
+        [key: string]: unknown;
+    };
+    /** Gateway response to a sync-request containing the Y.js updates needed to bring the client up to date. */
+    'ws.crdt.sync-response': {
+        type: 'crdt:sync-response';
+        timestamp?: string;
+        channel: string;
+        update: string;
+        [key: string]: unknown;
+    };
+    /** Broadcast when a Y.Doc state snapshot is durably stored by the gateway. Carries the snapshot ID and byte size so clients can decide whether to fetch the new baseline. */
+    'ws.crdt.snapshot-stored': {
+        type: 'crdt:snapshot-stored';
+        timestamp?: string;
+        docId: string;
+        snapshotId: string;
+        size: number;
+        [key: string]: unknown;
+    };
+    /** Batched Y.js awareness updates (cursor positions, user metadata) forwarded to CRDT channel subscribers in a single frame to reduce overhead. */
+    'ws.crdt.awareness-batch': {
+        type: 'crdt:awareness-batch';
+        timestamp?: string;
+        docId: string;
+        updates: ({
+            clientId: number;
+            awareness?: Record<string, unknown>;
+            [key: string]: unknown;
+        })[];
+        [key: string]: unknown;
+    };
     /** Confirmation sent to a client when their presence status is successfully set. */
     'ws.presence.set': {
         type: 'presence';
@@ -593,6 +771,32 @@ export interface EventPayloadMap {
             channel: string;
             emoji: string;
             effect?: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Broadcast to all reaction channel subscribers when a previously sent reaction is removed. */
+    'ws.reaction.removed': {
+        type: 'reaction';
+        timestamp?: string;
+        action: 'reaction_removed';
+        data: {
+            id: string;
+            clientId?: string;
+            channel: string;
+            emoji?: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Current reaction list for a channel, sent in response to a list request. */
+    'ws.reaction.list': {
+        type: 'reaction';
+        timestamp?: string;
+        action: 'reaction_list';
+        data: {
+            channel: string;
+            reactions?: Record<string, unknown>[];
             [key: string]: unknown;
         };
         [key: string]: unknown;
@@ -670,6 +874,146 @@ export interface EventPayloadMap {
         };
         [key: string]: unknown;
     };
+    /** Broadcast to call participants when a participant enables their video feed. */
+    'ws.call.video-on': {
+        type: 'call';
+        timestamp?: string;
+        action: 'video-on';
+        data: {
+            callId: string;
+            participantId: string;
+            userId?: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Broadcast to call participants when a participant disables their video feed. */
+    'ws.call.video-off': {
+        type: 'call';
+        timestamp?: string;
+        action: 'video-off';
+        data: {
+            callId: string;
+            participantId: string;
+            userId?: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Broadcast to all call participants when server-side recording of the session starts. */
+    'ws.call.recording-started': {
+        type: 'call';
+        timestamp?: string;
+        action: 'recording-started';
+        data: {
+            sessionId: string;
+            recordingId: string;
+            format: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Broadcast to all call participants when recording ends and a download URL for the recording is available. */
+    'ws.call.recording-completed': {
+        type: 'call';
+        timestamp?: string;
+        action: 'recording-completed';
+        data: {
+            sessionId: string;
+            recordingId: string;
+            downloadUrl: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Acknowledgement sent when the gateway receives a file upload request from a client. */
+    'ws.upload.requested': {
+        type: 'upload';
+        timestamp?: string;
+        action: 'requested';
+        data: {
+            clientId: string;
+            channel: string;
+            filename: string;
+            size?: number;
+            mimeType?: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Presigned S3 upload URL issued to the client so they can PUT the file directly. */
+    'ws.upload.url-issued': {
+        type: 'upload';
+        timestamp?: string;
+        action: 'url-issued';
+        data: {
+            uploadId: string;
+            presignedUrl: string;
+            expiresAt: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Broadcast to the channel when a file upload completes and a download URL is available. */
+    'ws.upload.completed': {
+        type: 'upload';
+        timestamp?: string;
+        action: 'completed';
+        data: {
+            uploadId: string;
+            downloadUrl: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Sent to the uploading client when the file upload fails at any stage. */
+    'ws.upload.failed': {
+        type: 'upload';
+        timestamp?: string;
+        action: 'failed';
+        data: {
+            uploadId: string;
+            error: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Sent to the channel after a security scan completes on the uploaded file, reporting clean or infected status. */
+    'ws.upload.scanned': {
+        type: 'upload';
+        timestamp?: string;
+        action: 'scanned';
+        data: {
+            uploadId: string;
+            status: 'clean' | 'infected';
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Sent to the uploading client when a security scan detects a threat. The file is quarantined and the download URL is revoked. */
+    'ws.upload.scan-quarantined': {
+        type: 'upload';
+        timestamp?: string;
+        action: 'scan-quarantined';
+        data: {
+            uploadId: string;
+            reason: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Sent to the uploading client when a presigned download URL is explicitly revoked. Clients should discard any cached URL. */
+    'ws.upload.url-revoked': {
+        type: 'upload';
+        timestamp?: string;
+        action: 'url-revoked';
+        data: {
+            uploadId: string;
+            reason: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
     /** Subscription confirmation sent when a client subscribes to a pipeline channel. */
     'ws.pipeline.subscribed': {
         type: 'pipeline';
@@ -733,6 +1077,374 @@ export interface EventPayloadMap {
         service?: string;
         code?: string;
         message?: string;
+        [key: string]: unknown;
+    };
+    /** Client request to subscribe to chat messages for a channel. Sent by GatewaySocketProvider on connect when the chat feature is declared; channel may be omitted when no channel is active. */
+    'client.chat.subscribe': {
+        service: 'chat';
+        action: 'subscribe';
+        channel?: string;
+        [key: string]: unknown;
+    };
+    /** Client request to post a text chat message to a channel (useChat.sendMessage). */
+    'client.chat.send': {
+        service: 'chat';
+        action: 'send';
+        channel: string;
+        message: string;
+        [key: string]: unknown;
+    };
+    /** Client request for recent chat message history for a channel (useChat.loadHistory). */
+    'client.chat.history': {
+        service: 'chat';
+        action: 'history';
+        channel: string;
+        limit: number;
+        [key: string]: unknown;
+    };
+    /** Client request to receive presence events for a channel. Sent by usePresence on mount and by GatewaySocketProvider on connect when the presence feature is declared; channel may be omitted when no channel is active. */
+    'client.presence.subscribe': {
+        service: 'presence';
+        action: 'subscribe';
+        channel?: string;
+        [key: string]: unknown;
+    };
+    /** Client request to stop receiving presence events for a channel (usePresence cleanup). */
+    'client.presence.unsubscribe': {
+        service: 'presence';
+        action: 'unsubscribe';
+        channel: string;
+        [key: string]: unknown;
+    };
+    /** Client request to set its presence entry. Two call sites: setStatus sends { status }, updateMetadata sends { metadata } — each field is therefore optional but at least one is present in practice. */
+    'client.presence.set': {
+        service: 'presence';
+        action: 'set';
+        channel: string;
+        status?: string;
+        metadata?: Record<string, unknown>;
+        [key: string]: unknown;
+    };
+    /** Client request to send an emoji reaction to a channel (useReactions.react). targetId optionally scopes the reaction to an entity (messageId, articleId, …) and passes through the gateway opaquely. */
+    'client.reaction.react': {
+        service: 'reaction';
+        action: 'react';
+        channel: string;
+        emoji: string;
+        targetId?: string;
+        metadata?: Record<string, unknown>;
+        [key: string]: unknown;
+    };
+    /** Client request to subscribe to the activity feed for a channel (useActivity mount). */
+    'client.activity.subscribe': {
+        service: 'activity';
+        action: 'subscribe';
+        channel: string;
+        [key: string]: unknown;
+    };
+    /** Client request to unsubscribe from the activity feed for a channel (useActivity cleanup). */
+    'client.activity.unsubscribe': {
+        service: 'activity';
+        action: 'unsubscribe';
+        channel: string;
+        [key: string]: unknown;
+    };
+    /** Client request for prior activity events for a channel (useActivity.loadHistory). */
+    'client.activity.history': {
+        service: 'activity';
+        action: 'history';
+        channel: string;
+        limit: number;
+        [key: string]: unknown;
+    };
+    /** Client request to subscribe to a CRDT document channel (useCRDT/useYjsDoc). Gateway replies with crdt:subscribed and pushes the latest crdt:snapshot when one exists. */
+    'client.crdt.subscribe': {
+        service: 'crdt';
+        action: 'subscribe';
+        channel: string;
+        [key: string]: unknown;
+    };
+    /** Client request to unsubscribe from a CRDT document channel (useCRDT/useYjsDoc cleanup). */
+    'client.crdt.unsubscribe': {
+        service: 'crdt';
+        action: 'unsubscribe';
+        channel: string;
+        [key: string]: unknown;
+    };
+    /** Client broadcast of a local Y.js document update, base64-encoded (GatewayProvider update handler / useCRDT.applyLocalEdit). */
+    'client.crdt.update': {
+        service: 'crdt';
+        action: 'update';
+        channel: string;
+        update: string;
+        [key: string]: unknown;
+    };
+    /** Client broadcast of local Y.js awareness state, base64-encoded and debounced (GatewayProvider). `mode` and `idle` are lifted out of awareness local state as top-level fields so the gateway DocumentPresenceService can update without decoding the Y.js binary. */
+    'client.crdt.awareness': {
+        service: 'crdt';
+        action: 'awareness';
+        channel: string;
+        update: string;
+        mode?: 'editor' | 'reviewer' | 'reader';
+        idle?: boolean;
+        [key: string]: unknown;
+    };
+    /** Client request for a presigned upload URL (useFileUpload.upload step 1). `id` is a client-generated upload identifier echoed back on all subsequent fileupload:* frames. */
+    'client.fileupload.request-upload': {
+        service: 'fileupload';
+        action: 'request-upload';
+        channel: string;
+        id: string;
+        filename: string;
+        size: number;
+        metadata?: Record<string, unknown>;
+        [key: string]: unknown;
+    };
+    /** Client notification that the presigned-URL PUT finished (useFileUpload.upload step 4). Gateway replies with fileupload:complete / fileupload:scanning depending on scan policy. */
+    'client.fileupload.complete': {
+        service: 'fileupload';
+        action: 'complete';
+        channel: string;
+        id: string;
+        [key: string]: unknown;
+    };
+    /** Client request to cancel an in-flight upload (useFileUpload.cancel). Gateway acknowledges with fileupload:cancelled. */
+    'client.fileupload.cancel': {
+        service: 'fileupload';
+        action: 'cancel';
+        channel: string;
+        id: string;
+        [key: string]: unknown;
+    };
+    /** Client request to start a video hangout/call session on a channel (useVideoHangout.start). Gateway replies with videohangout:created. */
+    'client.videohangout.start': {
+        service: 'videohangout';
+        action: 'start';
+        channel: string;
+        type?: 'hangout' | 'call';
+        metadata?: Record<string, unknown>;
+        [key: string]: unknown;
+    };
+    /** Client request to join an existing hangout session (useVideoHangout.join). Gateway replies with videohangout:joined. */
+    'client.videohangout.join': {
+        service: 'videohangout';
+        action: 'join';
+        channel: string;
+        sessionId: string;
+        [key: string]: unknown;
+    };
+    /** Client notification that it is leaving the hangout session (useVideoHangout.leave). */
+    'client.videohangout.leave': {
+        service: 'videohangout';
+        action: 'leave';
+        channel: string;
+        sessionId: string;
+        [key: string]: unknown;
+    };
+    /** Client (host) request to end the hangout session for all participants (useVideoHangout.end). */
+    'client.videohangout.end': {
+        service: 'videohangout';
+        action: 'end';
+        channel: string;
+        sessionId: string;
+        [key: string]: unknown;
+    };
+    /** Client notification that it toggled its video feed on/off (useVideoHangout.toggleVideo). Gateway fans out videohangout:media. */
+    'client.videohangout.toggle-video': {
+        service: 'videohangout';
+        action: 'toggle-video';
+        channel: string;
+        sessionId: string;
+        videoOn: boolean;
+        [key: string]: unknown;
+    };
+    /** Client notification that it toggled its audio feed on/off (useVideoHangout.toggleAudio). Gateway fans out videohangout:media. */
+    'client.videohangout.toggle-audio': {
+        service: 'videohangout';
+        action: 'toggle-audio';
+        channel: string;
+        sessionId: string;
+        audioOn: boolean;
+        [key: string]: unknown;
+    };
+    /** Generic channel subscribe frame from the useWebSocket channel multiplexer (also re-sent on reconnect when autoResubscribe is enabled). Wire service is literally "subscribe". */
+    'client.subscribe.subscribe': {
+        service: 'subscribe';
+        action: 'subscribe';
+        channel: string;
+        [key: string]: unknown;
+    };
+    /** Generic channel unsubscribe frame from the useWebSocket channel multiplexer. Wire service is literally "subscribe". */
+    'client.subscribe.unsubscribe': {
+        service: 'subscribe';
+        action: 'unsubscribe';
+        channel: string;
+        [key: string]: unknown;
+    };
+    /** Broadcast when a client joins a presence channel, carrying the joining client's PresenceEntry. NOTE: the gateway presence service currently emits type:"presence" action frames (ws.presence.update / ws.presence.offline); presence:joined is the usePresence hook contract — naming tension documented per Wave A2, not renamed. */
+    'ws.presence.joined': {
+        type: 'presence:joined';
+        timestamp?: string;
+        channel: string;
+        client: {
+            clientId: string;
+            status: string;
+            metadata?: Record<string, unknown>;
+            channels?: string[];
+            nodeId?: string;
+            timestamp?: string;
+            lastSeen?: string;
+            lastHeartbeat?: number;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Broadcast when a client leaves a presence channel. NOTE: the gateway presence service currently emits type:"presence" action frames; presence:left is the usePresence hook contract — naming tension documented per Wave A2, not renamed. */
+    'ws.presence.left': {
+        type: 'presence:left';
+        timestamp?: string;
+        channel: string;
+        clientId: string;
+        [key: string]: unknown;
+    };
+    /** Server-side upload progress (0-100) for an in-flight file upload. Part of the fileupload:* hook contract (useFileUpload); the gateway's own upload lifecycle is declared as ws.upload.* with type:"upload" frames — naming tension documented per Wave A2, not renamed. */
+    'ws.fileupload.progress': {
+        type: 'fileupload:progress';
+        timestamp?: string;
+        channel: string;
+        id: string;
+        progress: number;
+        [key: string]: unknown;
+    };
+    /** Antivirus scan is IN PROGRESS for an uploaded file — distinct from the existing ws.upload.scanned declaration, which reports the scan OUTCOME (clean/infected). The scanning-vs-scanned naming tension is documented per Wave A2, not renamed. */
+    'ws.fileupload.scanning': {
+        type: 'fileupload:scanning';
+        timestamp?: string;
+        channel: string;
+        id: string;
+        [key: string]: unknown;
+    };
+    /** Acknowledgement that a client-requested upload cancellation completed (useFileUpload.cancel round-trip). Part of the fileupload:* hook contract — see ws.fileupload.progress for the upload-vs-fileupload naming note. */
+    'ws.fileupload.cancelled': {
+        type: 'fileupload:cancelled';
+        timestamp?: string;
+        channel: string;
+        id: string;
+        [key: string]: unknown;
+    };
+    /** Participant joined or updated in a hangout session, carrying the full HangoutParticipant. NOTE: the gateway currently signals hangout/call invites via type:"call" frames (ws.call.*); videohangout:* is the useVideoHangout hook contract — naming tension documented per Wave A2, not renamed. */
+    'ws.videohangout.participant': {
+        type: 'videohangout:participant';
+        timestamp?: string;
+        channel: string;
+        participant: {
+            clientId: string;
+            displayName?: string;
+            role: 'host' | 'participant' | 'viewer';
+            videoOn?: boolean;
+            audioOn?: boolean;
+            joinedAt?: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Media-state change for a hangout participant (video/audio toggled). Part of the videohangout:* hook contract — see ws.videohangout.participant for the videohangout-vs-ws.call.* naming note. */
+    'ws.videohangout.media': {
+        type: 'videohangout:media';
+        timestamp?: string;
+        channel: string;
+        clientId: string;
+        videoOn: boolean;
+        audioOn: boolean;
+        [key: string]: unknown;
+    };
+    /** New USER-scoped notification pushed to the client inbox — delivered regardless of which channel is open (useNotifications). NOTE: gateway-side emission is deferred (M3+ per the hook header); declared now so the client contract is in the catalog. */
+    'ws.notification.new': {
+        type: 'notification:new';
+        timestamp?: string;
+        service?: 'notification';
+        payload: {
+            id: string;
+            type: string;
+            title: string;
+            body?: string;
+            timestamp: string;
+            read?: boolean;
+            channel?: string;
+            payload?: Record<string, unknown>;
+            action?: {
+                label: string;
+                href?: string;
+                onClickEvent?: string;
+                [key: string]: unknown;
+            };
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Server push that a notification was marked read, so other tabs/devices converge (useNotifications). Gateway-side emission deferred (M3+); declared as the client contract. */
+    'ws.notification.read': {
+        type: 'notification:read';
+        timestamp?: string;
+        service?: 'notification';
+        payload: {
+            id: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Bulk notification list update (e.g. inbox sync on reconnect) carrying an array of Notification objects (useNotifications). Gateway-side emission deferred (M3+); declared as the client contract. */
+    'ws.notification.bulk-update': {
+        type: 'notification:bulk-update';
+        timestamp?: string;
+        service?: 'notification';
+        payload: {
+            notifications: ({
+                id: string;
+                type: string;
+                title: string;
+                body?: string;
+                timestamp: string;
+                read?: boolean;
+                channel?: string;
+                payload?: Record<string, unknown>;
+                action?: {
+                    label: string;
+                    href?: string;
+                    onClickEvent?: string;
+                    [key: string]: unknown;
+                };
+                [key: string]: unknown;
+            })[];
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Control-plane push that a CRD-derived capability changed state, so useCapability consumers update without a remount. Payload mirrors CapabilityUpdatedPayload in useCapability.ts. */
+    'ws.capability.updated': {
+        type: 'capability:updated';
+        timestamp?: string;
+        payload: {
+            name: string;
+            enabled: boolean;
+            channel?: string;
+            version?: string;
+            metadata?: Record<string, unknown>;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Gateway push that an app-level feature flag changed (kill-switch / A-B variant), so useFeatureFlag consumers update reactively. Payload mirrors FeatureFlagUpdatedPayload in useFeatureFlag.ts. */
+    'ws.feature-flag.updated': {
+        type: 'feature-flag:updated';
+        timestamp?: string;
+        payload: {
+            name: string;
+            enabled: boolean;
+            variant?: string;
+            metadata?: Record<string, unknown>;
+            [key: string]: unknown;
+        };
         [key: string]: unknown;
     };
     /** Emitted when an agent run begins. Carries the thread and run IDs. */
@@ -929,6 +1641,63 @@ export interface EventPayloadMap {
     'ag-ui.META_EVENT': {
         type: 'META_EVENT';
         name: string;
+        [key: string]: unknown;
+    };
+    /** Presence roster for the newsroom researcher assistant page. Consumed by usePresence("newsroom-researcher") in ResearcherPage. */
+    'orgiq.newsroom-researcher.presence': {
+        type: 'presence';
+        channel: string;
+        timestamp?: string;
+        action?: 'set' | 'update' | 'subscribed' | 'unsubscribed' | 'offline';
+        userId?: string;
+        [key: string]: unknown;
+    };
+    /** Activity feed events for the newsroom researcher channel. Consumed by useActivity("newsroom-researcher") in ResearcherPage. */
+    'orgiq.newsroom-researcher.activity': {
+        type: 'activity';
+        channel: string;
+        timestamp?: string;
+        action?: 'subscribed' | 'unsubscribed' | 'event' | 'history' | 'published';
+        eventType?: string;
+        userId?: string;
+        [key: string]: unknown;
+    };
+    /** Presence roster for the newsroom briefs generation page. Consumed by usePresence("newsroom-briefs") in BriefsPage. */
+    'orgiq.newsroom-briefs.presence': {
+        type: 'presence';
+        channel: string;
+        timestamp?: string;
+        action?: 'set' | 'update' | 'subscribed' | 'unsubscribed' | 'offline';
+        userId?: string;
+        [key: string]: unknown;
+    };
+    /** Presence roster for the global semantic search page. Consumed by usePresence("search") in SearchPage. */
+    'orgiq.search.presence': {
+        type: 'presence';
+        channel: string;
+        timestamp?: string;
+        action?: 'set' | 'update' | 'subscribed' | 'unsubscribed' | 'offline';
+        userId?: string;
+        [key: string]: unknown;
+    };
+    /** Presence roster for the direct agent invocation page. Consumed by usePresence("invoke") in InvokePage. */
+    'orgiq.invoke.presence': {
+        type: 'presence';
+        channel: string;
+        timestamp?: string;
+        action?: 'set' | 'update' | 'subscribed' | 'unsubscribed' | 'offline';
+        userId?: string;
+        [key: string]: unknown;
+    };
+    /** Emoji reactions on newsroom articles. Consumed by useReactions("newsroom-articles") in ArticleDetailPage; targetId carries the article ID. */
+    'orgiq.newsroom-articles.reactions': {
+        type: 'reaction';
+        channel: string;
+        timestamp?: string;
+        action?: 'subscribed' | 'received' | 'removed' | 'list' | 'sent';
+        emoji?: string;
+        targetId?: string;
+        userId?: string;
         [key: string]: unknown;
     };
 }
