@@ -7,6 +7,60 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.3.56] - 2026-06-10
+
+hub#1497 — correct `client.activity.*` + re-audit all `client.*` outbound
+frame declarations against gateway service ground truth.
+
+0.3.55's client-frame declarations were generated from realtime-modules hook
+header comments; hub#1492 proved headers lie. Every chat / presence /
+reaction / activity / crdt declaration was re-verified against the
+websocket-gateway-instantiated services' `handleAction` implementations.
+All corrections are on never-correct contracts (frames the gateway rejected
+or fields it never read), so no working consumer can break.
+
+### Changed (contract corrections — never-correct declarations)
+
+- **`client.chat.subscribe` → `client.chat.join`** — the gateway
+  `ChatService` verb is `join` (accepts `join|leave|send|history`);
+  `subscribe` was always rejected ("Unknown chat action"). `channel` is
+  required; the gateway auto-pushes recent history on join.
+- **`client.chat.send`** — added optional `metadata` (accepted +
+  size-validated server-side). Documented the join-before-send requirement.
+- **`client.chat.history`** — `limit` is now optional (server defaults to
+  its configured history limit); was wrongly declared required.
+- **`client.presence.subscribe`** — `channel` is now REQUIRED (the gateway
+  `PresenceService` rejects the frame without it); was declared optional.
+- **`client.presence.set`** — `status` is now REQUIRED (service rejects
+  without it); `channel` demoted to optional + deprecated (sent by
+  usePresence but IGNORED by the service); added optional `channels[]`
+  (the field the service actually reads for presence pinning).
+- **`client.reaction.react` → `client.reaction.send`** — the gateway
+  `ReactionService` verb is `send` (accepts
+  `subscribe|unsubscribe|send|getAvailable`); `react` was always rejected.
+  Added optional `position`; `targetId` kept but marked deprecated — the
+  current service does NOT forward it to subscribers.
+- **`client.activity.subscribe` / `client.activity.unsubscribe`** — keyed on
+  `channelId` (REQUIRED); legacy `channel` kept optional + deprecated (the
+  fixed useActivity hook still sends it for old-server tolerance; the
+  gateway never reads it). No auto-history-on-subscribe.
+- **`client.activity.history` → `client.activity.getHistory`** — the gateway
+  verb is `getHistory` (`history` was rejected); keys on `channelId`
+  (required); `limit` optional (server default 50, clamped to
+  1..maxHistoryItems).
+
+CRDT declarations (`client.crdt.subscribe/unsubscribe/update/awareness`)
+matched service ground truth and are unchanged. fileupload / videohangout /
+notification / generic-subscribe declarations remain client-hook contracts
+with no gateway service counterpart (documented in-file). The `cursor`
+service (`update|subscribe|unsubscribe|get|modes`) has no client.*
+declarations and no realtime-modules client hook — nothing to correct.
+
+Compat: `event-catalog drift` old→new registry snapshot reports
+3 added / 3 removed / 6 changed — all within the `client.*` namespace.
+No FeatureBundle references `client.*` events, so all bundle fingerprints
+are unchanged (no bundle-level delta for `ec-bundle-diff`).
+
 ## [0.3.55] - 2026-06-10
 
 Wave A2 — declare the WebSocket client-frame contract.

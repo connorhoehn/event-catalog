@@ -20,6 +20,29 @@
 //      where the wire `type` is the colon form `<service>:<variant>`.
 //
 // RULE (Wave A2): declare what is ACTUALLY on the wire — no renames here.
+//
+// AMENDMENT (hub#1497, 2026-06-10): Wave A2 generated these declarations from
+// realtime-modules hook HEADER COMMENTS — and hub#1492 proved headers lie.
+// The chat / presence / reaction / activity / crdt declarations were
+// re-audited against the gateway-instantiated services' handleAction
+// implementations (websocket-gateway src/server.ts wiring + in-tree
+// src/realtime-fanout/* + node_modules/@connorhoehn/realtime-modules/dist).
+// Corrections (never-correct contracts, fixed to service ground truth):
+//   - client.chat.subscribe      → client.chat.join (verb is join)
+//   - client.chat.history        — limit now optional
+//   - client.presence.subscribe  — channel now REQUIRED
+//   - client.presence.set        — status REQUIRED; channel ignored by the
+//                                  service (deprecated); channels[] added
+//   - client.reaction.react      → client.reaction.send (verb is send);
+//                                  position added; targetId deprecated (dropped
+//                                  by the service)
+//   - client.activity.*          — keyed on channelId (channel deprecated);
+//                                  history verb is getHistory; no
+//                                  auto-history-on-subscribe
+// CRDT declarations matched ground truth — unchanged. The fileupload /
+// videohangout / notification / generic-subscribe declarations remain
+// client-hook contracts with no gateway service counterpart (notes below).
+//
 // Known naming tensions are documented in declaration descriptions, not fixed:
 //   - useVideoHangout consumes `videohangout:*` frames while the gateway's
 //     call signaling emits `type:'call'` frames (declared as ws.call.* in
@@ -39,7 +62,7 @@
 // Gateway emissions cross-checked against
 //   websocket-gateway/src/observability/gateway-event-declarations.js
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionReact = exports.clientPresenceSet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatSubscribe = void 0;
+exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionSend = exports.clientPresenceSet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatJoin = void 0;
 const CLIENT_PRODUCER = 'realtime-modules-client';
 const CLIENT_BASE_TAGS = ['gateway', 'signal', 'client-frame', `producer:${CLIENT_PRODUCER}`];
 const GATEWAY_PRODUCER = 'websocket-gateway';
@@ -81,16 +104,20 @@ function inboundSchema(typeLiteral, extra = {}, required = []) {
 }
 // ===========================================================================
 // OUTBOUND — chat (useChat.ts + GatewaySocketProvider.tsx)
+//
+// GROUND TRUTH (hub#1497 re-audit): gateway ChatService.handleAction accepts
+// join | leave | send | history. The previously declared `subscribe` action
+// was never accepted ("Unknown chat action: subscribe") — corrected to `join`.
 // ===========================================================================
 /** Sent by GatewaySocketProvider when the 'chat' feature is active. */
-exports.clientChatSubscribe = {
+exports.clientChatJoin = {
     namespace: 'client',
-    name: 'client.chat.subscribe',
+    name: 'client.chat.join',
     transport: 'signal',
     producer: CLIENT_PRODUCER,
-    description: 'Client request to subscribe to chat messages for a channel. Sent by GatewaySocketProvider on connect when the chat feature is declared; channel may be omitted when no channel is active.',
+    description: 'Client request to join a chat channel and start receiving its messages. Sent by GatewaySocketProvider on connect when the chat feature is declared. GROUND TRUTH (hub#1497): the gateway ChatService verb is "join" — the previously declared "subscribe" was never accepted. channel is required; on success the gateway replies chat/joined and auto-pushes recent channel history.',
     tags: [...CLIENT_BASE_TAGS, 'chat'],
-    schema: clientFrameSchema('chat', 'subscribe'),
+    schema: clientFrameSchema('chat', 'join', {}, ['channel']),
 };
 /** Sent by useChat.sendMessage(). */
 exports.clientChatSend = {
@@ -98,10 +125,11 @@ exports.clientChatSend = {
     name: 'client.chat.send',
     transport: 'signal',
     producer: CLIENT_PRODUCER,
-    description: 'Client request to post a text chat message to a channel (useChat.sendMessage).',
+    description: 'Client request to post a text chat message to a channel (useChat.sendMessage). The gateway ChatService requires a prior join on the channel ("You must join the channel before sending messages"). metadata is optional and size-validated server-side.',
     tags: [...CLIENT_BASE_TAGS, 'chat'],
     schema: clientFrameSchema('chat', 'send', {
         message: { type: 'string' },
+        metadata: { type: 'object', additionalProperties: true },
     }, ['channel', 'message']),
 };
 /** Sent by useChat.loadHistory(). */
@@ -110,11 +138,11 @@ exports.clientChatHistory = {
     name: 'client.chat.history',
     transport: 'signal',
     producer: CLIENT_PRODUCER,
-    description: 'Client request for recent chat message history for a channel (useChat.loadHistory).',
+    description: 'Client request for recent chat message history for a channel (useChat.loadHistory). limit is optional — the gateway ChatService falls back to its configured default history limit when omitted (hub#1497 re-audit: limit was wrongly declared required).',
     tags: [...CLIENT_BASE_TAGS, 'chat'],
     schema: clientFrameSchema('chat', 'history', {
         limit: { type: 'number' },
-    }, ['channel', 'limit']),
+    }, ['channel']),
 };
 // ===========================================================================
 // OUTBOUND — presence (usePresence.ts + GatewaySocketProvider.tsx)
@@ -125,9 +153,9 @@ exports.clientPresenceSubscribe = {
     name: 'client.presence.subscribe',
     transport: 'signal',
     producer: CLIENT_PRODUCER,
-    description: 'Client request to receive presence events for a channel. Sent by usePresence on mount and by GatewaySocketProvider on connect when the presence feature is declared; channel may be omitted when no channel is active.',
+    description: 'Client request to receive presence events for a channel. Sent by usePresence on mount and by GatewaySocketProvider on connect when the presence feature is declared. GROUND TRUTH (hub#1497): the gateway PresenceService rejects the frame without channel ("Channel is required") — channel is REQUIRED, not optional as previously declared.',
     tags: [...CLIENT_BASE_TAGS, 'presence'],
-    schema: clientFrameSchema('presence', 'subscribe'),
+    schema: clientFrameSchema('presence', 'subscribe', {}, ['channel']),
 };
 /** Sent by usePresence on unmount/channel change. */
 exports.clientPresenceUnsubscribe = {
@@ -145,46 +173,83 @@ exports.clientPresenceSet = {
     name: 'client.presence.set',
     transport: 'signal',
     producer: CLIENT_PRODUCER,
-    description: 'Client request to set its presence entry. Two call sites: setStatus sends { status }, updateMetadata sends { metadata } — each field is therefore optional but at least one is present in practice.',
+    description: 'Client request to set its presence entry (usePresence setStatus / updateMetadata). GROUND TRUTH (hub#1497): the gateway PresenceService requires status ("Status is required") and reads only { status, metadata, channels } — the channel field is sent by the hook but IGNORED by the service (presence pinning uses the channels array). Previously declared with channel required + status optional; both were wrong.',
     tags: [...CLIENT_BASE_TAGS, 'presence'],
     schema: clientFrameSchema('presence', 'set', {
+        channel: {
+            type: 'string',
+            description: 'DEPRECATED: sent by usePresence but ignored by the gateway PresenceService — channel pinning uses the channels array',
+            deprecated: true,
+        },
         status: { type: 'string', description: 'PresenceStatus, e.g. "online" | "away" | "busy"' },
         metadata: { type: 'object', additionalProperties: true },
-    }, ['channel']),
+        channels: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'channels to pin this presence entry to (defaults to [] server-side)',
+        },
+    }, ['status']),
 };
 // ===========================================================================
 // OUTBOUND — reaction (useReactions.ts)
 //
-// NOTE: the useReactions header comment also documents an outbound
-// `{ action: 'history' }` frame, but no code path in the hook sends it —
-// only `react` is emitted. Declared per actual code, not the comment.
+// GROUND TRUTH (hub#1497 re-audit): gateway ReactionService.handleAction
+// accepts subscribe | unsubscribe | send | getAvailable. The previously
+// declared `react` action was never accepted ("Unknown reaction action:
+// react") — corrected to `send`. The useReactions header comment's outbound
+// `{ action: 'history' }` frame remains unsent by any code path.
 // ===========================================================================
-/** Sent by useReactions.react(). */
-exports.clientReactionReact = {
+/** Sent by useReactions.react() — the gateway verb is `send`. */
+exports.clientReactionSend = {
     namespace: 'client',
-    name: 'client.reaction.react',
+    name: 'client.reaction.send',
     transport: 'signal',
     producer: CLIENT_PRODUCER,
-    description: 'Client request to send an emoji reaction to a channel (useReactions.react). targetId optionally scopes the reaction to an entity (messageId, articleId, …) and passes through the gateway opaquely.',
+    description: 'Client request to send an emoji reaction to a channel (useReactions.react). GROUND TRUTH (hub#1497): the gateway ReactionService verb is "send" — the previously declared "react" was never accepted. emoji must be in the gateway\'s available-reactions catalog; position is optional overlay placement; metadata passes through. NOTE: targetId is sent by useReactions for entity-scoped reactions but the current gateway ReactionService does NOT forward it to subscribers.',
     tags: [...CLIENT_BASE_TAGS, 'reaction'],
-    schema: clientFrameSchema('reaction', 'react', {
+    schema: clientFrameSchema('reaction', 'send', {
         emoji: { type: 'string' },
-        targetId: { type: 'string' },
+        position: {
+            type: 'object',
+            additionalProperties: true,
+            description: 'optional overlay placement, forwarded verbatim to subscribers',
+        },
+        targetId: {
+            type: 'string',
+            description: 'DEPRECATED: sent by useReactions but dropped by the current gateway ReactionService (not forwarded to subscribers)',
+            deprecated: true,
+        },
         metadata: { type: 'object', additionalProperties: true },
     }, ['channel', 'emoji']),
 };
 // ===========================================================================
 // OUTBOUND — activity (useActivity.ts)
+//
+// GROUND TRUTH (hub#1497, verified against realtime-modules a295f13 + the
+// gateway-instantiated ActivityService): subscribe / unsubscribe / getHistory
+// all key on `channelId` (NOT `channel`), the history verb is `getHistory`
+// (NOT `history`), and there is NO auto-history-on-subscribe. The fixed
+// useActivity hook still sends a legacy `channel` field alongside channelId
+// for tolerance — declared optional + deprecated below.
 // ===========================================================================
+/** Legacy `channel` field the fixed useActivity hook still sends for tolerance. */
+const activityLegacyChannelField = {
+    channel: {
+        type: 'string',
+        description: 'DEPRECATED: legacy alias still sent by useActivity for old-server tolerance; the gateway ActivityService reads channelId only',
+        deprecated: true,
+    },
+    channelId: { type: 'string', description: 'activity feed channel id — the field the gateway ActivityService reads' },
+};
 /** Sent by useActivity on mount. */
 exports.clientActivitySubscribe = {
     namespace: 'client',
     name: 'client.activity.subscribe',
     transport: 'signal',
     producer: CLIENT_PRODUCER,
-    description: 'Client request to subscribe to the activity feed for a channel (useActivity mount).',
+    description: 'Client request to subscribe to the activity feed for a channel (useActivity mount). GROUND TRUTH (hub#1497): the gateway ActivityService requires channelId — the previously declared channel field was never read. No history is auto-pushed on subscribe; clients request it explicitly via client.activity.getHistory.',
     tags: [...CLIENT_BASE_TAGS, 'activity'],
-    schema: clientFrameSchema('activity', 'subscribe', {}, ['channel']),
+    schema: clientFrameSchema('activity', 'subscribe', { ...activityLegacyChannelField }, ['channelId']),
 };
 /** Sent by useActivity on unmount/channel change. */
 exports.clientActivityUnsubscribe = {
@@ -192,21 +257,22 @@ exports.clientActivityUnsubscribe = {
     name: 'client.activity.unsubscribe',
     transport: 'signal',
     producer: CLIENT_PRODUCER,
-    description: 'Client request to unsubscribe from the activity feed for a channel (useActivity cleanup).',
+    description: 'Client request to unsubscribe from the activity feed for a channel (useActivity cleanup). GROUND TRUTH (hub#1497): the gateway ActivityService requires channelId — the previously declared channel field was never read.',
     tags: [...CLIENT_BASE_TAGS, 'activity'],
-    schema: clientFrameSchema('activity', 'unsubscribe', {}, ['channel']),
+    schema: clientFrameSchema('activity', 'unsubscribe', { ...activityLegacyChannelField }, ['channelId']),
 };
-/** Sent by useActivity.loadHistory(). */
-exports.clientActivityHistory = {
+/** Sent by useActivity.loadHistory() — the gateway verb is `getHistory`. */
+exports.clientActivityGetHistory = {
     namespace: 'client',
-    name: 'client.activity.history',
+    name: 'client.activity.getHistory',
     transport: 'signal',
     producer: CLIENT_PRODUCER,
-    description: 'Client request for prior activity events for a channel (useActivity.loadHistory).',
+    description: 'Client request for prior activity events for a channel (useActivity.loadHistory). GROUND TRUTH (hub#1497): the gateway verb is "getHistory" — the previously declared "history" action was rejected ("Unknown activity action"). Keys on channelId; limit is optional (server clamps to 1..maxHistoryItems, default 50).',
     tags: [...CLIENT_BASE_TAGS, 'activity'],
-    schema: clientFrameSchema('activity', 'history', {
-        limit: { type: 'number' },
-    }, ['channel', 'limit']),
+    schema: clientFrameSchema('activity', 'getHistory', {
+        ...activityLegacyChannelField,
+        limit: { type: 'number', description: 'optional — server default 50, clamped to 1..maxHistoryItems' },
+    }, ['channelId']),
 };
 // ===========================================================================
 // OUTBOUND — crdt (useCRDT.ts, useYjsDoc.ts, GatewayProvider.ts)
@@ -675,7 +741,7 @@ exports.wsFeatureFlagUpdated = {
  */
 exports.clientFrameOutboundDeclarations = [
     // chat
-    exports.clientChatSubscribe,
+    exports.clientChatJoin,
     exports.clientChatSend,
     exports.clientChatHistory,
     // presence
@@ -683,11 +749,11 @@ exports.clientFrameOutboundDeclarations = [
     exports.clientPresenceUnsubscribe,
     exports.clientPresenceSet,
     // reaction
-    exports.clientReactionReact,
+    exports.clientReactionSend,
     // activity
     exports.clientActivitySubscribe,
     exports.clientActivityUnsubscribe,
-    exports.clientActivityHistory,
+    exports.clientActivityGetHistory,
     // crdt
     exports.clientCrdtSubscribe,
     exports.clientCrdtUnsubscribe,

@@ -1,6 +1,6 @@
 import type { EventDeclaration } from '../types/index';
 /** Sent by GatewaySocketProvider when the 'chat' feature is active. */
-export declare const clientChatSubscribe: EventDeclaration;
+export declare const clientChatJoin: EventDeclaration;
 /** Sent by useChat.sendMessage(). */
 export declare const clientChatSend: EventDeclaration;
 /** Sent by useChat.loadHistory(). */
@@ -11,14 +11,14 @@ export declare const clientPresenceSubscribe: EventDeclaration;
 export declare const clientPresenceUnsubscribe: EventDeclaration;
 /** Sent by usePresence.setStatus() / updateMetadata(). */
 export declare const clientPresenceSet: EventDeclaration;
-/** Sent by useReactions.react(). */
-export declare const clientReactionReact: EventDeclaration;
+/** Sent by useReactions.react() — the gateway verb is `send`. */
+export declare const clientReactionSend: EventDeclaration;
 /** Sent by useActivity on mount. */
 export declare const clientActivitySubscribe: EventDeclaration;
 /** Sent by useActivity on unmount/channel change. */
 export declare const clientActivityUnsubscribe: EventDeclaration;
-/** Sent by useActivity.loadHistory(). */
-export declare const clientActivityHistory: EventDeclaration;
+/** Sent by useActivity.loadHistory() — the gateway verb is `getHistory`. */
+export declare const clientActivityGetHistory: EventDeclaration;
 /** Sent by useCRDT/useYjsDoc when (re)connecting to a CRDT channel. */
 export declare const clientCrdtSubscribe: EventDeclaration;
 /** Sent by useCRDT/useYjsDoc on unmount/channel change. */

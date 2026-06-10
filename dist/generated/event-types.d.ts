@@ -1079,34 +1079,35 @@ export interface EventPayloadMap {
         message?: string;
         [key: string]: unknown;
     };
-    /** Client request to subscribe to chat messages for a channel. Sent by GatewaySocketProvider on connect when the chat feature is declared; channel may be omitted when no channel is active. */
-    'client.chat.subscribe': {
+    /** Client request to join a chat channel and start receiving its messages. Sent by GatewaySocketProvider on connect when the chat feature is declared. GROUND TRUTH (hub#1497): the gateway ChatService verb is "join" — the previously declared "subscribe" was never accepted. channel is required; on success the gateway replies chat/joined and auto-pushes recent channel history. */
+    'client.chat.join': {
         service: 'chat';
-        action: 'subscribe';
-        channel?: string;
+        action: 'join';
+        channel: string;
         [key: string]: unknown;
     };
-    /** Client request to post a text chat message to a channel (useChat.sendMessage). */
+    /** Client request to post a text chat message to a channel (useChat.sendMessage). The gateway ChatService requires a prior join on the channel ("You must join the channel before sending messages"). metadata is optional and size-validated server-side. */
     'client.chat.send': {
         service: 'chat';
         action: 'send';
         channel: string;
         message: string;
+        metadata?: Record<string, unknown>;
         [key: string]: unknown;
     };
-    /** Client request for recent chat message history for a channel (useChat.loadHistory). */
+    /** Client request for recent chat message history for a channel (useChat.loadHistory). limit is optional — the gateway ChatService falls back to its configured default history limit when omitted (hub#1497 re-audit: limit was wrongly declared required). */
     'client.chat.history': {
         service: 'chat';
         action: 'history';
         channel: string;
-        limit: number;
+        limit?: number;
         [key: string]: unknown;
     };
-    /** Client request to receive presence events for a channel. Sent by usePresence on mount and by GatewaySocketProvider on connect when the presence feature is declared; channel may be omitted when no channel is active. */
+    /** Client request to receive presence events for a channel. Sent by usePresence on mount and by GatewaySocketProvider on connect when the presence feature is declared. GROUND TRUTH (hub#1497): the gateway PresenceService rejects the frame without channel ("Channel is required") — channel is REQUIRED, not optional as previously declared. */
     'client.presence.subscribe': {
         service: 'presence';
         action: 'subscribe';
-        channel?: string;
+        channel: string;
         [key: string]: unknown;
     };
     /** Client request to stop receiving presence events for a channel (usePresence cleanup). */
@@ -1116,45 +1117,50 @@ export interface EventPayloadMap {
         channel: string;
         [key: string]: unknown;
     };
-    /** Client request to set its presence entry. Two call sites: setStatus sends { status }, updateMetadata sends { metadata } — each field is therefore optional but at least one is present in practice. */
+    /** Client request to set its presence entry (usePresence setStatus / updateMetadata). GROUND TRUTH (hub#1497): the gateway PresenceService requires status ("Status is required") and reads only { status, metadata, channels } — the channel field is sent by the hook but IGNORED by the service (presence pinning uses the channels array). Previously declared with channel required + status optional; both were wrong. */
     'client.presence.set': {
         service: 'presence';
         action: 'set';
-        channel: string;
-        status?: string;
+        channel?: string;
+        status: string;
         metadata?: Record<string, unknown>;
+        channels?: string[];
         [key: string]: unknown;
     };
-    /** Client request to send an emoji reaction to a channel (useReactions.react). targetId optionally scopes the reaction to an entity (messageId, articleId, …) and passes through the gateway opaquely. */
-    'client.reaction.react': {
+    /** Client request to send an emoji reaction to a channel (useReactions.react). GROUND TRUTH (hub#1497): the gateway ReactionService verb is "send" — the previously declared "react" was never accepted. emoji must be in the gateway's available-reactions catalog; position is optional overlay placement; metadata passes through. NOTE: targetId is sent by useReactions for entity-scoped reactions but the current gateway ReactionService does NOT forward it to subscribers. */
+    'client.reaction.send': {
         service: 'reaction';
-        action: 'react';
+        action: 'send';
         channel: string;
         emoji: string;
+        position?: Record<string, unknown>;
         targetId?: string;
         metadata?: Record<string, unknown>;
         [key: string]: unknown;
     };
-    /** Client request to subscribe to the activity feed for a channel (useActivity mount). */
+    /** Client request to subscribe to the activity feed for a channel (useActivity mount). GROUND TRUTH (hub#1497): the gateway ActivityService requires channelId — the previously declared channel field was never read. No history is auto-pushed on subscribe; clients request it explicitly via client.activity.getHistory. */
     'client.activity.subscribe': {
         service: 'activity';
         action: 'subscribe';
-        channel: string;
+        channel?: string;
+        channelId: string;
         [key: string]: unknown;
     };
-    /** Client request to unsubscribe from the activity feed for a channel (useActivity cleanup). */
+    /** Client request to unsubscribe from the activity feed for a channel (useActivity cleanup). GROUND TRUTH (hub#1497): the gateway ActivityService requires channelId — the previously declared channel field was never read. */
     'client.activity.unsubscribe': {
         service: 'activity';
         action: 'unsubscribe';
-        channel: string;
+        channel?: string;
+        channelId: string;
         [key: string]: unknown;
     };
-    /** Client request for prior activity events for a channel (useActivity.loadHistory). */
-    'client.activity.history': {
+    /** Client request for prior activity events for a channel (useActivity.loadHistory). GROUND TRUTH (hub#1497): the gateway verb is "getHistory" — the previously declared "history" action was rejected ("Unknown activity action"). Keys on channelId; limit is optional (server clamps to 1..maxHistoryItems, default 50). */
+    'client.activity.getHistory': {
         service: 'activity';
-        action: 'history';
-        channel: string;
-        limit: number;
+        action: 'getHistory';
+        channel?: string;
+        channelId: string;
+        limit?: number;
         [key: string]: unknown;
     };
     /** Client request to subscribe to a CRDT document channel (useCRDT/useYjsDoc). Gateway replies with crdt:subscribed and pushes the latest crdt:snapshot when one exists. */
