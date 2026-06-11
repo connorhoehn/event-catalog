@@ -7,6 +7,46 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.3.57] - 2026-06-10
+
+Backfill the gateway-verified verbs missing from the client-frame contract,
+flagged by the realtime-modules 0.14.0 contract test (divergence notes b/c/d).
+Strictly additive — 6 new `client.*` declarations, no existing fingerprint
+changed. Each verb re-verified against the gateway-installed services'
+`handleAction` + handler implementations.
+
+### Added (client-frame contract backfill)
+
+- **`client.chat.leave`** — `channel` required ("Channel name is required");
+  gateway replies `chat/left`. Sent by `useChat` cleanup as of
+  realtime-modules 0.14.0. Completes the verified chat verb set
+  `join|leave|send|history`.
+- **`client.reaction.subscribe`** — `channel` required + length-validated +
+  authz-gated; gateway replies `reaction/reaction_subscribed` with the
+  `availableReactions` list. Sent by `useReactions` mount as of 0.14.0.
+- **`client.reaction.unsubscribe`** — `channel` required; gateway replies
+  `reaction/reaction_unsubscribed`. Sent by `useReactions` cleanup as of
+  0.14.0.
+- **`client.reaction.getAvailable`** — no payload fields read beyond
+  service/action (channel ignored); gateway replies
+  `reaction/available_reactions` with the full catalog. No hook sender today.
+  Completes the verified reaction verb set
+  `subscribe|unsubscribe|send|getAvailable`.
+- **`client.presence.get`** — at least one of `targetClientId` / `channel`
+  required (either-or constraint documented in the description; the type
+  generator does not support `anyOf`, so both are declared optional);
+  `targetClientId` wins when both present. Gateway replies a
+  `presence/presence` action frame. No hook sender today.
+- **`client.presence.heartbeat`** — no payload fields read; refreshes
+  lastSeen/lastHeartbeat, no reply, silent no-op without a prior `set`. No
+  hook sender today. Completes the verified presence verb set
+  `set|get|subscribe|unsubscribe|heartbeat`.
+
+### Added (publishing)
+
+- `publishConfig.registry` → `https://npm.pkg.github.com` (GitHub Packages
+  publish prep).
+
 ## [0.3.56] - 2026-06-10
 
 hub#1497 — correct `client.activity.*` + re-audit all `client.*` outbound

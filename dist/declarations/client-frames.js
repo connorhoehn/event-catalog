@@ -43,6 +43,21 @@
 // videohangout / notification / generic-subscribe declarations remain
 // client-hook contracts with no gateway service counterpart (notes below).
 //
+// BACKFILL (v0.3.57, 2026-06-10): the realtime-modules 0.14.0 contract test
+// flagged gateway-verified verbs the services accept but this file did not
+// declare. Re-verified against the gateway-installed service dist
+// (handleAction + handlers) and added:
+//   - client.chat.leave             (sent by useChat cleanup as of 0.14.0)
+//   - client.reaction.subscribe     (sent by useReactions mount as of 0.14.0)
+//   - client.reaction.unsubscribe   (sent by useReactions cleanup as of 0.14.0)
+//   - client.reaction.getAvailable  (no hook sender today)
+//   - client.presence.get           (no hook sender today)
+//   - client.presence.heartbeat     (no hook sender today)
+// With these, every verb in the verified handleAction sets for chat
+// (join|leave|send|history), reaction (subscribe|unsubscribe|send|
+// getAvailable) and presence (set|get|subscribe|unsubscribe|heartbeat)
+// is declared.
+//
 // Known naming tensions are documented in declaration descriptions, not fixed:
 //   - useVideoHangout consumes `videohangout:*` frames while the gateway's
 //     call signaling emits `type:'call'` frames (declared as ws.call.* in
@@ -62,7 +77,7 @@
 // Gateway emissions cross-checked against
 //   websocket-gateway/src/observability/gateway-event-declarations.js
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionSend = exports.clientPresenceSet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatJoin = void 0;
+exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
 const CLIENT_PRODUCER = 'realtime-modules-client';
 const CLIENT_BASE_TAGS = ['gateway', 'signal', 'client-frame', `producer:${CLIENT_PRODUCER}`];
 const GATEWAY_PRODUCER = 'websocket-gateway';
@@ -119,6 +134,16 @@ exports.clientChatJoin = {
     tags: [...CLIENT_BASE_TAGS, 'chat'],
     schema: clientFrameSchema('chat', 'join', {}, ['channel']),
 };
+/** Sent by useChat cleanup (channel change / unmount) as of realtime-modules 0.14.0. */
+exports.clientChatLeave = {
+    namespace: 'client',
+    name: 'client.chat.leave',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client request to leave a chat channel and stop receiving its messages. Sent by useChat cleanup on channel change/unmount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ChatService.handleLeaveChannel requires channel ("Channel name is required") and replies with a chat/left action frame; in distributed mode it also drops the message-router channel subscription.',
+    tags: [...CLIENT_BASE_TAGS, 'chat'],
+    schema: clientFrameSchema('chat', 'leave', {}, ['channel']),
+};
 /** Sent by useChat.sendMessage(). */
 exports.clientChatSend = {
     namespace: 'client',
@@ -167,6 +192,35 @@ exports.clientPresenceUnsubscribe = {
     tags: [...CLIENT_BASE_TAGS, 'presence'],
     schema: clientFrameSchema('presence', 'unsubscribe', {}, ['channel']),
 };
+/** No hook sender today — gateway-verified verb declared for contract completeness. */
+exports.clientPresenceGet = {
+    namespace: 'client',
+    name: 'client.presence.get',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client request to read presence data for a single client (targetClientId) or a whole channel (channel). GROUND TRUTH (v0.3.57 backfill): gateway PresenceService.handleGetPresence requires AT LEAST ONE of targetClientId or channel ("Either targetClientId or channel is required" — an either-or constraint JSON-schema-encodable only via anyOf, which the type generator does not support, so both fields are declared optional here). targetClientId wins when both are present; unknown targetClientId yields "Client not found". Replies with a presence/presence action frame carrying the data. PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 — declared as the gateway-verified verb for any WS client.',
+    tags: [...CLIENT_BASE_TAGS, 'presence'],
+    schema: clientFrameSchema('presence', 'get', {
+        targetClientId: {
+            type: 'string',
+            description: 'client id to fetch a single PresenceEntry for — takes precedence over channel',
+        },
+        channel: {
+            type: 'string',
+            description: 'channel to fetch the full channel-presence list for (used when targetClientId is absent)',
+        },
+    }),
+};
+/** No hook sender today — gateway-verified verb declared for contract completeness. */
+exports.clientPresenceHeartbeat = {
+    namespace: 'client',
+    name: 'client.presence.heartbeat',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client keep-alive that refreshes lastSeen/lastHeartbeat on its existing presence entry so the stale-presence sweep does not reap it. GROUND TRUTH (v0.3.57 backfill): gateway PresenceService.handleHeartbeat reads NO payload fields beyond service/action (data is ignored) and sends no reply; it is a silent no-op when the client has no presence entry (set first). PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 — declared as the gateway-verified verb for any WS client.',
+    tags: [...CLIENT_BASE_TAGS, 'presence'],
+    schema: clientFrameSchema('presence', 'heartbeat'),
+};
 /** Sent by usePresence.setStatus() / updateMetadata(). */
 exports.clientPresenceSet = {
     namespace: 'client',
@@ -199,6 +253,26 @@ exports.clientPresenceSet = {
 // react") — corrected to `send`. The useReactions header comment's outbound
 // `{ action: 'history' }` frame remains unsent by any code path.
 // ===========================================================================
+/** Sent by useReactions on mount (channel subscribe) as of realtime-modules 0.14.0. */
+exports.clientReactionSubscribe = {
+    namespace: 'client',
+    name: 'client.reaction.subscribe',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client request to receive emoji reactions for a channel. Sent by useReactions on mount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleSubscribeToReactions requires channel ("Channel name is required", length-validated 1..maxChannelNameLength) and runs the consumer authz hook; on success it replies with a reaction/reaction_subscribed success frame whose data includes the availableReactions emoji list.',
+    tags: [...CLIENT_BASE_TAGS, 'reaction'],
+    schema: clientFrameSchema('reaction', 'subscribe', {}, ['channel']),
+};
+/** Sent by useReactions cleanup (channel change / unmount) as of realtime-modules 0.14.0. */
+exports.clientReactionUnsubscribe = {
+    namespace: 'client',
+    name: 'client.reaction.unsubscribe',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client request to stop receiving emoji reactions for a channel. Sent by useReactions cleanup on channel change/unmount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleUnsubscribeFromReactions requires channel ("Channel name is required") and replies with a reaction/reaction_unsubscribed success frame.',
+    tags: [...CLIENT_BASE_TAGS, 'reaction'],
+    schema: clientFrameSchema('reaction', 'unsubscribe', {}, ['channel']),
+};
 /** Sent by useReactions.react() — the gateway verb is `send`. */
 exports.clientReactionSend = {
     namespace: 'client',
@@ -221,6 +295,16 @@ exports.clientReactionSend = {
         },
         metadata: { type: 'object', additionalProperties: true },
     }, ['channel', 'emoji']),
+};
+/** No hook sender today — gateway-verified verb declared for contract completeness. */
+exports.clientReactionGetAvailable = {
+    namespace: 'client',
+    name: 'client.reaction.getAvailable',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client request for the gateway\'s available-reactions catalog (emoji → effect map). GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleGetAvailableReactions reads NO payload fields beyond service/action (channel is ignored) and replies with a reaction/available_reactions success frame carrying the full reactions catalog. PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 (subscribers get the emoji list in the reaction_subscribed reply instead) — declared as the gateway-verified verb for any WS client.',
+    tags: [...CLIENT_BASE_TAGS, 'reaction'],
+    schema: clientFrameSchema('reaction', 'getAvailable'),
 };
 // ===========================================================================
 // OUTBOUND — activity (useActivity.ts)
@@ -742,14 +826,20 @@ exports.wsFeatureFlagUpdated = {
 exports.clientFrameOutboundDeclarations = [
     // chat
     exports.clientChatJoin,
+    exports.clientChatLeave,
     exports.clientChatSend,
     exports.clientChatHistory,
     // presence
     exports.clientPresenceSubscribe,
     exports.clientPresenceUnsubscribe,
     exports.clientPresenceSet,
+    exports.clientPresenceGet,
+    exports.clientPresenceHeartbeat,
     // reaction
+    exports.clientReactionSubscribe,
+    exports.clientReactionUnsubscribe,
     exports.clientReactionSend,
+    exports.clientReactionGetAvailable,
     // activity
     exports.clientActivitySubscribe,
     exports.clientActivityUnsubscribe,

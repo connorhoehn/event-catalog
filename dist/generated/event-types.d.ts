@@ -1086,6 +1086,13 @@ export interface EventPayloadMap {
         channel: string;
         [key: string]: unknown;
     };
+    /** Client request to leave a chat channel and stop receiving its messages. Sent by useChat cleanup on channel change/unmount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ChatService.handleLeaveChannel requires channel ("Channel name is required") and replies with a chat/left action frame; in distributed mode it also drops the message-router channel subscription. */
+    'client.chat.leave': {
+        service: 'chat';
+        action: 'leave';
+        channel: string;
+        [key: string]: unknown;
+    };
     /** Client request to post a text chat message to a channel (useChat.sendMessage). The gateway ChatService requires a prior join on the channel ("You must join the channel before sending messages"). metadata is optional and size-validated server-side. */
     'client.chat.send': {
         service: 'chat';
@@ -1127,6 +1134,35 @@ export interface EventPayloadMap {
         channels?: string[];
         [key: string]: unknown;
     };
+    /** Client request to read presence data for a single client (targetClientId) or a whole channel (channel). GROUND TRUTH (v0.3.57 backfill): gateway PresenceService.handleGetPresence requires AT LEAST ONE of targetClientId or channel ("Either targetClientId or channel is required" — an either-or constraint JSON-schema-encodable only via anyOf, which the type generator does not support, so both fields are declared optional here). targetClientId wins when both are present; unknown targetClientId yields "Client not found". Replies with a presence/presence action frame carrying the data. PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 — declared as the gateway-verified verb for any WS client. */
+    'client.presence.get': {
+        service: 'presence';
+        action: 'get';
+        channel?: string;
+        targetClientId?: string;
+        [key: string]: unknown;
+    };
+    /** Client keep-alive that refreshes lastSeen/lastHeartbeat on its existing presence entry so the stale-presence sweep does not reap it. GROUND TRUTH (v0.3.57 backfill): gateway PresenceService.handleHeartbeat reads NO payload fields beyond service/action (data is ignored) and sends no reply; it is a silent no-op when the client has no presence entry (set first). PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 — declared as the gateway-verified verb for any WS client. */
+    'client.presence.heartbeat': {
+        service: 'presence';
+        action: 'heartbeat';
+        channel?: string;
+        [key: string]: unknown;
+    };
+    /** Client request to receive emoji reactions for a channel. Sent by useReactions on mount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleSubscribeToReactions requires channel ("Channel name is required", length-validated 1..maxChannelNameLength) and runs the consumer authz hook; on success it replies with a reaction/reaction_subscribed success frame whose data includes the availableReactions emoji list. */
+    'client.reaction.subscribe': {
+        service: 'reaction';
+        action: 'subscribe';
+        channel: string;
+        [key: string]: unknown;
+    };
+    /** Client request to stop receiving emoji reactions for a channel. Sent by useReactions cleanup on channel change/unmount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleUnsubscribeFromReactions requires channel ("Channel name is required") and replies with a reaction/reaction_unsubscribed success frame. */
+    'client.reaction.unsubscribe': {
+        service: 'reaction';
+        action: 'unsubscribe';
+        channel: string;
+        [key: string]: unknown;
+    };
     /** Client request to send an emoji reaction to a channel (useReactions.react). GROUND TRUTH (hub#1497): the gateway ReactionService verb is "send" — the previously declared "react" was never accepted. emoji must be in the gateway's available-reactions catalog; position is optional overlay placement; metadata passes through. NOTE: targetId is sent by useReactions for entity-scoped reactions but the current gateway ReactionService does NOT forward it to subscribers. */
     'client.reaction.send': {
         service: 'reaction';
@@ -1136,6 +1172,13 @@ export interface EventPayloadMap {
         position?: Record<string, unknown>;
         targetId?: string;
         metadata?: Record<string, unknown>;
+        [key: string]: unknown;
+    };
+    /** Client request for the gateway's available-reactions catalog (emoji → effect map). GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleGetAvailableReactions reads NO payload fields beyond service/action (channel is ignored) and replies with a reaction/available_reactions success frame carrying the full reactions catalog. PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 (subscribers get the emoji list in the reaction_subscribed reply instead) — declared as the gateway-verified verb for any WS client. */
+    'client.reaction.getAvailable': {
+        service: 'reaction';
+        action: 'getAvailable';
+        channel?: string;
         [key: string]: unknown;
     };
     /** Client request to subscribe to the activity feed for a channel (useActivity mount). GROUND TRUTH (hub#1497): the gateway ActivityService requires channelId — the previously declared channel field was never read. No history is auto-pushed on subscribe; clients request it explicitly via client.activity.getHistory. */

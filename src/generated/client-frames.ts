@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-06-10T21:23:30.887Z
+// Generated at: 2026-06-11T00:58:18.463Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -24,6 +24,13 @@ export interface ClientFramePayloadMap {
   'client.chat.join': {
     service: 'chat';
     action: 'join';
+    channel: string;
+    [key: string]: unknown;
+  };
+  /** Client request to leave a chat channel and stop receiving its messages. Sent by useChat cleanup on channel change/unmount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ChatService.handleLeaveChannel requires channel ("Channel name is required") and replies with a chat/left action frame; in distributed mode it also drops the message-router channel subscription. */
+  'client.chat.leave': {
+    service: 'chat';
+    action: 'leave';
     channel: string;
     [key: string]: unknown;
   };
@@ -68,6 +75,35 @@ export interface ClientFramePayloadMap {
     channels?: string[];
     [key: string]: unknown;
   };
+  /** Client request to read presence data for a single client (targetClientId) or a whole channel (channel). GROUND TRUTH (v0.3.57 backfill): gateway PresenceService.handleGetPresence requires AT LEAST ONE of targetClientId or channel ("Either targetClientId or channel is required" — an either-or constraint JSON-schema-encodable only via anyOf, which the type generator does not support, so both fields are declared optional here). targetClientId wins when both are present; unknown targetClientId yields "Client not found". Replies with a presence/presence action frame carrying the data. PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 — declared as the gateway-verified verb for any WS client. */
+  'client.presence.get': {
+    service: 'presence';
+    action: 'get';
+    channel?: string;
+    targetClientId?: string;
+    [key: string]: unknown;
+  };
+  /** Client keep-alive that refreshes lastSeen/lastHeartbeat on its existing presence entry so the stale-presence sweep does not reap it. GROUND TRUTH (v0.3.57 backfill): gateway PresenceService.handleHeartbeat reads NO payload fields beyond service/action (data is ignored) and sends no reply; it is a silent no-op when the client has no presence entry (set first). PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 — declared as the gateway-verified verb for any WS client. */
+  'client.presence.heartbeat': {
+    service: 'presence';
+    action: 'heartbeat';
+    channel?: string;
+    [key: string]: unknown;
+  };
+  /** Client request to receive emoji reactions for a channel. Sent by useReactions on mount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleSubscribeToReactions requires channel ("Channel name is required", length-validated 1..maxChannelNameLength) and runs the consumer authz hook; on success it replies with a reaction/reaction_subscribed success frame whose data includes the availableReactions emoji list. */
+  'client.reaction.subscribe': {
+    service: 'reaction';
+    action: 'subscribe';
+    channel: string;
+    [key: string]: unknown;
+  };
+  /** Client request to stop receiving emoji reactions for a channel. Sent by useReactions cleanup on channel change/unmount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleUnsubscribeFromReactions requires channel ("Channel name is required") and replies with a reaction/reaction_unsubscribed success frame. */
+  'client.reaction.unsubscribe': {
+    service: 'reaction';
+    action: 'unsubscribe';
+    channel: string;
+    [key: string]: unknown;
+  };
   /** Client request to send an emoji reaction to a channel (useReactions.react). GROUND TRUTH (hub#1497): the gateway ReactionService verb is "send" — the previously declared "react" was never accepted. emoji must be in the gateway's available-reactions catalog; position is optional overlay placement; metadata passes through. NOTE: targetId is sent by useReactions for entity-scoped reactions but the current gateway ReactionService does NOT forward it to subscribers. */
   'client.reaction.send': {
     service: 'reaction';
@@ -77,6 +113,13 @@ export interface ClientFramePayloadMap {
     position?: Record<string, unknown>;
     targetId?: string;
     metadata?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+  /** Client request for the gateway's available-reactions catalog (emoji → effect map). GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleGetAvailableReactions reads NO payload fields beyond service/action (channel is ignored) and replies with a reaction/available_reactions success frame carrying the full reactions catalog. PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 (subscribers get the emoji list in the reaction_subscribed reply instead) — declared as the gateway-verified verb for any WS client. */
+  'client.reaction.getAvailable': {
+    service: 'reaction';
+    action: 'getAvailable';
+    channel?: string;
     [key: string]: unknown;
   };
   /** Client request to subscribe to the activity feed for a channel (useActivity mount). GROUND TRUTH (hub#1497): the gateway ActivityService requires channelId — the previously declared channel field was never read. No history is auto-pushed on subscribe; clients request it explicitly via client.activity.getHistory. */
@@ -246,6 +289,7 @@ export type ClientFramePayload<K extends keyof ClientFramePayloadMap> = ClientFr
 /** Union of every outbound client→gateway frame for the `chat` service. */
 export type ChatOutboundFrame =
   | ClientFramePayloadMap['client.chat.join']
+  | ClientFramePayloadMap['client.chat.leave']
   | ClientFramePayloadMap['client.chat.send']
   | ClientFramePayloadMap['client.chat.history'];
 
@@ -253,11 +297,16 @@ export type ChatOutboundFrame =
 export type PresenceOutboundFrame =
   | ClientFramePayloadMap['client.presence.subscribe']
   | ClientFramePayloadMap['client.presence.unsubscribe']
-  | ClientFramePayloadMap['client.presence.set'];
+  | ClientFramePayloadMap['client.presence.set']
+  | ClientFramePayloadMap['client.presence.get']
+  | ClientFramePayloadMap['client.presence.heartbeat'];
 
 /** Union of every outbound client→gateway frame for the `reaction` service. */
 export type ReactionOutboundFrame =
-  | ClientFramePayloadMap['client.reaction.send'];
+  | ClientFramePayloadMap['client.reaction.subscribe']
+  | ClientFramePayloadMap['client.reaction.unsubscribe']
+  | ClientFramePayloadMap['client.reaction.send']
+  | ClientFramePayloadMap['client.reaction.getAvailable'];
 
 /** Union of every outbound client→gateway frame for the `activity` service. */
 export type ActivityOutboundFrame =
