@@ -77,7 +77,7 @@
 // Gateway emissions cross-checked against
 //   websocket-gateway/src/observability/gateway-event-declarations.js
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
+exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsCrdtAwareness = exports.wsReactionAvailable = exports.wsReactionUnsubscribed = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
 const CLIENT_PRODUCER = 'realtime-modules-client';
 const CLIENT_BASE_TAGS = ['gateway', 'signal', 'client-frame', `producer:${CLIENT_PRODUCER}`];
 const GATEWAY_PRODUCER = 'websocket-gateway';
@@ -770,6 +770,109 @@ exports.wsNotificationBulkUpdate = {
         },
     }, ['payload']),
 };
+// --- gateway send-back envelopes (divergence note b) -------------------------
+//
+// GROUND TRUTH (2026-06-12): re-audited against the gateway-instantiated
+// service dist the gateway actually runs — websocket-gateway/node_modules/
+// @connorhoehn/realtime-modules/dist/{chat,presence,reactions,cursor,activity,
+// crdt}/. These are the type:'<service>' / type:'<service>:<variant>' action-
+// frame envelopes the gateway services emit to the client, which the 0.15.x
+// realtime-modules hooks parse payload-first (useChat/usePresence/useReactions
+// per divergence note b in the contract test). Most send-backs were ALREADY
+// declared in gateway-signal.ts (ws.chat.*, ws.presence.*, ws.reaction.*,
+// ws.cursor.*, ws.activity.*, ws.crdt.*) and those declarations were verified
+// against the dist and RECONCILED there (see the correction notes in
+// gateway-signal.ts). The three declarations below are the send-back frames
+// the dist emits that had NO ws.* declaration anywhere — added here so the
+// inbound unions + EventPayloadMap are complete and the contract test can
+// assert the hooks' parsers against the full send-back set.
+/**
+ * Consumed by useReactions: confirmation that an unsubscribe was accepted.
+ * GROUND TRUTH: ReactionService.handleUnsubscribeFromReactions →
+ * sendSuccess('reaction_unsubscribed', { channel, message }) which wraps as
+ * { type:'reaction', action:'reaction_unsubscribed', success:true, data }.
+ * The sibling reaction_subscribed frame is declared as ws.reaction.subscribed
+ * in gateway-signal.ts (reconciled there to add success + data.message).
+ */
+exports.wsReactionUnsubscribed = {
+    namespace: 'ws',
+    name: 'ws.reaction.unsubscribed',
+    transport: 'signal',
+    producer: GATEWAY_PRODUCER,
+    description: 'Confirmation sent to a client when their reaction unsubscribe is accepted. GROUND TRUTH (gateway dist ReactionService.handleUnsubscribeFromReactions → sendSuccess): wire frame is { type:"reaction", action:"reaction_unsubscribed", success:true, data:{ channel, message } }. No ws.* declaration existed for this verified send-back before — added per divergence note (b).',
+    tags: [...GATEWAY_BASE_TAGS, 'reaction', 'send-back', 'client-contract'],
+    schema: inboundSchema('reaction', {
+        action: { type: 'string', const: 'reaction_unsubscribed' },
+        success: { type: 'boolean', const: true },
+        data: {
+            type: 'object',
+            properties: {
+                channel: { type: 'string' },
+                message: { type: 'string' },
+            },
+            required: ['channel'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+/**
+ * Consumed by clients that send client.reaction.getAvailable: the emoji →
+ * effect catalog. GROUND TRUTH: ReactionService.handleGetAvailableReactions →
+ * sendSuccess('available_reactions', { reactions }) wrapping as
+ * { type:'reaction', action:'available_reactions', success:true, data }.
+ */
+exports.wsReactionAvailable = {
+    namespace: 'ws',
+    name: 'ws.reaction.available',
+    transport: 'signal',
+    producer: GATEWAY_PRODUCER,
+    description: 'The gateway\'s available-reactions catalog (emoji → effect map), sent in reply to a getAvailable request. GROUND TRUTH (gateway dist ReactionService.handleGetAvailableReactions → sendSuccess): wire frame is { type:"reaction", action:"available_reactions", success:true, data:{ reactions } } where reactions maps each emoji to its { effect } config. No ws.* declaration existed before — added per divergence note (b).',
+    tags: [...GATEWAY_BASE_TAGS, 'reaction', 'send-back', 'client-contract'],
+    schema: inboundSchema('reaction', {
+        action: { type: 'string', const: 'available_reactions' },
+        success: { type: 'boolean', const: true },
+        data: {
+            type: 'object',
+            properties: {
+                reactions: { type: 'object', additionalProperties: true, description: 'emoji → { effect } map' },
+            },
+            required: ['reactions'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+/**
+ * Broadcast to CRDT channel subscribers: coalesced Y.js awareness updates.
+ * GROUND TRUTH: server/AwarenessCoalescer._broadcast → sendToChannel(channel,
+ * { type:'crdt:awareness', channel, updates:[{ clientId, update }] }). This is
+ * the frame the dist actually emits — distinct from the historical
+ * ws.crdt.awareness-batch declaration in gateway-signal.ts (different type
+ * literal `crdt:awareness-batch` and different per-entry shape
+ * { clientId, awareness }), which the current dist does NOT emit (noted there).
+ */
+exports.wsCrdtAwareness = {
+    namespace: 'ws',
+    name: 'ws.crdt.awareness',
+    transport: 'signal',
+    producer: GATEWAY_PRODUCER,
+    description: 'Coalesced Y.js awareness updates broadcast to all CRDT channel subscribers. GROUND TRUTH (gateway dist server/AwarenessCoalescer._broadcast): wire frame is { type:"crdt:awareness", channel, updates:[{ clientId, update }] } where each update is a base64-encoded Y.js awareness delta. This is the frame the running dist emits — distinct from the historical ws.crdt.awareness-batch (type "crdt:awareness-batch", per-entry { clientId, awareness }) which the current dist does NOT emit. Added per divergence note (b).',
+    tags: [...GATEWAY_BASE_TAGS, 'crdt', 'awareness', 'send-back', 'client-contract'],
+    schema: inboundSchema('crdt:awareness', {
+        channel: { type: 'string' },
+        updates: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    clientId: { type: 'string' },
+                    update: { type: 'string', description: 'base64-encoded Y.js awareness delta' },
+                },
+                required: ['clientId', 'update'],
+                additionalProperties: true,
+            },
+        },
+    }, ['channel', 'updates']),
+};
 // --- capability / feature-flag (control-plane push) ----------------------------
 /** Consumed by useCapability: a CRD-derived capability changed. */
 exports.wsCapabilityUpdated = {
@@ -886,6 +989,10 @@ exports.clientContractInboundDeclarations = [
     // capability / feature-flag
     exports.wsCapabilityUpdated,
     exports.wsFeatureFlagUpdated,
+    // gateway send-back envelopes (divergence note b)
+    exports.wsReactionUnsubscribed,
+    exports.wsReactionAvailable,
+    exports.wsCrdtAwareness,
 ];
 /** All Wave A2 client-frame contract declarations (outbound + inbound additions). */
 exports.clientFrameDeclarations = [

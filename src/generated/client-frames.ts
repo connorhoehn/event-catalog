@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-06-11T00:58:18.463Z
+// Generated at: 2026-06-12T22:29:58.387Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -382,7 +382,8 @@ export type CrdtInboundFrame =
   | EventPayloadMap['ws.crdt.sync-request']
   | EventPayloadMap['ws.crdt.sync-response']
   | EventPayloadMap['ws.crdt.snapshot-stored']
-  | EventPayloadMap['ws.crdt.awareness-batch'];
+  | EventPayloadMap['ws.crdt.awareness-batch']
+  | EventPayloadMap['ws.crdt.awareness'];
 
 /** Union of every inbound gateway→client push frame for the `presence` service. */
 export type PresenceInboundFrame =
@@ -401,7 +402,9 @@ export type ReactionInboundFrame =
   | EventPayloadMap['ws.reaction.received']
   | EventPayloadMap['ws.reaction.removed']
   | EventPayloadMap['ws.reaction.list']
-  | EventPayloadMap['ws.reaction.sent'];
+  | EventPayloadMap['ws.reaction.sent']
+  | EventPayloadMap['ws.reaction.unsubscribed']
+  | EventPayloadMap['ws.reaction.available'];
 
 /** Union of every inbound gateway→client push frame for the `call` service. */
 export type CallInboundFrame =

@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-06-11T00:58:18.460Z
+// Generated at: 2026-06-12T22:29:58.385Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -563,7 +563,7 @@ export interface EventPayloadMap {
     modes?: Record<string, unknown>;
     [key: string]: unknown;
   };
-  /** Broadcast to channel subscribers when a client clears (removes) their cursor from the canvas. */
+  /** Broadcast to channel subscribers when a client clears (removes) their cursor from the canvas. NOTE (2026-06-12 dist re-audit): the realtime-modules dist CursorService the gateway currently runs has NO clear action (cursor removal flows through the remove/update verbs) — historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service. */
   'ws.cursor.clear': {
     type: 'cursor';
     timestamp?: string;
@@ -572,7 +572,7 @@ export interface EventPayloadMap {
     clientId: string;
     [key: string]: unknown;
   };
-  /** Batched cursor positions for multiple clients delivered in a single frame to reduce message volume. */
+  /** Batched cursor positions for multiple clients delivered in a single frame to reduce message volume. NOTE (2026-06-12 dist re-audit): the realtime-modules dist CursorService the gateway currently runs has NO batch action (it broadcasts per-client cursor:update frames and returns the full list via cursor:subscribed/cursors) — historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service. */
   'ws.cursor.batch': {
     type: 'cursor';
     timestamp?: string;
@@ -668,7 +668,7 @@ export interface EventPayloadMap {
     snapshot?: string;
     [key: string]: unknown;
   };
-  /** Client-initiated Y.js state vector sent to the gateway to request missing updates from peers. */
+  /** Client-initiated Y.js state vector sent to the gateway to request missing updates from peers. NOTE (2026-06-12 dist re-audit): not emitted/handled by the realtime-modules dist CRDTService the gateway currently runs (sync flows via crdt:subscribed + the pushed crdt:snapshot) — historical/in-tree-gateway surface, retained for back-compat. */
   'ws.crdt.sync-request': {
     type: 'crdt:sync-request';
     timestamp?: string;
@@ -676,7 +676,7 @@ export interface EventPayloadMap {
     stateVector: string;
     [key: string]: unknown;
   };
-  /** Gateway response to a sync-request containing the Y.js updates needed to bring the client up to date. */
+  /** Gateway response to a sync-request containing the Y.js updates needed to bring the client up to date. NOTE (2026-06-12 dist re-audit): not emitted by the realtime-modules dist CRDTService the gateway currently runs — historical/in-tree-gateway surface, retained for back-compat. */
   'ws.crdt.sync-response': {
     type: 'crdt:sync-response';
     timestamp?: string;
@@ -684,7 +684,7 @@ export interface EventPayloadMap {
     update: string;
     [key: string]: unknown;
   };
-  /** Broadcast when a Y.Doc state snapshot is durably stored by the gateway. Carries the snapshot ID and byte size so clients can decide whether to fetch the new baseline. */
+  /** Broadcast when a Y.Doc state snapshot is durably stored by the gateway. Carries the snapshot ID and byte size so clients can decide whether to fetch the new baseline. NOTE (2026-06-12 dist re-audit): not emitted by the realtime-modules dist CRDTService the gateway currently runs (snapshots are persisted silently; clients re-fetch via getSnapshot → crdt:snapshot) — historical/in-tree-gateway surface, retained for back-compat. */
   'ws.crdt.snapshot-stored': {
     type: 'crdt:snapshot-stored';
     timestamp?: string;
@@ -693,7 +693,7 @@ export interface EventPayloadMap {
     size: number;
     [key: string]: unknown;
   };
-  /** Batched Y.js awareness updates (cursor positions, user metadata) forwarded to CRDT channel subscribers in a single frame to reduce overhead. */
+  /** Batched Y.js awareness updates (cursor positions, user metadata) forwarded to CRDT channel subscribers in a single frame to reduce overhead. NOTE (2026-06-12 dist re-audit): the realtime-modules dist the gateway currently runs emits awareness as type:"crdt:awareness" with { channel, updates:[{ clientId, update }] } (declared as ws.crdt.awareness in client-frames.ts), NOT this "crdt:awareness-batch" / { clientId, awareness } shape — this declaration is a historical/in-tree-gateway surface, retained for back-compat. */
   'ws.crdt.awareness-batch': {
     type: 'crdt:awareness-batch';
     timestamp?: string;
@@ -754,13 +754,15 @@ export interface EventPayloadMap {
     clientId: string;
     [key: string]: unknown;
   };
-  /** Subscription confirmation sent when a client subscribes to reactions in a channel. */
+  /** Subscription confirmation sent when a client subscribes to reactions in a channel. GROUND TRUTH (gateway dist ReactionService.handleSubscribeToReactions → sendSuccess): { type:"reaction", action:"reaction_subscribed", success:true, data:{ channel, message, availableReactions } } — availableReactions is the emoji-name list. */
   'ws.reaction.subscribed': {
     type: 'reaction';
     timestamp?: string;
     action: 'reaction_subscribed';
-    data?: {
-      channel?: string;
+    success?: true;
+    data: {
+      channel: string;
+      message?: string;
       availableReactions?: string[];
       [key: string]: unknown;
     };
@@ -781,7 +783,7 @@ export interface EventPayloadMap {
     };
     [key: string]: unknown;
   };
-  /** Broadcast to all reaction channel subscribers when a previously sent reaction is removed. */
+  /** Broadcast to all reaction channel subscribers when a previously sent reaction is removed. NOTE (2026-06-12 dist re-audit): the realtime-modules dist ReactionService the gateway currently runs has NO reaction-remove action — this frame is a historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service. */
   'ws.reaction.removed': {
     type: 'reaction';
     timestamp?: string;
@@ -795,7 +797,7 @@ export interface EventPayloadMap {
     };
     [key: string]: unknown;
   };
-  /** Current reaction list for a channel, sent in response to a list request. */
+  /** Current reaction list for a channel, sent in response to a list request. NOTE (2026-06-12 dist re-audit): the realtime-modules dist ReactionService the gateway currently runs has NO reaction-list action — historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service. */
   'ws.reaction.list': {
     type: 'reaction';
     timestamp?: string;
@@ -807,12 +809,19 @@ export interface EventPayloadMap {
     };
     [key: string]: unknown;
   };
-  /** Confirmation sent to the reaction sender after their reaction is broadcast. */
+  /** Confirmation sent to the reaction sender after their reaction is broadcast. GROUND TRUTH (gateway dist ReactionService.handleSendReaction → sendSuccess): { type:"reaction", action:"reaction_sent", success:true, data:{ reactionId, emoji, channel, timestamp } }. */
   'ws.reaction.sent': {
     type: 'reaction';
     timestamp?: string;
     action: 'reaction_sent';
-    data?: Record<string, unknown>;
+    success?: true;
+    data: {
+      reactionId: string;
+      emoji: string;
+      channel: string;
+      timestamp?: string;
+      [key: string]: unknown;
+    };
     [key: string]: unknown;
   };
   /** Call invitation broadcast to target users (or all users when no targets specified). */
@@ -1076,13 +1085,21 @@ export interface EventPayloadMap {
     emittedAt?: number;
     [key: string]: unknown;
   };
-  /** Generic error frame sent to a client when any gateway service encounters a client-visible error. */
+  /** Generic error frame sent to a client when any gateway service encounters a client-visible error. GROUND TRUTH (gateway dist): chat/reaction/cursor/crdt nest under error:{ code, message, service, clientId, timestamp }; presence/activity send a flat top-level message. `service` names the originating service in both shapes. */
   'ws.error': {
     type: 'error';
     timestamp?: string;
     service?: string;
     code?: string;
     message?: string;
+    error?: {
+      code: string;
+      message: string;
+      service?: string;
+      clientId?: string;
+      timestamp?: string;
+      [key: string]: unknown;
+    };
     [key: string]: unknown;
   };
   /** Client request to join a chat channel and start receiving its messages. Sent by GatewaySocketProvider on connect when the chat feature is declared. GROUND TRUTH (hub#1497): the gateway ChatService verb is "join" — the previously declared "subscribe" was never accepted. channel is required; on success the gateway replies chat/joined and auto-pushes recent channel history. */
@@ -1500,6 +1517,43 @@ export interface EventPayloadMap {
       metadata?: Record<string, unknown>;
       [key: string]: unknown;
     };
+    [key: string]: unknown;
+  };
+  /** Confirmation sent to a client when their reaction unsubscribe is accepted. GROUND TRUTH (gateway dist ReactionService.handleUnsubscribeFromReactions → sendSuccess): wire frame is { type:"reaction", action:"reaction_unsubscribed", success:true, data:{ channel, message } }. No ws.* declaration existed for this verified send-back before — added per divergence note (b). */
+  'ws.reaction.unsubscribed': {
+    type: 'reaction';
+    timestamp?: string;
+    action: 'reaction_unsubscribed';
+    success?: true;
+    data: {
+      channel: string;
+      message?: string;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  /** The gateway's available-reactions catalog (emoji → effect map), sent in reply to a getAvailable request. GROUND TRUTH (gateway dist ReactionService.handleGetAvailableReactions → sendSuccess): wire frame is { type:"reaction", action:"available_reactions", success:true, data:{ reactions } } where reactions maps each emoji to its { effect } config. No ws.* declaration existed before — added per divergence note (b). */
+  'ws.reaction.available': {
+    type: 'reaction';
+    timestamp?: string;
+    action: 'available_reactions';
+    success?: true;
+    data: {
+      reactions: Record<string, unknown>;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  /** Coalesced Y.js awareness updates broadcast to all CRDT channel subscribers. GROUND TRUTH (gateway dist server/AwarenessCoalescer._broadcast): wire frame is { type:"crdt:awareness", channel, updates:[{ clientId, update }] } where each update is a base64-encoded Y.js awareness delta. This is the frame the running dist emits — distinct from the historical ws.crdt.awareness-batch (type "crdt:awareness-batch", per-entry { clientId, awareness }) which the current dist does NOT emit. Added per divergence note (b). */
+  'ws.crdt.awareness': {
+    type: 'crdt:awareness';
+    timestamp?: string;
+    channel: string;
+    updates: ({
+      clientId: string;
+      update: string;
+      [key: string]: unknown;
+    })[];
     [key: string]: unknown;
   };
   /** Emitted when an agent run begins. Carries the thread and run IDs. */

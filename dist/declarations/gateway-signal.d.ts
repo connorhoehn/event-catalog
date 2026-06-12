@@ -91,7 +91,13 @@ export declare const wsPresenceUnsubscribed: EventDeclaration;
 export declare const wsPresenceData: EventDeclaration;
 /** Broadcast when a client goes offline (disconnects or times out). */
 export declare const wsPresenceOffline: EventDeclaration;
-/** Sent when a client subscribes to reactions in a channel. */
+/**
+ * Sent when a client subscribes to reactions in a channel.
+ * GROUND-TRUTH RECONCILE (2026-06-12, divergence note b): the gateway dist
+ * ReactionService.handleSubscribeToReactions emits this via sendSuccess, so
+ * the wire frame carries success:true and data:{ channel, message,
+ * availableReactions } (message was previously missing; success was undeclared).
+ */
 export declare const wsReactionSubscribed: EventDeclaration;
 /** Broadcast to all channel subscribers when a reaction is sent. */
 export declare const wsReactionReceived: EventDeclaration;
@@ -99,7 +105,13 @@ export declare const wsReactionReceived: EventDeclaration;
 export declare const wsReactionRemoved: EventDeclaration;
 /** List of current reactions in a channel, sent in response to a list request. */
 export declare const wsReactionList: EventDeclaration;
-/** Confirmation sent to the sender after their reaction is broadcast. */
+/**
+ * Confirmation sent to the sender after their reaction is broadcast.
+ * GROUND-TRUTH RECONCILE (2026-06-12, divergence note b): emitted via
+ * sendSuccess, so the wire frame carries success:true and
+ * data:{ reactionId, emoji, channel, timestamp } (the data fields and the
+ * success flag were previously undeclared).
+ */
 export declare const wsReactionSent: EventDeclaration;
 export declare const wsCallInvite: EventDeclaration;
 export declare const wsCallAccepted: EventDeclaration;
@@ -161,7 +173,18 @@ export declare const wsUploadScanQuarantined: EventDeclaration;
  * expiry before download).
  */
 export declare const wsUploadUrlRevoked: EventDeclaration;
-/** Generic error frame sent when any service encounters a client-visible error. */
+/**
+ * Generic error frame sent when any service encounters a client-visible error.
+ * GROUND-TRUTH RECONCILE (2026-06-12, divergence note b): the gateway dist
+ * services emit TWO error-envelope shapes on the wire, both modelled here:
+ *   - NESTED (chat / reaction / cursor / crdt): { type:'error', service,
+ *     error:{ code, message, service, clientId, timestamp } } — via
+ *     createErrorResponse/sendError.
+ *   - FLAT (presence / activity): { type:'error', service, message } — these
+ *     services have no ErrorCodes/createErrorResponse and send a bare message.
+ * Both top-level `message` (flat) and the nested `error` object are therefore
+ * declared optional; `service` names the originating service in both shapes.
+ */
 export declare const wsError: EventDeclaration;
 /**
  * All gateway WS signal frame declarations.

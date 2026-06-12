@@ -7,6 +7,59 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.3.58] - 2026-06-12
+
+Complete the WebSocket contract's INBOUND direction: declare the gateway
+services' SEND-BACK envelopes per the service implementations the gateway
+actually runs (`websocket-gateway/node_modules/@connorhoehn/realtime-modules/
+dist/{chat,presence,reactions,cursor,activity,crdt}/`). Resolves divergence
+note (b) in the realtime-modules contract test — the action-frame envelopes the
+0.15.x hooks parse (`useChat`/`usePresence`/`useReactions`) are now fully
+declared, so the inbound unions + `EventPayloadMap` cover the complete
+send-back set (e.g. `reaction/reaction_received`, `presence/update`,
+`reaction/reaction_unsubscribed`, `available_reactions`, `crdt:awareness`).
+Strictly additive on names (3 new `ws.*`); existing send-back declarations
+reconciled in place against dist ground truth.
+
+### Added (gateway send-back envelopes, `client-frames.ts`)
+
+- **`ws.reaction.unsubscribed`** — `{ type:"reaction",
+  action:"reaction_unsubscribed", success:true, data:{ channel, message } }`
+  (ReactionService.handleUnsubscribeFromReactions → sendSuccess). No `ws.*`
+  declaration existed before.
+- **`ws.reaction.available`** — `{ type:"reaction",
+  action:"available_reactions", success:true, data:{ reactions } }`
+  (handleGetAvailableReactions → sendSuccess); `reactions` is the emoji →
+  `{ effect }` catalog.
+- **`ws.crdt.awareness`** — `{ type:"crdt:awareness", channel,
+  updates:[{ clientId, update }] }` (server/AwarenessCoalescer._broadcast).
+  This is the frame the running dist emits — distinct from the historical
+  `ws.crdt.awareness-batch` (different type literal + per-entry shape), which
+  the current dist does NOT emit.
+
+### Reconciled (existing send-back declarations vs dist ground truth)
+
+- **`ws.reaction.subscribed`** — added `success: true` + `data.message`
+  (data is `{ channel, message, availableReactions }`).
+- **`ws.reaction.sent`** — added `success: true` + typed
+  `data:{ reactionId, emoji, channel, timestamp }`.
+- **`ws.error`** — now models BOTH wire shapes: the NESTED
+  `error:{ code, message, service, clientId, timestamp }` envelope
+  (chat/reaction/cursor/crdt via createErrorResponse) and the FLAT
+  top-level `message` envelope (presence/activity).
+- **Annotated as not-emitted-by-current-dist** (historical/in-tree-gateway
+  surface, retained for back-compat, descriptions noted): `ws.reaction.removed`,
+  `ws.reaction.list`, `ws.cursor.clear`, `ws.cursor.batch`,
+  `ws.crdt.sync-request`, `ws.crdt.sync-response`, `ws.crdt.snapshot-stored`,
+  `ws.crdt.awareness-batch`.
+
+Verified send-backs that already matched dist ground truth (unchanged):
+chat `joined`/`left`/`message`/`sent`/`history`; presence `set`/`update`/
+`subscribed`/`unsubscribed`/`data`/`offline`; cursor `subscribed`/`update`/
+`unsubscribed`/`cursors`/`remove`/`modes`; activity `subscribed`/
+`unsubscribed`/`published`/`history`/`event`; crdt `subscribed`/
+`unsubscribed`/`snapshot`/`update`/`doc-replaced`; reaction `reaction_received`.
+
 ## [0.3.57] - 2026-06-10
 
 Backfill the gateway-verified verbs missing from the client-frame contract,

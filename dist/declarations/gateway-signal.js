@@ -179,7 +179,7 @@ exports.wsCursorClear = {
     name: 'ws.cursor.clear',
     transport: 'signal',
     producer: PRODUCER,
-    description: 'Broadcast to channel subscribers when a client clears (removes) their cursor from the canvas.',
+    description: 'Broadcast to channel subscribers when a client clears (removes) their cursor from the canvas. NOTE (2026-06-12 dist re-audit): the realtime-modules dist CursorService the gateway currently runs has NO clear action (cursor removal flows through the remove/update verbs) — historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service.',
     tags: [...BASE_TAGS, 'cursor'],
     schema: wsSchema('cursor', {
         action: { type: 'string', const: 'clear' },
@@ -193,7 +193,7 @@ exports.wsCursorBatch = {
     name: 'ws.cursor.batch',
     transport: 'signal',
     producer: PRODUCER,
-    description: 'Batched cursor positions for multiple clients delivered in a single frame to reduce message volume.',
+    description: 'Batched cursor positions for multiple clients delivered in a single frame to reduce message volume. NOTE (2026-06-12 dist re-audit): the realtime-modules dist CursorService the gateway currently runs has NO batch action (it broadcasts per-client cursor:update frames and returns the full list via cursor:subscribed/cursors) — historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service.',
     tags: [...BASE_TAGS, 'cursor'],
     schema: wsSchema('cursor', {
         action: { type: 'string', const: 'batch' },
@@ -380,7 +380,7 @@ exports.wsCrdtSyncRequest = {
     name: 'ws.crdt.sync-request',
     transport: 'signal',
     producer: PRODUCER,
-    description: 'Client-initiated Y.js state vector sent to the gateway to request missing updates from peers.',
+    description: 'Client-initiated Y.js state vector sent to the gateway to request missing updates from peers. NOTE (2026-06-12 dist re-audit): not emitted/handled by the realtime-modules dist CRDTService the gateway currently runs (sync flows via crdt:subscribed + the pushed crdt:snapshot) — historical/in-tree-gateway surface, retained for back-compat.',
     tags: [...BASE_TAGS, 'crdt'],
     schema: wsSchema('crdt:sync-request', {
         channel: { type: 'string' },
@@ -396,7 +396,7 @@ exports.wsCrdtSyncResponse = {
     name: 'ws.crdt.sync-response',
     transport: 'signal',
     producer: PRODUCER,
-    description: 'Gateway response to a sync-request containing the Y.js updates needed to bring the client up to date.',
+    description: 'Gateway response to a sync-request containing the Y.js updates needed to bring the client up to date. NOTE (2026-06-12 dist re-audit): not emitted by the realtime-modules dist CRDTService the gateway currently runs — historical/in-tree-gateway surface, retained for back-compat.',
     tags: [...BASE_TAGS, 'crdt'],
     schema: wsSchema('crdt:sync-response', {
         channel: { type: 'string' },
@@ -429,7 +429,7 @@ exports.wsCrdtSnapshotStored = {
     name: 'ws.crdt.snapshot-stored',
     transport: 'signal',
     producer: PRODUCER,
-    description: 'Broadcast when a Y.Doc state snapshot is durably stored by the gateway. Carries the snapshot ID and byte size so clients can decide whether to fetch the new baseline.',
+    description: 'Broadcast when a Y.Doc state snapshot is durably stored by the gateway. Carries the snapshot ID and byte size so clients can decide whether to fetch the new baseline. NOTE (2026-06-12 dist re-audit): not emitted by the realtime-modules dist CRDTService the gateway currently runs (snapshots are persisted silently; clients re-fetch via getSnapshot → crdt:snapshot) — historical/in-tree-gateway surface, retained for back-compat.',
     tags: [...BASE_TAGS, 'crdt', 'snapshot'],
     schema: wsSchema('crdt:snapshot-stored', {
         docId: { type: 'string' },
@@ -447,7 +447,7 @@ exports.wsCrdtAwarenessBatch = {
     name: 'ws.crdt.awareness-batch',
     transport: 'signal',
     producer: PRODUCER,
-    description: 'Batched Y.js awareness updates (cursor positions, user metadata) forwarded to CRDT channel subscribers in a single frame to reduce overhead.',
+    description: 'Batched Y.js awareness updates (cursor positions, user metadata) forwarded to CRDT channel subscribers in a single frame to reduce overhead. NOTE (2026-06-12 dist re-audit): the realtime-modules dist the gateway currently runs emits awareness as type:"crdt:awareness" with { channel, updates:[{ clientId, update }] } (declared as ws.crdt.awareness in client-frames.ts), NOT this "crdt:awareness-batch" / { clientId, awareness } shape — this declaration is a historical/in-tree-gateway surface, retained for back-compat.',
     tags: [...BASE_TAGS, 'crdt', 'awareness'],
     schema: wsSchema('crdt:awareness-batch', {
         docId: { type: 'string' },
@@ -551,25 +551,34 @@ exports.wsPresenceOffline = {
 // ===========================================================================
 // REACTION frames — src/realtime-fanout/reaction-service.ts
 // ===========================================================================
-/** Sent when a client subscribes to reactions in a channel. */
+/**
+ * Sent when a client subscribes to reactions in a channel.
+ * GROUND-TRUTH RECONCILE (2026-06-12, divergence note b): the gateway dist
+ * ReactionService.handleSubscribeToReactions emits this via sendSuccess, so
+ * the wire frame carries success:true and data:{ channel, message,
+ * availableReactions } (message was previously missing; success was undeclared).
+ */
 exports.wsReactionSubscribed = {
     namespace: 'ws',
     name: 'ws.reaction.subscribed',
     transport: 'signal',
     producer: PRODUCER,
-    description: 'Subscription confirmation sent when a client subscribes to reactions in a channel.',
+    description: 'Subscription confirmation sent when a client subscribes to reactions in a channel. GROUND TRUTH (gateway dist ReactionService.handleSubscribeToReactions → sendSuccess): { type:"reaction", action:"reaction_subscribed", success:true, data:{ channel, message, availableReactions } } — availableReactions is the emoji-name list.',
     tags: [...BASE_TAGS, 'reaction'],
     schema: wsSchema('reaction', {
         action: { type: 'string', const: 'reaction_subscribed' },
+        success: { type: 'boolean', const: true },
         data: {
             type: 'object',
             properties: {
                 channel: { type: 'string' },
+                message: { type: 'string' },
                 availableReactions: { type: 'array', items: { type: 'string' } },
             },
+            required: ['channel'],
             additionalProperties: true,
         },
-    }, ['action']),
+    }, ['action', 'data']),
 };
 /** Broadcast to all channel subscribers when a reaction is sent. */
 exports.wsReactionReceived = {
@@ -601,7 +610,7 @@ exports.wsReactionRemoved = {
     name: 'ws.reaction.removed',
     transport: 'signal',
     producer: PRODUCER,
-    description: 'Broadcast to all reaction channel subscribers when a previously sent reaction is removed.',
+    description: 'Broadcast to all reaction channel subscribers when a previously sent reaction is removed. NOTE (2026-06-12 dist re-audit): the realtime-modules dist ReactionService the gateway currently runs has NO reaction-remove action — this frame is a historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service.',
     tags: [...BASE_TAGS, 'reaction'],
     schema: wsSchema('reaction', {
         action: { type: 'string', const: 'reaction_removed' },
@@ -624,7 +633,7 @@ exports.wsReactionList = {
     name: 'ws.reaction.list',
     transport: 'signal',
     producer: PRODUCER,
-    description: 'Current reaction list for a channel, sent in response to a list request.',
+    description: 'Current reaction list for a channel, sent in response to a list request. NOTE (2026-06-12 dist re-audit): the realtime-modules dist ReactionService the gateway currently runs has NO reaction-list action — historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service.',
     tags: [...BASE_TAGS, 'reaction'],
     schema: wsSchema('reaction', {
         action: { type: 'string', const: 'reaction_list' },
@@ -639,18 +648,35 @@ exports.wsReactionList = {
         },
     }, ['action', 'data']),
 };
-/** Confirmation sent to the sender after their reaction is broadcast. */
+/**
+ * Confirmation sent to the sender after their reaction is broadcast.
+ * GROUND-TRUTH RECONCILE (2026-06-12, divergence note b): emitted via
+ * sendSuccess, so the wire frame carries success:true and
+ * data:{ reactionId, emoji, channel, timestamp } (the data fields and the
+ * success flag were previously undeclared).
+ */
 exports.wsReactionSent = {
     namespace: 'ws',
     name: 'ws.reaction.sent',
     transport: 'signal',
     producer: PRODUCER,
-    description: 'Confirmation sent to the reaction sender after their reaction is broadcast.',
+    description: 'Confirmation sent to the reaction sender after their reaction is broadcast. GROUND TRUTH (gateway dist ReactionService.handleSendReaction → sendSuccess): { type:"reaction", action:"reaction_sent", success:true, data:{ reactionId, emoji, channel, timestamp } }.',
     tags: [...BASE_TAGS, 'reaction'],
     schema: wsSchema('reaction', {
         action: { type: 'string', const: 'reaction_sent' },
-        data: { type: 'object', additionalProperties: true },
-    }, ['action']),
+        success: { type: 'boolean', const: true },
+        data: {
+            type: 'object',
+            properties: {
+                reactionId: { type: 'string' },
+                emoji: { type: 'string' },
+                channel: { type: 'string' },
+                timestamp: { type: 'string', description: 'ISO-8601' },
+            },
+            required: ['reactionId', 'emoji', 'channel'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
 };
 // ===========================================================================
 // CALL frames — src/services/call-service.ts
@@ -1076,18 +1102,44 @@ exports.wsUploadUrlRevoked = {
 // ===========================================================================
 // ERROR frame — src/core/message-router.ts + all service sendError() methods
 // ===========================================================================
-/** Generic error frame sent when any service encounters a client-visible error. */
+/**
+ * Generic error frame sent when any service encounters a client-visible error.
+ * GROUND-TRUTH RECONCILE (2026-06-12, divergence note b): the gateway dist
+ * services emit TWO error-envelope shapes on the wire, both modelled here:
+ *   - NESTED (chat / reaction / cursor / crdt): { type:'error', service,
+ *     error:{ code, message, service, clientId, timestamp } } — via
+ *     createErrorResponse/sendError.
+ *   - FLAT (presence / activity): { type:'error', service, message } — these
+ *     services have no ErrorCodes/createErrorResponse and send a bare message.
+ * Both top-level `message` (flat) and the nested `error` object are therefore
+ * declared optional; `service` names the originating service in both shapes.
+ */
 exports.wsError = {
     namespace: 'ws',
     name: 'ws.error',
     transport: 'signal',
     producer: PRODUCER,
-    description: 'Generic error frame sent to a client when any gateway service encounters a client-visible error.',
+    description: 'Generic error frame sent to a client when any gateway service encounters a client-visible error. GROUND TRUTH (gateway dist): chat/reaction/cursor/crdt nest under error:{ code, message, service, clientId, timestamp }; presence/activity send a flat top-level message. `service` names the originating service in both shapes.',
     tags: [...BASE_TAGS, 'error'],
     schema: wsSchema('error', {
         service: { type: 'string', description: 'The service that generated the error (chat, cursor, presence, etc.)' },
-        code: { type: 'string' },
-        message: { type: 'string' },
+        // FLAT shape (presence / activity)
+        code: { type: 'string', description: 'flat-shape error code (when no nested error object is present)' },
+        message: { type: 'string', description: 'flat-shape human-readable message (presence/activity); for chat/reaction/cursor/crdt the message lives under error.message' },
+        // NESTED shape (chat / reaction / cursor / crdt) via createErrorResponse
+        error: {
+            type: 'object',
+            description: 'nested error envelope emitted by chat/reaction/cursor/crdt',
+            properties: {
+                code: { type: 'string' },
+                message: { type: 'string' },
+                service: { type: 'string' },
+                clientId: { type: 'string' },
+                timestamp: { type: 'string', description: 'ISO-8601' },
+            },
+            required: ['code', 'message'],
+            additionalProperties: true,
+        },
     }, []),
 };
 // ===========================================================================
