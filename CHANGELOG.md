@@ -7,6 +7,38 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.3.59] - 2026-06-13
+
+Ship machine-readable contract specs for the websocket-gateway — closes the
+"no AsyncAPI/OpenAPI exists" productization gap so non-React / non-JS adopters
+can integrate without reading the `@connorhoehn/realtime-modules` hook source.
+Specs live in `contracts/` (already in the published `files` allow-list).
+
+### Added (contracts/)
+
+- **`contracts/asyncapi.yaml`** — AsyncAPI 2.6.0 description of the gateway
+  WebSocket protocol, **generated** from the declarations. One channel `/`
+  (the gateway multiplexes every frame over a single connection): `publish` =
+  31 `client.*` outbound frames, `subscribe` = the session-bootstrap welcome
+  frame + 76 `ws.*` inbound send-backs (108 messages total). Each message's
+  `payload` is the verbatim JSON Schema from the declaration — frame shapes are
+  not re-derived. Validates clean under `@asyncapi/cli` (0 errors, 0 warnings).
+- **`scripts/generate-asyncapi.ts`** + **`npm run generate-asyncapi`** — the
+  generator. Reuses the same `allDeclarations` import as `generate-types.ts`;
+  partitions into `client.*` / `ws.*`; declares the `{type:'session'}` welcome
+  frame inline (it is emitted directly by `websocket-gateway src/server.ts`, not
+  via the catalog). Re-run after any declaration change.
+- **`contracts/openapi.yaml`** — OpenAPI 3.1.0 description of the gateway REST
+  side-channel (8 routes): `POST /api/channels/:id/messages`,
+  `GET /api/presence/:channel`, `GET /api/chat/:channel/history`,
+  `GET /api/activity/:channel/history`, `GET /api/capabilities`,
+  `GET /api/feature-flags`, `GET /api/feature-flags/:name`, `POST /api/notify`.
+  Hand-maintained (routes live in `websocket-gateway`); component schemas
+  cross-reference the declarations via `x-event-catalog-ref`. Validates clean
+  under `@redocly/cli`.
+- **`contracts/README.md`** — adopter index pointing at both specs + the
+  regenerate command.
+
 ## [0.3.58] - 2026-06-12
 
 Complete the WebSocket contract's INBOUND direction: declare the gateway

@@ -1,0 +1,3427 @@
+# AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
+# Generated at: 2026-06-13T14:58:13.971Z
+# Source of truth: @connorhoehn/event-catalog src/declarations/
+asyncapi: 2.6.0
+info:
+  title: websocket-gateway WebSocket protocol
+  version: 1.0.0
+  description: |-
+    Machine-readable contract for the websocket-gateway real-time WebSocket
+    protocol, generated from the `@connorhoehn/event-catalog` declarations
+    (`client.*` outbound frames + `ws.*` inbound send-backs) plus the
+    session-bootstrap welcome frame.
+
+    AUDIENCE: non-React / non-JS adopters who cannot read the
+    `@connorhoehn/realtime-modules/client` hook source. JS/TS adopters
+    should prefer the generated types (`@connorhoehn/event-catalog/types` +
+    `/client-frames`).
+
+    TRANSPORT: a single multiplexed WebSocket. All frames share one
+    connection; there are no per-topic URLs. Frames are JSON. Outbound
+    frames carry `{ service, action, channel?, ... }`; inbound frames carry
+    a `type` discriminator.
+
+    REGENERATE: `npm run generate-asyncapi` in @connorhoehn/event-catalog.
+    DO NOT hand-edit — frame shapes are owned by src/declarations/.
+  license:
+    name: UNLICENSED
+servers:
+  localDev:
+    url: ws://localhost:8080/ws
+    protocol: ws
+    description: Local dev gateway (Tilt). Path/port may differ per deployment.
+  production:
+    url: wss://{host}/ws
+    protocol: wss
+    description: Deployed gateway. `host` is environment-specific.
+    variables:
+      host:
+        default: gateway.example.com
+        description: gateway hostname
+defaultContentType: application/json
+channels:
+  /:
+    description: The single multiplexed gateway WebSocket. All frames flow over this one connection — there are no per-topic URLs. Outbound (client→gateway) frames are JSON objects discriminated by `{ service, action }`; inbound (gateway→client) frames are discriminated by `type` (colon-form `service:variant` or an `{ type, action }` envelope). The connect URL accepts an auth token (Bearer header or `?token=` query per gateway config).
+    bindings:
+      ws:
+        bindingVersion: 0.1.0
+        method: GET
+    publish:
+      operationId: sendClientFrame
+      summary: Frames the client SENDS to the gateway (client→gateway).
+      description: "Every outbound frame is a JSON object with `service` + `action` string literals plus per-action fields. The gateway MessageValidator enforces the service/action/channel structure; extra fields pass through (additionalProperties: true)."
+      message:
+        oneOf:
+          - $ref: "#/components/messages/client_chat_join"
+          - $ref: "#/components/messages/client_chat_leave"
+          - $ref: "#/components/messages/client_chat_send"
+          - $ref: "#/components/messages/client_chat_history"
+          - $ref: "#/components/messages/client_presence_subscribe"
+          - $ref: "#/components/messages/client_presence_unsubscribe"
+          - $ref: "#/components/messages/client_presence_set"
+          - $ref: "#/components/messages/client_presence_get"
+          - $ref: "#/components/messages/client_presence_heartbeat"
+          - $ref: "#/components/messages/client_reaction_subscribe"
+          - $ref: "#/components/messages/client_reaction_unsubscribe"
+          - $ref: "#/components/messages/client_reaction_send"
+          - $ref: "#/components/messages/client_reaction_getAvailable"
+          - $ref: "#/components/messages/client_activity_subscribe"
+          - $ref: "#/components/messages/client_activity_unsubscribe"
+          - $ref: "#/components/messages/client_activity_getHistory"
+          - $ref: "#/components/messages/client_crdt_subscribe"
+          - $ref: "#/components/messages/client_crdt_unsubscribe"
+          - $ref: "#/components/messages/client_crdt_update"
+          - $ref: "#/components/messages/client_crdt_awareness"
+          - $ref: "#/components/messages/client_fileupload_request_upload"
+          - $ref: "#/components/messages/client_fileupload_complete"
+          - $ref: "#/components/messages/client_fileupload_cancel"
+          - $ref: "#/components/messages/client_videohangout_start"
+          - $ref: "#/components/messages/client_videohangout_join"
+          - $ref: "#/components/messages/client_videohangout_leave"
+          - $ref: "#/components/messages/client_videohangout_end"
+          - $ref: "#/components/messages/client_videohangout_toggle_video"
+          - $ref: "#/components/messages/client_videohangout_toggle_audio"
+          - $ref: "#/components/messages/client_subscribe_subscribe"
+          - $ref: "#/components/messages/client_subscribe_unsubscribe"
+    subscribe:
+      operationId: receiveGatewayFrame
+      summary: Frames the client RECEIVES from the gateway (gateway→client).
+      description: The first frame after connect is always the SessionBootstrap (`type:"session"`). Thereafter the gateway pushes `ws.*` send-back / broadcast frames discriminated by `type`.
+      message:
+        oneOf:
+          - $ref: "#/components/messages/SessionBootstrap"
+          - $ref: "#/components/messages/ws_chat_joined"
+          - $ref: "#/components/messages/ws_chat_left"
+          - $ref: "#/components/messages/ws_chat_message"
+          - $ref: "#/components/messages/ws_chat_sent"
+          - $ref: "#/components/messages/ws_chat_history"
+          - $ref: "#/components/messages/ws_cursor_subscribed"
+          - $ref: "#/components/messages/ws_cursor_unsubscribed"
+          - $ref: "#/components/messages/ws_cursor_update"
+          - $ref: "#/components/messages/ws_cursor_remove"
+          - $ref: "#/components/messages/ws_cursor_cursors"
+          - $ref: "#/components/messages/ws_cursor_modes"
+          - $ref: "#/components/messages/ws_cursor_clear"
+          - $ref: "#/components/messages/ws_cursor_batch"
+          - $ref: "#/components/messages/ws_activity_subscribed"
+          - $ref: "#/components/messages/ws_activity_unsubscribed"
+          - $ref: "#/components/messages/ws_activity_published"
+          - $ref: "#/components/messages/ws_activity_history"
+          - $ref: "#/components/messages/ws_activity_event"
+          - $ref: "#/components/messages/ws_crdt_subscribed"
+          - $ref: "#/components/messages/ws_crdt_unsubscribed"
+          - $ref: "#/components/messages/ws_crdt_snapshot"
+          - $ref: "#/components/messages/ws_crdt_update"
+          - $ref: "#/components/messages/ws_crdt_doc_replaced"
+          - $ref: "#/components/messages/ws_crdt_sync_request"
+          - $ref: "#/components/messages/ws_crdt_sync_response"
+          - $ref: "#/components/messages/ws_crdt_snapshot_stored"
+          - $ref: "#/components/messages/ws_crdt_awareness_batch"
+          - $ref: "#/components/messages/ws_presence_set"
+          - $ref: "#/components/messages/ws_presence_update"
+          - $ref: "#/components/messages/ws_presence_subscribed"
+          - $ref: "#/components/messages/ws_presence_unsubscribed"
+          - $ref: "#/components/messages/ws_presence_data"
+          - $ref: "#/components/messages/ws_presence_offline"
+          - $ref: "#/components/messages/ws_reaction_subscribed"
+          - $ref: "#/components/messages/ws_reaction_received"
+          - $ref: "#/components/messages/ws_reaction_removed"
+          - $ref: "#/components/messages/ws_reaction_list"
+          - $ref: "#/components/messages/ws_reaction_sent"
+          - $ref: "#/components/messages/ws_call_invite"
+          - $ref: "#/components/messages/ws_call_accepted"
+          - $ref: "#/components/messages/ws_call_declined"
+          - $ref: "#/components/messages/ws_call_cancelled"
+          - $ref: "#/components/messages/ws_call_ended"
+          - $ref: "#/components/messages/ws_call_video_on"
+          - $ref: "#/components/messages/ws_call_video_off"
+          - $ref: "#/components/messages/ws_call_recording_started"
+          - $ref: "#/components/messages/ws_call_recording_completed"
+          - $ref: "#/components/messages/ws_upload_requested"
+          - $ref: "#/components/messages/ws_upload_url_issued"
+          - $ref: "#/components/messages/ws_upload_completed"
+          - $ref: "#/components/messages/ws_upload_failed"
+          - $ref: "#/components/messages/ws_upload_scanned"
+          - $ref: "#/components/messages/ws_upload_scan_quarantined"
+          - $ref: "#/components/messages/ws_upload_url_revoked"
+          - $ref: "#/components/messages/ws_pipeline_subscribed"
+          - $ref: "#/components/messages/ws_pipeline_unsubscribed"
+          - $ref: "#/components/messages/ws_pipeline_ack"
+          - $ref: "#/components/messages/ws_pipeline_snapshot"
+          - $ref: "#/components/messages/ws_pipeline_history"
+          - $ref: "#/components/messages/ws_pipeline_event"
+          - $ref: "#/components/messages/ws_error"
+          - $ref: "#/components/messages/ws_presence_joined"
+          - $ref: "#/components/messages/ws_presence_left"
+          - $ref: "#/components/messages/ws_fileupload_progress"
+          - $ref: "#/components/messages/ws_fileupload_scanning"
+          - $ref: "#/components/messages/ws_fileupload_cancelled"
+          - $ref: "#/components/messages/ws_videohangout_participant"
+          - $ref: "#/components/messages/ws_videohangout_media"
+          - $ref: "#/components/messages/ws_notification_new"
+          - $ref: "#/components/messages/ws_notification_read"
+          - $ref: "#/components/messages/ws_notification_bulk_update"
+          - $ref: "#/components/messages/ws_capability_updated"
+          - $ref: "#/components/messages/ws_feature_flag_updated"
+          - $ref: "#/components/messages/ws_reaction_unsubscribed"
+          - $ref: "#/components/messages/ws_reaction_available"
+          - $ref: "#/components/messages/ws_crdt_awareness"
+components:
+  messages:
+    SessionBootstrap:
+      messageId: session
+      name: session
+      title: session
+      summary: Gateway welcome frame, sent once immediately after the WebSocket connection opens (before any client frame). Carries the assigned clientId, a resume token, and the list of enabled services. Produced directly by websocket-gateway src/server.ts (not via event-catalog).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: session
+          status:
+            type: string
+            const: connected
+          clientId:
+            type: string
+            description: gateway-assigned connection id, echoed on all client frames
+          sessionToken:
+            type: string
+            description: opaque token for resume-on-reconnect
+          restored:
+            type: boolean
+            description: true when this connection restored a prior session
+          nodeId:
+            type: string
+            description: id of the gateway node serving this connection
+          enabledServices:
+            type: array
+            items:
+              type: string
+            description: services this gateway has enabled (chat, presence, reaction, ...)
+          timestamp:
+            type: string
+            description: ISO-8601
+        required:
+          - type
+          - status
+          - clientId
+        additionalProperties: true
+    client_chat_join:
+      messageId: client.chat.join
+      name: client.chat.join
+      title: client.chat.join
+      summary: 'Client request to join a chat channel and start receiving its messages. Sent by GatewaySocketProvider on connect when the chat feature is declared. GROUND TRUTH (hub#1497): the gateway ChatService verb is "join" — the previously declared "subscribe" was never accepted. channel is required; on success the gateway replies chat/joined and auto-pushes recent channel history.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: chat
+          action:
+            type: string
+            const: join
+          channel:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    client_chat_leave:
+      messageId: client.chat.leave
+      name: client.chat.leave
+      title: client.chat.leave
+      summary: 'Client request to leave a chat channel and stop receiving its messages. Sent by useChat cleanup on channel change/unmount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ChatService.handleLeaveChannel requires channel ("Channel name is required") and replies with a chat/left action frame; in distributed mode it also drops the message-router channel subscription.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: chat
+          action:
+            type: string
+            const: leave
+          channel:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    client_chat_send:
+      messageId: client.chat.send
+      name: client.chat.send
+      title: client.chat.send
+      summary: Client request to post a text chat message to a channel (useChat.sendMessage). The gateway ChatService requires a prior join on the channel ("You must join the channel before sending messages"). metadata is optional and size-validated server-side.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: chat
+          action:
+            type: string
+            const: send
+          channel:
+            type: string
+          message:
+            type: string
+          metadata:
+            type: object
+            additionalProperties: true
+        required:
+          - service
+          - action
+          - channel
+          - message
+        additionalProperties: true
+    client_chat_history:
+      messageId: client.chat.history
+      name: client.chat.history
+      title: client.chat.history
+      summary: "Client request for recent chat message history for a channel (useChat.loadHistory). limit is optional — the gateway ChatService falls back to its configured default history limit when omitted (hub#1497 re-audit: limit was wrongly declared required)."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: chat
+          action:
+            type: string
+            const: history
+          channel:
+            type: string
+          limit:
+            type: number
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    client_presence_subscribe:
+      messageId: client.presence.subscribe
+      name: client.presence.subscribe
+      title: client.presence.subscribe
+      summary: 'Client request to receive presence events for a channel. Sent by usePresence on mount and by GatewaySocketProvider on connect when the presence feature is declared. GROUND TRUTH (hub#1497): the gateway PresenceService rejects the frame without channel ("Channel is required") — channel is REQUIRED, not optional as previously declared.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: presence
+          action:
+            type: string
+            const: subscribe
+          channel:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    client_presence_unsubscribe:
+      messageId: client.presence.unsubscribe
+      name: client.presence.unsubscribe
+      title: client.presence.unsubscribe
+      summary: Client request to stop receiving presence events for a channel (usePresence cleanup).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: presence
+          action:
+            type: string
+            const: unsubscribe
+          channel:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    client_presence_set:
+      messageId: client.presence.set
+      name: client.presence.set
+      title: client.presence.set
+      summary: 'Client request to set its presence entry (usePresence setStatus / updateMetadata). GROUND TRUTH (hub#1497): the gateway PresenceService requires status ("Status is required") and reads only { status, metadata, channels } — the channel field is sent by the hook but IGNORED by the service (presence pinning uses the channels array). Previously declared with channel required + status optional; both were wrong.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: presence
+          action:
+            type: string
+            const: set
+          channel:
+            type: string
+            description: "DEPRECATED: sent by usePresence but ignored by the gateway PresenceService — channel pinning uses the channels array"
+            deprecated: true
+          status:
+            type: string
+            description: PresenceStatus, e.g. "online" | "away" | "busy"
+          metadata:
+            type: object
+            additionalProperties: true
+          channels:
+            type: array
+            items:
+              type: string
+            description: channels to pin this presence entry to (defaults to [] server-side)
+        required:
+          - service
+          - action
+          - status
+        additionalProperties: true
+    client_presence_get:
+      messageId: client.presence.get
+      name: client.presence.get
+      title: client.presence.get
+      summary: 'Client request to read presence data for a single client (targetClientId) or a whole channel (channel). GROUND TRUTH (v0.3.57 backfill): gateway PresenceService.handleGetPresence requires AT LEAST ONE of targetClientId or channel ("Either targetClientId or channel is required" — an either-or constraint JSON-schema-encodable only via anyOf, which the type generator does not support, so both fields are declared optional here). targetClientId wins when both are present; unknown targetClientId yields "Client not found". Replies with a presence/presence action frame carrying the data. PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 — declared as the gateway-verified verb for any WS client.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: presence
+          action:
+            type: string
+            const: get
+          channel:
+            type: string
+            description: channel to fetch the full channel-presence list for (used when targetClientId is absent)
+          targetClientId:
+            type: string
+            description: client id to fetch a single PresenceEntry for — takes precedence over channel
+        required:
+          - service
+          - action
+        additionalProperties: true
+    client_presence_heartbeat:
+      messageId: client.presence.heartbeat
+      name: client.presence.heartbeat
+      title: client.presence.heartbeat
+      summary: "Client keep-alive that refreshes lastSeen/lastHeartbeat on its existing presence entry so the stale-presence sweep does not reap it. GROUND TRUTH (v0.3.57 backfill): gateway PresenceService.handleHeartbeat reads NO payload fields beyond service/action (data is ignored) and sends no reply; it is a silent no-op when the client has no presence entry (set first). PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 — declared as the gateway-verified verb for any WS client."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: presence
+          action:
+            type: string
+            const: heartbeat
+          channel:
+            type: string
+        required:
+          - service
+          - action
+        additionalProperties: true
+    client_reaction_subscribe:
+      messageId: client.reaction.subscribe
+      name: client.reaction.subscribe
+      title: client.reaction.subscribe
+      summary: 'Client request to receive emoji reactions for a channel. Sent by useReactions on mount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleSubscribeToReactions requires channel ("Channel name is required", length-validated 1..maxChannelNameLength) and runs the consumer authz hook; on success it replies with a reaction/reaction_subscribed success frame whose data includes the availableReactions emoji list.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: reaction
+          action:
+            type: string
+            const: subscribe
+          channel:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    client_reaction_unsubscribe:
+      messageId: client.reaction.unsubscribe
+      name: client.reaction.unsubscribe
+      title: client.reaction.unsubscribe
+      summary: 'Client request to stop receiving emoji reactions for a channel. Sent by useReactions cleanup on channel change/unmount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleUnsubscribeFromReactions requires channel ("Channel name is required") and replies with a reaction/reaction_unsubscribed success frame.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: reaction
+          action:
+            type: string
+            const: unsubscribe
+          channel:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    client_reaction_send:
+      messageId: client.reaction.send
+      name: client.reaction.send
+      title: client.reaction.send
+      summary: "Client request to send an emoji reaction to a channel (useReactions.react). GROUND TRUTH (hub#1497): the gateway ReactionService verb is \"send\" — the previously declared \"react\" was never accepted. emoji must be in the gateway's available-reactions catalog; position is optional overlay placement; metadata passes through. NOTE: targetId is sent by useReactions for entity-scoped reactions but the current gateway ReactionService does NOT forward it to subscribers."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: reaction
+          action:
+            type: string
+            const: send
+          channel:
+            type: string
+          emoji:
+            type: string
+          position:
+            type: object
+            additionalProperties: true
+            description: optional overlay placement, forwarded verbatim to subscribers
+          targetId:
+            type: string
+            description: "DEPRECATED: sent by useReactions but dropped by the current gateway ReactionService (not forwarded to subscribers)"
+            deprecated: true
+          metadata:
+            type: object
+            additionalProperties: true
+        required:
+          - service
+          - action
+          - channel
+          - emoji
+        additionalProperties: true
+    client_reaction_getAvailable:
+      messageId: client.reaction.getAvailable
+      name: client.reaction.getAvailable
+      title: client.reaction.getAvailable
+      summary: "Client request for the gateway's available-reactions catalog (emoji → effect map). GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleGetAvailableReactions reads NO payload fields beyond service/action (channel is ignored) and replies with a reaction/available_reactions success frame carrying the full reactions catalog. PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 (subscribers get the emoji list in the reaction_subscribed reply instead) — declared as the gateway-verified verb for any WS client."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: reaction
+          action:
+            type: string
+            const: getAvailable
+          channel:
+            type: string
+        required:
+          - service
+          - action
+        additionalProperties: true
+    client_activity_subscribe:
+      messageId: client.activity.subscribe
+      name: client.activity.subscribe
+      title: client.activity.subscribe
+      summary: "Client request to subscribe to the activity feed for a channel (useActivity mount). GROUND TRUTH (hub#1497): the gateway ActivityService requires channelId — the previously declared channel field was never read. No history is auto-pushed on subscribe; clients request it explicitly via client.activity.getHistory."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: activity
+          action:
+            type: string
+            const: subscribe
+          channel: &a1
+            type: string
+            description: "DEPRECATED: legacy alias still sent by useActivity for old-server tolerance; the gateway ActivityService reads channelId only"
+            deprecated: true
+          channelId: &a2
+            type: string
+            description: activity feed channel id — the field the gateway ActivityService reads
+        required:
+          - service
+          - action
+          - channelId
+        additionalProperties: true
+    client_activity_unsubscribe:
+      messageId: client.activity.unsubscribe
+      name: client.activity.unsubscribe
+      title: client.activity.unsubscribe
+      summary: "Client request to unsubscribe from the activity feed for a channel (useActivity cleanup). GROUND TRUTH (hub#1497): the gateway ActivityService requires channelId — the previously declared channel field was never read."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: activity
+          action:
+            type: string
+            const: unsubscribe
+          channel: *a1
+          channelId: *a2
+        required:
+          - service
+          - action
+          - channelId
+        additionalProperties: true
+    client_activity_getHistory:
+      messageId: client.activity.getHistory
+      name: client.activity.getHistory
+      title: client.activity.getHistory
+      summary: 'Client request for prior activity events for a channel (useActivity.loadHistory). GROUND TRUTH (hub#1497): the gateway verb is "getHistory" — the previously declared "history" action was rejected ("Unknown activity action"). Keys on channelId; limit is optional (server clamps to 1..maxHistoryItems, default 50).'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: activity
+          action:
+            type: string
+            const: getHistory
+          channel: *a1
+          channelId: *a2
+          limit:
+            type: number
+            description: optional — server default 50, clamped to 1..maxHistoryItems
+        required:
+          - service
+          - action
+          - channelId
+        additionalProperties: true
+    client_crdt_subscribe:
+      messageId: client.crdt.subscribe
+      name: client.crdt.subscribe
+      title: client.crdt.subscribe
+      summary: Client request to subscribe to a CRDT document channel (useCRDT/useYjsDoc). Gateway replies with crdt:subscribed and pushes the latest crdt:snapshot when one exists.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: crdt
+          action:
+            type: string
+            const: subscribe
+          channel:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    client_crdt_unsubscribe:
+      messageId: client.crdt.unsubscribe
+      name: client.crdt.unsubscribe
+      title: client.crdt.unsubscribe
+      summary: Client request to unsubscribe from a CRDT document channel (useCRDT/useYjsDoc cleanup).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: crdt
+          action:
+            type: string
+            const: unsubscribe
+          channel:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    client_crdt_update:
+      messageId: client.crdt.update
+      name: client.crdt.update
+      title: client.crdt.update
+      summary: Client broadcast of a local Y.js document update, base64-encoded (GatewayProvider update handler / useCRDT.applyLocalEdit).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: crdt
+          action:
+            type: string
+            const: update
+          channel:
+            type: string
+          update:
+            type: string
+            description: base64-encoded Y.js update
+        required:
+          - service
+          - action
+          - channel
+          - update
+        additionalProperties: true
+    client_crdt_awareness:
+      messageId: client.crdt.awareness
+      name: client.crdt.awareness
+      title: client.crdt.awareness
+      summary: Client broadcast of local Y.js awareness state, base64-encoded and debounced (GatewayProvider). `mode` and `idle` are lifted out of awareness local state as top-level fields so the gateway DocumentPresenceService can update without decoding the Y.js binary.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: crdt
+          action:
+            type: string
+            const: awareness
+          channel:
+            type: string
+          update:
+            type: string
+            description: base64-encoded Y.js awareness update
+          mode:
+            type: string
+            enum:
+              - editor
+              - reviewer
+              - reader
+          idle:
+            type: boolean
+        required:
+          - service
+          - action
+          - channel
+          - update
+        additionalProperties: true
+    client_fileupload_request_upload:
+      messageId: client.fileupload.request-upload
+      name: client.fileupload.request-upload
+      title: client.fileupload.request-upload
+      summary: Client request for a presigned upload URL (useFileUpload.upload step 1). `id` is a client-generated upload identifier echoed back on all subsequent fileupload:* frames.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: fileupload
+          action:
+            type: string
+            const: request-upload
+          channel:
+            type: string
+          id:
+            type: string
+            description: client-generated upload id
+          filename:
+            type: string
+          size:
+            type: number
+            description: file size in bytes
+          metadata:
+            type: object
+            additionalProperties: true
+        required:
+          - service
+          - action
+          - channel
+          - id
+          - filename
+          - size
+        additionalProperties: true
+    client_fileupload_complete:
+      messageId: client.fileupload.complete
+      name: client.fileupload.complete
+      title: client.fileupload.complete
+      summary: Client notification that the presigned-URL PUT finished (useFileUpload.upload step 4). Gateway replies with fileupload:complete / fileupload:scanning depending on scan policy.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: fileupload
+          action:
+            type: string
+            const: complete
+          channel:
+            type: string
+          id:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+          - id
+        additionalProperties: true
+    client_fileupload_cancel:
+      messageId: client.fileupload.cancel
+      name: client.fileupload.cancel
+      title: client.fileupload.cancel
+      summary: Client request to cancel an in-flight upload (useFileUpload.cancel). Gateway acknowledges with fileupload:cancelled.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: fileupload
+          action:
+            type: string
+            const: cancel
+          channel:
+            type: string
+          id:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+          - id
+        additionalProperties: true
+    client_videohangout_start:
+      messageId: client.videohangout.start
+      name: client.videohangout.start
+      title: client.videohangout.start
+      summary: Client request to start a video hangout/call session on a channel (useVideoHangout.start). Gateway replies with videohangout:created.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: videohangout
+          action:
+            type: string
+            const: start
+          channel:
+            type: string
+          type:
+            type: string
+            enum:
+              - hangout
+              - call
+          metadata:
+            type: object
+            additionalProperties: true
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    client_videohangout_join:
+      messageId: client.videohangout.join
+      name: client.videohangout.join
+      title: client.videohangout.join
+      summary: Client request to join an existing hangout session (useVideoHangout.join). Gateway replies with videohangout:joined.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: videohangout
+          action:
+            type: string
+            const: join
+          channel:
+            type: string
+          sessionId:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+          - sessionId
+        additionalProperties: true
+    client_videohangout_leave:
+      messageId: client.videohangout.leave
+      name: client.videohangout.leave
+      title: client.videohangout.leave
+      summary: Client notification that it is leaving the hangout session (useVideoHangout.leave).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: videohangout
+          action:
+            type: string
+            const: leave
+          channel:
+            type: string
+          sessionId:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+          - sessionId
+        additionalProperties: true
+    client_videohangout_end:
+      messageId: client.videohangout.end
+      name: client.videohangout.end
+      title: client.videohangout.end
+      summary: Client (host) request to end the hangout session for all participants (useVideoHangout.end).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: videohangout
+          action:
+            type: string
+            const: end
+          channel:
+            type: string
+          sessionId:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+          - sessionId
+        additionalProperties: true
+    client_videohangout_toggle_video:
+      messageId: client.videohangout.toggle-video
+      name: client.videohangout.toggle-video
+      title: client.videohangout.toggle-video
+      summary: Client notification that it toggled its video feed on/off (useVideoHangout.toggleVideo). Gateway fans out videohangout:media.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: videohangout
+          action:
+            type: string
+            const: toggle-video
+          channel:
+            type: string
+          sessionId:
+            type: string
+          videoOn:
+            type: boolean
+        required:
+          - service
+          - action
+          - channel
+          - sessionId
+          - videoOn
+        additionalProperties: true
+    client_videohangout_toggle_audio:
+      messageId: client.videohangout.toggle-audio
+      name: client.videohangout.toggle-audio
+      title: client.videohangout.toggle-audio
+      summary: Client notification that it toggled its audio feed on/off (useVideoHangout.toggleAudio). Gateway fans out videohangout:media.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: videohangout
+          action:
+            type: string
+            const: toggle-audio
+          channel:
+            type: string
+          sessionId:
+            type: string
+          audioOn:
+            type: boolean
+        required:
+          - service
+          - action
+          - channel
+          - sessionId
+          - audioOn
+        additionalProperties: true
+    client_subscribe_subscribe:
+      messageId: client.subscribe.subscribe
+      name: client.subscribe.subscribe
+      title: client.subscribe.subscribe
+      summary: Generic channel subscribe frame from the useWebSocket channel multiplexer (also re-sent on reconnect when autoResubscribe is enabled). Wire service is literally "subscribe".
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: subscribe
+          action:
+            type: string
+            const: subscribe
+          channel:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    client_subscribe_unsubscribe:
+      messageId: client.subscribe.unsubscribe
+      name: client.subscribe.unsubscribe
+      title: client.subscribe.unsubscribe
+      summary: Generic channel unsubscribe frame from the useWebSocket channel multiplexer. Wire service is literally "subscribe".
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: subscribe
+          action:
+            type: string
+            const: unsubscribe
+          channel:
+            type: string
+        required:
+          - service
+          - action
+          - channel
+        additionalProperties: true
+    ws_chat_joined:
+      messageId: ws.chat.joined
+      name: ws.chat.joined
+      title: ws.chat.joined
+      summary: Confirmation sent to a client when they successfully join a chat channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: chat
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: joined
+          channel:
+            type: string
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_chat_left:
+      messageId: ws.chat.left
+      name: ws.chat.left
+      title: ws.chat.left
+      summary: Confirmation sent to a client when they leave a chat channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: chat
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: left
+          channel:
+            type: string
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_chat_message:
+      messageId: ws.chat.message
+      name: ws.chat.message
+      title: ws.chat.message
+      summary: Broadcast to all channel subscribers when a new chat message is posted.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: chat
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: message
+          channel:
+            type: string
+          message:
+            type: object
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - channel
+          - message
+        additionalProperties: true
+    ws_chat_sent:
+      messageId: ws.chat.sent
+      name: ws.chat.sent
+      title: ws.chat.sent
+      summary: Confirmation sent to the message sender after their message is stored and broadcast.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: chat
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: sent
+          channel:
+            type: string
+          messageId:
+            type: string
+        required:
+          - type
+          - action
+          - channel
+          - messageId
+        additionalProperties: true
+    ws_chat_history:
+      messageId: ws.chat.history
+      name: ws.chat.history
+      title: ws.chat.history
+      summary: Recent message history delivered to a client on channel join or explicit history request.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: chat
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: history
+          channel:
+            type: string
+          messages:
+            type: array
+            items:
+              type: object
+              additionalProperties: true
+        required:
+          - type
+          - action
+          - channel
+          - messages
+        additionalProperties: true
+    ws_cursor_subscribed:
+      messageId: ws.cursor.subscribed
+      name: ws.cursor.subscribed
+      title: ws.cursor.subscribed
+      summary: Subscription confirmation sent with current cursors for the channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: cursor
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: subscribed
+          channel:
+            type: string
+          cursors:
+            type: array
+            items:
+              type: object
+              additionalProperties: true
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_cursor_unsubscribed:
+      messageId: ws.cursor.unsubscribed
+      name: ws.cursor.unsubscribed
+      title: ws.cursor.unsubscribed
+      summary: Unsubscription confirmation from cursor channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: cursor
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: unsubscribed
+          channel:
+            type: string
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_cursor_update:
+      messageId: ws.cursor.update
+      name: ws.cursor.update
+      title: ws.cursor.update
+      summary: Broadcast to channel subscribers when a client updates their cursor position.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: cursor
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: update
+          channel:
+            type: string
+          cursor:
+            type: object
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - channel
+          - cursor
+        additionalProperties: true
+    ws_cursor_remove:
+      messageId: ws.cursor.remove
+      name: ws.cursor.remove
+      title: ws.cursor.remove
+      summary: Broadcast when a client disconnects and their cursor should be removed from the canvas.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: cursor
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: remove
+          channel:
+            type: string
+          clientId:
+            type: string
+        required:
+          - type
+          - action
+          - channel
+          - clientId
+        additionalProperties: true
+    ws_cursor_cursors:
+      messageId: ws.cursor.cursors
+      name: ws.cursor.cursors
+      title: ws.cursor.cursors
+      summary: Current cursor list for a channel, sent in response to a get request.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: cursor
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: cursors
+          channel:
+            type: string
+          cursors:
+            type: array
+            items:
+              type: object
+              additionalProperties: true
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_cursor_modes:
+      messageId: ws.cursor.modes
+      name: ws.cursor.modes
+      title: ws.cursor.modes
+      summary: Supported cursor tracking modes sent to a client on request.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: cursor
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: modes
+          modes:
+            type: object
+            additionalProperties: true
+        required:
+          - type
+          - action
+        additionalProperties: true
+    ws_cursor_clear:
+      messageId: ws.cursor.clear
+      name: ws.cursor.clear
+      title: ws.cursor.clear
+      summary: "Broadcast to channel subscribers when a client clears (removes) their cursor from the canvas. NOTE (2026-06-12 dist re-audit): the realtime-modules dist CursorService the gateway currently runs has NO clear action (cursor removal flows through the remove/update verbs) — historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: cursor
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: clear
+          channel:
+            type: string
+          clientId:
+            type: string
+        required:
+          - type
+          - action
+          - channel
+          - clientId
+        additionalProperties: true
+    ws_cursor_batch:
+      messageId: ws.cursor.batch
+      name: ws.cursor.batch
+      title: ws.cursor.batch
+      summary: "Batched cursor positions for multiple clients delivered in a single frame to reduce message volume. NOTE (2026-06-12 dist re-audit): the realtime-modules dist CursorService the gateway currently runs has NO batch action (it broadcasts per-client cursor:update frames and returns the full list via cursor:subscribed/cursors) — historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: cursor
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: batch
+          channel:
+            type: string
+          cursors:
+            type: array
+            items:
+              type: object
+              additionalProperties: true
+        required:
+          - type
+          - action
+          - channel
+          - cursors
+        additionalProperties: true
+    ws_activity_subscribed:
+      messageId: ws.activity.subscribed
+      name: ws.activity.subscribed
+      title: ws.activity.subscribed
+      summary: Subscription confirmation for an activity channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: activity
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: subscribed
+          channelId:
+            type: string
+        required:
+          - type
+          - action
+          - channelId
+        additionalProperties: true
+    ws_activity_unsubscribed:
+      messageId: ws.activity.unsubscribed
+      name: ws.activity.unsubscribed
+      title: ws.activity.unsubscribed
+      summary: Unsubscription confirmation for an activity channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: activity
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: unsubscribed
+          channelId:
+            type: string
+        required:
+          - type
+          - action
+          - channelId
+        additionalProperties: true
+    ws_activity_published:
+      messageId: ws.activity.published
+      name: ws.activity.published
+      title: ws.activity.published
+      summary: Confirmation sent back to the client that published an activity event.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: activity
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: published
+          eventType:
+            type: string
+        required:
+          - type
+          - action
+          - eventType
+        additionalProperties: true
+    ws_activity_history:
+      messageId: ws.activity.history
+      name: ws.activity.history
+      title: ws.activity.history
+      summary: Recent activity history delivered to a client on request.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: activity
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: history
+          channelId:
+            type: string
+          events:
+            type: array
+            items:
+              type: object
+              additionalProperties: true
+        required:
+          - type
+          - action
+          - channelId
+          - events
+        additionalProperties: true
+    ws_activity_event:
+      messageId: ws.activity.event
+      name: ws.activity.event
+      title: ws.activity.event
+      summary: Broadcast to all subscribers of activity:broadcast when an activity event is published.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: activity:event
+          timestamp:
+            type: string
+            description: ISO-8601
+          payload:
+            type: object
+            properties:
+              eventType:
+                type: string
+              detail:
+                type: object
+                additionalProperties: true
+              timestamp:
+                type: string
+              userId:
+                type:
+                  - string
+                  - "null"
+              displayName:
+                type: string
+            required:
+              - eventType
+            additionalProperties: true
+        required:
+          - type
+          - payload
+        additionalProperties: true
+    ws_crdt_subscribed:
+      messageId: ws.crdt.subscribed
+      name: ws.crdt.subscribed
+      title: ws.crdt.subscribed
+      summary: Subscription confirmation sent when a client joins a CRDT channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: crdt
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: subscribed
+          channel:
+            type: string
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_crdt_unsubscribed:
+      messageId: ws.crdt.unsubscribed
+      name: ws.crdt.unsubscribed
+      title: ws.crdt.unsubscribed
+      summary: Unsubscription confirmation sent when a client leaves a CRDT channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: crdt
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: unsubscribed
+          channel:
+            type: string
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_crdt_snapshot:
+      messageId: ws.crdt.snapshot
+      name: ws.crdt.snapshot
+      title: ws.crdt.snapshot
+      summary: Full Y.Doc state (base64 encoded) pushed to a client on channel subscribe or explicit snapshot request.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: crdt:snapshot
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          snapshot:
+            type: string
+            description: base64-encoded Y.js state update
+        required:
+          - type
+          - channel
+          - snapshot
+        additionalProperties: true
+    ws_crdt_update:
+      messageId: ws.crdt.update
+      name: ws.crdt.update
+      title: ws.crdt.update
+      summary: Y.js update broadcast to all CRDT channel subscribers, excluding the sender.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: crdt:update
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          update:
+            type: string
+            description: base64-encoded Y.js update
+        required:
+          - type
+          - channel
+          - update
+        additionalProperties: true
+    ws_crdt_doc_replaced:
+      messageId: ws.crdt.doc-replaced
+      name: ws.crdt.doc-replaced
+      title: ws.crdt.doc-replaced
+      summary: Broadcast to all CRDT channel subscribers when a snapshot restore replaces the document state.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: crdt:doc-replaced
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          snapshot:
+            type: string
+            description: base64-encoded restored state
+        required:
+          - type
+          - channel
+        additionalProperties: true
+    ws_crdt_sync_request:
+      messageId: ws.crdt.sync-request
+      name: ws.crdt.sync-request
+      title: ws.crdt.sync-request
+      summary: "Client-initiated Y.js state vector sent to the gateway to request missing updates from peers. NOTE (2026-06-12 dist re-audit): not emitted/handled by the realtime-modules dist CRDTService the gateway currently runs (sync flows via crdt:subscribed + the pushed crdt:snapshot) — historical/in-tree-gateway surface, retained for back-compat."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: crdt:sync-request
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          stateVector:
+            type: string
+            description: base64-encoded Y.js state vector
+        required:
+          - type
+          - channel
+          - stateVector
+        additionalProperties: true
+    ws_crdt_sync_response:
+      messageId: ws.crdt.sync-response
+      name: ws.crdt.sync-response
+      title: ws.crdt.sync-response
+      summary: "Gateway response to a sync-request containing the Y.js updates needed to bring the client up to date. NOTE (2026-06-12 dist re-audit): not emitted by the realtime-modules dist CRDTService the gateway currently runs — historical/in-tree-gateway surface, retained for back-compat."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: crdt:sync-response
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          update:
+            type: string
+            description: base64-encoded Y.js update diff
+        required:
+          - type
+          - channel
+          - update
+        additionalProperties: true
+    ws_crdt_snapshot_stored:
+      messageId: ws.crdt.snapshot-stored
+      name: ws.crdt.snapshot-stored
+      title: ws.crdt.snapshot-stored
+      summary: "Broadcast when a Y.Doc state snapshot is durably stored by the gateway. Carries the snapshot ID and byte size so clients can decide whether to fetch the new baseline. NOTE (2026-06-12 dist re-audit): not emitted by the realtime-modules dist CRDTService the gateway currently runs (snapshots are persisted silently; clients re-fetch via getSnapshot → crdt:snapshot) — historical/in-tree-gateway surface, retained for back-compat."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: crdt:snapshot-stored
+          timestamp:
+            type: string
+            description: ISO-8601
+          docId:
+            type: string
+          snapshotId:
+            type: string
+          size:
+            type: number
+            description: Size in bytes of the stored snapshot
+        required:
+          - type
+          - docId
+          - snapshotId
+          - size
+        additionalProperties: true
+    ws_crdt_awareness_batch:
+      messageId: ws.crdt.awareness-batch
+      name: ws.crdt.awareness-batch
+      title: ws.crdt.awareness-batch
+      summary: 'Batched Y.js awareness updates (cursor positions, user metadata) forwarded to CRDT channel subscribers in a single frame to reduce overhead. NOTE (2026-06-12 dist re-audit): the realtime-modules dist the gateway currently runs emits awareness as type:"crdt:awareness" with { channel, updates:[{ clientId, update }] } (declared as ws.crdt.awareness in client-frames.ts), NOT this "crdt:awareness-batch" / { clientId, awareness } shape — this declaration is a historical/in-tree-gateway surface, retained for back-compat.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: crdt:awareness-batch
+          timestamp:
+            type: string
+            description: ISO-8601
+          docId:
+            type: string
+          updates:
+            type: array
+            items:
+              type: object
+              properties:
+                clientId:
+                  type: number
+                awareness:
+                  type: object
+                  additionalProperties: true
+              required:
+                - clientId
+              additionalProperties: true
+            description: Array of per-client awareness state updates
+        required:
+          - type
+          - docId
+          - updates
+        additionalProperties: true
+    ws_presence_set:
+      messageId: ws.presence.set
+      name: ws.presence.set
+      title: ws.presence.set
+      summary: Confirmation sent to a client when their presence status is successfully set.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: presence
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: set
+          presence:
+            type: object
+            additionalProperties: true
+        required:
+          - type
+          - action
+        additionalProperties: true
+    ws_presence_update:
+      messageId: ws.presence.update
+      name: ws.presence.update
+      title: ws.presence.update
+      summary: Broadcast to presence channel subscribers when a client's presence status changes.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: presence
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: update
+          presence:
+            type: object
+            additionalProperties: true
+        required:
+          - type
+          - action
+        additionalProperties: true
+    ws_presence_subscribed:
+      messageId: ws.presence.subscribed
+      name: ws.presence.subscribed
+      title: ws.presence.subscribed
+      summary: Subscription confirmation with current presence snapshot for the channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: presence
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: subscribed
+          channel:
+            type: string
+          presence:
+            type: array
+            items:
+              type: object
+              additionalProperties: true
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_presence_unsubscribed:
+      messageId: ws.presence.unsubscribed
+      name: ws.presence.unsubscribed
+      title: ws.presence.unsubscribed
+      summary: Unsubscription confirmation from a presence channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: presence
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: unsubscribed
+          channel:
+            type: string
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_presence_data:
+      messageId: ws.presence.data
+      name: ws.presence.data
+      title: ws.presence.data
+      summary: Presence data returned in response to a get-presence request.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: presence
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: presence
+          data: {}
+        required:
+          - type
+          - action
+        additionalProperties: true
+    ws_presence_offline:
+      messageId: ws.presence.offline
+      name: ws.presence.offline
+      title: ws.presence.offline
+      summary: Broadcast to presence channel subscribers when a client disconnects or times out.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: presence
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: offline
+          clientId:
+            type: string
+        required:
+          - type
+          - action
+          - clientId
+        additionalProperties: true
+    ws_reaction_subscribed:
+      messageId: ws.reaction.subscribed
+      name: ws.reaction.subscribed
+      title: ws.reaction.subscribed
+      summary: 'Subscription confirmation sent when a client subscribes to reactions in a channel. GROUND TRUTH (gateway dist ReactionService.handleSubscribeToReactions → sendSuccess): { type:"reaction", action:"reaction_subscribed", success:true, data:{ channel, message, availableReactions } } — availableReactions is the emoji-name list.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: reaction
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: reaction_subscribed
+          success:
+            type: boolean
+            const: true
+          data:
+            type: object
+            properties:
+              channel:
+                type: string
+              message:
+                type: string
+              availableReactions:
+                type: array
+                items:
+                  type: string
+            required:
+              - channel
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_reaction_received:
+      messageId: ws.reaction.received
+      name: ws.reaction.received
+      title: ws.reaction.received
+      summary: Broadcast to all reaction channel subscribers when an emoji reaction is sent.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: reaction
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: reaction_received
+          data:
+            type: object
+            properties:
+              id:
+                type: string
+              clientId:
+                type: string
+              channel:
+                type: string
+              emoji:
+                type: string
+              effect:
+                type: string
+            required:
+              - emoji
+              - channel
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_reaction_removed:
+      messageId: ws.reaction.removed
+      name: ws.reaction.removed
+      title: ws.reaction.removed
+      summary: "Broadcast to all reaction channel subscribers when a previously sent reaction is removed. NOTE (2026-06-12 dist re-audit): the realtime-modules dist ReactionService the gateway currently runs has NO reaction-remove action — this frame is a historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: reaction
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: reaction_removed
+          data:
+            type: object
+            properties:
+              id:
+                type: string
+              clientId:
+                type: string
+              channel:
+                type: string
+              emoji:
+                type: string
+            required:
+              - id
+              - channel
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_reaction_list:
+      messageId: ws.reaction.list
+      name: ws.reaction.list
+      title: ws.reaction.list
+      summary: "Current reaction list for a channel, sent in response to a list request. NOTE (2026-06-12 dist re-audit): the realtime-modules dist ReactionService the gateway currently runs has NO reaction-list action — historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: reaction
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: reaction_list
+          data:
+            type: object
+            properties:
+              channel:
+                type: string
+              reactions:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+            required:
+              - channel
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_reaction_sent:
+      messageId: ws.reaction.sent
+      name: ws.reaction.sent
+      title: ws.reaction.sent
+      summary: 'Confirmation sent to the reaction sender after their reaction is broadcast. GROUND TRUTH (gateway dist ReactionService.handleSendReaction → sendSuccess): { type:"reaction", action:"reaction_sent", success:true, data:{ reactionId, emoji, channel, timestamp } }.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: reaction
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: reaction_sent
+          success:
+            type: boolean
+            const: true
+          data:
+            type: object
+            properties:
+              reactionId:
+                type: string
+              emoji:
+                type: string
+              channel:
+                type: string
+              timestamp:
+                type: string
+                description: ISO-8601
+            required:
+              - reactionId
+              - emoji
+              - channel
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_call_invite:
+      messageId: ws.call.invite
+      name: ws.call.invite
+      title: ws.call.invite
+      summary: Call invitation broadcast to target users (or all users when no targets specified).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: invite
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+              lobbyName:
+                type: string
+              targetUserIds:
+                type: array
+                items:
+                  type: string
+            additionalProperties: true
+        required:
+          - type
+          - action
+        additionalProperties: true
+    ws_call_accepted:
+      messageId: ws.call.accepted
+      name: ws.call.accepted
+      title: ws.call.accepted
+      summary: Call accepted signal delivered to the call initiator.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: accepted
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+              lobbyName:
+                type: string
+              targetUserIds:
+                type: array
+                items:
+                  type: string
+            additionalProperties: true
+        required:
+          - type
+          - action
+        additionalProperties: true
+    ws_call_declined:
+      messageId: ws.call.declined
+      name: ws.call.declined
+      title: ws.call.declined
+      summary: Call declined signal delivered to the call initiator.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: declined
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+              lobbyName:
+                type: string
+              targetUserIds:
+                type: array
+                items:
+                  type: string
+            additionalProperties: true
+        required:
+          - type
+          - action
+        additionalProperties: true
+    ws_call_cancelled:
+      messageId: ws.call.cancelled
+      name: ws.call.cancelled
+      title: ws.call.cancelled
+      summary: Call cancelled signal broadcast to all parties.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: cancelled
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+              lobbyName:
+                type: string
+              targetUserIds:
+                type: array
+                items:
+                  type: string
+            additionalProperties: true
+        required:
+          - type
+          - action
+        additionalProperties: true
+    ws_call_ended:
+      messageId: ws.call.ended
+      name: ws.call.ended
+      title: ws.call.ended
+      summary: Call ended signal broadcast to all parties.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: ended
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+              lobbyName:
+                type: string
+              targetUserIds:
+                type: array
+                items:
+                  type: string
+            additionalProperties: true
+        required:
+          - type
+          - action
+        additionalProperties: true
+    ws_call_video_on:
+      messageId: ws.call.video-on
+      name: ws.call.video-on
+      title: ws.call.video-on
+      summary: Broadcast to call participants when a participant enables their video feed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: video-on
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+              participantId:
+                type: string
+              userId:
+                type: string
+            required:
+              - callId
+              - participantId
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_call_video_off:
+      messageId: ws.call.video-off
+      name: ws.call.video-off
+      title: ws.call.video-off
+      summary: Broadcast to call participants when a participant disables their video feed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: video-off
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+              participantId:
+                type: string
+              userId:
+                type: string
+            required:
+              - callId
+              - participantId
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_call_recording_started:
+      messageId: ws.call.recording-started
+      name: ws.call.recording-started
+      title: ws.call.recording-started
+      summary: Broadcast to all call participants when server-side recording of the session starts.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: recording-started
+          data:
+            type: object
+            properties:
+              sessionId:
+                type: string
+              recordingId:
+                type: string
+              format:
+                type: string
+                description: Recording format (e.g. "mp4", "webm")
+            required:
+              - sessionId
+              - recordingId
+              - format
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_call_recording_completed:
+      messageId: ws.call.recording-completed
+      name: ws.call.recording-completed
+      title: ws.call.recording-completed
+      summary: Broadcast to all call participants when recording ends and a download URL for the recording is available.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: recording-completed
+          data:
+            type: object
+            properties:
+              sessionId:
+                type: string
+              recordingId:
+                type: string
+              downloadUrl:
+                type: string
+            required:
+              - sessionId
+              - recordingId
+              - downloadUrl
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_upload_requested:
+      messageId: ws.upload.requested
+      name: ws.upload.requested
+      title: ws.upload.requested
+      summary: Acknowledgement sent when the gateway receives a file upload request from a client.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: upload
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: requested
+          data:
+            type: object
+            properties:
+              clientId:
+                type: string
+              channel:
+                type: string
+              filename:
+                type: string
+              size:
+                type: number
+              mimeType:
+                type: string
+            required:
+              - clientId
+              - channel
+              - filename
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_upload_url_issued:
+      messageId: ws.upload.url-issued
+      name: ws.upload.url-issued
+      title: ws.upload.url-issued
+      summary: Presigned S3 upload URL issued to the client so they can PUT the file directly.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: upload
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: url-issued
+          data:
+            type: object
+            properties:
+              uploadId:
+                type: string
+              presignedUrl:
+                type: string
+              expiresAt:
+                type: string
+                description: ISO-8601
+            required:
+              - uploadId
+              - presignedUrl
+              - expiresAt
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_upload_completed:
+      messageId: ws.upload.completed
+      name: ws.upload.completed
+      title: ws.upload.completed
+      summary: Broadcast to the channel when a file upload completes and a download URL is available.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: upload
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: completed
+          data:
+            type: object
+            properties:
+              uploadId:
+                type: string
+              downloadUrl:
+                type: string
+            required:
+              - uploadId
+              - downloadUrl
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_upload_failed:
+      messageId: ws.upload.failed
+      name: ws.upload.failed
+      title: ws.upload.failed
+      summary: Sent to the uploading client when the file upload fails at any stage.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: upload
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: failed
+          data:
+            type: object
+            properties:
+              uploadId:
+                type: string
+              error:
+                type: string
+            required:
+              - uploadId
+              - error
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_upload_scanned:
+      messageId: ws.upload.scanned
+      name: ws.upload.scanned
+      title: ws.upload.scanned
+      summary: Sent to the channel after a security scan completes on the uploaded file, reporting clean or infected status.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: upload
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: scanned
+          data:
+            type: object
+            properties:
+              uploadId:
+                type: string
+              status:
+                type: string
+                enum:
+                  - clean
+                  - infected
+            required:
+              - uploadId
+              - status
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_upload_scan_quarantined:
+      messageId: ws.upload.scan-quarantined
+      name: ws.upload.scan-quarantined
+      title: ws.upload.scan-quarantined
+      summary: Sent to the uploading client when a security scan detects a threat. The file is quarantined and the download URL is revoked.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: upload
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: scan-quarantined
+          data:
+            type: object
+            properties:
+              uploadId:
+                type: string
+              reason:
+                type: string
+                description: Human-readable quarantine reason (e.g. threat name)
+            required:
+              - uploadId
+              - reason
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_upload_url_revoked:
+      messageId: ws.upload.url-revoked
+      name: ws.upload.url-revoked
+      title: ws.upload.url-revoked
+      summary: Sent to the uploading client when a presigned download URL is explicitly revoked. Clients should discard any cached URL.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: upload
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: url-revoked
+          data:
+            type: object
+            properties:
+              uploadId:
+                type: string
+              reason:
+                type: string
+                description: Reason for revocation (e.g. "quarantine", "policy", "expired")
+            required:
+              - uploadId
+              - reason
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_pipeline_subscribed:
+      messageId: ws.pipeline.subscribed
+      name: ws.pipeline.subscribed
+      title: ws.pipeline.subscribed
+      summary: Subscription confirmation sent when a client subscribes to a pipeline channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: pipeline
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: subscribed
+          channel:
+            type: string
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_pipeline_unsubscribed:
+      messageId: ws.pipeline.unsubscribed
+      name: ws.pipeline.unsubscribed
+      title: ws.pipeline.unsubscribed
+      summary: Unsubscription confirmation from a pipeline channel.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: pipeline
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: unsubscribed
+          channel:
+            type: string
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_pipeline_ack:
+      messageId: ws.pipeline.ack
+      name: ws.pipeline.ack
+      title: ws.pipeline.ack
+      summary: Acknowledgement frame for client-initiated pipeline commands (trigger, cancel, resolveApproval, resumeFromStep, resolveBreakpoint).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: pipeline:ack
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+          runId:
+            type: string
+          correlationId: {}
+        required:
+          - type
+          - action
+        additionalProperties: true
+    ws_pipeline_snapshot:
+      messageId: ws.pipeline.snapshot
+      name: ws.pipeline.snapshot
+      title: ws.pipeline.snapshot
+      summary: Current pipeline run state sent in response to a getRun request.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: pipeline:snapshot
+          timestamp:
+            type: string
+            description: ISO-8601
+          runId:
+            type: string
+          run:
+            type:
+              - object
+              - "null"
+            additionalProperties: true
+          correlationId: {}
+        required:
+          - type
+          - runId
+        additionalProperties: true
+    ws_pipeline_history:
+      messageId: ws.pipeline.history
+      name: ws.pipeline.history
+      title: ws.pipeline.history
+      summary: BusEvent history for a pipeline run sent in response to a getHistory request.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: pipeline:history
+          timestamp:
+            type: string
+            description: ISO-8601
+          runId:
+            type: string
+          fromVersion:
+            type: number
+          events:
+            type: array
+            items:
+              type: object
+              additionalProperties: true
+          correlationId: {}
+        required:
+          - type
+          - runId
+          - events
+        additionalProperties: true
+    ws_pipeline_event:
+      messageId: ws.pipeline.event
+      name: ws.pipeline.event
+      title: ws.pipeline.event
+      summary: Pipeline BusEvent fan-out frame delivered to channel subscribers (pipeline:run:{runId}, pipeline:all, pipeline:approvals).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: pipeline:event
+          timestamp:
+            type: string
+            description: ISO-8601
+          eventType:
+            type: string
+          payload:
+            type: object
+            additionalProperties: true
+          channel:
+            type: string
+          seq:
+            type: number
+          sourceNodeId:
+            type: string
+          emittedAt:
+            type: number
+        required:
+          - type
+          - eventType
+          - channel
+        additionalProperties: true
+    ws_error:
+      messageId: ws.error
+      name: ws.error
+      title: ws.error
+      summary: "Generic error frame sent to a client when any gateway service encounters a client-visible error. GROUND TRUTH (gateway dist): chat/reaction/cursor/crdt nest under error:{ code, message, service, clientId, timestamp }; presence/activity send a flat top-level message. `service` names the originating service in both shapes."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: error
+          timestamp:
+            type: string
+            description: ISO-8601
+          service:
+            type: string
+            description: The service that generated the error (chat, cursor, presence, etc.)
+          code:
+            type: string
+            description: flat-shape error code (when no nested error object is present)
+          message:
+            type: string
+            description: flat-shape human-readable message (presence/activity); for chat/reaction/cursor/crdt the message lives under error.message
+          error:
+            type: object
+            description: nested error envelope emitted by chat/reaction/cursor/crdt
+            properties:
+              code:
+                type: string
+              message:
+                type: string
+              service:
+                type: string
+              clientId:
+                type: string
+              timestamp:
+                type: string
+                description: ISO-8601
+            required:
+              - code
+              - message
+            additionalProperties: true
+        required:
+          - type
+        additionalProperties: true
+    ws_presence_joined:
+      messageId: ws.presence.joined
+      name: ws.presence.joined
+      title: ws.presence.joined
+      summary: "Broadcast when a client joins a presence channel, carrying the joining client's PresenceEntry. NOTE: the gateway presence service currently emits type:\"presence\" action frames (ws.presence.update / ws.presence.offline); presence:joined is the usePresence hook contract — naming tension documented per Wave A2, not renamed."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: presence:joined
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          client:
+            type: object
+            properties:
+              clientId:
+                type: string
+              status:
+                type: string
+              metadata:
+                type: object
+                additionalProperties: true
+              channels:
+                type: array
+                items:
+                  type: string
+              nodeId:
+                type: string
+              timestamp:
+                type: string
+              lastSeen:
+                type: string
+              lastHeartbeat:
+                type: number
+            required:
+              - clientId
+              - status
+            additionalProperties: true
+        required:
+          - type
+          - channel
+          - client
+        additionalProperties: true
+    ws_presence_left:
+      messageId: ws.presence.left
+      name: ws.presence.left
+      title: ws.presence.left
+      summary: 'Broadcast when a client leaves a presence channel. NOTE: the gateway presence service currently emits type:"presence" action frames; presence:left is the usePresence hook contract — naming tension documented per Wave A2, not renamed.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: presence:left
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          clientId:
+            type: string
+        required:
+          - type
+          - channel
+          - clientId
+        additionalProperties: true
+    ws_fileupload_progress:
+      messageId: ws.fileupload.progress
+      name: ws.fileupload.progress
+      title: ws.fileupload.progress
+      summary: Server-side upload progress (0-100) for an in-flight file upload. Part of the fileupload:* hook contract (useFileUpload); the gateway's own upload lifecycle is declared as ws.upload.* with type:"upload" frames — naming tension documented per Wave A2, not renamed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: fileupload:progress
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          id:
+            type: string
+            description: client-generated upload id
+          progress:
+            type: number
+            description: 0-100
+        required:
+          - type
+          - channel
+          - id
+          - progress
+        additionalProperties: true
+    ws_fileupload_scanning:
+      messageId: ws.fileupload.scanning
+      name: ws.fileupload.scanning
+      title: ws.fileupload.scanning
+      summary: Antivirus scan is IN PROGRESS for an uploaded file — distinct from the existing ws.upload.scanned declaration, which reports the scan OUTCOME (clean/infected). The scanning-vs-scanned naming tension is documented per Wave A2, not renamed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: fileupload:scanning
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          id:
+            type: string
+            description: client-generated upload id
+        required:
+          - type
+          - channel
+          - id
+        additionalProperties: true
+    ws_fileupload_cancelled:
+      messageId: ws.fileupload.cancelled
+      name: ws.fileupload.cancelled
+      title: ws.fileupload.cancelled
+      summary: Acknowledgement that a client-requested upload cancellation completed (useFileUpload.cancel round-trip). Part of the fileupload:* hook contract — see ws.fileupload.progress for the upload-vs-fileupload naming note.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: fileupload:cancelled
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          id:
+            type: string
+            description: client-generated upload id
+        required:
+          - type
+          - channel
+          - id
+        additionalProperties: true
+    ws_videohangout_participant:
+      messageId: ws.videohangout.participant
+      name: ws.videohangout.participant
+      title: ws.videohangout.participant
+      summary: 'Participant joined or updated in a hangout session, carrying the full HangoutParticipant. NOTE: the gateway currently signals hangout/call invites via type:"call" frames (ws.call.*); videohangout:* is the useVideoHangout hook contract — naming tension documented per Wave A2, not renamed.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: videohangout:participant
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          participant:
+            type: object
+            properties:
+              clientId:
+                type: string
+              displayName:
+                type: string
+              role:
+                type: string
+                enum:
+                  - host
+                  - participant
+                  - viewer
+              videoOn:
+                type: boolean
+              audioOn:
+                type: boolean
+              joinedAt:
+                type: string
+            required:
+              - clientId
+              - role
+            additionalProperties: true
+        required:
+          - type
+          - channel
+          - participant
+        additionalProperties: true
+    ws_videohangout_media:
+      messageId: ws.videohangout.media
+      name: ws.videohangout.media
+      title: ws.videohangout.media
+      summary: Media-state change for a hangout participant (video/audio toggled). Part of the videohangout:* hook contract — see ws.videohangout.participant for the videohangout-vs-ws.call.* naming note.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: videohangout:media
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          clientId:
+            type: string
+          videoOn:
+            type: boolean
+          audioOn:
+            type: boolean
+        required:
+          - type
+          - channel
+          - clientId
+          - videoOn
+          - audioOn
+        additionalProperties: true
+    ws_notification_new:
+      messageId: ws.notification.new
+      name: ws.notification.new
+      title: ws.notification.new
+      summary: "New USER-scoped notification pushed to the client inbox — delivered regardless of which channel is open (useNotifications). NOTE: gateway-side emission is deferred (M3+ per the hook header); declared now so the client contract is in the catalog."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: notification:new
+          timestamp:
+            type: string
+            description: ISO-8601
+          service:
+            type: string
+            const: notification
+          payload: &a3
+            type: object
+            properties:
+              id:
+                type: string
+              type:
+                type: string
+                description: NotificationType — semantic category
+              title:
+                type: string
+              body:
+                type: string
+              timestamp:
+                type: string
+                description: ISO-8601
+              read:
+                type: boolean
+              channel:
+                type: string
+                description: origin channel for click-to-navigate
+              payload:
+                type: object
+                additionalProperties: true
+              action:
+                type: object
+                properties:
+                  label:
+                    type: string
+                  href:
+                    type: string
+                  onClickEvent:
+                    type: string
+                required:
+                  - label
+                additionalProperties: true
+            required:
+              - id
+              - type
+              - title
+              - timestamp
+            additionalProperties: true
+        required:
+          - type
+          - payload
+        additionalProperties: true
+    ws_notification_read:
+      messageId: ws.notification.read
+      name: ws.notification.read
+      title: ws.notification.read
+      summary: Server push that a notification was marked read, so other tabs/devices converge (useNotifications). Gateway-side emission deferred (M3+); declared as the client contract.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: notification:read
+          timestamp:
+            type: string
+            description: ISO-8601
+          service:
+            type: string
+            const: notification
+          payload:
+            type: object
+            properties:
+              id:
+                type: string
+            required:
+              - id
+            additionalProperties: true
+        required:
+          - type
+          - payload
+        additionalProperties: true
+    ws_notification_bulk_update:
+      messageId: ws.notification.bulk-update
+      name: ws.notification.bulk-update
+      title: ws.notification.bulk-update
+      summary: Bulk notification list update (e.g. inbox sync on reconnect) carrying an array of Notification objects (useNotifications). Gateway-side emission deferred (M3+); declared as the client contract.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: notification:bulk-update
+          timestamp:
+            type: string
+            description: ISO-8601
+          service:
+            type: string
+            const: notification
+          payload:
+            type: object
+            properties:
+              notifications:
+                type: array
+                items: *a3
+            required:
+              - notifications
+            additionalProperties: true
+        required:
+          - type
+          - payload
+        additionalProperties: true
+    ws_capability_updated:
+      messageId: ws.capability.updated
+      name: ws.capability.updated
+      title: ws.capability.updated
+      summary: Control-plane push that a CRD-derived capability changed state, so useCapability consumers update without a remount. Payload mirrors CapabilityUpdatedPayload in useCapability.ts.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: capability:updated
+          timestamp:
+            type: string
+            description: ISO-8601
+          payload:
+            type: object
+            properties:
+              name:
+                type: string
+              enabled:
+                type: boolean
+              channel:
+                type: string
+                description: optional channel scope
+              version:
+                type: string
+                description: bundle version from the CRD
+              metadata:
+                type: object
+                additionalProperties: true
+            required:
+              - name
+              - enabled
+            additionalProperties: true
+        required:
+          - type
+          - payload
+        additionalProperties: true
+    ws_feature_flag_updated:
+      messageId: ws.feature-flag.updated
+      name: ws.feature-flag.updated
+      title: ws.feature-flag.updated
+      summary: Gateway push that an app-level feature flag changed (kill-switch / A-B variant), so useFeatureFlag consumers update reactively. Payload mirrors FeatureFlagUpdatedPayload in useFeatureFlag.ts.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: feature-flag:updated
+          timestamp:
+            type: string
+            description: ISO-8601
+          payload:
+            type: object
+            properties:
+              name:
+                type: string
+              enabled:
+                type: boolean
+              variant:
+                type: string
+                description: variant id for multi-variant flags
+              metadata:
+                type: object
+                additionalProperties: true
+            required:
+              - name
+              - enabled
+            additionalProperties: true
+        required:
+          - type
+          - payload
+        additionalProperties: true
+    ws_reaction_unsubscribed:
+      messageId: ws.reaction.unsubscribed
+      name: ws.reaction.unsubscribed
+      title: ws.reaction.unsubscribed
+      summary: 'Confirmation sent to a client when their reaction unsubscribe is accepted. GROUND TRUTH (gateway dist ReactionService.handleUnsubscribeFromReactions → sendSuccess): wire frame is { type:"reaction", action:"reaction_unsubscribed", success:true, data:{ channel, message } }. No ws.* declaration existed for this verified send-back before — added per divergence note (b).'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: reaction
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: reaction_unsubscribed
+          success:
+            type: boolean
+            const: true
+          data:
+            type: object
+            properties:
+              channel:
+                type: string
+              message:
+                type: string
+            required:
+              - channel
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_reaction_available:
+      messageId: ws.reaction.available
+      name: ws.reaction.available
+      title: ws.reaction.available
+      summary: "The gateway's available-reactions catalog (emoji → effect map), sent in reply to a getAvailable request. GROUND TRUTH (gateway dist ReactionService.handleGetAvailableReactions → sendSuccess): wire frame is { type:\"reaction\", action:\"available_reactions\", success:true, data:{ reactions } } where reactions maps each emoji to its { effect } config. No ws.* declaration existed before — added per divergence note (b)."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: reaction
+          timestamp:
+            type: string
+            description: ISO-8601
+          action:
+            type: string
+            const: available_reactions
+          success:
+            type: boolean
+            const: true
+          data:
+            type: object
+            properties:
+              reactions:
+                type: object
+                additionalProperties: true
+                description: emoji → { effect } map
+            required:
+              - reactions
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_crdt_awareness:
+      messageId: ws.crdt.awareness
+      name: ws.crdt.awareness
+      title: ws.crdt.awareness
+      summary: 'Coalesced Y.js awareness updates broadcast to all CRDT channel subscribers. GROUND TRUTH (gateway dist server/AwarenessCoalescer._broadcast): wire frame is { type:"crdt:awareness", channel, updates:[{ clientId, update }] } where each update is a base64-encoded Y.js awareness delta. This is the frame the running dist emits — distinct from the historical ws.crdt.awareness-batch (type "crdt:awareness-batch", per-entry { clientId, awareness }) which the current dist does NOT emit. Added per divergence note (b).'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: crdt:awareness
+          timestamp:
+            type: string
+            description: ISO-8601
+          channel:
+            type: string
+          updates:
+            type: array
+            items:
+              type: object
+              properties:
+                clientId:
+                  type: string
+                update:
+                  type: string
+                  description: base64-encoded Y.js awareness delta
+              required:
+                - clientId
+                - update
+              additionalProperties: true
+        required:
+          - type
+          - channel
+          - updates
+        additionalProperties: true
+tags:
+  - name: chat
+  - name: presence
+  - name: reaction
+  - name: activity
+  - name: crdt
+  - name: cursor
+  - name: fileupload
+  - name: videohangout
+  - name: call
+  - name: pipeline
+  - name: upload
+  - name: notification
+  - name: capability
+  - name: feature-flag
+  - name: subscribe

@@ -1,0 +1,516 @@
+# Hand-maintained — websocket-gateway REST surface.
+# Companion to the generated contracts/asyncapi.yaml (the WS protocol).
+#
+# Source of truth for shapes:
+#   websocket-gateway/src/realtime-fanout/api-routes.ts
+#   websocket-gateway/src/realtime-fanout/notification/notify-route.ts
+# JSON-Schema component shapes reference @connorhoehn/event-catalog
+# declarations where they apply (see x-event-catalog-ref extensions).
+#
+# These are server-to-server endpoints (NOT user-facing). Every route is
+# gated behind the gateway's fail-closed service-auth guard (HMAC envelope
+# via the X-Service-Auth header). They mirror realtime-modules'
+# GatewayProxyClient URL contracts.
+openapi: 3.1.0
+info:
+  title: websocket-gateway REST surface
+  version: 1.0.0
+  description: |
+    The HTTP side-channel of the websocket-gateway: server-to-server routes
+    for publishing to channels, reading presence/chat/activity history,
+    querying CRD-derived capabilities + feature flags, and pushing
+    user-scoped notifications.
+
+    AUDIENCE: non-React / non-JS adopters and operators. JS/TS adopters use
+    `@connorhoehn/realtime-modules` GatewayProxyClient, which speaks these
+    exact contracts.
+
+    AUTH: every route requires the service-auth HMAC envelope in the
+    `X-Service-Auth` header. When `SERVICE_AUTH_SECRET` is unset the gate
+    FAILS CLOSED (503) unless `SERVICE_AUTH_DEV_OPEN=true`. These are not
+    user-facing endpoints.
+
+    ERRORS: most errors use the nested envelope `{ error: { code, message } }`.
+    Two routes return a flatter shape for historical compatibility (noted
+    per-operation). All responses echo the `X-Correlation-Id` request header.
+  license:
+    name: UNLICENSED
+servers:
+  - url: http://localhost:8080
+    description: Local dev gateway (Tilt). Port/path may differ per deployment.
+  - url: https://{host}
+    description: Deployed gateway.
+    variables:
+      host:
+        default: gateway.example.com
+
+tags:
+  - name: channels
+    description: Publish to a WS channel from a backend service
+  - name: presence
+    description: Read channel presence
+  - name: history
+    description: Read chat / activity history
+  - name: capabilities
+    description: CRD-derived capability + feature-flag queries
+  - name: notifications
+    description: Push user-scoped notifications
+
+components:
+  securitySchemes:
+    serviceAuth:
+      type: apiKey
+      in: header
+      name: X-Service-Auth
+      description: HMAC service-auth envelope. Fail-closed when the secret is unset.
+  parameters:
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema: { type: string }
+      description: Echoed back on the response for end-to-end trace correlation.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string }
+      description: In-memory LRU dedup (24h TTL) for POST routes.
+  schemas:
+    Error:
+      type: object
+      description: Standard nested error envelope.
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+          required: [code, message]
+      required: [error]
+    PresenceEntry:
+      type: object
+      description: |
+        A single client's presence record. Mirrors the gateway PresenceService
+        entry — the same shape carried by ws.presence.* WS frames
+        (event-catalog gateway-signal.ts).
+      x-event-catalog-ref: "ws.presence.update (payload.data shape)"
+      properties:
+        clientId: { type: string }
+        status: { type: string, description: 'PresenceStatus, e.g. online | away | busy' }
+        metadata: { type: object, additionalProperties: true }
+        channels: { type: array, items: { type: string } }
+        nodeId: { type: string }
+        lastSeen: { type: string }
+        lastHeartbeat: { type: number }
+      required: [clientId, status]
+      additionalProperties: true
+    ChatMessage:
+      type: object
+      description: |
+        A persisted chat message. Same shape as the messages carried by the
+        ws.chat.message WS frame (event-catalog gateway-signal.ts).
+      x-event-catalog-ref: "ws.chat.message"
+      properties:
+        id: { type: string }
+        channel: { type: string }
+        clientId: { type: string }
+        message: { type: string }
+        timestamp: { type: string, description: ISO-8601 }
+        metadata: { type: object, additionalProperties: true }
+      additionalProperties: true
+    ActivityEvent:
+      type: object
+      description: |
+        A single activity-feed event. Same shape as the events carried by the
+        ws.activity.event WS frame (event-catalog gateway-signal.ts).
+      x-event-catalog-ref: "ws.activity.event"
+      properties:
+        id: { type: string }
+        channelId: { type: string }
+        type: { type: string }
+        actor: { type: string }
+        timestamp: { type: string, description: ISO-8601 }
+        data: { type: object, additionalProperties: true }
+      additionalProperties: true
+    NotificationInput:
+      type: object
+      description: |
+        Notification body fields. Mirrors the payload of the ws.notification.new
+        WS frame (event-catalog client-frames.ts) that this route emits.
+      x-event-catalog-ref: "ws.notification.new (payload)"
+      properties:
+        title: { type: string, maxLength: 200 }
+        type: { type: string, maxLength: 64, description: 'NotificationType, default "system"' }
+        id: { type: string, maxLength: 128 }
+        body: { type: string, maxLength: 2000 }
+        timestamp: { type: string, description: ISO-8601 }
+        channel: { type: string, maxLength: 128, description: origin channel for click-to-navigate }
+        payload: { type: object, additionalProperties: true }
+        action:
+          type: object
+          properties:
+            label: { type: string }
+            href: { type: string }
+            onClickEvent: { type: string }
+          required: [label]
+      required: [title]
+
+security:
+  - serviceAuth: []
+
+paths:
+  /api/channels/{channel}/messages:
+    post:
+      tags: [channels]
+      operationId: publishToChannel
+      summary: Publish a payload to all local WS subscribers of a channel.
+      parameters:
+        - name: channel
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                payload:
+                  description: Opaque body fanned out verbatim to subscribers.
+              required: [payload]
+      responses:
+        '200':
+          description: Delivered. `delivered` is the local WS subscriber count.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  delivered: { type: integer }
+                required: [delivered]
+        '400':
+          description: Missing channel id, malformed/non-JSON body, missing payload, or missing/non-JSON Content-Type.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401':
+          description: Service-auth failure.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '413':
+          description: Body exceeds the 1 MiB cap.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '429':
+          description: Rate limit exceeded.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '500':
+          description: Message router error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /api/presence/{channel}:
+    get:
+      tags: [presence]
+      operationId: getPresence
+      summary: List the presence entries currently in a channel.
+      parameters:
+        - name: channel
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Channel presence list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: '#/components/schemas/PresenceEntry' }
+                required: [users]
+        '400':
+          description: Missing/empty channel id.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401':
+          description: Service-auth failure.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '429':
+          description: Rate limit exceeded.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '500':
+          description: Presence service error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /api/chat/{channel}/history:
+    get:
+      tags: [history]
+      operationId: getChatHistory
+      summary: Read recent chat messages for a channel.
+      parameters:
+        - name: channel
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+          description: Max messages (positive integer, capped server-side; default applies when omitted).
+        - name: before
+          in: query
+          required: false
+          schema: { type: string }
+          description: ISO-8601 cursor — return messages older than this timestamp.
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Chat messages, chronological (oldest-first).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ChatMessage' }
+        '400':
+          description: Missing channel id, invalid limit, or invalid `before`.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401':
+          description: Service-auth failure.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '429':
+          description: Rate limit exceeded.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '500':
+          description: Chat service error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /api/activity/{channel}/history:
+    get:
+      tags: [history]
+      operationId: getActivityHistory
+      summary: Read recent activity-feed events for a channel.
+      parameters:
+        - name: channel
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50 }
+          description: Max events (default 50, clamped server-side).
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Activity events.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActivityEvent' }
+        '400':
+          description: Missing channel id or invalid limit.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401':
+          description: Service-auth failure.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '429':
+          description: Rate limit exceeded.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '500':
+          description: Activity service error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /api/capabilities:
+    get:
+      tags: [capabilities]
+      operationId: queryCapability
+      summary: Resolve whether a CRD-derived capability is enabled (optionally scoped to a channel).
+      description: |
+        Always 200. When no CRD channel-config is registered, falls back to the
+        static enabled-services baseline; `source`/`reason` indicate which path
+        produced the verdict.
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema: { type: string }
+        - name: channel
+          in: query
+          required: false
+          schema: { type: string }
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Capability verdict.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  name: { type: string }
+                  channel: { type: [string, 'null'] }
+                  source: { type: string, description: "e.g. 'enabled-services'" }
+                  reason: { type: string, description: "e.g. 'no-config-registered'" }
+                  version: { type: string }
+                required: [enabled, name]
+                additionalProperties: true
+        '400':
+          description: Missing `name` query parameter.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401':
+          description: Service-auth failure.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /api/feature-flags:
+    get:
+      tags: [capabilities]
+      operationId: listFeatureFlags
+      summary: Enumerate all configured feature flags.
+      description: "Always 200. An absent store yields `{ flags: [] }`."
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Configured feature flags.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flags:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        enabled: { type: boolean }
+                        variant: { type: string }
+                        metadata: { type: object, additionalProperties: true }
+                      required: [name, enabled]
+                required: [flags]
+        '401':
+          description: Service-auth failure.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '500':
+          description: Feature-flag store error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /api/feature-flags/{name}:
+    get:
+      tags: [capabilities]
+      operationId: queryFeatureFlag
+      summary: Evaluate a single feature flag by name.
+      description: |
+        Powers realtime-modules' useFeatureFlag hook. 200 when the flag name is
+        known (the `enabled` field carries the verdict) or when no store is
+        configured (`reason: no-feature-flags-store`). 404 only when the name is
+        present but unknown to the store — note the FLATTER error shape
+        `{ error: 'flag_not_found', name }` for this case (historical).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+        - name: userId
+          in: query
+          required: false
+          schema: { type: string }
+          description: Optional evaluation context for per-user variants.
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Flag verdict.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  enabled: { type: boolean }
+                  variant: { type: string }
+                  metadata: { type: object, additionalProperties: true }
+                  reason: { type: string }
+                required: [name, enabled]
+                additionalProperties: true
+        '400':
+          description: Missing flag name.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401':
+          description: Service-auth failure.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '404':
+          description: 'Flag name unknown to the store. FLAT shape: { error, name }.'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string, const: flag_not_found }
+                  name: { type: string }
+                required: [error, name]
+        '500':
+          description: Feature-flag evaluation error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /api/notify:
+    post:
+      tags: [notifications]
+      operationId: notify
+      summary: Push a user-scoped notification to one or more users.
+      description: |
+        Fans a notification out to `userId` (single) or `userIds[]` (multi).
+        Emits the ws.notification.new WS frame to each target's connected
+        clients.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId: { type: string }
+                userIds: { type: array, items: { type: string } }
+                notification: { $ref: '#/components/schemas/NotificationInput' }
+              required: [notification]
+              description: Exactly one of `userId` or non-empty `userIds[]` is required.
+      responses:
+        '202':
+          description: Accepted — at least one delivery succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted: { type: integer }
+                  requested: { type: integer }
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        userId: { type: string }
+                        id: { type: string }
+                        delivered: { type: integer }
+                      required: [userId, id, delivered]
+                required: [accepted, requested, results]
+        '400':
+          description: Invalid/empty body, malformed JSON, missing user target, or missing notification.title.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401':
+          description: Service-auth failure.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '413':
+          description: Body exceeds the 64 KiB cap.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '500':
+          description: No notifications were delivered.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '503':
+          description: Notification service not enabled.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

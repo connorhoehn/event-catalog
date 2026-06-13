@@ -1,6 +1,6 @@
 {
   "name": "@connorhoehn/event-catalog",
-  "version": "0.3.58",
+  "version": "0.3.59",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },
@@ -63,6 +63,7 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "generate-types": "tsx scripts/generate-types.ts",
+    "generate-asyncapi": "tsx scripts/generate-asyncapi.ts",
     "snapshot:regen": "tsx scripts/regen-registry-snapshot.ts",
     "verify:dist": "node scripts/verify-dist-completeness.mjs",
     "prepublishOnly": "tsx scripts/regen-registry-snapshot.ts && npm run verify:dist",
