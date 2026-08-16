@@ -17,6 +17,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RegistryCoordinator = exports.MUTATIONS_CHANNEL = void 0;
 const redis_1 = require("redis");
+const redis_boot_strategy_js_1 = require("../utils/redis-boot-strategy.js");
 exports.MUTATIONS_CHANNEL = 'event-catalog:mutations';
 class RegistryCoordinator {
     replicaId = crypto.randomUUID();
@@ -28,11 +29,25 @@ class RegistryCoordinator {
         if (this._started)
             return;
         this._started = true;
-        this.pubClient = (0, redis_1.createClient)({ url: redisUrl });
-        this.subClient = (0, redis_1.createClient)({ url: redisUrl });
-        this.pubClient.on('error', (err) => console.warn('[registry-coordinator] pub client error:', err.message));
-        this.subClient.on('error', (err) => console.warn('[registry-coordinator] sub client error:', err.message));
-        await Promise.all([this.pubClient.connect(), this.subClient.connect()]);
+        // Boot-bounded reconnect — start() is fire-and-forget from createServer(),
+        // so an unbounded first-connect retry would spin forever in the background
+        // logging noise instead of failing once into the caller's catch.
+        const pubBootStrategy = (0, redis_boot_strategy_js_1.createBootBoundedReconnectStrategy)({ label: 'coordinator pub' });
+        const subBootStrategy = (0, redis_boot_strategy_js_1.createBootBoundedReconnectStrategy)({ label: 'coordinator sub' });
+        this.pubClient = (0, redis_1.createClient)({
+            url: redisUrl,
+            socket: { reconnectStrategy: pubBootStrategy.reconnectStrategy },
+        });
+        this.subClient = (0, redis_1.createClient)({
+            url: redisUrl,
+            socket: { reconnectStrategy: subBootStrategy.reconnectStrategy },
+        });
+        this.pubClient.on('error', (err) => console.warn('[registry-coordinator] pub client error:', (0, redis_boot_strategy_js_1.formatRedisError)(err)));
+        this.subClient.on('error', (err) => console.warn('[registry-coordinator] sub client error:', (0, redis_boot_strategy_js_1.formatRedisError)(err)));
+        await Promise.all([
+            this.pubClient.connect().then(() => pubBootStrategy.markConnected()),
+            this.subClient.connect().then(() => subBootStrategy.markConnected()),
+        ]);
         await this.subClient.subscribe(exports.MUTATIONS_CHANNEL, (message) => {
             let mutation;
             try {

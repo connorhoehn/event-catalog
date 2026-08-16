@@ -29,6 +29,7 @@ const producer_attribution_js_1 = require("./producer-attribution.js");
 const poison_detector_js_1 = require("./poison-detector.js");
 const registry_coordinator_js_1 = require("./registry-coordinator.js");
 const node_fs_1 = require("node:fs");
+const redis_boot_strategy_js_1 = require("../utils/redis-boot-strategy.js");
 function readServiceVersion() {
     try {
         const pkgPath = new URL('../../package.json', import.meta.url).pathname;
@@ -77,18 +78,31 @@ function buildDeadLetterCallback(deps) {
 }
 async function startServer(config = {}) {
     const { port = parseInt(process.env.PORT ?? '3010'), redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379', messageQueueUrl = process.env.MESSAGE_QUEUE_URL ?? 'http://localhost:3004', corsOrigin = true, onDeadLetter = [], authMiddleware, } = config;
-    const redisClient = (0, redis_1.createClient)({ url: redisUrl });
-    redisClient.on('error', (err) => {
-        console.warn('[server] registry Redis error:', err.message);
+    // Boot-bounded reconnect: without this, a down Redis makes connect() retry
+    // forever, the catch below never fires, and boot never reaches app.listen().
+    const registryBootStrategy = (0, redis_boot_strategy_js_1.createBootBoundedReconnectStrategy)({ label: 'registry' });
+    const redisClient = (0, redis_1.createClient)({
+        url: redisUrl,
+        socket: { reconnectStrategy: registryBootStrategy.reconnectStrategy },
     });
-    await redisClient.connect().catch(err => {
-        console.warn('[server] registry Redis connection failed:', err.message);
+    redisClient.on('error', (err) => {
+        console.warn('[server] registry Redis error:', (0, redis_boot_strategy_js_1.formatRedisError)(err));
+    });
+    await redisClient.connect()
+        .then(() => registryBootStrategy.markConnected())
+        .catch(err => {
+        console.warn('[server] registry Redis connection failed:', (0, redis_boot_strategy_js_1.formatRedisError)(err), '— continuing in degraded mode (in-memory registry, no cross-replica sync)');
     });
     const registry = new index_js_1.Registry(redisClient);
-    await registry.load();
+    // Hydration is best-effort: with Redis down the client is closed and
+    // hGetAll throws ClientClosedError. Serve an empty in-memory registry
+    // instead of failing boot — producers re-declare on their next sync.
+    await registry.load().catch(err => {
+        console.warn('[server] registry hydration failed:', (0, redis_boot_strategy_js_1.formatRedisError)(err), '— starting with an empty in-memory registry');
+    });
     const metrics = new metrics_js_1.MetricsCollector(60);
     await metrics.restoreFromRedis(redisClient).catch(err => {
-        console.warn('[server] metrics restore failed:', err.message);
+        console.warn('[server] metrics restore failed:', (0, redis_boot_strategy_js_1.formatRedisError)(err));
     });
     const signal = new signal_js_1.SignalTransport({ url: redisUrl });
     const durable = new durable_js_1.DurableTransport({ url: messageQueueUrl });

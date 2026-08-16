@@ -22,6 +22,10 @@ import { ProducerAttributionStore } from './producer-attribution.js';
 import { PoisonEventDetector } from './poison-detector.js';
 import { RegistryCoordinator } from './registry-coordinator.js';
 import { readFileSync } from 'node:fs';
+import {
+  createBootBoundedReconnectStrategy,
+  formatRedisError,
+} from '../utils/redis-boot-strategy.js';
 import type { RegistryEntry } from '../types/index.js';
 
 function readServiceVersion(): string {
@@ -129,20 +133,39 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     authMiddleware,
   } = config;
 
-  const redisClient = createClient({ url: redisUrl }) as RedisClientType;
+  // Boot-bounded reconnect: without this, a down Redis makes connect() retry
+  // forever, the catch below never fires, and boot never reaches app.listen().
+  const registryBootStrategy = createBootBoundedReconnectStrategy({ label: 'registry' });
+  const redisClient = createClient({
+    url: redisUrl,
+    socket: { reconnectStrategy: registryBootStrategy.reconnectStrategy },
+  }) as RedisClientType;
   redisClient.on('error', (err: Error) => {
-    console.warn('[server] registry Redis error:', err.message);
+    console.warn('[server] registry Redis error:', formatRedisError(err));
   });
-  await redisClient.connect().catch(err => {
-    console.warn('[server] registry Redis connection failed:', (err as Error).message);
-  });
+  await redisClient.connect()
+    .then(() => registryBootStrategy.markConnected())
+    .catch(err => {
+      console.warn(
+        '[server] registry Redis connection failed:', formatRedisError(err),
+        '— continuing in degraded mode (in-memory registry, no cross-replica sync)',
+      );
+    });
 
   const registry = new Registry(redisClient);
-  await registry.load();
+  // Hydration is best-effort: with Redis down the client is closed and
+  // hGetAll throws ClientClosedError. Serve an empty in-memory registry
+  // instead of failing boot — producers re-declare on their next sync.
+  await registry.load().catch(err => {
+    console.warn(
+      '[server] registry hydration failed:', formatRedisError(err),
+      '— starting with an empty in-memory registry',
+    );
+  });
 
   const metrics = new MetricsCollector(60);
   await metrics.restoreFromRedis(redisClient).catch(err => {
-    console.warn('[server] metrics restore failed:', (err as Error).message);
+    console.warn('[server] metrics restore failed:', formatRedisError(err));
   });
 
   const signal = new SignalTransport({ url: redisUrl });

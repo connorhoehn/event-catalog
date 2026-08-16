@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SignalTransport = void 0;
 const redis_1 = require("redis");
 const transport_1 = require("distributed-core/transport");
+const redis_boot_strategy_1 = require("../utils/redis-boot-strategy");
 const envelopes_1 = require("../types/envelopes");
 class SignalTransport {
     publishClient = null;
@@ -28,17 +29,33 @@ class SignalTransport {
         if (this.connected)
             return;
         await this.circuitBreaker.execute(async () => {
-            this.publishClient = (0, redis_1.createClient)({ url: this.url });
-            this.subscribeClient = (0, redis_1.createClient)({ url: this.url });
+            // Boot-bounded reconnect — node-redis retries the FIRST connect()
+            // forever by default, which would hang this await (and any server
+            // booting on top of it) instead of surfacing a rejection the caller
+            // can degrade on. Post-connect reconnects stay infinite.
+            const publishBootStrategy = (0, redis_boot_strategy_1.createBootBoundedReconnectStrategy)({
+                label: 'signal publish',
+            });
+            const subscribeBootStrategy = (0, redis_boot_strategy_1.createBootBoundedReconnectStrategy)({
+                label: 'signal subscribe',
+            });
+            this.publishClient = (0, redis_1.createClient)({
+                url: this.url,
+                socket: { reconnectStrategy: publishBootStrategy.reconnectStrategy },
+            });
+            this.subscribeClient = (0, redis_1.createClient)({
+                url: this.url,
+                socket: { reconnectStrategy: subscribeBootStrategy.reconnectStrategy },
+            });
             this.publishClient.on('error', (err) => {
-                console.warn('[signal-transport] publish client error:', err.message);
+                console.warn('[signal-transport] publish client error:', (0, redis_boot_strategy_1.formatRedisError)(err));
             });
             this.subscribeClient.on('error', (err) => {
-                console.warn('[signal-transport] subscribe client error:', err.message);
+                console.warn('[signal-transport] subscribe client error:', (0, redis_boot_strategy_1.formatRedisError)(err));
             });
             await Promise.all([
-                this.publishClient.connect(),
-                this.subscribeClient.connect(),
+                this.publishClient.connect().then(() => publishBootStrategy.markConnected()),
+                this.subscribeClient.connect().then(() => subscribeBootStrategy.markConnected()),
             ]);
         });
         this.connected = true;

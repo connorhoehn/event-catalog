@@ -2,6 +2,10 @@ import { createClient, type RedisClientType } from 'redis';
 import { CircuitBreaker } from 'distributed-core/transport';
 import type { EventEnvelope } from '../types/index';
 import {
+  createBootBoundedReconnectStrategy,
+  formatRedisError,
+} from '../utils/redis-boot-strategy';
+import {
   channelMessageRedisChannel,
   channelNodesRedisKey,
   type ChannelMessageEnvelope,
@@ -46,20 +50,37 @@ export class SignalTransport {
     if (this.connected) return;
 
     await this.circuitBreaker.execute(async () => {
-      this.publishClient = createClient({ url: this.url }) as RedisClientType;
-      this.subscribeClient = createClient({ url: this.url }) as RedisClientType;
+      // Boot-bounded reconnect — node-redis retries the FIRST connect()
+      // forever by default, which would hang this await (and any server
+      // booting on top of it) instead of surfacing a rejection the caller
+      // can degrade on. Post-connect reconnects stay infinite.
+      const publishBootStrategy = createBootBoundedReconnectStrategy({
+        label: 'signal publish',
+      });
+      const subscribeBootStrategy = createBootBoundedReconnectStrategy({
+        label: 'signal subscribe',
+      });
+
+      this.publishClient = createClient({
+        url: this.url,
+        socket: { reconnectStrategy: publishBootStrategy.reconnectStrategy },
+      }) as RedisClientType;
+      this.subscribeClient = createClient({
+        url: this.url,
+        socket: { reconnectStrategy: subscribeBootStrategy.reconnectStrategy },
+      }) as RedisClientType;
 
       this.publishClient.on('error', (err: Error) => {
-        console.warn('[signal-transport] publish client error:', err.message);
+        console.warn('[signal-transport] publish client error:', formatRedisError(err));
       });
 
       this.subscribeClient.on('error', (err: Error) => {
-        console.warn('[signal-transport] subscribe client error:', err.message);
+        console.warn('[signal-transport] subscribe client error:', formatRedisError(err));
       });
 
       await Promise.all([
-        this.publishClient.connect(),
-        this.subscribeClient.connect(),
+        this.publishClient.connect().then(() => publishBootStrategy.markConnected()),
+        this.subscribeClient.connect().then(() => subscribeBootStrategy.markConnected()),
       ]);
     });
 

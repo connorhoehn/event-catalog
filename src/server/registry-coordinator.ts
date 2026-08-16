@@ -15,6 +15,10 @@
  */
 
 import { createClient } from 'redis';
+import {
+  createBootBoundedReconnectStrategy,
+  formatRedisError,
+} from '../utils/redis-boot-strategy.js';
 import type { Registry } from '../registry/index.js';
 import type { EventDeclaration } from '../types/index.js';
 
@@ -48,17 +52,32 @@ export class RegistryCoordinator {
     if (this._started) return;
     this._started = true;
 
-    this.pubClient = createClient({ url: redisUrl });
-    this.subClient = createClient({ url: redisUrl });
+    // Boot-bounded reconnect — start() is fire-and-forget from createServer(),
+    // so an unbounded first-connect retry would spin forever in the background
+    // logging noise instead of failing once into the caller's catch.
+    const pubBootStrategy = createBootBoundedReconnectStrategy({ label: 'coordinator pub' });
+    const subBootStrategy = createBootBoundedReconnectStrategy({ label: 'coordinator sub' });
+
+    this.pubClient = createClient({
+      url: redisUrl,
+      socket: { reconnectStrategy: pubBootStrategy.reconnectStrategy },
+    });
+    this.subClient = createClient({
+      url: redisUrl,
+      socket: { reconnectStrategy: subBootStrategy.reconnectStrategy },
+    });
 
     this.pubClient.on('error', (err: Error) =>
-      console.warn('[registry-coordinator] pub client error:', err.message),
+      console.warn('[registry-coordinator] pub client error:', formatRedisError(err)),
     );
     this.subClient.on('error', (err: Error) =>
-      console.warn('[registry-coordinator] sub client error:', err.message),
+      console.warn('[registry-coordinator] sub client error:', formatRedisError(err)),
     );
 
-    await Promise.all([this.pubClient.connect(), this.subClient.connect()]);
+    await Promise.all([
+      this.pubClient.connect().then(() => pubBootStrategy.markConnected()),
+      this.subClient.connect().then(() => subBootStrategy.markConnected()),
+    ]);
 
     await (this.subClient as unknown as {
       subscribe(ch: string, cb: (msg: string) => void): Promise<void>;
