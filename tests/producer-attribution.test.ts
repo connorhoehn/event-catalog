@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
@@ -47,8 +47,7 @@ function createApp(attribution?: ProducerAttributionStore) {
     attribution,
   } as RoutesDeps;
 
-  const app = express();
-  app.use(express.json());
+  const app = expressLikeApp();
   app.use('/api', createRoutes(deps));
   return { app, registry };
 }
@@ -174,8 +173,7 @@ describe('GET /api/events/:name/producers/observed', () => {
       attribution,
     } as RoutesDeps;
 
-    const app2 = express();
-    app2.use(express.json());
+    const app2 = expressLikeApp();
     app2.use('/api', createRoutes(deps));
 
     const res = await request(app2).get('/api/events/order.created/producers/observed');

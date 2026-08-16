@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { EventEmitter } from 'node:events';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
@@ -88,8 +88,7 @@ function driveAuditRoute(
 ) {
   const registry = new Registry();
   const metrics = new MetricsCollector(60);
-  const app = express();
-  app.use(express.json());
+  const app = expressLikeApp();
   app.use(
     '/api',
     createRoutes({
@@ -116,7 +115,9 @@ function driveAuditRoute(
   });
   const res = {
     statusCode: 200,
+    headersSent: false,
     setHeader: (k: string, v: string) => { headers[k.toLowerCase()] = v; },
+    writeHead: () => {},
     flushHeaders: () => {},
     write: (chunk: string) => { writes.push(chunk); return true; },
     end: () => {},
@@ -125,7 +126,7 @@ function driveAuditRoute(
   return new Promise<{ writes: string[]; headers: Record<string, string>; close: () => void; registry: Registry }>(
     (resolve) => {
       setImmediate(() => {
-        app(req as unknown as express.Request, res as unknown as express.Response);
+        app(req as never, res as never);
         setImmediate(() => resolve({
           writes,
           headers,

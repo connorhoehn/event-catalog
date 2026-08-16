@@ -6,7 +6,8 @@
 // and a thrown handler is contained.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
+import type { Middleware } from '../src/server/http-router.js';
 import request from 'supertest';
 import { buildDeadLetterCallback, type DeadLetterHandler } from '../src/server/index.js';
 import { createRoutes, type RoutesDeps } from '../src/server/routes.js';
@@ -142,11 +143,10 @@ describe('buildDeadLetterCallback', () => {
 });
 
 describe('authMiddleware seam (wave20-d)', () => {
-  function makeApp(authMiddleware?: express.RequestHandler) {
+  function makeApp(authMiddleware?: Middleware) {
     const registry = new Registry();
     const metrics = new MetricsCollector(60);
-    const app = express();
-    app.use(express.json());
+    const app = expressLikeApp();
     const deps = {
       registry,
       metrics,
@@ -168,7 +168,7 @@ describe('authMiddleware seam (wave20-d)', () => {
   });
 
   it('auth middleware mounted before /api gates every admin endpoint', async () => {
-    const requireKey: express.RequestHandler = (req, res, next) => {
+    const requireKey: Middleware = (req, res, next) => {
       if (req.header('x-api-key') !== 'secret') {
         res.status(401).json({ error: 'unauthorized' });
         return;

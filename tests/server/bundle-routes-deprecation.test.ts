@@ -3,7 +3,7 @@
 // Tests for the PATCH /api/feature-bundles/:name/:version deprecation endpoint.
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from '../helpers/test-app.js';
 import request from 'supertest';
 import {
   FeatureBundleRegistry,
@@ -46,8 +46,7 @@ function makeBundle(overrides: Partial<Omit<FeatureBundle, 'fingerprint'>> = {})
 }
 
 function createApp(bundleRegistry: FeatureBundleRegistry) {
-  const app = express();
-  app.use(express.json());
+  const app = expressLikeApp();
   app.use('/api/feature-bundles', createBundleRoutes({ bundleRegistry, registry: makeEventRegistry() as any }));
   return app;
 }
@@ -58,7 +57,7 @@ function createApp(bundleRegistry: FeatureBundleRegistry) {
 
 describe('PATCH /api/feature-bundles/:name/:version — deprecation', () => {
   let bundleRegistry: FeatureBundleRegistry;
-  let app: ReturnType<typeof express>;
+  let app: ReturnType<typeof expressLikeApp>;
 
   beforeEach(() => {
     bundleRegistry = new FeatureBundleRegistry();

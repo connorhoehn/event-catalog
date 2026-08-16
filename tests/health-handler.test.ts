@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 import { makeHealthHandler } from '../src/server/health.js';
 
 function makeApp(handler: ReturnType<typeof makeHealthHandler>) {
-  const app = express();
+  const app = expressLikeApp();
   app.get('/health', handler);
   return app;
 }

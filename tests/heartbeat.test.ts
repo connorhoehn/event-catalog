@@ -4,7 +4,7 @@
 // methods directly + the HTTP surface via supertest.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 
 import { Registry } from '../src/registry/index.js';
@@ -14,8 +14,7 @@ import { createRoutes, type RoutesDeps } from '../src/server/routes.js';
 function makeApp(registry?: Registry) {
   const reg = registry ?? new Registry();
   const metrics = new MetricsCollector(60);
-  const app = express();
-  app.use(express.json());
+  const app = expressLikeApp();
   app.use('/api', createRoutes({
     registry: reg,
     metrics,

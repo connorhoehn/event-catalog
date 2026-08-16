@@ -7,6 +7,42 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.4.0] - 2026-08-16
+
+Replace Express with distributed-core's HTTP transport, per the platform
+standard: the admin server now runs on `AdmissionHttpServer` +
+`serveStatic` from `distributed-core/server`. The library consumer
+surface (`EventCatalog`, transports, registry, generated types) is
+untouched — this release only changes how the `:3010` service serves HTTP.
+
+### Changed (server transport)
+
+- **`startServer` now boots `AdmissionHttpServer`** (bounded 1 MiB body
+  reads matching the old `express.json` limit, slow-loris read timeouts,
+  in-flight admission control) instead of an Express app. Binds
+  `0.0.0.0` by default (`HOST` env to override) since AdmissionHttpServer
+  alone defaults to `127.0.0.1`.
+- **`src/server/http-router.ts` (new)** — minimal `:param` router +
+  express-shaped `req`/`res` adapters. The ~45 handlers in `routes.ts` /
+  `bundle-routes.ts` kept their bodies verbatim; only their `Router` /
+  `Request` / `Response` imports moved.
+- **Admin UI static serving + SPA fallback** now go through
+  distributed-core's `serveStatic`.
+- **CORS** is header injection in the request entrypoint (`cors` package
+  dropped); `corsOrigin: true` reflects the request origin, a string pins
+  it, `false` disables.
+- **`startServer` return shape**: `{ address, shutdown }` (was
+  `{ app, shutdown }` — there is no Express app anymore). Internal API;
+  only the CLI consumed it.
+- **`ServerConfig.authMiddleware`** is now a connect-style
+  `Middleware` from `http-router.ts` instead of `express.RequestHandler`
+  (same `(req, res, next)` shape).
+- **Behavior change:** unmatched `/api/*` paths now return JSON 404
+  instead of falling through to the SPA's `index.html`.
+- **deps:** `express`, `cors`, `@types/express`, `@types/cors` removed;
+  distributed-core bumped v0.39.0 → v0.41.0 (additive convergence
+  release).
+
 ## [0.3.59] - 2026-06-13
 
 Ship machine-readable contract specs for the websocket-gateway — closes the

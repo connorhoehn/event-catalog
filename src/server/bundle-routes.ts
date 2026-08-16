@@ -12,7 +12,7 @@
 //   GET    /:name/crd-schema    -> JSON schema for a CRD referencing this bundle
 //   POST   /validate            -> validate a bundle against catalog, return errors[]
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response } from './http-router.js';
 import type {
   FeatureBundleRegistry,
   FeatureBundle,

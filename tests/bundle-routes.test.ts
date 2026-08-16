@@ -9,7 +9,7 @@
 //   POST   /api/feature-bundles/validate
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 import {
   FeatureBundleRegistry,
@@ -63,8 +63,7 @@ function createApp(
     { name: 'ws.chat.joined', transport: 'signal' },
   ]),
 ) {
-  const app = express();
-  app.use(express.json());
+  const app = expressLikeApp();
   app.use('/api/feature-bundles', createBundleRoutes({ bundleRegistry, registry: eventRegistry as any }));
   return app;
 }
@@ -75,7 +74,7 @@ function createApp(
 
 describe('Bundle Routes', () => {
   let bundleRegistry: FeatureBundleRegistry;
-  let app: ReturnType<typeof express>;
+  let app: ReturnType<typeof expressLikeApp>;
 
   beforeEach(() => {
     bundleRegistry = new FeatureBundleRegistry();

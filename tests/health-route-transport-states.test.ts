@@ -7,7 +7,7 @@
 // 'unhealthy' triggers 503 (service should be removed from load balancer).
 
 import { describe, it, expect } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
@@ -42,8 +42,7 @@ function createApp(signalHealth: TransportHealth, durableHealth: TransportHealth
         startedAt: Date.now(),
     };
 
-    const app = express();
-    app.use(express.json());
+    const app = expressLikeApp();
     app.use('/api', createRoutes(deps));
     return app;
 }

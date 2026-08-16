@@ -6,7 +6,7 @@
 // a full asyncapi-cli lint pass.
 
 import { describe, it, expect } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 
 import { Registry } from '../src/registry/index.js';
@@ -158,8 +158,7 @@ describe('buildAsyncApiSpec (wave24-c)', () => {
 describe('GET /api/asyncapi', () => {
   function makeApp(registry: Registry) {
     const metrics = new MetricsCollector(60);
-    const app = express();
-    app.use(express.json());
+    const app = expressLikeApp();
     app.use('/api', createRoutes({
       registry,
       metrics,

@@ -8,7 +8,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
@@ -109,8 +109,7 @@ describe('tapEmitter pub/sub', () => {
 function driveFlowRoute(query: Record<string, string> = {}) {
   const registry = new Registry();
   const metrics = new MetricsCollector(60);
-  const app = express();
-  app.use(express.json());
+  const app = expressLikeApp();
   app.use(
     '/api',
     createRoutes({
@@ -136,7 +135,9 @@ function driveFlowRoute(query: Record<string, string> = {}) {
   });
   const res = {
     statusCode: 200,
+    headersSent: false,
     setHeader: (k: string, v: string) => { headers[k.toLowerCase()] = v; },
+    writeHead: () => {},
     flushHeaders: () => {},
     write: (chunk: string) => { writes.push(chunk); return true; },
     end: () => {},
@@ -150,7 +151,7 @@ function driveFlowRoute(query: Record<string, string> = {}) {
     close: () => void;
   }>((resolve) => {
     setImmediate(() => {
-      app(req as unknown as express.Request, res as unknown as express.Response);
+      app(req as never, res as never);
       // Express writes synchronously on first tick.
       setImmediate(() => {
         resolve({

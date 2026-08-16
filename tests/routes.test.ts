@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
@@ -46,8 +46,7 @@ function createMockDurable() {
 }
 
 function createApp(deps: RoutesDeps) {
-  const app = express();
-  app.use(express.json());
+  const app = expressLikeApp();
   app.use('/api', createRoutes(deps));
   return app;
 }
@@ -57,7 +56,7 @@ describe('Server Routes', () => {
   let metrics: MetricsCollector;
   let signal: ReturnType<typeof createMockSignal>;
   let durable: ReturnType<typeof createMockDurable>;
-  let app: ReturnType<typeof express>;
+  let app: ReturnType<typeof expressLikeApp>;
 
   beforeEach(() => {
     registry = new Registry();
@@ -147,7 +146,7 @@ describe('Server Routes', () => {
 
   describe('GET /api/events/:name schema-fetch (wave3-ec-6)', () => {
     let prom: PromMetrics;
-    let appWithProm: ReturnType<typeof express>;
+    let appWithProm: ReturnType<typeof expressLikeApp>;
 
     beforeEach(() => {
       prom = new PromMetrics();
@@ -1092,8 +1091,7 @@ describe('Server Routes', () => {
 
 describe('routes → metricsObserver.observe() wiring', () => {
   function makeApp(observeSpy: ReturnType<typeof vi.fn>) {
-    const app = express();
-    app.use(express.json());
+    const app = expressLikeApp();
     app.use('/api', createRoutes({
       registry: new Registry(),
       metrics: new MetricsCollector(60),

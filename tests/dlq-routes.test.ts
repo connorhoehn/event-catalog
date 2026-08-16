@@ -9,7 +9,7 @@
 // has thorough coverage in routes.test.ts — not duplicated here.
 
 import { describe, it, expect, vi } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
@@ -75,8 +75,7 @@ function createApp(overrides: Partial<RoutesDeps> = {}) {
         ...overrides,
     };
 
-    const app = express();
-    app.use(express.json());
+    const app = expressLikeApp();
     app.use('/api', createRoutes(deps));
     return { app, deps };
 }

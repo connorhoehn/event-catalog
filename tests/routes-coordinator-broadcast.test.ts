@@ -9,7 +9,7 @@
 // here fail before the regression ships.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
@@ -21,8 +21,7 @@ function makeCoordinator() {
 }
 
 function createApp(coordinator: RegistryCoordinator | undefined, registry: Registry) {
-  const app = express();
-  app.use(express.json());
+  const app = expressLikeApp();
   app.use('/api', createRoutes({
     registry,
     metrics: new MetricsCollector(60),
@@ -45,7 +44,7 @@ const BASE_DECL = {
 describe('routes → coordinator.broadcast wiring (wave26-d)', () => {
   let coordinator: ReturnType<typeof makeCoordinator>;
   let registry: Registry;
-  let app: ReturnType<typeof express>;
+  let app: ReturnType<typeof expressLikeApp>;
 
   beforeEach(() => {
     coordinator = makeCoordinator();

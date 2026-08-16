@@ -6,7 +6,7 @@
 //   GET /api/subscribers                — subscriber heartbeat listing
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
@@ -42,8 +42,7 @@ function createApp(overrides: Partial<RoutesDeps> = {}) {
         ...overrides,
     };
 
-    const app = express();
-    app.use(express.json());
+    const app = expressLikeApp();
     app.use('/api', createRoutes(deps));
     return { app, deps };
 }

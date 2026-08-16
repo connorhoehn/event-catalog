@@ -3,7 +3,7 @@
 // Phase E7 — namespace derivation + filter coverage.
 
 import { describe, it, expect } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 
 import { deriveNamespace, resolveNamespace } from '../src/registry/namespace.js';
@@ -110,8 +110,7 @@ describe('HTTP — namespace surface', () => {
   function makeApp() {
     const registry = new Registry();
     const metrics = new MetricsCollector(60);
-    const app = express();
-    app.use(express.json());
+    const app = expressLikeApp();
     app.use(
       '/api',
       createRoutes({

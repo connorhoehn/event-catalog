@@ -50,8 +50,9 @@ while ((m = ROUTER_RE.exec(routesSrc)) !== null) {
   codeRoutes.push({ method, path: raw, normalized });
 }
 
-// Root-level routes in index.ts: app.METHOD('path', ...)
-const APP_RE = /\bapp\.(get|post|put|delete|patch)\(\s*['"]([^'"]+)['"]/g;
+// Root-level routes in index.ts: rootRouter.METHOD('path', ...)
+// (was app.METHOD before the Express → distributed-core AdmissionHttpServer move)
+const APP_RE = /\brootRouter\.(get|post|put|delete|patch)\(\s*['"]([^'"]+)['"]/g;
 while ((m = APP_RE.exec(indexSrc)) !== null) {
   const method = m[1];
   const raw = m[2];

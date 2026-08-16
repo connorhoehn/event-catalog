@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 import { PromMetrics } from '../src/server/prom-metrics.js';
 
@@ -34,9 +34,9 @@ describe('PromMetrics — /metrics surface', () => {
     const prom = new PromMetrics();
     prom.recordPublish('test:evt', 'signal', 'off');
 
-    const app = express();
+    const app = expressLikeApp();
     app.get('/metrics', (_req, res) => {
-      res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+      res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
       res.send(prom.renderProm());
     });
 

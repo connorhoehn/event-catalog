@@ -4,7 +4,7 @@
 // HTTP endpoints, audit emission, and the AsyncAPI tag annotation.
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 
 import { Registry } from '../src/registry/index.js';
@@ -16,8 +16,7 @@ import { buildAsyncApiSpec } from '../src/server/asyncapi.js';
 function makeApp() {
   const reg = new Registry();
   const metrics = new MetricsCollector(60);
-  const app = express();
-  app.use(express.json());
+  const app = expressLikeApp();
   app.use('/api', createRoutes({
     registry: reg,
     metrics,

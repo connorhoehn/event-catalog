@@ -1,9 +1,13 @@
 /**
- * Minimal Express server for Playwright e2e tests.
+ * Minimal HTTP server for Playwright e2e tests.
  * Boots with an in-memory Registry (no Redis/SQS) seeded with 3 events
  * and serves the built admin UI from src/admin/dist.
  */
-import express from 'express';
+import * as http from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { serveStatic } from 'distributed-core/server';
+import { expressLikeApp } from '../helpers/test-app.js';
 import { Registry } from '../../src/registry/index.js';
 import { MetricsCollector } from '../../src/server/metrics.js';
 import { PromMetrics } from '../../src/server/prom-metrics.js';
@@ -46,8 +50,7 @@ const stubDlq = {
   put: async () => ({ id: 'x', eventName: 'x', payload: {}, error: '', attempts: 0, deadAt: '0' }),
 };
 
-const app = express();
-app.use(express.json());
+const app = expressLikeApp();
 
 app.use('/api', createRoutes({
   registry,
@@ -60,12 +63,28 @@ app.use('/api', createRoutes({
   promMetrics: prom,
 }));
 
+// Static admin UI + SPA fallback via distributed-core's serveStatic —
+// same serving path production takes in src/server/index.ts.
 const adminDist = new URL('../../src/admin/dist', import.meta.url).pathname;
-app.use(express.static(adminDist));
-app.get('*', (_req, res) => {
-  res.sendFile('index.html', { root: adminDist });
-});
+const staticHandler = serveStatic({ staticDir: adminDist });
+const spaIndex = join(adminDist, 'index.html');
 
-app.listen(PORT, () => {
+http.createServer((req, res) => {
+  const path = (req.url ?? '/').split('?')[0];
+  if (path === '/api' || path.startsWith('/api/')) {
+    app(req, res);
+    return;
+  }
+  if (staticHandler(req, res)) return;
+  readFile(spaIndex)
+    .then(html => {
+      res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
+      res.end(html);
+    })
+    .catch(() => {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'NotFound', detail: 'admin UI not built' }));
+    });
+}).listen(PORT, () => {
   console.log(`[e2e-test-server] listening on :${PORT}`);
 });

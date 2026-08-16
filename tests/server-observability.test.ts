@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
@@ -16,7 +16,7 @@ import { makeHealthHandler } from '../src/server/health.js';
  *  - GET /api/events/:name bumps event_catalog_schema_fetches_total{event}.
  */
 describe('server observability wiring (wave2-ec-5)', () => {
-  let app: ReturnType<typeof express>;
+  let app: ReturnType<typeof expressLikeApp>;
   let prom: PromMetrics;
   let registry: Registry;
 
@@ -44,8 +44,7 @@ describe('server observability wiring (wave2-ec-5)', () => {
       put: async () => ({ id: 'x', eventName: 'x', payload: {}, error: '', attempts: 0, deadAt: 0 }),
     };
 
-    app = express();
-    app.use(express.json());
+    app = expressLikeApp();
 
     app.get('/health', makeHealthHandler({
       service: 'event-catalog',
@@ -58,7 +57,7 @@ describe('server observability wiring (wave2-ec-5)', () => {
     }));
 
     app.get('/metrics', (_req, res) => {
-      res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+      res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
       res.send(prom.renderProm());
     });
 

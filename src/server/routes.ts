@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response } from './http-router.js';
 import type { Registry } from '../registry/index.js';
 import { computeSchemaFingerprint } from '../registry/fingerprint.js';
 import { tapEmitter, matchesTapFilter, type TapEvent } from './tap-emitter.js';

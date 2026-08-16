@@ -6,7 +6,7 @@
 // in-memory store fake.
 
 import { describe, it, expect, vi } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 
 import { Registry } from '../src/registry/index.js';
@@ -136,8 +136,7 @@ describe('manifest routes', () => {
         },
       };
     })();
-    const app = express();
-    app.use(express.json());
+    const app = expressLikeApp();
     app.use('/api', createRoutes({
       registry,
       metrics,
@@ -235,8 +234,7 @@ describe('manifest-aware POST /api/events gate (wave23-c)', () => {
         return [...map.values()].map((m) => buildDriftReport(m, current));
       },
     };
-    const app = express();
-    app.use(express.json());
+    const app = expressLikeApp();
     app.use('/api', createRoutes({
       registry,
       metrics,

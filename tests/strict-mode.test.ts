@@ -7,7 +7,7 @@
 //          strict mode is on (env var or x-event-catalog-strict header).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import express from 'express';
+import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
 
 // In-memory redis simulator (reuse pattern from publish-evolution.test.ts).
@@ -155,8 +155,7 @@ describe('POST /api/events strict mode (Phase E4.2)', () => {
   function makeApp() {
     const registry = new Registry();
     const stub = (() => ({})) as unknown;
-    const app = express();
-    app.use(express.json());
+    const app = expressLikeApp();
     app.use(createRoutes({
       registry,
       metrics: stub as never,
@@ -273,8 +272,7 @@ describe('POST /api/events compat-gate (wave3-ec-7)', () => {
   function makeApp() {
     const registry = new Registry();
     const stub = (() => ({})) as unknown;
-    const app = express();
-    app.use(express.json());
+    const app = expressLikeApp();
     app.use(createRoutes({
       registry,
       metrics: stub as never,
