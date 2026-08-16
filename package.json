@@ -77,7 +77,7 @@
     "@aws-sdk/client-dynamodb": "^3.1045.0",
     "@aws-sdk/lib-dynamodb": "^3.1045.0",
     "cors": "^2.8.5",
-    "distributed-core": "github:connorhoehn/distributed-core#93e891f9d21a5ae3",
+    "distributed-core": "github:connorhoehn/distributed-core#edcf6912656548b6487e697ce36d054d6bc44762",
     "express": "^4.21.0",
     "redis": "^4.7.0",
     "ulid": "^2.3.0"
