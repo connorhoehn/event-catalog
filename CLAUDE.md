@@ -6,8 +6,8 @@ retryable, via `message-queue`) and **signal** (WS-style, ephemeral, via Redis
 pub/sub). Reframed 2026-05-15 as **an exchange for contracts plus an
 observability layer on the flow**, not merely a schema registry.
 
-**Read `.agent/CONSTITUTION.md` first** — agent's north star and
-backlog priorities. Read `ROADMAP.md` for phase E1–E8 progression.
+All roadmap phases (E1–E8) shipped; see `CHANGELOG.md` for history. There
+is no self-driven backlog — new direction comes from the operator.
 
 ## Architecture in one paragraph
 

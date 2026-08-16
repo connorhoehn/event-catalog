@@ -27,11 +27,7 @@ npm run dev           # or: tsx watch src/cli/index.ts
 | `ec-bundle-diff <name@v1> <name@v2>` | Compare two bundle versions; suggests semver bump |
 | `ec-bundle-create <name>` | Scaffold a new FeatureBundle file |
 
-### CLI reference
-
-- [`docs/cli/lint-crd.md`](docs/cli/lint-crd.md)
-- [`docs/cli/bundle-diff.md`](docs/cli/bundle-diff.md)
-- [`docs/cli/bundle-create.md`](docs/cli/bundle-create.md)
+Each CLI prints usage with `--help`.
 
 ## CI Integration
 
@@ -41,9 +37,6 @@ Ready-made templates for wiring the CLI into GitHub Actions and git hooks:
   Drop into `.github/workflows/lint-crds.yml` in any repo that holds CRDs.
 - **Pre-commit hook** — [`templates/git-hooks/pre-commit-lint-crd.sh`](templates/git-hooks/pre-commit-lint-crd.sh)
   Copy to `.git/hooks/pre-commit` and `chmod +x`.
-
-Full guide including CircleCI, GitLab CI, exit code semantics, fingerprint drift
-workflow, and strict mode: [`docs/cli/ci-integration.md`](docs/cli/ci-integration.md).
 
 ### Exit codes (quick reference)
 
@@ -78,9 +71,5 @@ import { DLQClient }            from '@connorhoehn/event-catalog/dlq';       // 
 
 ## Documentation
 
-- [`docs/architecture.md`](docs/architecture.md) — system architecture
-- [`docs/feature-bundles-design.md`](docs/feature-bundles-design.md) — FeatureBundle design
-- [`docs/feature-bundles-versioning.md`](docs/feature-bundles-versioning.md) — versioning policy
-- [`docs/cli/ci-integration.md`](docs/cli/ci-integration.md) — CI integration guide
-- [`ROADMAP.md`](ROADMAP.md) — phase E1–E8 progression
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
+- [`contracts/README.md`](contracts/README.md) — machine-readable AsyncAPI/OpenAPI adopter specs

@@ -5,3 +5,4 @@ src/admin/node_modules/
 .env
 coverage/
 .dev-logs/
+test-results/
