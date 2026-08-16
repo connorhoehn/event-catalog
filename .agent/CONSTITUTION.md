@@ -18,8 +18,9 @@ admin UI via a service tier.
 **This project IS:**
 - A TypeScript library (`@connorhoehn/event-catalog`) for in-process schema
   declarations, validation, and transport routing.
-- A standalone Express service (`:3010`) for cross-team event discovery,
-  compatibility gating, topology visualization, and DLQ inspection.
+- A standalone HTTP service (`:3010`, distributed-core AdmissionHttpServer)
+  for cross-team event discovery, compatibility gating, topology
+  visualization, and DLQ inspection.
 - The owner of the event-envelope shape and the canonical event registry.
 - A hybrid: library half is the runtime fast-path (no network on publish);
   service half is the governance + admin tier.
@@ -61,7 +62,7 @@ assume that cross-service events are declared and validated.
 1. **Library-side validation is the fast path.** `EventCatalog.publish()` runs
    schema validation in-process via the locally-bundled schema registry. No
    network hop on the hot path.
-2. **Service-side is governance, not runtime.** The Express server's job is
+2. **Service-side is governance, not runtime.** The admin server's job is
    inventory, compat gating, topology, DLQ inspection, admin UI. If a producer
    can't reach the server, it must still publish (cached schemas, eventual
    sync via `syncToRemoteRegistry`).
@@ -94,38 +95,22 @@ assume that cross-service events are declared and validated.
 
 ## Current phase
 
-**Phase E1: Declare the contract.** Charter, roadmap, agent context documents
-landed (this file + `ROADMAP.md` + `CLAUDE.md`). No code changes yet. The
-runtime library is at v0.1.0 with `TransportType = 'signal' | 'durable'` already
-in place; the gap is adoption, not vocabulary.
+**Roadmap complete (2026-08-16).** All phases E1–E8 shipped — see
+`ROADMAP.md` and `CHANGELOG.md` for what exists. v0.4.0 replaced Express
+with distributed-core's `AdmissionHttpServer` per platform standard. Four
+consumers: platform-api, websocket-gateway, live-video-streaming,
+realtime-modules. Only deferred roadmap item: E7.3 (hard-required
+namespace, targeted at v0.5).
 
-See `ROADMAP.md` for E1 → E5 progression.
+There is NO ranked self-driven backlog right now — the previous one (all
+five items) shipped. New direction requires operator input; do not invent
+phases. Known open threads: publish to GitHub Packages + re-pin consumers
+(hub#1493), stale hub#1497 (work done, needs closing), `build:cli` broken
+(import.meta under CJS + TapFilter cast).
 
-## Self-driven backlog (in priority order, ranked)
+## Self-driven backlog
 
-When the dispatched queue is empty AND no unread handoffs are open, draw from
-these. Each item must still satisfy the "Good-enhancement criteria" below.
-
-1. **Extract `channel_message` envelope into shared TypeScript type** (~80 LOC).
-   Replaces hand-rolled constructors at `platform-api/src/lib/event-catalog.ts:443`
-   and `websocket-gateway/src/core/message-router.js:463`. Smallest possible
-   M1 adoption proof. Eliminates the worst current cross-service drift.
-2. **Document the hybrid charter in `docs/architecture.md`** (~150 LOC docs).
-   The "library half + service half" model is novel; consumers need a page that
-   explains when to declare in-code vs. POST to the registry, and how
-   `syncToRemoteRegistry` reconciles them.
-3. **Topology API: `GET /api/topology`** (~120 LOC). Returns
-   producer → eventName → consumers[] graph for the future admin UI. Pure read,
-   no schema impact.
-4. **Strict-mode `declare()`**: throw on compat violation when
-   `EVENT_CATALOG_STRICT=true` (~40 LOC). Today violations are logged advisory.
-   First half of E4 enforcement.
-5. **Compat-gate `POST /api/events`**: 409 on compat-breaking declarations
-   (~60 LOC). Second half of E4 enforcement.
-
-The list IS NOT exhaustive. New items appear via handoff or via grep through
-the audit doc set (see `docs/audits/` once seeded). Refile this list when a top
-item ships.
+Empty by operator intent. Draw only from dispatched tasks and handoffs.
 
 ## Good-enhancement criteria
 
@@ -135,8 +120,7 @@ A self-driven task is worth claiming if it satisfies AT LEAST ONE of:
   `critical-drift-hazards.md` (channel_message envelope, pipeline.run.completed
   dual-source, SFU chat-bus casing, etc.).
 - **Pulls a new producer onto event-catalog** (declared events that previously
-  flew unschema'd). Currently the only consumer is `platform-api`; gateway and
-  SFU are the priority adopters.
+  flew unschema'd).
 - **Improves operator visibility** of an existing surface (topology, DLQ count,
   schema version history, compat-violation history).
 - **Adds an integration test** for an existing wire-up that has only unit-level

@@ -6,7 +6,7 @@
 
 event-catalog is **one product shipped as two halves**: an npm library that
 runs in-process inside every producer/consumer service, and a central
-Express service on `:3010` that owns cross-service inventory. The library
+HTTP service on `:3010` (distributed-core AdmissionHttpServer since v0.4.0)`:3010` that owns cross-service inventory. The library
 is the fast path (validation + transport). The service is the slow path
 (discovery, evolution gating, DLQ inspection, UI).
 

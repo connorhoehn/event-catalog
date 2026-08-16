@@ -12,7 +12,7 @@ over Redis and message-queue, not through this service.
 
 ```bash
 # Install as a library consumer
-npm install @connorhoehn/event-catalog@0.3.47
+npm install @connorhoehn/event-catalog
 
 # Run the service locally
 docker compose up     # redis + message-queue + event-catalog on :3010
