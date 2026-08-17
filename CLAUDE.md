@@ -72,8 +72,12 @@ assume cross-service events are declared and validated here.
   (`@xyflow/react` + `AnimatedEdge`) to match the gateway's
   pipeline-replay visual language.
 
-## Hub coordination
+## agent-hub retired (2026-08-16)
 
-Registered with `agent-hub` as the agent named `event-catalog` (role `infra`).
-Open tasks at `agent-hub status tasks` or the dashboard at
-http://127.0.0.1:8765/.
+This repo was previously coordinated through `agent-hub`. That system was
+retired on 2026-08-16: the server is gone, the MCP registration removed, and
+`~/.agent-hub` (task database, handoffs, blockers) deleted. Do not look for
+hub tasks, do not attempt to register/heartbeat, and do not call
+`mcp__agent-hub__*` tools — they no longer exist. `hub#<id>` references in
+docs and commit history are historical breadcrumbs, not live tickets.
+Current state and open work live in this repo (constitution/roadmap/CHANGELOG).
