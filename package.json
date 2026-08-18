@@ -76,7 +76,7 @@
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1045.0",
     "@aws-sdk/lib-dynamodb": "^3.1045.0",
-    "distributed-core": "github:connorhoehn/distributed-core#6d980ce55033a9fb3a040d2268a0e8231f57b1e8",
+    "distributed-core": "github:connorhoehn/distributed-core#b6f38f57b781a8bf74ff9e31a35b6062f7193dc9",
     "redis": "^4.7.0",
     "ulid": "^2.3.0"
   },
