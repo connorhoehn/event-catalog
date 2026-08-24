@@ -100,6 +100,7 @@
   "pipeline:run:retry": "0b62c8a97efb2c97721da2a19462610b55e743445b34d310cd36bd5251f1d2e9",
   "pipeline:run:started": "9d832324f3fcf4ec68f52a94a65fc5a1a4dee66d71be35720637a547541b6720",
   "pipeline:run:stuck": "70e4b6fe303b6b6a9fd748036307bab77ee14dea2baddb5155860a55c5d73438",
+  "pipeline:step:agent:tool": "c1d5802e1bf10e8dbb17e530e7d248bbfc3660693df316fca8fb30142e948d1b",
   "pipeline:step:attempt:failed": "f9bbd14e2f80415ee94a763d139459de7384f2be71041b500058014420c0bd76",
   "pipeline:step:attempt:started": "d51e7820f2d297277d351b8c55ce050bac8885f8356486e8c81e52409f0bbbb1",
   "pipeline:step:breakpoint": "f9b4a9737e5ad8f33f215d6dc487487373ed8682484ad7a80a3fc5e5139a2d84",

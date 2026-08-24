@@ -83,6 +83,11 @@ export {
   pipelineImageVisionDeclarations,
 } from './pipeline-image-vision';
 
+export {
+  pipelineStepAgentTool,
+  pipelineAgentDeclarations,
+} from './pipeline-agent';
+
 export { agUiDeclarations } from './ag-ui';
 
 import type { EventDeclaration } from '../types/index';
@@ -96,6 +101,7 @@ import { agUiDeclarations } from './ag-ui';
 import { orgiqSignalDeclarations } from './orgiq-signal';
 import { pipelineJudgeDeclarations } from './pipeline-judge';
 import { pipelineImageVisionDeclarations } from './pipeline-image-vision';
+import { pipelineAgentDeclarations } from './pipeline-agent';
 
 /**
  * The flat set of every event this repo declares on behalf of producers
@@ -115,6 +121,7 @@ export const allDeclarations: readonly EventDeclaration[] = [
   ...pipelineRaftDeclarations,
   ...pipelineJudgeDeclarations,
   ...pipelineImageVisionDeclarations,
+  ...pipelineAgentDeclarations,
   ...gatewaySignalDeclarations,
   ...clientFrameDeclarations,
   ...agUiDeclarations,
