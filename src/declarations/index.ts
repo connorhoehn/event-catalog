@@ -81,6 +81,7 @@ export {
   pipelineImageVisionAnalyzed,
   pipelineImageVisionFailed,
   pipelineImageVisionDeclarations,
+  callCaptionDeclarations,
 } from './pipeline-image-vision';
 
 export {
@@ -101,6 +102,7 @@ import { agUiDeclarations } from './ag-ui';
 import { orgiqSignalDeclarations } from './orgiq-signal';
 import { pipelineJudgeDeclarations } from './pipeline-judge';
 import { pipelineImageVisionDeclarations } from './pipeline-image-vision';
+import { callCaptionDeclarations } from './call-captions';
 import { pipelineAgentDeclarations } from './pipeline-agent';
 
 /**
@@ -121,6 +123,7 @@ export const allDeclarations: readonly EventDeclaration[] = [
   ...pipelineRaftDeclarations,
   ...pipelineJudgeDeclarations,
   ...pipelineImageVisionDeclarations,
+  ...callCaptionDeclarations,
   ...pipelineAgentDeclarations,
   ...gatewaySignalDeclarations,
   ...clientFrameDeclarations,
