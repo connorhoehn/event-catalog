@@ -111,8 +111,38 @@ export const transcriptionTranscriptReady: EventDeclaration = {
     },
 };
 
+/**
+ * Wave A (2026-08-25): summary generated + persisted. Consumed by
+ * platform-api's summary-projector (projects '## Action Items' onto the
+ * call-bound document as section items, then fires summary-bound
+ * pipelines through the event dispatcher). Payload is deliberately
+ * light — consumers re-read summaryMarkdown from the recording row.
+ */
+export const transcriptionSummaryReady: EventDeclaration = {
+    namespace: 'transcription',
+    name: 'transcription:summary.ready',
+    transport: 'durable',
+    producer: 'platform-api',
+    description:
+        'A meeting-summary markdown has been generated and persisted for a recording; projectors and summary-bound pipelines should run.',
+    tags: ['transcription', 'recording', 'pipeline-trigger'],
+    schema: {
+        type: 'object',
+        properties: {
+            recordingId: { type: 'string' },
+            callId: { type: 'string' },
+            channelArn: { type: 'string' },
+            lobbyName: { type: 'string' },
+            summaryChars: { type: 'number' },
+        },
+        required: ['recordingId', 'callId'],
+        additionalProperties: true,
+    },
+};
+
 export const callCaptionDeclarations: EventDeclaration[] = [
     callCaptionLine,
     transcriptionJobQueued,
     transcriptionTranscriptReady,
+    transcriptionSummaryReady,
 ];

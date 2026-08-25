@@ -115,6 +115,7 @@
   "pipeline:step:skipped": "215f71d9976d87aaf97f350bd75da58e8eda47a3b90bbd4c94d752ce2f94801c",
   "pipeline:step:started": "05696c09a89b0b15770377a68cf83cc547543e4590581cd579d81de532ab4875",
   "transcription:job.queued": "99264bd63db170d007d711ef6bcbf7f290fe5832ce583d5d6b295f54c9b0ae56",
+  "transcription:summary.ready": "0844542bd7564611da38269a28772848feddfcc1e509ebaea96f56543e02dd76",
   "transcription:transcript.ready": "554b3a4367855f3bfa3505ded9d035965631052b7a936a4683b3b88e331a4ebc",
   "ws.activity.event": "a64919d2b831894a01c7da60454ad21c9114d60486472ea18d8a3540a46ae8b1",
   "ws.activity.history": "b43a25f85c7c869f6b18cf313273db15a9b224fc0df3ddb54c72cd453be735b5",

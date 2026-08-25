@@ -8,6 +8,8 @@ export { orgiqResearcherPresence, orgiqResearcherActivity, orgiqBriefsPresence, 
 export { pipelineEventDeclarations, } from './pipeline-events';
 export { pipelineJudgeStarted, pipelineJudgeScored, pipelineJudgeFailed, pipelineJudgeBudgetExceeded, pipelineJudgeDeclarations, } from './pipeline-judge';
 export { pipelineImageVisionStarted, pipelineImageVisionToken, pipelineImageVisionAnalyzed, pipelineImageVisionFailed, pipelineImageVisionDeclarations, } from './pipeline-image-vision';
+export { callCaptionLine, transcriptionJobQueued, transcriptionTranscriptReady, transcriptionSummaryReady, callCaptionDeclarations, } from './call-captions';
+export { pipelineStepAgentTool, pipelineAgentDeclarations, } from './pipeline-agent';
 export { agUiDeclarations } from './ag-ui';
 import type { EventDeclaration } from '../types/index';
 /**

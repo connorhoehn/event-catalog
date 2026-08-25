@@ -81,8 +81,19 @@ export {
   pipelineImageVisionAnalyzed,
   pipelineImageVisionFailed,
   pipelineImageVisionDeclarations,
-  callCaptionDeclarations,
 } from './pipeline-image-vision';
+
+// v0.4.1 re-exported callCaptionDeclarations from the WRONG module
+// (pipeline-image-vision) — a compile error for every consumer of the
+// declarations barrel. Corrected in v0.4.2, with the individual
+// declarations exported alongside the array.
+export {
+  callCaptionLine,
+  transcriptionJobQueued,
+  transcriptionTranscriptReady,
+  transcriptionSummaryReady,
+  callCaptionDeclarations,
+} from './call-captions';
 
 export {
   pipelineStepAgentTool,
