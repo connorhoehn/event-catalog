@@ -2,8 +2,9 @@
 # Companion to the generated contracts/asyncapi.yaml (the WS protocol).
 #
 # Source of truth for shapes:
-#   websocket-gateway/src/realtime-fanout/api-routes.ts
-#   websocket-gateway/src/realtime-fanout/notification/notify-route.ts
+#   realtime-examples/src/realtime-fanout/api-routes.ts
+#   realtime-examples/src/realtime-fanout/notification/notify-route.ts
+#   (these moved out of the websocket-gateway repo into realtime-examples)
 # JSON-Schema component shapes reference @connorhoehn/event-catalog
 # declarations where they apply (see x-event-catalog-ref extensions).
 #

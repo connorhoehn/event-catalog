@@ -39,8 +39,39 @@
  *     and reloads the full registry from the shared Redis hash. `stale`
  *     stays set if that reload is impossible, so health can surface it
  *     instead of the replica serving a truncated registry as healthy.
+ *     What is tracked is a *high-water mark*, not the last seq seen: a
+ *     redelivery carries a lower number and must not look like a gap.
  *
  * Fire-and-forget: broadcast failures are logged but never propagate.
+ *
+ * Known limits (see tests/fuzz-replica-convergence.test.ts, which
+ * generates the interleavings rather than enumerating them):
+ *
+ *  - **Deletes do not fully converge.** `remove` destroys the whole
+ *    entry, and a `subscriber.add` made concurrently with it carries a
+ *    *higher* wall-clock stamp while being causally unrelated. A scalar
+ *    (ts, replicaId) clock cannot tell that apart from an add that
+ *    genuinely followed the delete, so a replica that applied the add
+ *    first and one that applied the delete first can end up disagreeing
+ *    about that event's subscriber list. The tombstone below contains
+ *    it: the disagreement stays inside the deleted event and never
+ *    spreads to events that were never removed. Closing it properly
+ *    needs causality metadata (a version vector) this design does not
+ *    carry.
+ *
+ *  - **A gap on first contact with a peer is invisible.** A replica's
+ *    first sight of a peer at seq > 1 looks identical whether messages
+ *    were dropped or the peer was simply already running when we
+ *    joined. Once the boot read of the shared hash has succeeded the
+ *    benign reading is assumed, because the alternative is every new
+ *    replica reloading the registry the instant it hears a busy peer.
+ *
+ *  - **Timestamps are per-replica.** `metadata.createdAt`,
+ *    `deprecation.deprecatedAt` and `schemaHistory[].updatedAt` are
+ *    stamped by whichever replica applied the mutation. The broadcast
+ *    payload carries no authoritative value for the first two, so they
+ *    differ between replicas by construction. The semantic content does
+ *    not.
  */
 import type { Registry } from '../registry/index.js';
 export declare const MUTATIONS_CHANNEL = "event-catalog:mutations";
@@ -133,6 +164,16 @@ export declare class RegistryCoordinator {
     private recordConflict;
     /** Full receive pipeline: order → gate → apply → drain parked. */
     private receive;
+    /**
+     * Forget everything parked for an event that has just been deleted.
+     *
+     * Without this a `subscriber.add` that was waiting for its declare
+     * survives the delete and is replayed by the *next* declare of the
+     * same name, re-attaching a consumer to a fresh incarnation of the
+     * event that never had it — and only on the replicas that happened to
+     * have parked it, which is a divergence.
+     */
+    private purgePending;
     private park;
     /** Replay parked mutations whose event just showed up, in arrival order. */
     private drainPending;
@@ -146,9 +187,20 @@ export declare class RegistryCoordinator {
     /** Returns true when the mutation was actually applied. */
     private applyMutation;
     /**
-     * Carry over the fields Registry.declare resets for a brand-new
-     * event. Only for first-sight replicated entries — never for a local
-     * declare, where the reset is the intended behaviour.
+     * Carry over the fields Registry.declare would otherwise derive from
+     * local state. Never called for a local declare, where deriving them
+     * is the intended behaviour.
+     *
+     * `version` and `schemaHistory` are adopted on every replicated
+     * declare so the winning entry looks identical everywhere. The rest
+     * — subscribers, deprecation — is adopted only when the entry is
+     * brand-new here, because Registry.declare resets those for a fresh
+     * entry and the peer's payload is the only copy we have. For an entry
+     * we already hold, those fields are owned by their own mutation kinds
+     * and their own conflict keys.
+     *
+     * A peer on a build that predates a field simply omits it, so each
+     * adoption is guarded on the value actually being present.
      */
     private adoptReplicatedFields;
 }

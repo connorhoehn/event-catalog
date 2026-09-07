@@ -26,6 +26,7 @@ import { resolveAuthMiddleware } from './auth.js';
 import { createBundleRoutes } from './bundle-routes.js';
 import {
   Router,
+  compressionFor,
   dispatchMounts,
   makeRouteRequest,
   makeRouteResponse,
@@ -34,7 +35,9 @@ import {
   type RouteRequest,
   type RouteResponse,
 } from './http-router.js';
+import type { CompressionConfig } from './compression.js';
 import { FeatureBundleRegistry } from '../bundles/FeatureBundle.js';
+import { allBundles } from '../declarations/bundles/index.js';
 import { makeHealthHandler } from './health.js';
 import { PromMetrics, type TransportName } from './prom-metrics.js';
 import { ProducerAttributionStore } from './producer-attribution.js';
@@ -255,6 +258,14 @@ export interface ServerConfig {
    * `EVENT_CATALOG_SHUTDOWN_DRAIN_MS`, else {@link SHUTDOWN_DRAIN_MS}.
    */
   shutdownDrainMs?: number;
+  /**
+   * Response-compression policy. Defaults to whatever
+   * `resolveServerConfig` derived from `$EVENT_CATALOG_COMPRESSION*`
+   * (on, gzip/br/deflate, 1 KiB floor). Pass `{ ...DEFAULT_COMPRESSION,
+   * enabled: false }` to force it off for one embedded server without
+   * touching the environment.
+   */
+  compression?: CompressionConfig;
 }
 
 export async function startServer(config: ServerConfig = {}): Promise<{
@@ -285,6 +296,7 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     corsOrigin = resolveCorsOrigin(process.env.EVENT_CATALOG_CORS_ORIGIN),
     onDeadLetter = [],
     shutdownDrainMs,
+    compression = resolved.config.compression,
   } = config;
 
   // Auth is opt-in and off unless configured. With no explicit middleware
@@ -483,7 +495,25 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution, poisonDetector, coordinator });
 
   // FeatureBundle admin surface — CRD query endpoints for dc-k8s-operator.
+  //
+  // The registry was constructed empty and never populated, so every
+  // /api/feature-bundles response was `{bundles: [], total: 0}` in
+  // production while 18 bundles sat declared in the source. ec-lint-crd
+  // reads them from the package rather than the server, which is why
+  // nothing failed loudly — the HTTP surface was simply blank.
   const bundleRegistry = new FeatureBundleRegistry();
+  for (const bundle of allBundles) {
+    try {
+      bundleRegistry.register(bundle);
+    } catch (err) {
+      // A duplicate name+version with a different event set is a source
+      // bug, not a runtime condition; surface it without killing boot.
+      console.warn(
+        `[server] feature bundle "${bundle.name}@${bundle.version}" not registered:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
   const bundleRoutes = createBundleRoutes({ bundleRegistry, registry });
 
   // Longest prefix first so /api/feature-bundles/* reaches its router
@@ -538,7 +568,13 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     }
 
     const req = makeRouteRequest(nodeReq, body);
-    const res = makeRouteResponse(nodeRes);
+    // Content coding is negotiated per request from its Accept-Encoding —
+    // never assumed. `compressionFor` returns undefined when the policy is
+    // off, and the response path is then byte-for-byte what it was before.
+    // Note the SSE routes (/api/flow, /api/audit) opt out structurally:
+    // they reach the socket through flushHeaders()/write(), which
+    // makeRouteResponse never compresses.
+    const res = makeRouteResponse(nodeRes, compressionFor(nodeReq, compression));
 
     if (req.path === '/api' || req.path.startsWith('/api/')) {
       // Auth gate (optional). Runs before the /api routers, so gating is

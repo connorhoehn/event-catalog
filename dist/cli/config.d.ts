@@ -1,3 +1,4 @@
+import { type CompressionConfig } from '../server/compression.js';
 /** Fully resolved, validated server configuration. */
 export interface ResolvedServerConfig {
     /** TCP port to bind. */
@@ -27,6 +28,13 @@ export interface ResolvedServerConfig {
      * it has always been. See `src/server/auth.ts`.
      */
     readonly authToken: string | undefined;
+    /**
+     * HTTP response compression policy. ON by default — see
+     * `src/server/compression.ts` for the negotiation rules and the
+     * measured ratios. `EVENT_CATALOG_COMPRESSION=off` restores the old
+     * always-identity behavior.
+     */
+    readonly compression: CompressionConfig;
 }
 export type ConfigResult = {
     readonly ok: true;

@@ -307,6 +307,10 @@ export type CallInboundFrame = EventPayloadMap['ws.call.invite'] | EventPayloadM
 export type UploadInboundFrame = EventPayloadMap['ws.upload.requested'] | EventPayloadMap['ws.upload.url-issued'] | EventPayloadMap['ws.upload.completed'] | EventPayloadMap['ws.upload.failed'] | EventPayloadMap['ws.upload.scanned'] | EventPayloadMap['ws.upload.scan-quarantined'] | EventPayloadMap['ws.upload.url-revoked'];
 /** Union of every inbound gateway→client push frame for the `pipeline` service. */
 export type PipelineInboundFrame = EventPayloadMap['ws.pipeline.subscribed'] | EventPayloadMap['ws.pipeline.unsubscribed'] | EventPayloadMap['ws.pipeline.ack'] | EventPayloadMap['ws.pipeline.snapshot'] | EventPayloadMap['ws.pipeline.history'] | EventPayloadMap['ws.pipeline.event'];
+/** Union of every inbound gateway→client push frame for the `session` service. */
+export type SessionInboundFrame = EventPayloadMap['ws.session.connected'];
+/** Union of every inbound gateway→client push frame for the `subscribe` service. */
+export type SubscribeInboundFrame = EventPayloadMap['ws.subscribe.subscribed'] | EventPayloadMap['ws.subscribe.unsubscribed'];
 /** Union of every inbound gateway→client push frame for the `fileupload` service. */
 export type FileuploadInboundFrame = EventPayloadMap['ws.fileupload.progress'] | EventPayloadMap['ws.fileupload.scanning'] | EventPayloadMap['ws.fileupload.cancelled'];
 /** Union of every inbound gateway→client push frame for the `videohangout` service. */

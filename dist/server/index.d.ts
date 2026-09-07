@@ -1,6 +1,7 @@
 import { type BodyLimitsConfig } from 'distributed-core/server';
 import { type DeadLetteredMessage } from '../client/durable.js';
 import { type Middleware } from './http-router.js';
+import type { CompressionConfig } from './compression.js';
 import type { RegistryEntry } from '../types/index.js';
 /**
  * Hard cap on a request body, in bytes. Matches the `express.json({ limit:
@@ -143,6 +144,14 @@ export interface ServerConfig {
      * `EVENT_CATALOG_SHUTDOWN_DRAIN_MS`, else {@link SHUTDOWN_DRAIN_MS}.
      */
     shutdownDrainMs?: number;
+    /**
+     * Response-compression policy. Defaults to whatever
+     * `resolveServerConfig` derived from `$EVENT_CATALOG_COMPRESSION*`
+     * (on, gzip/br/deflate, 1 KiB floor). Pass `{ ...DEFAULT_COMPRESSION,
+     * enabled: false }` to force it off for one embedded server without
+     * touching the environment.
+     */
+    compression?: CompressionConfig;
 }
 export declare function startServer(config?: ServerConfig): Promise<{
     /** Bound address (distributed-core AdmissionHttpServer.address()). */

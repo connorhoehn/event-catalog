@@ -369,10 +369,10 @@ describe('bundleCreate — mocked filesystem', () => {
   });
 
   it('populates events when provided', () => {
-    bundleCreate('screenshare', '1.0.0', 'signal', ['ws.screen.started', 'ws.screen.stopped'], defaultOpts());
+    bundleCreate('screenshare', '1.0.0', 'signal', ['ws.notification.new', 'ws.notification.read'], defaultOpts());
     const content = files.get('src/declarations/bundles/screenshare.ts')!;
-    expect(content).toContain("{ name: 'ws.screen.started', required: true }");
-    expect(content).toContain("{ name: 'ws.screen.stopped', required: true }");
+    expect(content).toContain("{ name: 'ws.notification.new', required: true }");
+    expect(content).toContain("{ name: 'ws.notification.read', required: true }");
   });
 
   it('returns code 2 for invalid name with spaces', () => {
@@ -470,13 +470,13 @@ describe('bundleCreate — real filesystem (temp dir)', () => {
   });
 
   it('real file has correct export shape', () => {
-    bundleCreate('file-drop', '1.0.0', 'signal', ['ws.drop.started'], {
+    bundleCreate('file-drop', '1.0.0', 'signal', ['ws.notification.new'], {
       bundlesDir,
       indexPath,
     });
     const content = readFileSync(join(bundlesDir, 'file-drop.ts'), 'utf8');
     expect(content).toContain('export const fileDropBundle');
-    expect(content).toContain("{ name: 'ws.drop.started', required: true }");
+    expect(content).toContain("{ name: 'ws.notification.new', required: true }");
   });
 
   it('real index.ts gets updated with new bundle', () => {
@@ -565,7 +565,7 @@ describe('round trip — create → lint → diff', () => {
       BUNDLE,
       '1.4.0',
       'signal',
-      ['ws.rt.alpha', 'ws.rt.beta'],
+      ['ws.notification.new', 'ws.notification.read'],
       { bundlesDir, indexPath: join(bundlesDir, 'index.ts') },
     );
     expect(result.code).toBe(0);
@@ -581,7 +581,7 @@ describe('round trip — create → lint → diff', () => {
     expect(def.name).toBe(BUNDLE);
     expect(def.version).toBe('1.4.0');
     expect(def.transport).toBe('signal');
-    expect(def.events.map((e) => e.name)).toEqual(['ws.rt.alpha', 'ws.rt.beta']);
+    expect(def.events.map((e) => e.name)).toEqual(['ws.notification.new', 'ws.notification.read']);
     // Every scaffolded event defaults to required — the diff tool's
     // opt→req/req→opt classification depends on this being explicit.
     expect(def.events.every((e) => e.required)).toBe(true);
@@ -666,5 +666,186 @@ describe('round trip — create → lint → diff', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     // 0 even under --exit-code: an unchanged bundle is not a difference.
     expect(await bundleDiff([REF, REF, '--exit-code'])).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --events validation
+//
+// The scaffolder used to accept any string. A typo became a bundle that
+// marked a fictional event required, and the failure surfaced two steps
+// later as an ec-lint-crd error pointing at the operator's CRD.
+// ---------------------------------------------------------------------------
+
+import {
+  parseEventMembers,
+  validateEventMembers,
+  knownEventNames,
+} from '../../src/cli/bundle-create.js';
+
+describe('parseEventMembers', () => {
+  it('defaults every member to required', () => {
+    expect(parseEventMembers(['a', 'b'])).toEqual([
+      { name: 'a', required: true },
+      { name: 'b', required: true },
+    ]);
+  });
+
+  it('treats a trailing "?" as the opt-out', () => {
+    expect(parseEventMembers(['a?'])).toEqual([{ name: 'a', required: false }]);
+  });
+
+  it('mixes required and optional in one list', () => {
+    expect(parseEventMembers(['a', 'b?', 'c'])).toEqual([
+      { name: 'a', required: true },
+      { name: 'b', required: false },
+      { name: 'c', required: true },
+    ]);
+  });
+
+  it('tolerates whitespace around the name and the marker', () => {
+    expect(parseEventMembers([' a ', ' b ? '])).toEqual([
+      { name: 'a', required: true },
+      { name: 'b', required: false },
+    ]);
+  });
+});
+
+describe('validateEventMembers', () => {
+  const KNOWN = ['pipeline:run:started', 'ws.chat.message', 'ws.chat.typing'];
+
+  it('passes a list of declared events', () => {
+    expect(validateEventMembers(parseEventMembers(['ws.chat.message']), KNOWN)).toBeNull();
+  });
+
+  it('passes an empty list — "--events omitted" is not an error', () => {
+    expect(validateEventMembers([], KNOWN)).toBeNull();
+  });
+
+  it('rejects an undeclared event with exit code 2', () => {
+    const err = validateEventMembers(parseEventMembers(['ws.chat.mesage']), KNOWN);
+    expect(err?.code).toBe(2);
+    expect(err?.message).toContain('ws.chat.mesage');
+    expect(err?.message).toContain('not declared in the catalog');
+  });
+
+  it('suggests the near-miss it can see', () => {
+    const err = validateEventMembers(parseEventMembers(['ws.chat.mesage']), KNOWN);
+    expect(err?.message).toContain('Did you mean "ws.chat.message"');
+  });
+
+  it('is separator-insensitive: pipeline.run.started → pipeline:run:started', () => {
+    const err = validateEventMembers(parseEventMembers(['pipeline.run.started']), KNOWN);
+    expect(err?.message).toContain('Did you mean "pipeline:run:started"');
+  });
+
+  it('checks optional members too — "?" excuses absence at deploy, not a typo', () => {
+    const err = validateEventMembers(parseEventMembers(['ws.chat.nope?']), KNOWN);
+    expect(err?.code).toBe(2);
+    expect(err?.message).toContain('ws.chat.nope');
+  });
+
+  it('lists every offender and counts them', () => {
+    const err = validateEventMembers(
+      parseEventMembers(['nope.one', 'nope.two', 'ws.chat.message']),
+      KNOWN,
+    );
+    expect(err?.message).toContain('2 of 3');
+    expect(err?.message).toContain('nope.one');
+    expect(err?.message).toContain('nope.two');
+  });
+
+  it('rejects a duplicate member', () => {
+    const err = validateEventMembers(
+      parseEventMembers(['ws.chat.message', 'ws.chat.message']),
+      KNOWN,
+    );
+    expect(err?.code).toBe(2);
+    expect(err?.message).toContain('duplicate');
+  });
+
+  it('rejects an empty entry from a trailing comma', () => {
+    const err = validateEventMembers([{ name: '', required: true }], KNOWN);
+    expect(err?.code).toBe(2);
+    expect(err?.message).toContain('empty entry');
+  });
+
+  it('reports how many events the catalog actually has, for orientation', () => {
+    const err = validateEventMembers(parseEventMembers(['nope.one']), KNOWN);
+    expect(err?.message).toContain('(3 events are declared.)');
+  });
+});
+
+describe('knownEventNames', () => {
+  it('returns the shipped declaration set, with no duplicates', () => {
+    const names = knownEventNames();
+    expect(names.length).toBeGreaterThan(100);
+    expect(new Set(names).size).toBe(names.length);
+  });
+});
+
+describe('bundleCreate — event validation is wired in', () => {
+  let files: Map<string, string>;
+  const opts = () => ({
+    bundlesDir: 'b',
+    indexPath: 'b/index.ts',
+    readFile: (p: string) => {
+      const c = files.get(p);
+      if (c === undefined) throw new Error(`File not found: ${p}`);
+      return c;
+    },
+    writeFile: (p: string, c: string) => void files.set(p, c),
+    fileExists: (p: string) => files.has(p),
+    knownEvents: ['ws.real.one', 'ws.real.two'],
+  });
+
+  beforeEach(() => {
+    files = new Map([['b/index.ts', MINIMAL_INDEX]]);
+  });
+
+  it('exits 2 and writes nothing for an undeclared event', () => {
+    const result = bundleCreate('ghost', '1.0.0', 'signal', ['ws.real.onee'], opts());
+    expect(result.code).toBe(2);
+    expect(files.has('b/ghost.ts')).toBe(false);
+    expect(files.get('b/index.ts')).toBe(MINIMAL_INDEX);
+  });
+
+  it('checks events before touching the filesystem at all', () => {
+    // A bad name must not even read index.ts, let alone half-write a bundle.
+    const result = bundleCreate('ghost', '1.0.0', 'signal', ['nope'], {
+      ...opts(),
+      readFile: () => {
+        throw new Error('index.ts must not be read when --events is invalid');
+      },
+    });
+    expect(result.code).toBe(2);
+  });
+
+  it('validates the bundle name before the events (one error at a time)', () => {
+    const result = bundleCreate('Bad Name', '1.0.0', 'signal', ['nope'], opts());
+    expect(result.code).toBe(2);
+    expect(result.message).toContain('invalid bundle name');
+  });
+
+  it('scaffolds normally when every event is real', () => {
+    const result = bundleCreate('good', '1.0.0', 'signal', ['ws.real.one'], opts());
+    expect(result.code).toBe(0);
+    expect(files.get('b/good.ts')).toContain("{ name: 'ws.real.one', required: true },");
+  });
+
+  it('writes required: false for a "?"-suffixed member', () => {
+    const result = bundleCreate('good', '1.0.0', 'signal', ['ws.real.one', 'ws.real.two?'], opts());
+    expect(result.code).toBe(0);
+    const src = files.get('b/good.ts')!;
+    expect(src).toContain("{ name: 'ws.real.one', required: true },");
+    expect(src).toContain("{ name: 'ws.real.two', required: false },");
+  });
+
+  it('defaults to the real catalog when knownEvents is not injected', () => {
+    const bare = { ...opts() };
+    delete (bare as { knownEvents?: unknown }).knownEvents;
+    const result = bundleCreate('ghost', '1.0.0', 'signal', ['pipeline.run.started'], bare);
+    expect(result.code).toBe(2);
+    expect(result.message).toContain('pipeline:run:started');
   });
 });

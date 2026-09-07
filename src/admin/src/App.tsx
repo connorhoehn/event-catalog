@@ -17,6 +17,9 @@ const FlowView = lazy(() => import('./components/FlowView').then(m => ({ default
 const AuditView = lazy(() => import('./components/AuditView').then(m => ({ default: m.AuditView })));
 const SubscribersView = lazy(() => import('./components/SubscribersView').then(m => ({ default: m.SubscribersView })));
 const NamespacesView = lazy(() => import('./components/NamespacesView').then(m => ({ default: m.NamespacesView })));
+const BundlesView = lazy(() => import('./components/BundlesView').then(m => ({ default: m.BundlesView })));
+const BundleDetail = lazy(() => import('./components/BundleDetail').then(m => ({ default: m.BundleDetail })));
+const CoverageView = lazy(() => import('./components/CoverageView').then(m => ({ default: m.CoverageView })));
 const LiveInspector = lazy(() => import('./components/LiveInspector').then(m => ({ default: m.LiveInspector })));
 const TransportHealth = lazy(() => import('./components/TransportHealth').then(m => ({ default: m.TransportHealth })));
 const DLQBrowser = lazy(() => import('./components/DLQBrowser').then(m => ({ default: m.DLQBrowser })));
@@ -27,6 +30,8 @@ const NAV: ReadonlyArray<{ to: string; label: string; end?: boolean }> = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/events', label: 'Events' },
   { to: '/namespaces', label: 'Namespaces' },
+  { to: '/bundles', label: 'Bundles' },
+  { to: '/coverage', label: 'Coverage' },
   { to: '/declarations', label: 'Declarations' },
   { to: '/topology', label: 'Topology' },
   { to: '/flow', label: 'Flow' },
@@ -40,6 +45,12 @@ const NAV: ReadonlyArray<{ to: string; label: string; end?: boolean }> = [
 /** Human name for the current path, for the route announcer. */
 function routeName(pathname: string): string {
   if (pathname.startsWith('/events/')) return 'Event detail';
+  // `/bundles` is a nav destination and `/bundles/:name` is not, so the
+  // prefix match below would announce the detail page as the list it came
+  // from. Coverage lives at its own top-level path for the same reason —
+  // nesting it under /bundles would have made the sidebar highlight two
+  // entries at once.
+  if (pathname.startsWith('/bundles/')) return 'Bundle detail';
   const hit = NAV.find(n => (n.end ? pathname === n.to : pathname.startsWith(n.to)));
   return hit?.label ?? 'Page not found';
 }
@@ -115,6 +126,9 @@ export function App() {
             <Route path="/events" element={<EventList />} />
             <Route path="/events/:name" element={<EventDetail />} />
             <Route path="/namespaces" element={<NamespacesView />} />
+            <Route path="/bundles" element={<BundlesView />} />
+            <Route path="/bundles/:name" element={<BundleDetail />} />
+            <Route path="/coverage" element={<CoverageView />} />
             <Route path="/declarations" element={<DeclarationViewer />} />
             <Route path="/topology" element={<TopologyView />} />
             <Route path="/flow" element={<FlowView />} />

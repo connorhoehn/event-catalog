@@ -1,10 +1,28 @@
 import type { IRegistry } from '../registry/types.js';
+/** The only transports a bundle may claim. Anything else is a typo. */
+export declare const BUNDLE_TRANSPORTS: readonly ["signal", "durable", "both"];
+export type BundleTransport = (typeof BUNDLE_TRANSPORTS)[number];
+/** Runtime guard — `FeatureBundle` values arrive over HTTP, not just from TS. */
+export declare function isBundleTransport(value: unknown): value is BundleTransport;
 export interface EventReference {
     /** Canonical event name, e.g. "ws.chat.message". */
     name: string;
     /**
-     * Pin to a specific event schema version. When omitted the bundle
-     * accepts the current registered version.
+     * Pin the member's *schema revision*, not the bundle's own semver.
+     *
+     * This is `RegistryEntry.version`: an integer that starts at 1 and is
+     * incremented by `Registry.declare()` every time the event's JSON Schema
+     * changes — including backward-COMPATIBLE changes such as adding an
+     * optional property. `validateBundle` compares it for exact equality, so
+     * a pin is a statement of "this bundle was built against schema revision
+     * N and must be re-checked if that changes", not a floor.
+     *
+     * Consequence, and the reason no shipped bundle sets it: pinning makes
+     * the bundle fail validation the moment the producer adds a field, even
+     * though the bundle would still work. Set it only for a member whose
+     * schema you genuinely need frozen (a durable audit contract, say), and
+     * expect to bump it deliberately. Omit it to track whatever revision the
+     * registry currently holds.
      */
     version?: number;
     /**

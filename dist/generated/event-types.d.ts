@@ -1152,6 +1152,32 @@ export interface EventPayloadMap {
         };
         [key: string]: unknown;
     };
+    /** Session welcome frame, sent once immediately after the WebSocket upgrade completes and before the client may send anything (src/server.ts:2507). It is load-bearing protocol, not a courtesy: the gateway queues every other outbound frame until this one has gone out (core/pre-session-queue.ts), and the client cannot reconnect without the `sessionToken` or feature-gate without `enabledServices`. `restored` tells the client whether its prior subscriptions came back with it — false both for a genuinely new connection and for a presented token the gateway could not restore, including the fallback path where a subscription restore failed and the connection was re-minted under a fresh clientId (server.ts:2399). */
+    'ws.session.connected': {
+        type: 'session';
+        timestamp?: string;
+        status: 'connected';
+        clientId: string;
+        sessionToken: string;
+        restored: boolean;
+        nodeId: string;
+        enabledServices: string[];
+        [key: string]: unknown;
+    };
+    /** Acknowledges that a client's generic-multiplexer subscribe took effect (realtime-fanout/subscribe-service.ts:191). Its ABSENCE is meaningful and is the reason this needed declaring: the handler returns early without an ack on either authz denial (the interceptor has already sent AUTHZ_CHANNEL_DENIED) or an unknown client, so a client that treats "no ack" as "probably fine" will believe it is subscribed to a channel the gateway refused it. Wait for this frame before assuming delivery. */
+    'ws.subscribe.subscribed': {
+        type: 'subscribe';
+        action: 'subscribed';
+        channel: string;
+        [key: string]: unknown;
+    };
+    /** Acknowledges that a client's generic-multiplexer unsubscribe was applied (realtime-fanout/subscribe-service.ts:206). Unlike the subscribe ack this one is unconditional: leaving a channel has no authz gate and the router no-ops for a channel the client was not on, so the frame is idempotent and always sent. */
+    'ws.subscribe.unsubscribed': {
+        type: 'subscribe';
+        action: 'unsubscribed';
+        channel: string;
+        [key: string]: unknown;
+    };
     /** A user-initiated activity-feed entry. Durable for analytics, replay and pipeline triggering (platform-api drains it into the user-activity table); signal for the live activity feed. Anonymous entries (userId null) are dropped by the DDB writer but still fire pipeline triggers. */
     'activity.recorded': {
         eventType: string;
@@ -1228,7 +1254,7 @@ export interface EventPayloadMap {
         destination: string;
         legCount?: number;
     };
-    /** A recording session finalized. Carries the segment manifest, the per-participant track manifest, total encoded size, duration, and the recording profile the run began under. Drained by platform-api's lvsWebhooks route into video-call-recordings (recording/RecordingManager.js:1756). */
+    /** A recording session finalized. Carries the segment manifest, the per-participant track manifest, total encoded size, duration, and the recording profile the run began under. Drained by platform-api's lvsWebhooks route into video-call-recordings (recording/RecordingManager.js:1756). TWO declared properties are never actually emitted — `composedUrl` and `tracks[].userId`; both are read by platform-api and both come back undefined. See their entries in the field glossary in ../sfu.ts. The mirror defect also exists and is NOT fixable from here: routes/lvsWebhooks.ts reads `startedAt`, `endedAt` and `totalBytes` off this payload, none of which is declared or sent — and since this schema is additionalProperties:false, they could not arrive even if LVS started sending them. */
     'sfu.recording.completed': {
         channelArn: string;
         recordingId: string;
@@ -1334,6 +1360,11 @@ export interface EventPayloadMap {
         eventName: string;
         attributes: Record<string, unknown>;
         publishedAt: string;
+    };
+    /** A participant is confirmed gone from a channel. Bridged from RoomManager's in-process `participantLeft` EventEmitter onto the stream-events hub at app.js:548 (added 2026-08-22), which is what makes it cross-service: before that bridge a clean leave (WHIP DELETE, admin disconnect, leaveRoom) never left the process and peers' tiles lingered for the full client-side orphan grace. NOT a raw mirror of the emitter — the bridge filters, so this is the DEPARTURE signal rather than the removal signal. Sub-identities ending in `:screen` are dropped entirely (a sharer stopping a screen share is not a departure; subscribers tear that down from `producer.removed`), and a real id is debounced for 1.5s and emitted only if the participant is STILL absent from the room when the timer fires — so camera-off, which unpublishes and immediately republishes audio-only, produces nothing. Consumers treat it as terminal for the participant: lvs-client tears down every subscriber for the id and its `:screen` sibling (packages/lvs-client/src/client.js:1013), and stage-WS suppresses a client's echo of its own departure (ws/stageWsServer.js:207). */
+    'sfu.participant.left': {
+        channelArn: string;
+        participantId: string;
     };
     /** A finalized multi-leg recording was accepted for background composition, before the ffmpeg job starts. Emitted from the tail of finalizeRecording (recording/RecordingManager.js:1662) so a client can show a "Composing…" badge immediately; it is often the FIRST signal the recordings list gets that the row exists at all. Only the per-peer path reaches it — a single-file recording has no legs to compose. */
     'sfu.recording.compose.queued': {

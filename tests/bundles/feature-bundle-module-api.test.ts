@@ -321,7 +321,7 @@ describe('validateBundle — transport inference', () => {
     expect(validateBundle(bundle, registry).valid).toBe(true);
   });
 
-  it('skips the transport check entirely when no bundle event is registered', () => {
+  it('rejects a bundle whose members are all optional and all unregistered', () => {
     const registry = new Registry();
     const bundle: FeatureBundle = {
       name: 'unknown',
@@ -331,9 +331,28 @@ describe('validateBundle — transport inference', () => {
       events: [{ name: 'nope:one', required: false }],
     };
 
-    // Optional + unregistered: no missing-event error, and no transport
-    // error either (nothing to infer from).
-    expect(validateBundle(bundle, registry)).toEqual({ valid: true, errors: [] });
+    // This used to pass. Every member optional and absent means no
+    // missing-event error fires, which left the transport claim
+    // unfalsifiable — and "unfalsifiable" was being reported as valid.
+    // A bundle that asserts nothing must not gate a CRD.
+    const result = validateBundle(bundle, registry);
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain('unverifiable');
+  });
+
+  it('an optional member that IS registered still constrains the transport', () => {
+    const registry = registryWith([{ name: 'ws:typing', transport: 'signal' }]);
+    const bundle: FeatureBundle = {
+      name: 'narrow',
+      version: '1.0.0',
+      fingerprint: '',
+      transport: 'durable',
+      events: [{ name: 'ws:typing', required: false }],
+    };
+
+    const result = validateBundle(bundle, registry);
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain('durable bus');
   });
 });
 

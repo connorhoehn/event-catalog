@@ -26,6 +26,13 @@
 //     genuinely optional and its absence is already visible on /health.
 
 import { AUTH_TOKEN_ENV_VAR, resolveAuthToken } from '../server/auth.js';
+import {
+  DEFAULT_COMPRESSION,
+  DEFAULT_COMPRESSION_LEVEL,
+  DEFAULT_COMPRESSION_THRESHOLD,
+  parseBooleanFlag,
+  type CompressionConfig,
+} from '../server/compression.js';
 
 /** Fully resolved, validated server configuration. */
 export interface ResolvedServerConfig {
@@ -56,6 +63,13 @@ export interface ResolvedServerConfig {
    * it has always been. See `src/server/auth.ts`.
    */
   readonly authToken: string | undefined;
+  /**
+   * HTTP response compression policy. ON by default — see
+   * `src/server/compression.ts` for the negotiation rules and the
+   * measured ratios. `EVENT_CATALOG_COMPRESSION=off` restores the old
+   * always-identity behavior.
+   */
+  readonly compression: CompressionConfig;
 }
 
 export type ConfigResult =
@@ -249,6 +263,62 @@ export function resolveServerConfig(
     }
   }
 
+  // --- response compression ----------------------------------------------
+  // Defaulted ON. It only ever engages for a client that advertised the
+  // coding in `Accept-Encoding`, so a caller that cannot decode never gets
+  // a compressed body: Node's global `fetch` (undici) advertises and
+  // transparently decodes; `http.request` advertises nothing and so keeps
+  // getting identity; browsers have handled this since 1997. The knobs are
+  // here so an operator who measures differently can turn it down —
+  // `EVENT_CATALOG_COMPRESSION=off` is the full revert.
+  const rawCompression = read(env, 'EVENT_CATALOG_COMPRESSION');
+  let compressionEnabled = DEFAULT_COMPRESSION.enabled;
+  if (rawCompression !== undefined) {
+    const parsed = parseBooleanFlag(rawCompression);
+    if (!parsed.ok) {
+      errors.push(
+        `invalid $EVENT_CATALOG_COMPRESSION "${rawCompression}" — expected true or false`,
+      );
+    } else {
+      compressionEnabled = parsed.value;
+    }
+  }
+
+  const rawThreshold = read(env, 'EVENT_CATALOG_COMPRESSION_THRESHOLD');
+  let compressionThreshold = DEFAULT_COMPRESSION_THRESHOLD;
+  if (rawThreshold !== undefined) {
+    const parsed = parseIntStrict(rawThreshold);
+    if (parsed === undefined || parsed < 0) {
+      errors.push(
+        `invalid $EVENT_CATALOG_COMPRESSION_THRESHOLD "${rawThreshold}" — `
+        + 'expected a non-negative integer (bytes; 0 compresses everything, '
+        + `default ${DEFAULT_COMPRESSION_THRESHOLD})`,
+      );
+    } else {
+      compressionThreshold = parsed;
+      if (parsed > 0 && parsed < 128) {
+        warnings.push(
+          `$EVENT_CATALOG_COMPRESSION_THRESHOLD is ${parsed} bytes — below ~200 `
+          + 'bytes gzip makes a JSON response LARGER, not smaller.',
+        );
+      }
+    }
+  }
+
+  const rawLevel = read(env, 'EVENT_CATALOG_COMPRESSION_LEVEL');
+  let compressionLevel = DEFAULT_COMPRESSION_LEVEL;
+  if (rawLevel !== undefined) {
+    const parsed = parseIntStrict(rawLevel);
+    if (parsed === undefined || parsed < 1 || parsed > 9) {
+      errors.push(
+        `invalid $EVENT_CATALOG_COMPRESSION_LEVEL "${rawLevel}" — `
+        + `expected an integer between 1 and 9 (default ${DEFAULT_COMPRESSION_LEVEL})`,
+      );
+    } else {
+      compressionLevel = parsed;
+    }
+  }
+
   // --- optional URLs ------------------------------------------------------
   const rawAlert = read(env, 'ALERT_WEBHOOK_URL');
   if (rawAlert !== undefined) {
@@ -296,6 +366,12 @@ export function resolveServerConfig(
       alertWebhookUrl: rawAlert,
       dynamoEndpoint: rawDynamo,
       authToken,
+      compression: {
+        enabled: compressionEnabled,
+        threshold: compressionThreshold,
+        level: compressionLevel,
+        encodings: DEFAULT_COMPRESSION.encodings,
+      },
     },
   };
 }
@@ -311,6 +387,9 @@ export function describeConfig(config: ResolvedServerConfig): string[] {
     `subscriber ttl (s)          ${config.subscriberTtlSeconds || 'disabled'}`,
     `redis boot attempts         ${config.redisBootConnectAttempts}`,
     `strict declarations         ${config.strict}`,
+    `response compression        ${config.compression.enabled
+      ? `${config.compression.encodings.join('/')} · >=${config.compression.threshold}B · level ${config.compression.level}`
+      : 'disabled'}`,
     // The value is a secret; only its presence is ever printed.
     `api auth                    ${config.authToken !== undefined
       ? 'bearer token (mutating requests gated)'

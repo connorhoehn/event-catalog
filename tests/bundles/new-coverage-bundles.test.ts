@@ -5,7 +5,7 @@
 //
 //   ag-ui-stream        29  signal   AG-UI agent protocol
 //   sfu-webhooks        12  durable  SFU → platform-api webhook contract
-//   sfu-control-plane   12  signal   `stream-events` hub + compose jobs
+//   sfu-control-plane   13  signal   `stream-events` hub + compose jobs
 //   sfu-chat             5  signal   `chat-bus:<arn>`
 //   call-captions        4  both     live captions + transcription queue
 //   notifications        4  signal   NotificationCenter frames
@@ -41,7 +41,7 @@ beforeAll(() => {
 const NEW_BUNDLES: Array<[string, FeatureBundle, number, string]> = [
   ['ag-ui-stream', agUiStreamBundle, 29, 'signal'],
   ['sfu-webhooks', sfuWebhooksBundle, 12, 'durable'],
-  ['sfu-control-plane', sfuControlPlaneBundle, 12, 'signal'],
+  ['sfu-control-plane', sfuControlPlaneBundle, 13, 'signal'],
   ['sfu-chat', sfuChatBundle, 5, 'signal'],
   ['call-captions', callCaptionsBundle, 4, 'both'],
   ['notifications', notificationsBundle, 4, 'signal'],
@@ -102,7 +102,7 @@ describe('sfu bundle boundaries', () => {
       .sort();
 
     expect(bundled).toEqual(declared);
-    expect(declared).toHaveLength(29);
+    expect(declared).toHaveLength(30);
   });
 
   it('sfu-webhooks holds only durable events', () => {

@@ -181,7 +181,7 @@ describe('diffBundles logic — required event added', () => {
       suggestedBumpReason: 'required event added',
     };
     const out = formatDiff(diff);
-    expect(out).toContain('Added (required):');
+    expect(out).toContain('Added (required) (1):');
     expect(out).toContain('+ ws.test.new');
     expect(out).toContain('Suggested semver bump: minor (required event added)');
   });
@@ -210,12 +210,12 @@ describe('diffBundles logic — required event removed', () => {
 
     expect(diff.suggestedBump).toBe('major');
     const out = formatDiff(diff);
-    expect(out).toContain('Removed:');
+    expect(out).toContain('Removed (1):');
     expect(out).toContain('- ws.test.legacy');
     expect(out).toContain('Suggested semver bump: major (required event removed)');
   });
 
-  it('formatDiff shows "Removed:" section', () => {
+  it('formatDiff shows a "Removed" section', () => {
     const diff = {
       bundleName: 'chat',
       v1: '1.0.0',
@@ -231,7 +231,7 @@ describe('diffBundles logic — required event removed', () => {
       suggestedBumpReason: 'required event removed',
     };
     const out = formatDiff(diff);
-    expect(out).toContain('Removed:');
+    expect(out).toContain('Removed (1):');
     expect(out).toContain('- ws.chat.message');
     expect(out).toContain('major');
   });
@@ -307,7 +307,7 @@ describe('formatDiff — opt→req transition is marked BREAKING', () => {
       suggestedBumpReason: 'opt→req transition',
     };
     const out = formatDiff(diff);
-    expect(out).toContain('Optional-to-required:');
+    expect(out).toContain('Optional-to-required (1):');
     expect(out).toContain('— BREAKING');
     expect(out).toContain('ws.chat.member.joined');
   });
@@ -489,7 +489,7 @@ describe('bundleDiff() CLI — --exit-code', () => {
   it('still prints the full diff when exiting 3', async () => {
     await bundleDiff([`${FIXTURE}@1.0.0`, `${FIXTURE}@2.0.0`, '--exit-code']);
     const out = logSpy.mock.calls.flat().join('\n');
-    expect(out).toContain('Added (required):');
+    expect(out).toContain('Added (required) (1):');
     expect(out).toContain('Suggested semver bump: major');
   });
 
@@ -568,5 +568,251 @@ describe('bundleDiff() CLI — --help', () => {
 
   it('--help wins over positional arguments', async () => {
     expect(await bundleDiff(['nope@1.0.0', 'nope@2.0.0', '--help'])).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bundle-level changes: transport and deprecation.
+//
+// Neither feeds computeFingerprint (which hashes name, version and members
+// only), so if ec-bundle-diff doesn't report them, nothing in the pipeline
+// does. Both used to be invisible: the diff printed "No changes." AND
+// "Suggested semver bump: major (transport mode changed)" in the same
+// breath, and --exit-code returned 0.
+// ---------------------------------------------------------------------------
+
+describe('diffBundles — transport change', () => {
+  const NAME = 'diff-fixture-transport';
+
+  beforeEach(() => {
+    registerFeatureBundle({
+      name: NAME,
+      version: '1.0.0',
+      transport: 'signal',
+      events: [{ name: 'ws.tp.same', required: true }],
+    });
+    registerFeatureBundle({
+      name: NAME,
+      version: '2.0.0',
+      transport: 'durable',
+      events: [{ name: 'ws.tp.same', required: true }],
+    });
+  });
+
+  it('records the from → to pair', () => {
+    const diff = diffBundles(NAME, '1.0.0', '2.0.0')!;
+    expect(diff.transportChanged).toEqual({ from: 'signal', to: 'durable' });
+  });
+
+  it('counts as a change, so --exit-code sees it', () => {
+    const diff = diffBundles(NAME, '1.0.0', '2.0.0')!;
+    expect(hasChanges(diff)).toBe(true);
+  });
+
+  it('renders instead of "No changes."', () => {
+    const out = formatDiff(diffBundles(NAME, '1.0.0', '2.0.0')!);
+    expect(out).not.toContain('No changes.');
+    expect(out).toContain('Transport: signal → durable');
+    expect(out).toContain('BREAKING');
+  });
+
+  it('is major, and is invisible to the fingerprint — which is why the diff must say it', () => {
+    const diff = diffBundles(NAME, '1.0.0', '2.0.0')!;
+    expect(diff.suggestedBump).toBe('major');
+    expect(diff.suggestedBumpReason).toContain('transport mode changed');
+
+    // computeFingerprint hashes name + version + members only. Flip the
+    // transport with everything else held fixed and the hash is unchanged,
+    // so a fingerprint-pinned CRD would not notice the bus moving.
+    const members = [{ name: 'ws.tp.same', required: true }];
+    expect(computeFingerprint({ name: NAME, version: '1.0.0', events: members })).toBe(
+      computeFingerprint({ name: NAME, version: '1.0.0', events: members }),
+    );
+    expect(diff.transportChanged).toBeDefined();
+  });
+
+  it('exits 3 under --exit-code for a transport-only change', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      expect(await bundleDiff([`${NAME}@1.0.0`, `${NAME}@2.0.0`, '--exit-code'])).toBe(
+        EXIT_DIFFERENCES,
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
+describe('diffBundles — deprecation added / removed', () => {
+  const NAME = 'diff-fixture-deprecation';
+  let reg: FeatureBundleRegistry;
+
+  beforeEach(() => {
+    reg = new FeatureBundleRegistry();
+    registerFeatureBundle({
+      name: NAME,
+      version: '1.0.0',
+      transport: 'signal',
+      events: [{ name: 'ws.dep.same', required: true }],
+    });
+    registerFeatureBundle({
+      name: NAME,
+      version: '1.1.0',
+      transport: 'signal',
+      events: [{ name: 'ws.dep.same', required: true }],
+      deprecated: { since: '2026-09-01', replacement: 'ws.dep.next@1.0.0' },
+    });
+  });
+
+  it('classifies an added deprecation and renders it', () => {
+    const diff = diffBundles(NAME, '1.0.0', '1.1.0')!;
+    expect(diff.deprecationChanged?.kind).toBe('added');
+    expect(hasChanges(diff)).toBe(true);
+    const out = formatDiff(diff);
+    expect(out).toContain('Deprecation: added — since 2026-09-01');
+    expect(out).toContain('ws.dep.next@1.0.0');
+  });
+
+  it('classifies a removed deprecation in the reverse direction', () => {
+    const diff = diffBundles(NAME, '1.1.0', '1.0.0')!;
+    expect(diff.deprecationChanged?.kind).toBe('removed');
+    expect(formatDiff(diff)).toContain('Deprecation: removed');
+  });
+
+  it('is undefined when neither side is deprecated', () => {
+    expect(diffBundles(NAME, '1.0.0', '1.0.0')!.deprecationChanged).toBeUndefined();
+    // Keeps the isolated-registry surface honest too.
+    expect(reg.list()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EventReference.version — the only lever that pins a member's SCHEMA.
+// ---------------------------------------------------------------------------
+
+describe('diffBundles — member schema pin (EventReference.version)', () => {
+  const NAME = 'diff-fixture-pin';
+
+  beforeEach(() => {
+    registerFeatureBundle({
+      name: NAME,
+      version: '1.0.0',
+      transport: 'signal',
+      events: [{ name: 'ws.pin.event', required: true }],
+    });
+    registerFeatureBundle({
+      name: NAME,
+      version: '1.1.0',
+      transport: 'signal',
+      events: [{ name: 'ws.pin.event', required: true, version: 3 }],
+    });
+    registerFeatureBundle({
+      name: NAME,
+      version: '1.2.0',
+      transport: 'signal',
+      events: [{ name: 'ws.pin.event', required: true, version: 4 }],
+    });
+  });
+
+  it('reports a member that gained a pin', () => {
+    const diff = diffBundles(NAME, '1.0.0', '1.1.0')!;
+    expect(diff.versionChanged).toEqual([
+      { name: 'ws.pin.event', from: undefined, to: 3 },
+    ]);
+    expect(hasChanges(diff)).toBe(true);
+    expect(formatDiff(diff)).toContain('schema revision unpinned → 3');
+  });
+
+  it('reports a pin moving revision, and calls it major', () => {
+    const diff = diffBundles(NAME, '1.1.0', '1.2.0')!;
+    expect(diff.versionChanged).toEqual([{ name: 'ws.pin.event', from: 3, to: 4 }]);
+    expect(diff.suggestedBump).toBe('major');
+    expect(diff.suggestedBumpReason).toContain('member schema pin changed');
+  });
+
+  it('dropping a pin only widens what is accepted → minor', () => {
+    const diff = diffBundles(NAME, '1.2.0', '1.0.0')!;
+    expect(diff.versionChanged).toEqual([
+      { name: 'ws.pin.event', from: 4, to: undefined },
+    ]);
+    expect(diff.suggestedBump).toBe('minor');
+    expect(diff.suggestedBumpReason).toContain('member schema pin dropped');
+  });
+
+  it('a pin change moves the fingerprint (it is inside the member hash)', () => {
+    const diff = diffBundles(NAME, '1.1.0', '1.2.0')!;
+    expect(diff.fingerprintV1).not.toBe(diff.fingerprintV2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Readability: a 29-member diff must not be a wall of text.
+// ---------------------------------------------------------------------------
+
+describe('formatDiff — large bundles stay readable', () => {
+  const NAME = 'diff-fixture-wide';
+  const MEMBERS = Array.from({ length: 29 }, (_, i) => `ws.wide.member-${String(i).padStart(2, '0')}`);
+
+  beforeEach(() => {
+    registerFeatureBundle({
+      name: NAME,
+      version: '1.0.0',
+      transport: 'signal',
+      events: [{ name: 'ws.wide.anchor', required: true }],
+    });
+    registerFeatureBundle({
+      name: NAME,
+      version: '2.0.0',
+      transport: 'signal',
+      events: [
+        { name: 'ws.wide.anchor', required: true },
+        ...MEMBERS.map((name) => ({ name, required: true })),
+      ],
+    });
+  });
+
+  it('leads with a one-line summary of the shape of the change', () => {
+    const out = formatDiff(diffBundles(NAME, '1.0.0', '2.0.0')!);
+    expect(out.split('\n')[2]).toBe('Summary: +29 required');
+  });
+
+  it('caps each section and says how many it hid', () => {
+    const out = formatDiff(diffBundles(NAME, '1.0.0', '2.0.0')!);
+    expect(out).toContain('Added (required) (29):');
+    expect(out).toContain('… 19 more (re-run with --full to list every entry)');
+    // 10 shown, not 29.
+    expect(out.split('\n').filter((l) => l.startsWith('  + ')).length).toBe(10);
+    // And the whole thing still fits on a screen.
+    expect(out.split('\n').length).toBeLessThan(25);
+  });
+
+  it('--full lists every entry', () => {
+    const out = formatDiff(diffBundles(NAME, '1.0.0', '2.0.0')!, { full: true });
+    expect(out.split('\n').filter((l) => l.startsWith('  + ')).length).toBe(29);
+    expect(out).not.toContain('more (re-run with --full');
+    for (const m of MEMBERS) expect(out).toContain(m);
+  });
+
+  it('the CLI honours --full', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await bundleDiff([`${NAME}@1.0.0`, `${NAME}@2.0.0`, '--full']);
+      const out = log.mock.calls.flat().join('\n');
+      expect(out).toContain(MEMBERS[28]!);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('without --full the CLI truncates', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await bundleDiff([`${NAME}@1.0.0`, `${NAME}@2.0.0`]);
+      const out = log.mock.calls.flat().join('\n');
+      expect(out).not.toContain(MEMBERS[28]!);
+      expect(out).toContain('19 more');
+    } finally {
+      log.mockRestore();
+    }
   });
 });

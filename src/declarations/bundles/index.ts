@@ -23,6 +23,7 @@ export { callCaptionsBundle } from './call-captions.js';
 export { sfuWebhooksBundle } from './sfu-webhooks.js';
 export { sfuControlPlaneBundle } from './sfu-control-plane.js';
 export { sfuChatBundle } from './sfu-chat.js';
+export { gatewaySessionBundle } from './gateway-session.js';
 
 import { registerFeatureBundle } from '../../bundles/FeatureBundle.js';
 import { chatBundle } from './chat.js';
@@ -37,6 +38,7 @@ import { crdtDocumentBundle } from './crdt-document.js';
 import { videoHangoutBundle } from './video-hangout.js';
 import { fileUploadBundle } from './file-upload.js';
 import { notificationsBundle } from './notifications.js';
+import { gatewaySessionBundle } from './gateway-session.js';
 import { orgiqNewsroomBundle } from './orgiq-newsroom.js';
 import { agUiStreamBundle } from './ag-ui-stream.js';
 import { callCaptionsBundle } from './call-captions.js';
@@ -58,6 +60,7 @@ export const allBundles = [
   videoHangoutBundle,
   fileUploadBundle,
   notificationsBundle,
+  gatewaySessionBundle,
   orgiqNewsroomBundle,
   agUiStreamBundle,
   callCaptionsBundle,

@@ -237,5 +237,53 @@ describe('Bundle Routes', () => {
       expect(res.status).toBe(200);
       expect(typeof res.body.valid).toBe('boolean');
     });
+
+    it('returns 400 for a transport that is not a transport', async () => {
+      // `body.transport ?? 'signal'` used to let this through, and
+      // validateBundle then checked "kafka" down its 'both' branch.
+      const res = await request(app)
+        .post('/api/feature-bundles/validate')
+        .send({ ...makeBundle(), transport: 'kafka' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/transport/i);
+      expect(res.body.error).toContain('signal, durable, both');
+    });
+
+    it('still defaults a missing transport to signal', async () => {
+      const { transport: _drop, ...noTransport } = makeBundle();
+      const res = await request(app).post('/api/feature-bundles/validate').send(noTransport);
+      expect(res.status).toBe(200);
+    });
+
+    it('returns valid:false, not 200-valid, for an empty member list', async () => {
+      const res = await request(app)
+        .post('/api/feature-bundles/validate')
+        .send({ ...makeBundle(), events: [] });
+      expect(res.status).toBe(200);
+      expect(res.body.valid).toBe(false);
+      expect(res.body.errors[0]).toContain('declares no events');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The registry was constructed empty and never populated, so the whole
+// FeatureBundle HTTP surface answered `{bundles: [], total: 0}` in production
+// while 18 bundles sat declared in the source. Nothing failed loudly because
+// ec-lint-crd reads bundles from the package, not from the server.
+// ---------------------------------------------------------------------------
+
+describe('declared bundles are registered at boot', () => {
+  it('every bundle in allBundles registers cleanly into a fresh registry', async () => {
+    const { FeatureBundleRegistry } = await import('../src/bundles/FeatureBundle.js');
+    const { allBundles } = await import('../src/declarations/bundles/index.js');
+
+    const reg = new FeatureBundleRegistry();
+    for (const bundle of allBundles) {
+      expect(() => reg.register(bundle)).not.toThrow();
+    }
+
+    expect(allBundles.length).toBeGreaterThan(0);
+    expect(reg.list()).toHaveLength(allBundles.length);
   });
 });

@@ -1,4 +1,5 @@
 import type * as http from 'node:http';
+import { type CompressionConfig, type Encoding } from './compression.js';
 export interface RouteRequest {
     /** Uppercase HTTP method. */
     method: string;
@@ -49,7 +50,20 @@ export type Request = RouteRequest;
 export type Response = RouteResponse;
 export declare function parseQuery(rawUrl: string): Record<string, string | string[]>;
 export declare function makeRouteRequest(nodeReq: http.IncomingMessage, body: unknown): RouteRequest;
-export declare function makeRouteResponse(nodeRes: http.ServerResponse): RouteResponse;
+/**
+ * Per-response compression context: the server-wide policy plus the one
+ * coding negotiated from THIS request's `Accept-Encoding`.
+ */
+export interface ResponseCompression {
+    readonly config: CompressionConfig;
+    readonly encoding: Encoding;
+}
+/**
+ * Build the compression context for a request. Returns undefined when
+ * compression is off, so the response path keeps its old shape exactly.
+ */
+export declare function compressionFor(nodeReq: http.IncomingMessage, config: CompressionConfig | undefined): ResponseCompression | undefined;
+export declare function makeRouteResponse(nodeRes: http.ServerResponse, compression?: ResponseCompression): RouteResponse;
 export declare class HttpRouter {
     private readonly routes;
     get(path: string, handler: RouteHandler): this;
@@ -91,5 +105,10 @@ export declare function dispatchMounts(req: RouteRequest, res: RouteResponse, mo
  * bounded body read before `startServer`'s onRequest builds the same
  * req/res adapters.
  */
+export interface RequestListenerOptions {
+    /** Response-compression policy. Omitted ⇒ no compression, as before. */
+    compression?: CompressionConfig;
+}
 export declare function createRequestListener(...mounts: Mount[]): http.RequestListener;
+export declare function createRequestListener(options: RequestListenerOptions, ...mounts: Mount[]): http.RequestListener;
 //# sourceMappingURL=http-router.d.ts.map

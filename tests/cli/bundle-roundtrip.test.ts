@@ -223,20 +223,80 @@ describe('ec-lint-crd — a CRD pinned to the generated fingerprint', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Known gap in ec-bundle-create, asserted so it is not mistaken for a bug
-// later. Fixing it means touching src/cli/bundle-create.ts.
+// The gap that used to be here: ec-bundle-create never checked that the
+// names in --events existed, so a typo became a scaffolded bundle that
+// marked a fictional event required. The failure then surfaced two steps
+// later as an ec-lint-crd error against the operator's CRD — which was
+// fine. These tests hold the gap closed.
 // ---------------------------------------------------------------------------
 
-describe('ec-bundle-create does not check that --events exist (known gap)', () => {
-  it('scaffolds a bundle over undeclared events, marked required', () => {
-    expect(validateInputs('ghost-feature', '1.0.0', 'signal')).toBeNull();
-    const src = generateBundleTemplate('ghost-feature', '1.0.0', 'signal', [
-      'ws.nonexistent.frame',
-    ]);
-    expect(src).toContain("{ name: 'ws.nonexistent.frame', required: true },");
+describe('ec-bundle-create validates --events against the catalog', () => {
+  /** Scaffold into a scratch dir with the real declaration set as truth. */
+  function create(events: string[], name = 'ghost-feature') {
+    return bundleCreate(name, '1.0.0', 'signal', events, {
+      bundlesDir: join(tmp, 'guard'),
+      indexPath: join(tmp, 'guard', 'index.ts'),
+      readFile: () => 'export { chatBundle } from \'./chat.js\';\n'
+        + 'import { chatBundle } from \'./chat.js\';\n'
+        + 'export const allBundles = [\n  chatBundle,\n] as const;\n',
+      writeFile: () => {},
+      fileExists: () => false,
+    });
+  }
+
+  it('refuses to scaffold over an undeclared event, and names it', () => {
+    const result = create(['ws.nonexistent.frame']);
+    expect(result.code).toBe(2);
+    expect(result.message).toContain('ws.nonexistent.frame');
+    expect(result.message).toContain('not declared in the catalog');
   });
 
-  it('...and such a bundle fails validateBundle — so the guard is validate, not create', () => {
+  it('writes nothing when a member is undeclared', () => {
+    const writes: string[] = [];
+    const result = bundleCreate('ghost-feature', '1.0.0', 'signal', ['ws.nonexistent.frame'], {
+      bundlesDir: join(tmp, 'guard2'),
+      indexPath: join(tmp, 'guard2', 'index.ts'),
+      readFile: () => { throw new Error('index should never be read'); },
+      writeFile: (p) => void writes.push(p),
+      fileExists: () => false,
+    });
+    expect(result.code).toBe(2);
+    expect(writes).toEqual([]);
+  });
+
+  it('suggests the right name across a separator typo', () => {
+    // pipeline.run.started → pipeline:run:started, the repo's classic.
+    const result = create(['pipeline.run.started']);
+    expect(result.code).toBe(2);
+    expect(result.message).toContain('Did you mean "pipeline:run:started"');
+  });
+
+  it('reports EVERY undeclared member, not just the first', () => {
+    const result = create(['ws.nonexistent.frame', 'ws.also.fake', PROBE_EVENTS[0]!]);
+    expect(result.code).toBe(2);
+    expect(result.message).toContain('ws.nonexistent.frame');
+    expect(result.message).toContain('ws.also.fake');
+    expect(result.message).toContain('2 of 3');
+  });
+
+  it('still accepts a list of genuinely declared events', () => {
+    expect(create(PROBE_EVENTS).code).toBe(0);
+  });
+
+  it('scaffolds members required by default, "?" opting one out', () => {
+    // required-by-default is deliberate: EventReference.required already
+    // means required when omitted, and an all-optional bundle validates
+    // against a catalog that declares none of its members.
+    expect(validateInputs('ghost-feature', '1.0.0', 'signal')).toBeNull();
+    const src = generateBundleTemplate('probe', '1.0.0', 'signal', [
+      PROBE_EVENTS[0]!,
+      `${PROBE_EVENTS[1]!}?`,
+    ]);
+    expect(src).toContain(`{ name: '${PROBE_EVENTS[0]}', required: true },`);
+    expect(src).toContain(`{ name: '${PROBE_EVENTS[1]}', required: false },`);
+  });
+
+  it('a bundle over a fictional event still fails validateBundle — defence in depth', () => {
     const ghost: FeatureBundle = {
       name: 'ghost-feature',
       version: '1.0.0',

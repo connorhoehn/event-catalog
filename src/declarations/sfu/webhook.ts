@@ -238,7 +238,12 @@ export const sfuRecordingCompleted: EventDeclaration = {
         'A recording session finalized. Carries the segment manifest, the per-participant track '
         + 'manifest, total encoded size, duration, and the recording profile the run began under. '
         + 'Drained by platform-api\'s lvsWebhooks route into video-call-recordings '
-        + '(recording/RecordingManager.js:1756).',
+        + '(recording/RecordingManager.js:1756). TWO declared properties are never actually emitted — '
+        + '`composedUrl` and `tracks[].userId`; both are read by platform-api and both come back undefined. '
+        + 'See their entries in the field glossary in ../sfu.ts. The mirror defect also exists and is NOT '
+        + 'fixable from here: routes/lvsWebhooks.ts reads `startedAt`, `endedAt` and `totalBytes` off this '
+        + 'payload, none of which is declared or sent — and since this schema is additionalProperties:false, '
+        + 'they could not arrive even if LVS started sending them.',
     tags: [...BASE_TAGS, 'webhook', 'recording', 'lifecycle'],
     queue: 'sfu-recording-events',
     retention: 90 * DAY,

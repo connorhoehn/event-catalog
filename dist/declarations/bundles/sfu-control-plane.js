@@ -36,6 +36,9 @@ const _def = {
         { name: 'sfu.producer.state-changed', required: true },
         { name: 'sfu.recording.state.changed', required: true },
         { name: 'sfu.participant.disconnected', required: true },
+        // Departure, not removal: `:screen` sub-ids are dropped and real ids
+        // debounced 1.5s before this fires.
+        { name: 'sfu.participant.left', required: true },
         { name: 'sfu.member.owner.changed', required: true },
         { name: 'sfu.chat.event', required: true },
         // Recording compose job — optional, ffmpeg composition may be disabled

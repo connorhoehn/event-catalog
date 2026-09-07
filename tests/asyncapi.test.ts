@@ -8,6 +8,10 @@
 import { describe, it, expect } from 'vitest';
 import { expressLikeApp } from './helpers/test-app.js';
 import request from 'supertest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { parse as parseYaml } from 'yaml';
+import { allDeclarations } from '../src/declarations/index.js';
 
 import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
@@ -184,5 +188,117 @@ describe('GET /api/asyncapi', () => {
     const res = await request(app).get('/api/asyncapi?namespace=orders');
     expect(res.status).toBe(200);
     expect(Object.keys(res.body.components.messages)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The SHIPPED artifact: contracts/asyncapi.yaml.
+//
+// Distinct from `buildAsyncApiSpec` above, which is the LIVE, whole-registry
+// AsyncAPI 3.0 the server renders at `GET /api/asyncapi` from whatever is
+// registered at that moment. `contracts/asyncapi.yaml` is AsyncAPI 2.6,
+// generated offline by `npm run generate-asyncapi` and committed, and it is
+// deliberately scoped to ONE protocol: the gateway's multiplexed WebSocket.
+//
+// A published spec that omits or misdescribes a frame is worse than no spec,
+// so the checks below are about FIDELITY WITHIN THAT SCOPE — every in-scope
+// declaration is present, its payload is the declaration's own schema
+// (annotations included), and nothing is referenced that is not defined.
+// ---------------------------------------------------------------------------
+
+describe('contracts/asyncapi.yaml — the committed artifact', () => {
+  const specPath = join(__dirname, '..', 'contracts', 'asyncapi.yaml');
+  const doc = parseYaml(readFileSync(specPath, 'utf8')) as any;
+
+  const outbound = allDeclarations.filter((d) => d.name.startsWith('client.'));
+  const inbound = allDeclarations.filter((d) => d.name.startsWith('ws.'));
+  const inScope = [...outbound, ...inbound];
+  const key = (name: string) => name.replace(/[^A-Za-z0-9_]/g, '_');
+
+  it('is committed in sync with the declarations — regenerate if this fails', () => {
+    const missing = inScope.filter((d) => !(key(d.name) in doc.components.messages)).map((d) => d.name);
+    expect(missing, `declared but absent from the shipped spec: ${missing.join(', ')}`).toEqual([]);
+    // +1 for the inline SessionBootstrap, which has no declaration.
+    expect(Object.keys(doc.components.messages)).toHaveLength(inScope.length + 1);
+  });
+
+  it('every message is reachable from the channel — no orphan components', () => {
+    const refs = new Set<string>(
+      [...doc.channels['/'].publish.message.oneOf, ...doc.channels['/'].subscribe.message.oneOf]
+        .map((r: { $ref: string }) => r.$ref.split('/').pop()!),
+    );
+    const defined = new Set(Object.keys(doc.components.messages));
+    expect([...defined].filter((k) => !refs.has(k)), 'defined but never referenced').toEqual([]);
+    expect([...refs].filter((k) => !defined.has(k)), 'referenced but never defined').toEqual([]);
+  });
+
+  it('routes each frame to the operation the adopter reads it from', () => {
+    const pub = new Set(doc.channels['/'].publish.message.oneOf.map((r: any) => r.$ref.split('/').pop()));
+    const sub = new Set(doc.channels['/'].subscribe.message.oneOf.map((r: any) => r.$ref.split('/').pop()));
+    // publish = what the CLIENT sends; subscribe = what it receives.
+    for (const d of outbound) expect(pub.has(key(d.name)), `${d.name} should be publish`).toBe(true);
+    for (const d of inbound) expect(sub.has(key(d.name)), `${d.name} should be subscribe`).toBe(true);
+    expect(pub.size).toBe(outbound.length);
+    expect(sub.size).toBe(inbound.length + 1);
+  });
+
+  it('drops in each declaration\'s schema verbatim, annotations and all', () => {
+    for (const d of inScope) {
+      expect(doc.components.messages[key(d.name)].payload, d.name).toEqual(d.schema);
+    }
+    // The `format` annotations stamped by field-glossary must survive
+    // generation — they are the half of the contract a non-JS adopter has no
+    // other way to learn.
+    const formats = JSON.stringify(doc.components.messages).match(/"format":"[a-z-]+"/g) ?? [];
+    expect(formats.length).toBeGreaterThan(80);
+  });
+
+  it('carries the declaration\'s description as the message summary', () => {
+    const undocumented = inScope
+      .filter((d) => d.description && doc.components.messages[key(d.name)].summary !== d.description)
+      .map((d) => d.name);
+    expect(undocumented, `summary drifted from the declaration description: ${undocumented.join(', ')}`).toEqual([]);
+  });
+
+  it('has no deprecation to mark — and will fail loudly the day it does', () => {
+    // The 2.6 generator drops `aliases` entirely. That is harmless only while
+    // no in-scope frame HAS one: today all 25 deprecated aliases in the
+    // registry are `pipeline*`, which this spec does not cover. If a
+    // `client.*` / `ws.*` frame ever gains a deprecated alias, the shipped
+    // spec would silently omit it — so fail here and teach the generator
+    // to emit `deprecated: true` instead of relaxing this.
+    const withAliases = inScope.filter((d) => (d.aliases ?? []).length > 0).map((d) => d.name);
+    expect(withAliases, `generator cannot express these aliases: ${withAliases.join(', ')}`).toEqual([]);
+  });
+
+  it('describes the welcome frame twice — a transitional duplicate, recorded on purpose', () => {
+    // `scripts/generate-asyncapi.ts` hand-inlines the welcome frame as
+    // `SessionBootstrap`, with a comment saying it does so because the frame
+    // "has no event-catalog declaration". As of 2026-09-07 it does:
+    // ws.session.connected. Until the generator (owned elsewhere) drops its
+    // inline copy, the published spec carries both — same wire frame, two
+    // message names, and the hand-written copy is the looser of the two.
+    // Asserted rather than left to drift, so the day the generator is fixed
+    // this test fails and gets deleted.
+    const inline = doc.components.messages.SessionBootstrap;
+    const declared = doc.components.messages['ws_session_connected'];
+    expect(inline, 'generator no longer inlines SessionBootstrap — delete this test').toBeDefined();
+    expect(declared).toBeDefined();
+    expect(inline.payload.properties.type.const).toBe('session');
+    expect(declared.payload.properties.type.const).toBe('session');
+    // The declaration is the stricter of the two, which is why it should win.
+    expect(declared.payload.required.length).toBeGreaterThan(inline.payload.required.length);
+  });
+
+  it('scopes itself honestly — the rest of the registry is NOT in this file', () => {
+    // Not a defect: contracts/asyncapi.yaml describes the gateway WS
+    // protocol, not the platform's whole event surface. The live
+    // `GET /api/asyncapi` covers everything. This asserts the two facts stay
+    // true together, so nobody reads the file as a full inventory.
+    const outOfScope = allDeclarations.filter((d) => !inScope.includes(d));
+    expect(outOfScope.length).toBeGreaterThan(0);
+    for (const d of outOfScope) {
+      expect(key(d.name) in doc.components.messages, `${d.name} leaked into the WS spec`).toBe(false);
+    }
   });
 });

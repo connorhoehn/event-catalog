@@ -5,7 +5,7 @@
 // Importing this module at boot time registers the bundles in the
 // module-level singleton via registerFeatureBundle().
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.allBundles = exports.sfuChatBundle = exports.sfuControlPlaneBundle = exports.sfuWebhooksBundle = exports.callCaptionsBundle = exports.agUiStreamBundle = exports.orgiqNewsroomBundle = exports.notificationsBundle = exports.fileUploadBundle = exports.videoHangoutBundle = exports.crdtDocumentBundle = exports.agenticPipelineDurableBundle = exports.agenticPipelineSignalBundle = exports.agenticPipelineBundle = exports.activityBundle = exports.reactionsBundle = exports.cursorBundle = exports.presenceBundle = exports.chatBundle = void 0;
+exports.allBundles = exports.gatewaySessionBundle = exports.sfuChatBundle = exports.sfuControlPlaneBundle = exports.sfuWebhooksBundle = exports.callCaptionsBundle = exports.agUiStreamBundle = exports.orgiqNewsroomBundle = exports.notificationsBundle = exports.fileUploadBundle = exports.videoHangoutBundle = exports.crdtDocumentBundle = exports.agenticPipelineDurableBundle = exports.agenticPipelineSignalBundle = exports.agenticPipelineBundle = exports.activityBundle = exports.reactionsBundle = exports.cursorBundle = exports.presenceBundle = exports.chatBundle = void 0;
 var chat_js_1 = require("./chat.js");
 Object.defineProperty(exports, "chatBundle", { enumerable: true, get: function () { return chat_js_1.chatBundle; } });
 var presence_js_1 = require("./presence.js");
@@ -43,6 +43,8 @@ var sfu_control_plane_js_1 = require("./sfu-control-plane.js");
 Object.defineProperty(exports, "sfuControlPlaneBundle", { enumerable: true, get: function () { return sfu_control_plane_js_1.sfuControlPlaneBundle; } });
 var sfu_chat_js_1 = require("./sfu-chat.js");
 Object.defineProperty(exports, "sfuChatBundle", { enumerable: true, get: function () { return sfu_chat_js_1.sfuChatBundle; } });
+var gateway_session_js_1 = require("./gateway-session.js");
+Object.defineProperty(exports, "gatewaySessionBundle", { enumerable: true, get: function () { return gateway_session_js_1.gatewaySessionBundle; } });
 const FeatureBundle_js_1 = require("../../bundles/FeatureBundle.js");
 const chat_js_2 = require("./chat.js");
 const presence_js_2 = require("./presence.js");
@@ -56,6 +58,7 @@ const crdt_document_js_2 = require("./crdt-document.js");
 const video_hangout_js_2 = require("./video-hangout.js");
 const file_upload_js_2 = require("./file-upload.js");
 const notifications_js_2 = require("./notifications.js");
+const gateway_session_js_2 = require("./gateway-session.js");
 const orgiq_newsroom_js_2 = require("./orgiq-newsroom.js");
 const ag_ui_stream_js_2 = require("./ag-ui-stream.js");
 const call_captions_js_2 = require("./call-captions.js");
@@ -76,6 +79,7 @@ exports.allBundles = [
     video_hangout_js_2.videoHangoutBundle,
     file_upload_js_2.fileUploadBundle,
     notifications_js_2.notificationsBundle,
+    gateway_session_js_2.gatewaySessionBundle,
     orgiq_newsroom_js_2.orgiqNewsroomBundle,
     ag_ui_stream_js_2.agUiStreamBundle,
     call_captions_js_2.callCaptionsBundle,

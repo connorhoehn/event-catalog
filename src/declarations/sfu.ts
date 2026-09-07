@@ -1,15 +1,17 @@
 // src/declarations/sfu.ts
 //
 // The `sfu.*` namespace — every cross-service event `live-video-streaming`
-// (the SFU) emits: 12 durable webhook events, 7 control-plane signal events,
-// 5 compose-job signal events, and 5 chat-bus signal events. Twenty-nine in
+// (the SFU) emits: 12 durable webhook events, 8 control-plane signal events,
+// 5 compose-job signal events, and 5 chat-bus signal events. Thirty in
 // total.
 //
-// 2026-09-07: nine of those are new. A cross-repo audit found nine events
+// 2026-09-07: ten of those are new. A cross-repo audit found ten events
 // riding the SAME `stream-events` hub as the three already-declared
 // control-plane events, declared nowhere — not here, and not in LVS's own
 // `src/event-declarations.js` either. Each was read at its construction site
-// and is justified in the header of the part file that holds it.
+// and is justified in the header of the part file that holds it. The last of
+// them, `sfu.participant.left`, was recorded as a known gap by the round that
+// closed the other nine and is now declared too.
 //
 // WHY THEY LIVE HERE
 // ------------------
@@ -78,7 +80,7 @@
 // identical): the three groups above now live one file per bus under
 // `./sfu/`:
 //   webhook.ts           the 12 durable webhook events (HTTP POST → platform-api)
-//   control-plane.ts     the 7 channel-state signal events (`stream-events`)
+//   control-plane.ts     the 8 channel-state signal events (`stream-events`)
 //   recording-compose.ts the 5 compose-job signal events (`stream-events`)
 //   chat-bus.ts          the 5 chat-bus signal events (`chat-bus:<arn>`)
 // This module stays the single public entry point: it re-exports every
@@ -118,6 +120,7 @@ import {
     sfuParticipantDisconnected,
     sfuMemberOwnerChanged,
     sfuChatEvent,
+    sfuParticipantLeft,
 } from './sfu/control-plane';
 import {
     sfuRecordingComposeQueued,
@@ -160,6 +163,7 @@ export {
     sfuParticipantDisconnected,
     sfuMemberOwnerChanged,
     sfuChatEvent,
+    sfuParticipantLeft,
 } from './sfu/control-plane';
 export {
     sfuRecordingComposeQueued,
@@ -210,6 +214,15 @@ const FIELDS: FieldGlossary = {
     'tracks.key': 'Storage key of this participant\'s track, relative to the recording bucket.',
     'tracks.url': 'Fetchable URL of this participant\'s track.',
     'tracks.size': 'Encoded size of this track in bytes.',
+    'tracks.userId': 'Platform user id of the participant this leg belongs to. NEVER EMITTED as of 2026-09-07, '
+        + 'and the second instance of the `composedUrl` defect: `record.tracks` has exactly one writer '
+        + '(RecordingManager.js:1516, from the literal at :1493) and it enumerates legId, participantId, '
+        + 'the two producer ids, file, key, url, size, the timestamps, endReason, durationMs, kind and repair '
+        + '— no userId, no spread; the whole recording subsystem never touches the identifier. platform-api '
+        + 'reads it in two places (lib/recording-truth.ts:222 and :250), and the :250 branch — "recorded legs '
+        + 'that carry a userId are participants even when the live roster dropped them" — is therefore '
+        + 'unreachable, which is exactly the leaver it was written to recover. Kept because removing a property '
+        + 'is a breaking schema change; it should go, or LVS should start sending it.',
     'tracks.kind': 'Media kind of this leg — `av` when the participant published both audio and video.',
     recordingProfile: 'Canonical recording-shape identifier (see recording-profiles.ts). Consumers branch on this instead of re-reading channel config.',
     profileVersion: 'Recording-profile registry version in force when the recording STARTED, so an in-flight recording finalizes under the semantics it began with.',
@@ -268,7 +281,7 @@ const FORMATS: FormatGlossary = {
     DisconnectTime: 'date-time',
 };
 
-/** Every event the SFU emits: 12 durable webhook, 7 control-plane, 5 compose-job, 5 chat-bus. */
+/** Every event the SFU emits: 12 durable webhook, 8 control-plane, 5 compose-job, 5 chat-bus. */
 export const sfuDeclarations: EventDeclaration[] = [
     // webhook (durable)
     sfuSessionCreated,
@@ -291,6 +304,7 @@ export const sfuDeclarations: EventDeclaration[] = [
     sfuParticipantDisconnected,
     sfuMemberOwnerChanged,
     sfuChatEvent,
+    sfuParticipantLeft,
     // compose jobs (signal)
     sfuRecordingComposeQueued,
     sfuRecordingComposeStarted,

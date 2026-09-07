@@ -9,6 +9,8 @@ export { wsCallInvite, wsCallAccepted, wsCallDeclined, wsCallCancelled, wsCallEn
 export { wsPipelineSubscribed, wsPipelineUnsubscribed, wsPipelineAck, wsPipelineSnapshot, wsPipelineHistory, wsPipelineEvent, } from './gateway-signal/pipeline';
 export { wsUploadRequested, wsUploadUrlIssued, wsUploadCompleted, wsUploadFailed, wsUploadScanned, wsUploadScanQuarantined, wsUploadUrlRevoked, } from './gateway-signal/upload';
 export { wsError } from './gateway-signal/error';
+export { wsSessionConnected } from './gateway-signal/session';
+export { wsSubscribeSubscribed, wsSubscribeUnsubscribed } from './gateway-signal/subscribe';
 /**
  * All gateway WS signal frame declarations.
  * Pass to `catalog.declare()` at boot to register every frame type the

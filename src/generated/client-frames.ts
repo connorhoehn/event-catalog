@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-07T17:13:22.494Z
+// Generated at: 2026-09-07T17:44:51.161Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -436,6 +436,15 @@ export type PipelineInboundFrame =
   | EventPayloadMap['ws.pipeline.snapshot']
   | EventPayloadMap['ws.pipeline.history']
   | EventPayloadMap['ws.pipeline.event'];
+
+/** Union of every inbound gateway→client push frame for the `session` service. */
+export type SessionInboundFrame =
+  | EventPayloadMap['ws.session.connected'];
+
+/** Union of every inbound gateway→client push frame for the `subscribe` service. */
+export type SubscribeInboundFrame =
+  | EventPayloadMap['ws.subscribe.subscribed']
+  | EventPayloadMap['ws.subscribe.unsubscribed'];
 
 /** Union of every inbound gateway→client push frame for the `fileupload` service. */
 export type FileuploadInboundFrame =

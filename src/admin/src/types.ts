@@ -1,1 +1,10 @@
-export type { EventEntry, EventStats, TopologyGraph, HealthStatus, ChannelInfo, QueueInfo } from './api';
+export type {
+  EventEntry,
+  EventStats,
+  TopologyGraph,
+  HealthStatus,
+  ChannelInfo,
+  QueueInfo,
+  BundleEventRef,
+  FeatureBundleEntry,
+} from './api';

@@ -25,6 +25,7 @@ import {
     sfuParticipantDisconnected,
     sfuMemberOwnerChanged,
     sfuChatEvent,
+    sfuParticipantLeft,
     sfuRecordingComposeQueued,
     sfuRecordingComposeStarted,
     sfuRecordingComposeProgress,
@@ -57,12 +58,12 @@ function registryWith(decl: Parameters<Registry['declare']>[0]): Registry {
 }
 
 describe('sfu declarations — bulk registration', () => {
-    it('registers all 29 SFU events in a fresh registry without error', () => {
+    it('registers all 30 SFU events in a fresh registry without error', () => {
         const registry = new Registry();
         for (const decl of sfuDeclarations) {
             expect(registry.declare(decl).compatible, decl.name).toBe(true);
         }
-        expect(registry.size()).toBe(29);
+        expect(registry.size()).toBe(30);
     });
 
     it('has no duplicate event names', () => {
@@ -78,11 +79,11 @@ describe('sfu declarations — bulk registration', () => {
         }
     });
 
-    it('splits 12 durable webhook events from 17 signal events', () => {
+    it('splits 12 durable webhook events from 18 signal events', () => {
         const durable = sfuDeclarations.filter((d) => d.transport === 'durable');
         const signal = sfuDeclarations.filter((d) => d.transport === 'signal');
         expect(durable).toHaveLength(12);
-        expect(signal).toHaveLength(17);
+        expect(signal).toHaveLength(18);
     });
 
     it('every durable event names the queue it lands on and a retention', () => {
@@ -96,7 +97,7 @@ describe('sfu declarations — bulk registration', () => {
         const onTheHub = sfuDeclarations.filter(
             (d) => d.transport === 'signal' && !CHAT_BUS_EVENTS.includes(d.name),
         );
-        expect(onTheHub).toHaveLength(12);
+        expect(onTheHub).toHaveLength(13);
         for (const decl of onTheHub) {
             expect(decl.channel, decl.name).toBe('stream-events');
         }
@@ -509,6 +510,37 @@ describe('sfu.member.owner.changed', () => {
             registryWith(sfuMemberOwnerChanged)
                 .validate('sfu.member.owner.changed', { ...REAL, ownerClientId: null, participantId: null }).valid,
         ).toBe(true);
+    });
+});
+
+describe('sfu.participant.left', () => {
+    /** app.js:548 verbatim — `{ participantId }` is the WHOLE constructed payload. */
+    const REAL = {
+        channelArn: 'arn:sfu:channel/abc',
+        participantId: 'p_1',
+    };
+
+    it('accepts the bridged departure payload', () => {
+        expect(registryWith(sfuParticipantLeft).validate('sfu.participant.left', REAL).valid).toBe(true);
+    });
+
+    it('requires participantId — the bridge guards on it being a string before it schedules the timer', () => {
+        const { participantId: _dropped, ...withoutParticipant } = REAL;
+        expect(
+            registryWith(sfuParticipantLeft).validate('sfu.participant.left', withoutParticipant).valid,
+        ).toBe(false);
+    });
+
+    it('carries nothing beyond the id and the arn — no reason, no timestamp', () => {
+        expect(Object.keys(sfuParticipantLeft.schema.properties as object).sort())
+            .toEqual(['channelArn', 'participantId']);
+        expect(sfuParticipantLeft.schema.additionalProperties).toBe(false);
+    });
+
+    it('is a stream-events hub frame, not a Socket.IO room frame like participant.joined', () => {
+        expect(sfuParticipantLeft.transport).toBe('signal');
+        expect(sfuParticipantLeft.channel).toBe('stream-events');
+        expect(sfuDeclarations.map((d) => d.name)).not.toContain('sfu.participant.joined');
     });
 });
 

@@ -40,8 +40,39 @@
  *     and reloads the full registry from the shared Redis hash. `stale`
  *     stays set if that reload is impossible, so health can surface it
  *     instead of the replica serving a truncated registry as healthy.
+ *     What is tracked is a *high-water mark*, not the last seq seen: a
+ *     redelivery carries a lower number and must not look like a gap.
  *
  * Fire-and-forget: broadcast failures are logged but never propagate.
+ *
+ * Known limits (see tests/fuzz-replica-convergence.test.ts, which
+ * generates the interleavings rather than enumerating them):
+ *
+ *  - **Deletes do not fully converge.** `remove` destroys the whole
+ *    entry, and a `subscriber.add` made concurrently with it carries a
+ *    *higher* wall-clock stamp while being causally unrelated. A scalar
+ *    (ts, replicaId) clock cannot tell that apart from an add that
+ *    genuinely followed the delete, so a replica that applied the add
+ *    first and one that applied the delete first can end up disagreeing
+ *    about that event's subscriber list. The tombstone below contains
+ *    it: the disagreement stays inside the deleted event and never
+ *    spreads to events that were never removed. Closing it properly
+ *    needs causality metadata (a version vector) this design does not
+ *    carry.
+ *
+ *  - **A gap on first contact with a peer is invisible.** A replica's
+ *    first sight of a peer at seq > 1 looks identical whether messages
+ *    were dropped or the peer was simply already running when we
+ *    joined. Once the boot read of the shared hash has succeeded the
+ *    benign reading is assumed, because the alternative is every new
+ *    replica reloading the registry the instant it hears a busy peer.
+ *
+ *  - **Timestamps are per-replica.** `metadata.createdAt`,
+ *    `deprecation.deprecatedAt` and `schemaHistory[].updatedAt` are
+ *    stamped by whichever replica applied the mutation. The broadcast
+ *    payload carries no authoritative value for the first two, so they
+ *    differ between replicas by construction. The semantic content does
+ *    not.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RegistryCoordinator = exports.MUTATIONS_CHANNEL = void 0;
@@ -220,8 +251,17 @@ class RegistryCoordinator {
         // concurrent write that loses the tie-break.
         const ts = this.nextTs();
         const key = conflictKey(kind, payload);
-        if (key)
-            this.setStamp(key, { ts, replicaId: this.replicaId });
+        if (key) {
+            this.setStamp(key, {
+                ts,
+                replicaId: this.replicaId,
+                ...(kind === 'remove' ? { removed: true } : {}),
+            });
+        }
+        // A local delete destroys the entry and everything hanging off it,
+        // so anything we parked waiting for that event is now unreplayable.
+        if (kind === 'remove')
+            this.purgePending(targetEvent(kind, payload));
         const msg = {
             replicaId: this.replicaId,
             kind,
@@ -307,8 +347,8 @@ class RegistryCoordinator {
         if (typeof mutation.seq !== 'number')
             return;
         const prev = this.peerSeq.get(mutation.replicaId);
-        this.peerSeq.set(mutation.replicaId, mutation.seq);
         if (prev === undefined) {
+            this.peerSeq.set(mutation.replicaId, mutation.seq);
             // First contact with this peer. seq is 1-based, so anything above
             // 1 means the peer published before we started listening. That is
             // only benign if our boot read of the shared registry covered it —
@@ -319,10 +359,16 @@ class RegistryCoordinator {
             }
             return;
         }
-        if (mutation.seq === prev + 1)
-            return; // in order
+        // What we hold is a *high-water mark*, not "the last seq seen". A
+        // redelivery or a message that overtook a newer one carries a seq at
+        // or below it and must leave it alone: writing the lower value back
+        // would make the next in-order message look like a gap and send a
+        // perfectly healthy replica through a full registry reload.
         if (mutation.seq <= prev)
             return; // duplicate/reorder — stamps handle it
+        this.peerSeq.set(mutation.replicaId, mutation.seq);
+        if (mutation.seq === prev + 1)
+            return; // in order
         this.markStale(`missed ${mutation.seq - prev - 1} broadcast(s) from replica ${mutation.replicaId.slice(0, 8)}`);
     }
     markStale(detail) {
@@ -377,23 +423,82 @@ class RegistryCoordinator {
         }
         // A mutation for an event we've never seen can't be applied yet:
         // Redis pub/sub does not order across publishers, so its declare
-        // may still be in flight. Park it rather than dropping it.
+        // may still be in flight. Park it rather than dropping it — unless
+        // we have a tombstone, in which case the event is not "not here
+        // yet", it is gone, and holding the edit would let it re-attach
+        // itself to a future incarnation of the event that never had it.
         if (mutation.kind !== 'declare' && mutation.kind !== 'remove') {
             const name = targetEvent(mutation.kind, mutation.payload);
             if (name && !registry.get(name)) {
+                if (this.stamps.get(`evt\x00${name}`)?.removed) {
+                    this.recordConflict({
+                        reason: 'stale-write',
+                        kind: mutation.kind,
+                        key,
+                        fromReplica: mutation.replicaId,
+                        detail: `event "${name}" was removed — the edit died with it`,
+                    });
+                    // Stamp the discard. A decision to throw a mutation away is
+                    // only safe if a redelivery of that same mutation reaches the
+                    // same decision, and after the event is re-declared the
+                    // tombstone is gone — so without this the copy Redis sends
+                    // again would be applied.
+                    if (incoming)
+                        this.setStamp(key, incoming);
+                    return;
+                }
                 this.park(mutation);
                 return;
             }
         }
         if (!this.applyMutation(mutation, registry))
             return;
-        if (incoming)
-            this.setStamp(key, incoming);
+        if (incoming) {
+            this.setStamp(key, mutation.kind === 'remove' ? { ...incoming, removed: true } : incoming);
+        }
+        if (mutation.kind === 'remove') {
+            this.purgePending(targetEvent('remove', mutation.payload));
+        }
         if (mutation.kind === 'declare') {
             const name = targetEvent('declare', mutation.payload);
             if (name)
                 this.drainPending(name, registry);
         }
+    }
+    /**
+     * Forget everything parked for an event that has just been deleted.
+     *
+     * Without this a `subscriber.add` that was waiting for its declare
+     * survives the delete and is replayed by the *next* declare of the
+     * same name, re-attaching a consumer to a fresh incarnation of the
+     * event that never had it — and only on the replicas that happened to
+     * have parked it, which is a divergence.
+     */
+    purgePending(name) {
+        if (!name || this.pending.length === 0)
+            return;
+        const keep = [];
+        for (const p of this.pending) {
+            if (targetEvent(p.mutation.kind, p.mutation.payload) !== name) {
+                keep.push(p);
+                continue;
+            }
+            const key = conflictKey(p.mutation.kind, p.mutation.payload);
+            this.recordConflict({
+                reason: 'stale-write',
+                kind: p.mutation.kind,
+                key: key ?? '?',
+                fromReplica: p.mutation.replicaId,
+                detail: `event "${name}" was removed while this edit was parked`,
+            });
+            // Same reason as the tombstone discard above: record the stamp so
+            // a redelivery of this mutation is refused rather than applied to
+            // the next incarnation of the event.
+            if (key && typeof p.mutation.ts === 'number') {
+                this.setStamp(key, { ts: p.mutation.ts, replicaId: p.mutation.replicaId });
+            }
+        }
+        this.pending = keep;
     }
     park(mutation) {
         this.pending.push({ mutation, parkedAt: Date.now() });
@@ -480,13 +585,17 @@ class RegistryCoordinator {
                         return false;
                     const known = registry.get(entry.name);
                     registry.declare(entry);
-                    // Registry.declare builds a *fresh* entry when the event is
-                    // new, deliberately resetting subscribers/history/metadata.
-                    // On the replication path the payload is an already-populated
-                    // peer entry, so that reset would silently drop the peer's
-                    // subscriber list. Re-apply it.
-                    if (!known)
-                        this.adoptReplicatedFields(entry, registry);
+                    // Registry.declare *derives* version and schemaHistory from
+                    // the local prior schema. On the replication path that is the
+                    // wrong source: the payload is the peer's finished entry and
+                    // already carries the authoritative values, and re-deriving
+                    // them leaves two replicas holding the same schema under
+                    // different version numbers and different histories. Take the
+                    // peer's. Subscribers and deprecation are adopted only for a
+                    // brand-new entry — they have their own conflict keys, and
+                    // unioning a stale declare's subscriber list would resurrect
+                    // consumers a newer subscriber.remove already retired.
+                    this.adoptReplicatedFields(entry, registry, !known);
                     return true;
                 }
                 case 'deprecate': {
@@ -520,23 +629,36 @@ class RegistryCoordinator {
         }
     }
     /**
-     * Carry over the fields Registry.declare resets for a brand-new
-     * event. Only for first-sight replicated entries — never for a local
-     * declare, where the reset is the intended behaviour.
+     * Carry over the fields Registry.declare would otherwise derive from
+     * local state. Never called for a local declare, where deriving them
+     * is the intended behaviour.
+     *
+     * `version` and `schemaHistory` are adopted on every replicated
+     * declare so the winning entry looks identical everywhere. The rest
+     * — subscribers, deprecation — is adopted only when the entry is
+     * brand-new here, because Registry.declare resets those for a fresh
+     * entry and the peer's payload is the only copy we have. For an entry
+     * we already hold, those fields are owned by their own mutation kinds
+     * and their own conflict keys.
+     *
+     * A peer on a build that predates a field simply omits it, so each
+     * adoption is guarded on the value actually being present.
      */
-    adoptReplicatedFields(source, registry) {
+    adoptReplicatedFields(source, registry, firstSight) {
         const created = registry.get(source.name);
         if (!created)
+            return;
+        if (Array.isArray(source.schemaHistory)) {
+            created.schemaHistory = source.schemaHistory;
+        }
+        if (typeof source.version === 'number')
+            created.version = source.version;
+        if (!firstSight)
             return;
         if (Array.isArray(source.subscribers)) {
             for (const s of source.subscribers)
                 registry.addSubscriber(source.name, s);
         }
-        if (Array.isArray(source.schemaHistory) && source.schemaHistory.length > 0) {
-            created.schemaHistory = source.schemaHistory;
-        }
-        if (typeof source.version === 'number')
-            created.version = source.version;
         if (source.deprecation)
             created.deprecation = source.deprecation;
     }

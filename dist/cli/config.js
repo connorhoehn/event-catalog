@@ -31,6 +31,7 @@ exports.resolveServerConfig = resolveServerConfig;
 exports.describeConfig = describeConfig;
 exports.redactUrl = redactUrl;
 const auth_js_1 = require("../server/auth.js");
+const compression_js_1 = require("../server/compression.js");
 exports.DEFAULT_PORT = 3010;
 exports.DEFAULT_HOSTNAME = '0.0.0.0';
 exports.DEFAULT_MESSAGE_QUEUE_URL = 'http://localhost:3004';
@@ -187,6 +188,54 @@ function resolveServerConfig(env, flags = {}) {
             errors.push(`invalid $EVENT_CATALOG_STRICT "${rawStrict}" — expected true or false`);
         }
     }
+    // --- response compression ----------------------------------------------
+    // Defaulted ON. It only ever engages for a client that advertised the
+    // coding in `Accept-Encoding`, so a caller that cannot decode never gets
+    // a compressed body: Node's global `fetch` (undici) advertises and
+    // transparently decodes; `http.request` advertises nothing and so keeps
+    // getting identity; browsers have handled this since 1997. The knobs are
+    // here so an operator who measures differently can turn it down —
+    // `EVENT_CATALOG_COMPRESSION=off` is the full revert.
+    const rawCompression = read(env, 'EVENT_CATALOG_COMPRESSION');
+    let compressionEnabled = compression_js_1.DEFAULT_COMPRESSION.enabled;
+    if (rawCompression !== undefined) {
+        const parsed = (0, compression_js_1.parseBooleanFlag)(rawCompression);
+        if (!parsed.ok) {
+            errors.push(`invalid $EVENT_CATALOG_COMPRESSION "${rawCompression}" — expected true or false`);
+        }
+        else {
+            compressionEnabled = parsed.value;
+        }
+    }
+    const rawThreshold = read(env, 'EVENT_CATALOG_COMPRESSION_THRESHOLD');
+    let compressionThreshold = compression_js_1.DEFAULT_COMPRESSION_THRESHOLD;
+    if (rawThreshold !== undefined) {
+        const parsed = parseIntStrict(rawThreshold);
+        if (parsed === undefined || parsed < 0) {
+            errors.push(`invalid $EVENT_CATALOG_COMPRESSION_THRESHOLD "${rawThreshold}" — `
+                + 'expected a non-negative integer (bytes; 0 compresses everything, '
+                + `default ${compression_js_1.DEFAULT_COMPRESSION_THRESHOLD})`);
+        }
+        else {
+            compressionThreshold = parsed;
+            if (parsed > 0 && parsed < 128) {
+                warnings.push(`$EVENT_CATALOG_COMPRESSION_THRESHOLD is ${parsed} bytes — below ~200 `
+                    + 'bytes gzip makes a JSON response LARGER, not smaller.');
+            }
+        }
+    }
+    const rawLevel = read(env, 'EVENT_CATALOG_COMPRESSION_LEVEL');
+    let compressionLevel = compression_js_1.DEFAULT_COMPRESSION_LEVEL;
+    if (rawLevel !== undefined) {
+        const parsed = parseIntStrict(rawLevel);
+        if (parsed === undefined || parsed < 1 || parsed > 9) {
+            errors.push(`invalid $EVENT_CATALOG_COMPRESSION_LEVEL "${rawLevel}" — `
+                + `expected an integer between 1 and 9 (default ${compression_js_1.DEFAULT_COMPRESSION_LEVEL})`);
+        }
+        else {
+            compressionLevel = parsed;
+        }
+    }
     // --- optional URLs ------------------------------------------------------
     const rawAlert = read(env, 'ALERT_WEBHOOK_URL');
     if (rawAlert !== undefined) {
@@ -230,6 +279,12 @@ function resolveServerConfig(env, flags = {}) {
             alertWebhookUrl: rawAlert,
             dynamoEndpoint: rawDynamo,
             authToken,
+            compression: {
+                enabled: compressionEnabled,
+                threshold: compressionThreshold,
+                level: compressionLevel,
+                encodings: compression_js_1.DEFAULT_COMPRESSION.encodings,
+            },
         },
     };
 }
@@ -244,6 +299,9 @@ function describeConfig(config) {
         `subscriber ttl (s)          ${config.subscriberTtlSeconds || 'disabled'}`,
         `redis boot attempts         ${config.redisBootConnectAttempts}`,
         `strict declarations         ${config.strict}`,
+        `response compression        ${config.compression.enabled
+            ? `${config.compression.encodings.join('/')} · >=${config.compression.threshold}B · level ${config.compression.level}`
+            : 'disabled'}`,
         // The value is a secret; only its presence is ever printed.
         `api auth                    ${config.authToken !== undefined
             ? 'bearer token (mutating requests gated)'

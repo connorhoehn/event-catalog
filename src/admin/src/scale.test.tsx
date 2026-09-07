@@ -27,8 +27,12 @@ import userEvent from '@testing-library/user-event';
 
 import { mockFetch, renderWithRouter } from './test/helpers';
 import {
+  REAL_BUNDLE_COUNT,
   REAL_EVENT_COUNT,
   buildRealTopology,
+  realBundles,
+  realBundlesResponse,
+  realEvents,
   realEventsResponse,
   realMetricsHistory,
   realNamespaceSummary,
@@ -39,6 +43,9 @@ import { GRAPH_MIN_ZOOM, graphExtent, layoutGraph } from './components/topology/
 import { TopologyView } from './components/TopologyView';
 import { EventList } from './components/EventList';
 import { NamespacesView } from './components/NamespacesView';
+import { BundlesView } from './components/BundlesView';
+import { CoverageView } from './components/CoverageView';
+import { computeCoverage } from './components/bundles/coverage';
 
 const TIMINGS: Array<[string, string]> = [];
 
@@ -267,5 +274,67 @@ describe('NamespacesView with the real, uneven distribution', () => {
 
     // Every event in the namespace is listed — not a truncated page.
     expect(screen.getAllByRole('link').length).toBeGreaterThanOrEqual(biggest.eventCount);
+  }, 90_000);
+});
+
+// ── Bundles + coverage ─────────────────────────────────────────────────────
+
+describe('Bundles and coverage against the whole catalog', () => {
+  const coverage = computeCoverage(realEvents, realBundles);
+
+  it('lists every registered bundle', async () => {
+    mockFetch({ '/api/feature-bundles': { body: realBundlesResponse } });
+    await timed(`BundlesView mount (${REAL_BUNDLE_COUNT} bundles)`, async () => {
+      renderWithRouter(<BundlesView />);
+      await screen.findByText(`${REAL_BUNDLE_COUNT} total`, {}, { timeout: 30_000 });
+    });
+    expect(screen.getAllByRole('rowheader').length).toBe(REAL_BUNDLE_COUNT);
+  }, 60_000);
+
+  it('diffs 226 events against 18 bundles and groups the gap by namespace', async () => {
+    mockFetch({
+      '/api/events': { body: realEventsResponse },
+      '/api/feature-bundles': { body: realBundlesResponse },
+    });
+    await timed(
+      `CoverageView mount (${REAL_EVENT_COUNT} events × ${REAL_BUNDLE_COUNT} bundles)`,
+      async () => {
+        renderWithRouter(<CoverageView />);
+        await screen.findByText(`${coverage.uncovered} uncovered`, {}, { timeout: 30_000 });
+      },
+    );
+
+    // The finding the view exists for: a substantial slice of the catalog is
+    // in no bundle, and it is legible as a handful of namespace groups rather
+    // than eighty-odd loose names.
+    expect(coverage.uncovered).toBeGreaterThan(50);
+    const gapGroups = coverage.namespaces.filter((n) => n.uncovered > 0);
+    expect(screen.getAllByRole('button', { name: /uncovered/ }).length).toBe(gapGroups.length);
+    expect(gapGroups.length).toBeLessThan(coverage.uncovered / 3);
+
+    // Only the worst namespace is expanded, so the initial paint is bounded
+    // by that group and not by every gap in the catalog.
+    const worst = gapGroups[0]!;
+    expect(
+      screen.getAllByRole('link', { name: new RegExp(`^${worst.namespace}[.:]`) }).length,
+    ).toBeGreaterThan(0);
+  }, 90_000);
+
+  it('looks an event up across the whole catalog without a stall', async () => {
+    mockFetch({
+      '/api/events': { body: realEventsResponse },
+      '/api/feature-bundles': { body: realBundlesResponse },
+    });
+    renderWithRouter(<CoverageView />);
+    await screen.findByText(`${coverage.uncovered} uncovered`, {}, { timeout: 30_000 });
+
+    const target = coverage.rows.find((r) => r.covered)!;
+    await timed(`Coverage lookup over ${REAL_EVENT_COUNT} events`, async () => {
+      await userEvent.type(screen.getByLabelText('Is this event covered?'), target.name);
+      await screen.findByRole('link', { name: target.name }, { timeout: 30_000 });
+    });
+
+    const row = screen.getByRole('link', { name: target.name }).closest('tr')!;
+    expect(row.textContent).toContain(target.bundles[0]!.name);
   }, 90_000);
 });

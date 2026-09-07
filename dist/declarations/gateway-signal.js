@@ -35,7 +35,7 @@
 // which property. Never call `annotateDeclarations` from a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallRecordingCompleted = exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionList = exports.wsReactionRemoved = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtAwarenessBatch = exports.wsCrdtSnapshotStored = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorBatch = exports.wsCursorClear = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
-exports.gatewaySignalDeclarations = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = void 0;
+exports.gatewaySignalDeclarations = exports.wsSubscribeUnsubscribed = exports.wsSubscribeSubscribed = exports.wsSessionConnected = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = void 0;
 const field_glossary_1 = require("./field-glossary");
 const chat_1 = require("./gateway-signal/chat");
 const cursor_1 = require("./gateway-signal/cursor");
@@ -47,6 +47,8 @@ const call_1 = require("./gateway-signal/call");
 const pipeline_1 = require("./gateway-signal/pipeline");
 const upload_1 = require("./gateway-signal/upload");
 const error_1 = require("./gateway-signal/error");
+const session_1 = require("./gateway-signal/session");
+const subscribe_1 = require("./gateway-signal/subscribe");
 // ---------------------------------------------------------------------------
 // Public surface — every declaration, under the name it has always had.
 // ---------------------------------------------------------------------------
@@ -121,6 +123,11 @@ Object.defineProperty(exports, "wsUploadScanQuarantined", { enumerable: true, ge
 Object.defineProperty(exports, "wsUploadUrlRevoked", { enumerable: true, get: function () { return upload_2.wsUploadUrlRevoked; } });
 var error_2 = require("./gateway-signal/error");
 Object.defineProperty(exports, "wsError", { enumerable: true, get: function () { return error_2.wsError; } });
+var session_2 = require("./gateway-signal/session");
+Object.defineProperty(exports, "wsSessionConnected", { enumerable: true, get: function () { return session_2.wsSessionConnected; } });
+var subscribe_2 = require("./gateway-signal/subscribe");
+Object.defineProperty(exports, "wsSubscribeSubscribed", { enumerable: true, get: function () { return subscribe_2.wsSubscribeSubscribed; } });
+Object.defineProperty(exports, "wsSubscribeUnsubscribed", { enumerable: true, get: function () { return subscribe_2.wsSubscribeUnsubscribed; } });
 // ---------------------------------------------------------------------------
 // Field glossary
 // ---------------------------------------------------------------------------
@@ -245,6 +252,10 @@ exports.gatewaySignalDeclarations = [
     pipeline_1.wsPipelineEvent,
     // error
     error_1.wsError,
+    // session bootstrap + generic multiplexer acks (added 2026-09-07)
+    session_1.wsSessionConnected,
+    subscribe_1.wsSubscribeSubscribed,
+    subscribe_1.wsSubscribeUnsubscribed,
 ];
 // Stamp the shared field vocabulary onto every schema above (additive —
 // fills absent property descriptions only). See ./field-glossary.ts.

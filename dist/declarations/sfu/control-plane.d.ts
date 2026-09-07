@@ -20,4 +20,6 @@ export declare const sfuMemberOwnerChanged: EventDeclaration;
  * a dot because a `:` inside an `sfu.`-prefixed name would mix separators.
  */
 export declare const sfuChatEvent: EventDeclaration;
+/** A participant left a channel, confirmed after a settle window. */
+export declare const sfuParticipantLeft: EventDeclaration;
 //# sourceMappingURL=control-plane.d.ts.map

@@ -23,11 +23,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.HttpRouter = void 0;
 exports.parseQuery = parseQuery;
 exports.makeRouteRequest = makeRouteRequest;
+exports.compressionFor = compressionFor;
 exports.makeRouteResponse = makeRouteResponse;
 exports.Router = Router;
 exports.stripPrefix = stripPrefix;
 exports.dispatchMounts = dispatchMounts;
 exports.createRequestListener = createRequestListener;
+const compression_js_1 = require("./compression.js");
 // ─── Adapters ────────────────────────────────────────────────────────────────
 function parseQuery(rawUrl) {
     const q = rawUrl.indexOf('?');
@@ -64,8 +66,98 @@ function makeRouteRequest(nodeReq, body) {
         raw: nodeReq,
     };
 }
-function makeRouteResponse(nodeRes) {
+/**
+ * Build the compression context for a request. Returns undefined when
+ * compression is off, so the response path keeps its old shape exactly.
+ */
+function compressionFor(nodeReq, config) {
+    if (config === undefined || !config.enabled)
+        return undefined;
+    const raw = nodeReq.headers['accept-encoding'];
+    const header = Array.isArray(raw) ? raw.join(', ') : raw;
+    return { config, encoding: (0, compression_js_1.negotiateEncoding)(header, config.encodings) };
+}
+/**
+ * Add a field name to `Vary` without clobbering what is already there —
+ * `startServer` sets `Vary: Origin` for CORS, and overwriting it would
+ * let a shared cache serve one origin's response to another.
+ */
+function appendVary(nodeRes, field) {
+    const existing = nodeRes.getHeader('Vary');
+    if (existing === undefined) {
+        nodeRes.setHeader('Vary', field);
+        return;
+    }
+    const current = Array.isArray(existing) ? existing.join(', ') : String(existing);
+    if (current.trim() === '*')
+        return;
+    const present = current
+        .split(',')
+        .some(part => part.trim().toLowerCase() === field.toLowerCase());
+    if (!present)
+        nodeRes.setHeader('Vary', `${current}, ${field}`);
+}
+function contentTypeOf(nodeRes) {
+    const raw = nodeRes.getHeader('Content-Type');
+    if (raw === undefined)
+        return undefined;
+    return Array.isArray(raw) ? raw[0] : String(raw);
+}
+/** 1xx / 204 / 304 must carry neither a body nor a Content-Length. */
+function bodyForbidden(status) {
+    return status < 200 || status === 204 || status === 304;
+}
+function makeRouteResponse(nodeRes, compression) {
     let statusCode = 200;
+    /**
+     * Latched by `flushHeaders()` / `write()` — i.e. by the SSE routes and
+     * nothing else. Once a response is a stream, buffering it through a
+     * compressor would hold frames back until the stream ended, which for
+     * `/api/flow` and `/api/audit` means forever. A stream is never
+     * compressed, and the flag also stops a trailing `end(body)` from
+     * quietly re-entering the buffered path mid-stream.
+     */
+    let streaming = false;
+    /**
+     * The one place a complete body leaves this process: negotiate, maybe
+     * compress, then set a Content-Length that matches the bytes actually
+     * written. A stale Content-Length is a framing error that hangs
+     * clients, so it is computed here and nowhere else.
+     */
+    const finish = (body) => {
+        if (bodyForbidden(statusCode)) {
+            nodeRes.writeHead(statusCode);
+            nodeRes.end();
+            return;
+        }
+        // Kept as the original string on the identity path — a Buffer round
+        // trip would be a pointless copy of every response body the server
+        // sends, and the pre-compression behavior is byte-for-byte preserved.
+        let payload = body ?? '';
+        let length = typeof payload === 'string'
+            ? Buffer.byteLength(payload, 'utf8')
+            : payload.length;
+        if (compression !== undefined) {
+            // Vary goes on every response that COULD have been compressed, not
+            // just the ones that were: a shared cache keying only on the URL
+            // would otherwise hand a gzipped body to a client that asked for
+            // identity (or vice versa).
+            appendVary(nodeRes, 'Accept-Encoding');
+            const chosen = (0, compression_js_1.chooseCompression)(compression.config, compression.encoding, contentTypeOf(nodeRes), length);
+            if (chosen !== null) {
+                const raw = typeof payload === 'string' ? Buffer.from(payload, 'utf8') : payload;
+                payload = (0, compression_js_1.compressBody)(raw, chosen, compression.config.level);
+                length = payload.length;
+                nodeRes.setHeader('Content-Encoding', chosen);
+            }
+        }
+        // Recomputed from the bytes actually about to be written. A
+        // Content-Length describing the pre-compression body is a framing
+        // error: the peer waits forever for bytes that never come.
+        nodeRes.setHeader('Content-Length', String(length));
+        nodeRes.writeHead(statusCode);
+        nodeRes.end(payload);
+    };
     const res = {
         status(code) {
             statusCode = code;
@@ -74,30 +166,33 @@ function makeRouteResponse(nodeRes) {
         json(body) {
             if (nodeRes.headersSent)
                 return;
-            const payload = JSON.stringify(body);
             nodeRes.setHeader('Content-Type', 'application/json');
-            nodeRes.writeHead(statusCode);
-            nodeRes.end(payload);
+            finish(JSON.stringify(body));
         },
         send(body) {
             if (nodeRes.headersSent)
                 return;
-            nodeRes.writeHead(statusCode);
-            nodeRes.end(body);
+            finish(body);
         },
         setHeader(name, value) {
             if (!nodeRes.headersSent)
                 nodeRes.setHeader(name, value);
         },
         write(chunk) {
+            streaming = true;
             if (!nodeRes.headersSent)
                 nodeRes.writeHead(statusCode);
             return nodeRes.write(chunk);
         },
         end(body) {
-            nodeRes.end(body);
+            if (streaming || nodeRes.headersSent || body === undefined) {
+                nodeRes.end(body);
+                return;
+            }
+            finish(body);
         },
         flushHeaders() {
+            streaming = true;
             if (!nodeRes.headersSent) {
                 nodeRes.writeHead(statusCode);
                 nodeRes.flushHeaders();
@@ -210,16 +305,35 @@ async function dispatchMounts(req, res, mounts) {
     }
     return false;
 }
-/**
- * Build a plain `http.RequestListener` over a set of mounts — buffers +
- * JSON-parses the body itself. This is the unit-test harness (supertest
- * accepts a listener directly); production traffic instead arrives
- * through distributed-core's AdmissionHttpServer, which does its own
- * bounded body read before `startServer`'s onRequest builds the same
- * req/res adapters.
- */
-function createRequestListener(...mounts) {
+function createRequestListener(first, ...rest) {
+    // A Mount is a tuple (an array); the options object is not.
+    const options = Array.isArray(first) || first === undefined
+        ? {}
+        : first;
+    const mounts = Array.isArray(first) ? [first, ...rest] : rest;
+    const run = async (nodeReq, nodeRes, body) => {
+        const req = makeRouteRequest(nodeReq, body);
+        const res = makeRouteResponse(nodeRes, compressionFor(nodeReq, options.compression));
+        const handled = await dispatchMounts(req, res, mounts);
+        if (!handled && !nodeRes.headersSent) {
+            nodeRes.writeHead(404, { 'Content-Type': 'application/json' });
+            nodeRes.end(JSON.stringify({ error: 'NotFound', path: req.path }));
+        }
+    };
     return (nodeReq, nodeRes) => {
+        const method = (nodeReq.method ?? 'GET').toUpperCase();
+        // GET/HEAD carry no body, and consuming the request stream anyway is
+        // not neutral: reading it to 'end' lets Node auto-destroy the
+        // IncomingMessage, which fires `req.on('close')` immediately — and
+        // that is the exact signal `sseRegistry.open()` uses to tear a stream
+        // down. A /api/flow opened through this harness would detach its tap
+        // listener milliseconds after connecting and then sit there silently.
+        // AdmissionHttpServer likewise reads no body for GET/HEAD, so
+        // skipping it here is also what makes the harness match production.
+        if (method === 'GET' || method === 'HEAD') {
+            void run(nodeReq, nodeRes, undefined);
+            return;
+        }
         const chunks = [];
         nodeReq.on('data', (c) => chunks.push(c));
         nodeReq.on('end', () => {
@@ -236,13 +350,7 @@ function createRequestListener(...mounts) {
                         return;
                     }
                 }
-                const req = makeRouteRequest(nodeReq, body);
-                const res = makeRouteResponse(nodeRes);
-                const handled = await dispatchMounts(req, res, mounts);
-                if (!handled && !nodeRes.headersSent) {
-                    nodeRes.writeHead(404, { 'Content-Type': 'application/json' });
-                    nodeRes.end(JSON.stringify({ error: 'NotFound', path: req.path }));
-                }
+                await run(nodeReq, nodeRes, body);
             })();
         });
     };

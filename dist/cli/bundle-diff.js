@@ -8,26 +8,36 @@
 // Output:
 //   Bundle: chat
 //   Versions: 1.0.0 → 2.0.0
+//   Summary: +1 required, +1 optional, -1 removed, 1 req→opt, 1 opt→req
 //
-//   Added (required):
+//   Added (required) (1):
 //     + ws.chat.message.threaded
 //
-//   Added (optional):
+//   Added (optional) (1):
 //     + ws.chat.typing
 //
-//   Removed:
+//   Removed (1):
 //     - ws.chat.message.legacy
 //
-//   Required-to-optional:
+//   Required-to-optional (1):
 //     ~ ws.chat.member.left (was required, now optional)
 //
-//   Optional-to-required:
+//   Optional-to-required (1):
 //     ~ ws.chat.member.joined (was optional, now required) — BREAKING
 //
 //   Fingerprint: abc123 → def456
 //   Suggested semver bump: major (required event removed + opt→req transition)
+//
+// Also reported, and reported nowhere else: a change to the bundle's
+// aggregate `transport`, its `deprecated` block, and any member's
+// `EventReference.version` schema pin. The first two are outside
+// computeFingerprint, so a fingerprint-pinned CRD cannot see them.
+//
+// Sections cap at DEFAULT_MAX_PER_SECTION entries and report how many they
+// hid; `--full` lists everything. A 29-member bundle otherwise prints a
+// wall of text nobody reads, which is its own way of hiding a change.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.EXIT_DIFFERENCES = void 0;
+exports.EXIT_DIFFERENCES = exports.DEFAULT_MAX_PER_SECTION = void 0;
 exports.diffBundles = diffBundles;
 exports.hasChanges = hasChanges;
 exports.formatDiff = formatDiff;
@@ -55,6 +65,19 @@ function parseBundleRef(ref) {
 // ---------------------------------------------------------------------------
 // Diff logic
 // ---------------------------------------------------------------------------
+/** Classify a deprecation block moving between two bundle versions. */
+function diffDeprecation(from, to) {
+    if (!from && !to)
+        return undefined;
+    if (!from && to)
+        return { from, to, kind: 'added' };
+    if (from && !to)
+        return { from, to, kind: 'removed' };
+    if (from && to && (from.since !== to.since || from.replacement !== to.replacement)) {
+        return { from, to, kind: 'changed' };
+    }
+    return undefined;
+}
 /**
  * Compare two registered bundle versions and return a structured diff.
  * Returns null if either bundle/version is not found.
@@ -92,7 +115,8 @@ function diffBundles(bundleName, v1, v2) {
                 removedOptional.push(name);
         }
     }
-    // Events in both → check required/optional transitions
+    // Events in both → check required/optional transitions and version pins
+    const versionChanged = [];
     for (const [name, ref1] of eventsV1) {
         const ref2 = eventsV2.get(name);
         if (!ref2)
@@ -105,7 +129,14 @@ function diffBundles(bundleName, v1, v2) {
         else if (!wasRequired && isRequired) {
             optionalToRequired.push(name);
         }
+        if (ref1.version !== ref2.version) {
+            versionChanged.push({ name, from: ref1.version, to: ref2.version });
+        }
     }
+    // Bundle-level changes. Neither feeds computeFingerprint, so if the diff
+    // doesn't report them nothing does.
+    const transportChanged = b1.transport !== b2.transport ? { from: b1.transport, to: b2.transport } : undefined;
+    const deprecationChanged = diffDeprecation(b1.deprecated, b2.deprecated);
     // Determine suggested semver bump
     let suggestedBump = 'none';
     const reasons = [];
@@ -124,10 +155,19 @@ function diffBundles(bundleName, v1, v2) {
             suggestedBump = 'major';
         reasons.push('opt→req transition');
     }
-    if (b1.transport !== b2.transport) {
+    if (transportChanged) {
         if (suggestedBump !== 'major')
             suggestedBump = 'major';
         reasons.push('transport mode changed');
+    }
+    // A pin moving to a different revision, or a member gaining a pin it did
+    // not have, narrows what the bundle accepts → breaking for anyone on the
+    // old revision. Dropping a pin only widens it, so that stays minor.
+    const pinTightened = versionChanged.some((v) => v.to !== undefined);
+    if (pinTightened) {
+        if (suggestedBump !== 'major')
+            suggestedBump = 'major';
+        reasons.push('member schema pin changed');
     }
     // Minor triggers (only if not already major)
     if (suggestedBump !== 'major') {
@@ -143,12 +183,24 @@ function diffBundles(bundleName, v1, v2) {
             suggestedBump = 'minor';
             reasons.push('optional event removed');
         }
+        if (versionChanged.length > 0) {
+            suggestedBump = 'minor';
+            reasons.push('member schema pin dropped');
+        }
+        if (deprecationChanged?.kind === 'added') {
+            suggestedBump = 'minor';
+            reasons.push('bundle deprecated');
+        }
     }
     // Patch triggers (only if no major/minor already)
     if (suggestedBump === 'none') {
         if (addedOptional.length > 0) {
             suggestedBump = 'patch';
             reasons.push('optional event added');
+        }
+        if (deprecationChanged) {
+            suggestedBump = 'patch';
+            reasons.push(`deprecation ${deprecationChanged.kind}`);
         }
     }
     const suggestedBumpReason = reasons.join(' + ');
@@ -162,6 +214,9 @@ function diffBundles(bundleName, v1, v2) {
         removedOptional,
         requiredToOptional,
         optionalToRequired,
+        versionChanged,
+        ...(transportChanged ? { transportChanged } : {}),
+        ...(deprecationChanged ? { deprecationChanged } : {}),
         fingerprintV1: b1.fingerprint,
         fingerprintV2: b2.fingerprint,
         suggestedBump,
@@ -172,18 +227,65 @@ function diffBundles(bundleName, v1, v2) {
 // Output formatting
 // ---------------------------------------------------------------------------
 /**
- * True when the two versions differ in their event set. Drives `--exit-code`
- * so CI can branch on "differs" without scraping stdout.
+ * True when anything about the two versions differs — member set, member
+ * required-ness, member schema pins, the aggregate transport claim, or the
+ * deprecation block. Drives `--exit-code` so CI can branch on "differs"
+ * without scraping stdout.
+ *
+ * Transport and deprecation used to be excluded, which meant a bundle whose
+ * only change was signal→durable printed "No changes." AND "Suggested
+ * semver bump: major", and exited 0 under --exit-code.
  */
 function hasChanges(diff) {
     return (diff.addedRequired.length > 0 ||
         diff.addedOptional.length > 0 ||
         diff.removed.length > 0 ||
         diff.requiredToOptional.length > 0 ||
-        diff.optionalToRequired.length > 0);
+        diff.optionalToRequired.length > 0 ||
+        (diff.versionChanged?.length ?? 0) > 0 ||
+        diff.transportChanged !== undefined ||
+        diff.deprecationChanged !== undefined);
 }
-function formatDiff(diff) {
+/** Default per-section cap before `--full`. Keeps a 29-member diff readable. */
+exports.DEFAULT_MAX_PER_SECTION = 10;
+/** One-line shape-of-the-change header, so a 29-member diff reads at a glance. */
+function summaryLine(diff) {
+    const parts = [];
+    if (diff.addedRequired.length > 0)
+        parts.push(`+${diff.addedRequired.length} required`);
+    if (diff.addedOptional.length > 0)
+        parts.push(`+${diff.addedOptional.length} optional`);
+    if (diff.removed.length > 0)
+        parts.push(`-${diff.removed.length} removed`);
+    if (diff.requiredToOptional.length > 0)
+        parts.push(`${diff.requiredToOptional.length} req→opt`);
+    if (diff.optionalToRequired.length > 0)
+        parts.push(`${diff.optionalToRequired.length} opt→req`);
+    if (diff.versionChanged && diff.versionChanged.length > 0) {
+        parts.push(`${diff.versionChanged.length} pin changed`);
+    }
+    if (diff.transportChanged)
+        parts.push('transport changed');
+    if (diff.deprecationChanged)
+        parts.push(`deprecation ${diff.deprecationChanged.kind}`);
+    return `Summary: ${parts.join(', ')}`;
+}
+function formatDiff(diff, opts = {}) {
+    const cap = opts.full ? Infinity : (opts.maxPerSection ?? exports.DEFAULT_MAX_PER_SECTION);
     const lines = [];
+    /** Render a titled section, capped, with an explicit "N more" footer. */
+    const section = (title, entries) => {
+        if (entries.length === 0)
+            return;
+        lines.push('');
+        lines.push(`${title} (${entries.length}):`);
+        for (const entry of entries.slice(0, cap))
+            lines.push(entry);
+        const hidden = entries.length - Math.min(entries.length, cap);
+        if (hidden > 0) {
+            lines.push(`  … ${hidden} more (re-run with --full to list every entry)`);
+        }
+    };
     lines.push(`Bundle: ${diff.bundleName}`);
     lines.push(`Versions: ${diff.v1} → ${diff.v2}`);
     if (!hasChanges(diff)) {
@@ -191,42 +293,32 @@ function formatDiff(diff) {
         lines.push('No changes.');
     }
     else {
-        if (diff.addedRequired.length > 0) {
+        lines.push(summaryLine(diff));
+        if (diff.transportChanged) {
             lines.push('');
-            lines.push('Added (required):');
-            for (const name of diff.addedRequired) {
-                lines.push(`  + ${name}`);
+            lines.push(`Transport: ${diff.transportChanged.from} → ${diff.transportChanged.to} — BREAKING ` +
+                `(consumers subscribe to the bus this names; the fingerprint does not cover it)`);
+        }
+        if (diff.deprecationChanged) {
+            const { kind, from, to } = diff.deprecationChanged;
+            lines.push('');
+            if (kind === 'removed') {
+                lines.push(`Deprecation: removed (was since ${from?.since ?? '?'})`);
+            }
+            else {
+                const replacement = to?.replacement ? `, replacement ${to.replacement}` : '';
+                lines.push(`Deprecation: ${kind} — since ${to?.since ?? '?'}${replacement}`);
             }
         }
-        if (diff.addedOptional.length > 0) {
-            lines.push('');
-            lines.push('Added (optional):');
-            for (const name of diff.addedOptional) {
-                lines.push(`  + ${name}`);
-            }
-        }
-        if (diff.removed.length > 0) {
-            lines.push('');
-            lines.push('Removed:');
-            for (const name of diff.removed) {
-                const wasOptional = diff.removedOptional?.includes(name) ?? false;
-                lines.push(`  - ${name}${wasOptional ? ' (was optional)' : ''}`);
-            }
-        }
-        if (diff.requiredToOptional.length > 0) {
-            lines.push('');
-            lines.push('Required-to-optional:');
-            for (const name of diff.requiredToOptional) {
-                lines.push(`  ~ ${name} (was required, now optional)`);
-            }
-        }
-        if (diff.optionalToRequired.length > 0) {
-            lines.push('');
-            lines.push('Optional-to-required:');
-            for (const name of diff.optionalToRequired) {
-                lines.push(`  ~ ${name} (was optional, now required) — BREAKING`);
-            }
-        }
+        section('Added (required)', diff.addedRequired.map((n) => `  + ${n}`));
+        section('Added (optional)', diff.addedOptional.map((n) => `  + ${n}`));
+        section('Removed', diff.removed.map((n) => {
+            const wasOptional = diff.removedOptional?.includes(n) ?? false;
+            return `  - ${n}${wasOptional ? ' (was optional)' : ''}`;
+        }));
+        section('Required-to-optional', diff.requiredToOptional.map((n) => `  ~ ${n} (was required, now optional)`));
+        section('Optional-to-required', diff.optionalToRequired.map((n) => `  ~ ${n} (was optional, now required) — BREAKING`));
+        section('Schema pin changed', (diff.versionChanged ?? []).map((v) => `  ~ ${v.name} (schema revision ${v.from ?? 'unpinned'} → ${v.to ?? 'unpinned'})`));
     }
     lines.push('');
     lines.push(`Fingerprint: ${diff.fingerprintV1.slice(0, 12)} → ${diff.fingerprintV2.slice(0, 12)}`);
@@ -243,8 +335,8 @@ function formatDiff(diff) {
 // Main
 // ---------------------------------------------------------------------------
 const BIN = 'ec-bundle-diff';
-const USAGE = 'ec-bundle-diff <name>@<v1> <name>@<v2> [--exit-code]';
-const SPEC = { boolean: ['exit-code'] };
+const USAGE = 'ec-bundle-diff <name>@<v1> <name>@<v2> [--exit-code] [--full]';
+const SPEC = { boolean: ['exit-code', 'full'] };
 /** Ran successfully and found differences. Distinct from 1 (failed to run). */
 exports.EXIT_DIFFERENCES = 3;
 /** Render "known versions of <name>" for a not-found error. */
@@ -263,7 +355,7 @@ async function bundleDiff(args) {
 ec-bundle-diff — compare two versions of a FeatureBundle and report event set changes
 
 USAGE
-  ec-bundle-diff <name>@<v1> <name>@<v2> [--exit-code]
+  ec-bundle-diff <name>@<v1> <name>@<v2> [--exit-code] [--full]
   ec-bundle-diff --help
 
 ARGUMENTS
@@ -275,6 +367,9 @@ OPTIONS
                  but 3 rather than 1 so "they differ" stays distinguishable from
                  "the diff failed to run"). Without it a successful diff always
                  exits 0, whatever it found.
+  --full         List every entry. By default each section shows at most
+                 ${exports.DEFAULT_MAX_PER_SECTION} names and reports how many it hid — a bundle with
+                 29 members otherwise prints a wall nobody reads.
   --help, -h     Show this help
 
 EXIT CODES
@@ -331,7 +426,7 @@ EXAMPLES
         console.error(`run \`${BIN} --help\` for usage`);
         return 1;
     }
-    console.log(formatDiff(diff));
+    console.log(formatDiff(diff, { full: parsed.args.flags.has('full') }));
     // Only opt in to a non-zero "differs" code: existing callers pipe this into
     // grep and expect 0 from a successful run.
     if (parsed.args.flags.has('exit-code') && hasChanges(diff)) {

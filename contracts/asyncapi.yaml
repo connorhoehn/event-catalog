@@ -1,5 +1,5 @@
 # AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
-# Generated at: 2026-09-07T17:13:22.814Z
+# Generated at: 2026-09-07T17:44:51.527Z
 # Source of truth: @connorhoehn/event-catalog src/declarations/
 asyncapi: 2.6.0
 info:
@@ -151,6 +151,9 @@ channels:
           - $ref: "#/components/messages/ws_pipeline_history"
           - $ref: "#/components/messages/ws_pipeline_event"
           - $ref: "#/components/messages/ws_error"
+          - $ref: "#/components/messages/ws_session_connected"
+          - $ref: "#/components/messages/ws_subscribe_subscribed"
+          - $ref: "#/components/messages/ws_subscribe_unsubscribed"
           - $ref: "#/components/messages/ws_presence_joined"
           - $ref: "#/components/messages/ws_presence_left"
           - $ref: "#/components/messages/ws_fileupload_progress"
@@ -3316,6 +3319,103 @@ components:
             additionalProperties: true
         required:
           - type
+        additionalProperties: true
+    ws_session_connected:
+      messageId: ws.session.connected
+      name: ws.session.connected
+      title: ws.session.connected
+      summary: "Session welcome frame, sent once immediately after the WebSocket upgrade completes and before the client may send anything (src/server.ts:2507). It is load-bearing protocol, not a courtesy: the gateway queues every other outbound frame until this one has gone out (core/pre-session-queue.ts), and the client cannot reconnect without the `sessionToken` or feature-gate without `enabledServices`. `restored` tells the client whether its prior subscriptions came back with it — false both for a genuinely new connection and for a presented token the gateway could not restore, including the fallback path where a subscription restore failed and the connection was re-minted under a fresh clientId (server.ts:2399)."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: session
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          status:
+            type: string
+            const: connected
+            description: Always the literal `connected` — the frame has no other outcome; a rejected upgrade never reaches this point.
+          clientId:
+            type: string
+            description: Gateway-assigned connection id, echoed on subsequent frames. Preserved across a successful resume, re-minted otherwise.
+          sessionToken:
+            type: string
+            description: Opaque resume token the client passes back as `?sessionToken=` on reconnect. Always a string here — a connection that presented no token, or an unusable one, has one minted before this frame is built (server.ts:2363).
+          restored:
+            type: boolean
+            description: True when this connection resumed a prior session AND its subscriptions were restored.
+          nodeId:
+            type: string
+            description: Cluster node id of the gateway instance serving this connection.
+          enabledServices:
+            type: array
+            items:
+              type: string
+            description: Fan-out services this gateway has enabled (chat, presence, reaction, …). A client should not send frames for a service absent from this list.
+        required:
+          - type
+          - status
+          - clientId
+          - sessionToken
+          - restored
+          - nodeId
+          - enabledServices
+        additionalProperties: true
+    ws_subscribe_subscribed:
+      messageId: ws.subscribe.subscribed
+      name: ws.subscribe.subscribed
+      title: ws.subscribe.subscribed
+      summary: "Acknowledges that a client's generic-multiplexer subscribe took effect (realtime-fanout/subscribe-service.ts:191). Its ABSENCE is meaningful and is the reason this needed declaring: the handler returns early without an ack on either authz denial (the interceptor has already sent AUTHZ_CHANNEL_DENIED) or an unknown client, so a client that treats \"no ack\" as \"probably fine\" will believe it is subscribed to a channel the gateway refused it. Wait for this frame before assuming delivery."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: subscribe
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          action:
+            type: string
+            const: subscribed
+            description: Which action of the frame's service this frame reports.
+          channel:
+            type: string
+            description: The raw channel name the multiplexer acted on, echoed back verbatim from the client's request.
+        required:
+          - type
+          - action
+          - channel
+        additionalProperties: true
+    ws_subscribe_unsubscribed:
+      messageId: ws.subscribe.unsubscribed
+      name: ws.subscribe.unsubscribed
+      title: ws.subscribe.unsubscribed
+      summary: "Acknowledges that a client's generic-multiplexer unsubscribe was applied (realtime-fanout/subscribe-service.ts:206). Unlike the subscribe ack this one is unconditional: leaving a channel has no authz gate and the router no-ops for a channel the client was not on, so the frame is idempotent and always sent."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: subscribe
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          action:
+            type: string
+            const: unsubscribed
+            description: Which action of the frame's service this frame reports.
+          channel:
+            type: string
+            description: The raw channel name the multiplexer acted on, echoed back verbatim from the client's request.
+        required:
+          - type
+          - action
+          - channel
         additionalProperties: true
     ws_presence_joined:
       messageId: ws.presence.joined

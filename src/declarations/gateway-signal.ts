@@ -115,6 +115,8 @@ import {
     wsUploadUrlRevoked,
 } from './gateway-signal/upload';
 import { wsError } from './gateway-signal/error';
+import { wsSessionConnected } from './gateway-signal/session';
+import { wsSubscribeSubscribed, wsSubscribeUnsubscribed } from './gateway-signal/subscribe';
 
 // ---------------------------------------------------------------------------
 // Public surface — every declaration, under the name it has always had.
@@ -199,6 +201,8 @@ export {
     wsUploadUrlRevoked,
 } from './gateway-signal/upload';
 export { wsError } from './gateway-signal/error';
+export { wsSessionConnected } from './gateway-signal/session';
+export { wsSubscribeSubscribed, wsSubscribeUnsubscribed } from './gateway-signal/subscribe';
 
 // ---------------------------------------------------------------------------
 // Field glossary
@@ -327,6 +331,10 @@ export const gatewaySignalDeclarations: EventDeclaration[] = [
     wsPipelineEvent,
     // error
     wsError,
+    // session bootstrap + generic multiplexer acks (added 2026-09-07)
+    wsSessionConnected,
+    wsSubscribeSubscribed,
+    wsSubscribeUnsubscribed,
 ];
 
 // Stamp the shared field vocabulary onto every schema above (additive —

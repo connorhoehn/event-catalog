@@ -1419,6 +1419,22 @@ input[type='checkbox'] {
 .h-\[28px\] { height: 28px; }
 .animate-spin { animation: ui-spin 0.8s linear infinite; }
 
+/* ProgressBar (used by the coverage bars). Without these its track has no
+   height and no surface, so the bar rendered as an invisible 0px line and the
+   fill — whose width IS the datum — had nothing to sit in. */
+.justify-between { justify-content: space-between; }
+.mb-1 { margin-bottom: 4px; }
+.h-1\.5 { height: 6px; }
+.h-2 { height: 8px; }
+.h-full { height: 100%; }
+.overflow-hidden { overflow: hidden; }
+.tabular-nums { font-variant-numeric: tabular-nums; }
+.transition-all { transition: all 0.3s ease; }
+.duration-300 { transition-duration: 0.3s; }
+.bg-\[var\(--color-surface-hover\)\] { background: var(--bg-hover); }
+.text-\[var\(--color-text-secondary\)\] { color: var(--text-muted); }
+.text-\[var\(--color-text-tertiary\)\] { color: var(--text-muted); }
+
 @keyframes ui-spin { to { transform: rotate(360deg); } }
 
 /* semantic text + surfaces */
@@ -1641,3 +1657,153 @@ tbody th {
 
 .react-flow__controls-button:hover { background: var(--bg-hover); }
 .react-flow__attribution { display: none; }
+
+/* ==========================================================================
+   Feature bundles + coverage
+   A bundle is what a CRD pins, so the two states an operator must not misread
+   are "deprecated" and "in no bundle". Both are spelled out in text and in a
+   chip; the rules here only add a second, non-colour cue (a left rule, a
+   struck-through name) so they survive a greyscale screenshot.
+   ========================================================================== */
+
+.bundles-table th[scope='row'] { min-width: 200px; }
+
+.bundle-row.deprecated {
+  /* The whole row is tinted AND rules off, because the deprecation chip sits
+     four columns to the right of the name an operator is scanning. */
+  background: color-mix(in srgb, var(--color-danger-bg) 45%, transparent);
+  border-left: 3px solid var(--error);
+}
+
+.bundle-row.deprecated th[scope='row'] a { text-decoration: line-through; }
+
+.bundle-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.bundle-deprecated-meta {
+  font-size: 11px;
+  color: var(--color-danger-fg);
+}
+
+.bundle-required-note { color: var(--text-muted); }
+
+.bundle-detail { padding: 1.5rem; }
+
+.bundle-detail .bundle-deprecation-banner { margin-bottom: 1rem; }
+
+.bundle-detail.deprecated .detail-header h2 {
+  text-decoration: line-through;
+  text-decoration-color: var(--error);
+}
+
+.bundle-member-summary {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.bundle-members-table { margin-top: 0.25rem; }
+
+/* --- coverage ----------------------------------------------------------- */
+
+.coverage-summary {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.coverage-summary-line {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.coverage-summary-line strong { color: var(--text); }
+
+.coverage-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.coverage-controls > [role='group'] {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ns-filter-input.wide { min-width: 260px; }
+
+.coverage-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.coverage-group {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.coverage-group-heading { margin: 0; }
+
+.coverage-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0 0 8px;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.coverage-group-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.coverage-group-body { margin-top: 10px; }
+
+.coverage-group-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.coverage-bar { margin-bottom: 2px; }
+
+.coverage-table { margin-top: 4px; }
+
+.coverage-table tr.uncovered th[scope='row'] { border-left: 3px solid var(--error); padding-left: 5px; }
+
+.coverage-bundle-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12px;
+}
+
+.coverage-bundle-link { color: var(--link); }
+
+.coverage-bundle-link.deprecated {
+  color: var(--color-danger-fg);
+  text-decoration: line-through;
+}

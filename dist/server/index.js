@@ -27,6 +27,7 @@ const auth_js_1 = require("./auth.js");
 const bundle_routes_js_1 = require("./bundle-routes.js");
 const http_router_js_1 = require("./http-router.js");
 const FeatureBundle_js_1 = require("../bundles/FeatureBundle.js");
+const index_js_2 = require("../declarations/bundles/index.js");
 const health_js_1 = require("./health.js");
 const prom_metrics_js_1 = require("./prom-metrics.js");
 const producer_attribution_js_1 = require("./producer-attribution.js");
@@ -193,7 +194,7 @@ async function startServer(config = {}) {
     if (!resolved.ok) {
         throw new Error(`event-catalog: invalid configuration\n  - ${resolved.errors.join('\n  - ')}`);
     }
-    const { port = resolved.config.port, redisUrl = resolved.config.redisUrl, messageQueueUrl = resolved.config.messageQueueUrl, corsOrigin = resolveCorsOrigin(process.env.EVENT_CATALOG_CORS_ORIGIN), onDeadLetter = [], shutdownDrainMs, } = config;
+    const { port = resolved.config.port, redisUrl = resolved.config.redisUrl, messageQueueUrl = resolved.config.messageQueueUrl, corsOrigin = resolveCorsOrigin(process.env.EVENT_CATALOG_CORS_ORIGIN), onDeadLetter = [], shutdownDrainMs, compression = resolved.config.compression, } = config;
     // Auth is opt-in and off unless configured. With no explicit middleware
     // and no $EVENT_CATALOG_AUTH_TOKEN this is `undefined`, the `if
     // (authMiddleware)` gate below is never entered, and the request path is
@@ -360,7 +361,23 @@ async function startServer(config = {}) {
     // Admin API
     const routes = (0, routes_js_1.createRoutes)({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution, poisonDetector, coordinator });
     // FeatureBundle admin surface — CRD query endpoints for dc-k8s-operator.
+    //
+    // The registry was constructed empty and never populated, so every
+    // /api/feature-bundles response was `{bundles: [], total: 0}` in
+    // production while 18 bundles sat declared in the source. ec-lint-crd
+    // reads them from the package rather than the server, which is why
+    // nothing failed loudly — the HTTP surface was simply blank.
     const bundleRegistry = new FeatureBundle_js_1.FeatureBundleRegistry();
+    for (const bundle of index_js_2.allBundles) {
+        try {
+            bundleRegistry.register(bundle);
+        }
+        catch (err) {
+            // A duplicate name+version with a different event set is a source
+            // bug, not a runtime condition; surface it without killing boot.
+            console.warn(`[server] feature bundle "${bundle.name}@${bundle.version}" not registered:`, err instanceof Error ? err.message : String(err));
+        }
+    }
     const bundleRoutes = (0, bundle_routes_js_1.createBundleRoutes)({ bundleRegistry, registry });
     // Longest prefix first so /api/feature-bundles/* reaches its router
     // before the general /api router gets a shot.
@@ -411,7 +428,13 @@ async function startServer(config = {}) {
             }
         }
         const req = (0, http_router_js_1.makeRouteRequest)(nodeReq, body);
-        const res = (0, http_router_js_1.makeRouteResponse)(nodeRes);
+        // Content coding is negotiated per request from its Accept-Encoding —
+        // never assumed. `compressionFor` returns undefined when the policy is
+        // off, and the response path is then byte-for-byte what it was before.
+        // Note the SSE routes (/api/flow, /api/audit) opt out structurally:
+        // they reach the socket through flushHeaders()/write(), which
+        // makeRouteResponse never compresses.
+        const res = (0, http_router_js_1.makeRouteResponse)(nodeRes, (0, http_router_js_1.compressionFor)(nodeReq, compression));
         if (req.path === '/api' || req.path.startsWith('/api/')) {
             // Auth gate (optional). Runs before the /api routers, so gating is
             // decided in ONE place for all ~45 admin endpoints rather than per

@@ -48,6 +48,16 @@ function createBundleRoutes(deps) {
             res.status(400).json({ error: 'body must be a FeatureBundle with name and events[]' });
             return;
         }
+        // A transport this layer doesn't know is a client bug, not a validation
+        // finding: `body.transport ?? 'signal'` used to let "kafka" through, and
+        // validateBundle then checked it down the 'both' branch by default.
+        if (body.transport !== undefined && !(0, FeatureBundle_js_1.isBundleTransport)(body.transport)) {
+            res.status(400).json({
+                error: `transport must be one of ${FeatureBundle_js_1.BUNDLE_TRANSPORTS.join(', ')} ` +
+                    `(received ${JSON.stringify(body.transport)})`,
+            });
+            return;
+        }
         // Tolerate a missing fingerprint — validation doesn't require it.
         const bundle = {
             name: body.name,

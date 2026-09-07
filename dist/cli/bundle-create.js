@@ -15,6 +15,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.HELP = void 0;
 exports.parseCreateArgs = parseCreateArgs;
 exports.parseArgs = parseArgs;
+exports.parseEventMembers = parseEventMembers;
+exports.knownEventNames = knownEventNames;
+exports.validateEventMembers = validateEventMembers;
 exports.validateInputs = validateInputs;
 exports.toCamelCase = toCamelCase;
 exports.generateBundleTemplate = generateBundleTemplate;
@@ -23,6 +26,8 @@ exports.bundleCreate = bundleCreate;
 exports.main = main;
 const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
+const suggest_js_1 = require("../bundles/suggest.js");
+const index_js_1 = require("../declarations/index.js");
 const _args_js_1 = require("./_args.js");
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -42,18 +47,23 @@ ARGUMENTS
 OPTIONS
   --version <semver>    Initial version (default: 1.0.0)
   --transport <mode>    signal | durable | both  (default: signal)
-  --events <list>       Comma-separated event names to pre-populate
+  --events <list>       Comma-separated event names to pre-populate. Every
+                        name must already be declared in the catalog — an
+                        unknown name is an error, not a scaffolded fiction.
+                        Suffix a name with "?" to make that member OPTIONAL;
+                        without the suffix it is required.
   --help, -h            Show this help
 
 EXIT CODES
   0   Bundle created and index updated
   1   Bundle file already exists
-  2   Usage error
+  2   Usage error (bad name/version/transport, or an undeclared event)
 
 EXAMPLES
   ec-bundle-create video-reactions
   ec-bundle-create live-poll --transport durable --version 2.0.0
   ec-bundle-create screenshare --events ws.screen.started,ws.screen.stopped
+  ec-bundle-create captions --events call:caption:line,call:caption:final?
 `.trim();
 /**
  * Full argv parse: rejects unknown flags and value-less value flags, and
@@ -99,6 +109,90 @@ function parseArgs(argv) {
 const VALID_NAME_RE = /^[a-z][a-z0-9-]*$/;
 const VALID_TRANSPORT = new Set(['signal', 'durable', 'both']);
 const VALID_SEMVER_RE = /^\d+\.\d+\.\d+$/;
+/**
+ * Parse raw `--events` tokens into members.
+ *
+ * A trailing "?" marks the member OPTIONAL; everything else is required.
+ *
+ * Why required-by-default, rather than making `required` opt-in:
+ *
+ *   - `EventReference.required` already *means* required when omitted —
+ *     `validateBundle` and `ec-bundle-diff` both read `required !== false`.
+ *     A scaffold that emitted `required: false` would be writing the
+ *     opposite of the type's own default.
+ *   - An all-optional bundle asserts nothing. Every member may be absent,
+ *     so it validates against a catalog that declares none of them, and a
+ *     CRD pinned to it gates on nothing. That failure is silent and
+ *     permanent; a too-strict member is loud and fixed in one edit.
+ *   - The reason required-by-default hurt was that unknown names got
+ *     scaffolded in. With names checked here, the remaining case is a real
+ *     event the operator listed on purpose.
+ *
+ * So the default stays `required: true`, with "?" as the deliberate opt-out.
+ */
+function parseEventMembers(raw) {
+    return raw.map((token) => {
+        const trimmed = token.trim();
+        const optional = trimmed.endsWith('?');
+        return {
+            name: (optional ? trimmed.slice(0, -1) : trimmed).trim(),
+            required: !optional,
+        };
+    });
+}
+/** Every event name the compiled-in catalog declares. */
+function knownEventNames() {
+    return index_js_1.allDeclarations.map((d) => d.name);
+}
+/**
+ * Reject `--events` entries that name nothing in the catalog, plus blanks
+ * and duplicates.
+ *
+ * Before this, `ec-bundle-create x --events pipeline.run.started` happily
+ * wrote a bundle over an event that does not exist and marked it required.
+ * The failure then surfaced two steps later as an `ec-lint-crd` error
+ * against the operator's CRD — which was fine. The typo was here.
+ */
+function validateEventMembers(members, known) {
+    const blanks = members.filter((m) => m.name === '').length;
+    if (blanks > 0) {
+        return {
+            code: 2,
+            message: `${BIN}: --events contains ${blanks} empty entry/entries — ` +
+                `check for a trailing comma or a stray "?"`,
+        };
+    }
+    const seen = new Set();
+    const duplicates = [];
+    for (const m of members) {
+        if (seen.has(m.name))
+            duplicates.push(m.name);
+        seen.add(m.name);
+    }
+    if (duplicates.length > 0) {
+        return {
+            code: 2,
+            message: `${BIN}: duplicate event(s) in --events: ${[...new Set(duplicates)].join(', ')} — ` +
+                `a bundle member listed twice changes the fingerprint without changing the contract`,
+        };
+    }
+    const knownSet = new Set(known);
+    const unknown = members.filter((m) => !knownSet.has(m.name));
+    if (unknown.length === 0)
+        return null;
+    const lines = unknown.map((m) => `  ${m.name}${(0, suggest_js_1.didYouMean)(m.name, known)}`);
+    return {
+        code: 2,
+        message: [
+            `${BIN}: ${unknown.length} of ${members.length} --events ` +
+                `${unknown.length === 1 ? 'is' : 'are'} not declared in the catalog:`,
+            ...lines,
+            '',
+            `Declare the event in src/declarations/ first, or fix the name. ` +
+                `(${known.length} events are declared.)`,
+        ].join('\n'),
+    };
+}
 function validateInputs(name, version, transport) {
     if (!VALID_NAME_RE.test(name)) {
         return {
@@ -140,8 +234,11 @@ function toCamelCase(name) {
 function generateBundleTemplate(name, version, transport, events) {
     const camelName = toCamelCase(name);
     const exportName = `${camelName}Bundle`;
-    const eventsBlock = events.length > 0
-        ? events.map((e) => `    { name: '${e}', required: true },`).join('\n')
+    const members = parseEventMembers(events);
+    const eventsBlock = members.length > 0
+        ? members
+            .map((m) => `    { name: '${m.name}', required: ${m.required} },`)
+            .join('\n')
         : '    // TODO: add event references here';
     return `// src/declarations/bundles/${name}.ts
 //
@@ -223,6 +320,13 @@ function bundleCreate(name, version, transport, events, opts = {}) {
     const validationError = validateInputs(name, version, transport);
     if (validationError) {
         return { code: validationError.code, message: validationError.message };
+    }
+    // Check the members BEFORE touching the filesystem. A bundle over a typo
+    // is worse than no bundle: it fails ec-lint-crd pointing at the CRD.
+    const members = parseEventMembers(events);
+    const eventError = validateEventMembers(members, opts.knownEvents ?? knownEventNames());
+    if (eventError) {
+        return { code: eventError.code, message: eventError.message };
     }
     const filepath = (0, node_path_1.join)(bundlesDir, `${name}.ts`);
     if (fileExists(filepath)) {

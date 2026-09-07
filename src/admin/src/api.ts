@@ -69,6 +69,39 @@ export interface EventStats {
   oldestMessageAge?: number;
 }
 
+/**
+ * One member of a FeatureBundle, as `src/bundles/FeatureBundle.ts` declares it.
+ *
+ * `required` is **absent-means-required**: the server's `validateBundle` fails
+ * a missing member unless it was declared `required: false`. Rendering an
+ * absent flag as "optional" would tell an operator a CRD gate is lenient when
+ * it is not, so every reader here goes through `isRequired`.
+ */
+export interface BundleEventRef {
+  name: string;
+  /** Pins a schema version. Absent means "whatever the registry has now". */
+  version?: number;
+  required?: boolean;
+}
+
+/** A registered FeatureBundle, as `GET /api/feature-bundles` returns it. */
+export interface FeatureBundleEntry {
+  name: string;
+  /** Semver of the bundle itself — a string, unlike an event's numeric version. */
+  version: string;
+  /** sha256 over { name, version, sorted events }. Full 64 hex chars. */
+  fingerprint: string;
+  transport: 'signal' | 'durable' | 'both';
+  events: BundleEventRef[];
+  description?: string;
+  deprecated?: { since: string; replacement?: string };
+}
+
+/** The one place the absent-means-required default is spelled out. */
+export function isRequired(ref: BundleEventRef): boolean {
+  return ref.required !== false;
+}
+
 export interface TopologyGraph {
   nodes: Array<{ id: string; type: 'service' | 'event'; metadata: Record<string, unknown> }>;
   edges: Array<{ from: string; to: string; relation: 'publishes' | 'subscribes' }>;
@@ -362,6 +395,30 @@ export const api = {
       deadDeclaredProducers: string[];
       mismatch: boolean;
     }>(`/events/${encodeURIComponent(eventName)}/producers/observed`);
+  },
+
+  /**
+   * Every registered FeatureBundle, all versions, sorted name then version
+   * (`src/server/bundle-routes.ts` GET /). This is the only endpoint that
+   * returns bundle *membership*, so it is also what the coverage view diffs
+   * against `GET /api/events`.
+   */
+  getFeatureBundles() {
+    return request<{ bundles: FeatureBundleEntry[]; total: number }>('/feature-bundles');
+  },
+
+  /**
+   * One bundle. With no version the server answers the highest semver it
+   * holds for that name; with one, that exact version (404 if absent) — which
+   * matters because a deprecated version and its replacement can both be
+   * registered under different names, and an operator arriving from a CRD pin
+   * needs the version they pinned, not the newest.
+   */
+  getFeatureBundle(name: string, version?: string) {
+    const path = version
+      ? `/feature-bundles/${encodeURIComponent(name)}/${encodeURIComponent(version)}`
+      : `/feature-bundles/${encodeURIComponent(name)}`;
+    return request<FeatureBundleEntry>(path);
   },
 
   /** wave24-b — list subscribers with their lastSeenAt timestamps. */

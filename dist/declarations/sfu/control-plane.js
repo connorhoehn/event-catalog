@@ -13,7 +13,7 @@
 // lives in ./recording-compose.ts, because it is a self-contained job
 // lifecycle rather than channel control-plane state.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sfuChatEvent = exports.sfuMemberOwnerChanged = exports.sfuParticipantDisconnected = exports.sfuProducerStateChanged = exports.sfuRecordingStateChanged = exports.sfuProducerRemoved = exports.sfuProducerAdded = void 0;
+exports.sfuParticipantLeft = exports.sfuChatEvent = exports.sfuMemberOwnerChanged = exports.sfuParticipantDisconnected = exports.sfuProducerStateChanged = exports.sfuRecordingStateChanged = exports.sfuProducerRemoved = exports.sfuProducerAdded = void 0;
 const _shared_1 = require("./_shared");
 // ===========================================================================
 // Control-plane events (signal) — streamEventsHub.emit(arn, type, data),
@@ -35,11 +35,11 @@ const _shared_1 = require("./_shared");
 // room-scoped path, delivered to per-client sockets only.
 //
 // `participant.left` USED to be in that same excluded group, and the
-// original note here said so. That is no longer true: app.js:548 (added
-// 2026-08-22) bridges RoomManager's `participantLeft` onto this hub after a
-// 1.5s settle window. It is a real, undeclared event on this bus — recorded
-// here rather than declared, because closing it was not in the scope that
-// added the four below.
+// original note here said so. That stopped being true at app.js:548 (added
+// 2026-08-22), which bridges RoomManager's `participantLeft` onto this hub
+// after a 1.5s settle window. The previous round recorded it as an open gap
+// rather than widening its own scope; it is now DECLARED, at the bottom of
+// this file.
 //
 // ADDED 2026-09-07 — four events that were travelling this bus undeclared.
 // Every payload below was read at its construction site, not taken from
@@ -266,6 +266,46 @@ exports.sfuChatEvent = {
             publishedAt: { type: 'string' },
         },
         required: ['channelArn', 'eventName', 'attributes', 'publishedAt'],
+        additionalProperties: false,
+    },
+};
+/** A participant left a channel, confirmed after a settle window. */
+exports.sfuParticipantLeft = {
+    namespace: 'sfu',
+    name: 'sfu.participant.left',
+    transport: 'signal',
+    producer: _shared_1.PRODUCER,
+    description: 'A participant is confirmed gone from a channel. Bridged from RoomManager\'s in-process '
+        + '`participantLeft` EventEmitter onto the stream-events hub at app.js:548 (added 2026-08-22), '
+        + 'which is what makes it cross-service: before that bridge a clean leave (WHIP DELETE, admin '
+        + 'disconnect, leaveRoom) never left the process and peers\' tiles lingered for the full '
+        + 'client-side orphan grace. NOT a raw mirror of the emitter — the bridge filters, so this is '
+        + 'the DEPARTURE signal rather than the removal signal. Sub-identities ending in `:screen` are '
+        + 'dropped entirely (a sharer stopping a screen share is not a departure; subscribers tear that '
+        + 'down from `producer.removed`), and a real id is debounced for 1.5s and emitted only if the '
+        + 'participant is STILL absent from the room when the timer fires — so camera-off, which '
+        + 'unpublishes and immediately republishes audio-only, produces nothing. Consumers treat it as '
+        + 'terminal for the participant: lvs-client tears down every subscriber for the id and its '
+        + '`:screen` sibling (packages/lvs-client/src/client.js:1013), and stage-WS suppresses a '
+        + 'client\'s echo of its own departure (ws/stageWsServer.js:207).',
+    tags: [..._shared_1.BASE_TAGS, 'control-plane', 'participant'],
+    channel: 'stream-events',
+    schema: {
+        type: 'object',
+        properties: {
+            channelArn: { type: 'string' },
+            participantId: {
+                type: 'string',
+                description: 'Per-tab participant id of the departed participant — the room-scoped id, never a '
+                    + '`:screen` sub-identity, which the bridge filters out before emitting.',
+            },
+        },
+        // `{ participantId }` is the WHOLE constructed payload (app.js:548);
+        // `channelArn` is the hub envelope's, joined on per this namespace's
+        // logical-payload convention. Both are always present: the bridge
+        // guards `typeof participantId === 'string'` before it schedules the
+        // timer, and the hub stamps the arn on every emit.
+        required: ['channelArn', 'participantId'],
         additionalProperties: false,
     },
 };

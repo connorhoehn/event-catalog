@@ -19,6 +19,16 @@
 import { createHash } from 'node:crypto';
 import { stableStringify } from '../registry/fingerprint.js';
 import type { IRegistry } from '../registry/types.js';
+import { didYouMean } from './suggest.js';
+
+/** The only transports a bundle may claim. Anything else is a typo. */
+export const BUNDLE_TRANSPORTS = ['signal', 'durable', 'both'] as const;
+export type BundleTransport = (typeof BUNDLE_TRANSPORTS)[number];
+
+/** Runtime guard — `FeatureBundle` values arrive over HTTP, not just from TS. */
+export function isBundleTransport(value: unknown): value is BundleTransport {
+  return typeof value === 'string' && (BUNDLE_TRANSPORTS as readonly string[]).includes(value);
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,8 +38,21 @@ export interface EventReference {
   /** Canonical event name, e.g. "ws.chat.message". */
   name: string;
   /**
-   * Pin to a specific event schema version. When omitted the bundle
-   * accepts the current registered version.
+   * Pin the member's *schema revision*, not the bundle's own semver.
+   *
+   * This is `RegistryEntry.version`: an integer that starts at 1 and is
+   * incremented by `Registry.declare()` every time the event's JSON Schema
+   * changes — including backward-COMPATIBLE changes such as adding an
+   * optional property. `validateBundle` compares it for exact equality, so
+   * a pin is a statement of "this bundle was built against schema revision
+   * N and must be re-checked if that changes", not a floor.
+   *
+   * Consequence, and the reason no shipped bundle sets it: pinning makes
+   * the bundle fail validation the moment the producer adds a field, even
+   * though the bundle would still work. Set it only for a member whose
+   * schema you genuinely need frozen (a durable audit contract, say), and
+   * expect to bump it deliberately. Omit it to track whatever revision the
+   * registry currently holds.
    */
   version?: number;
   /**
@@ -178,13 +201,62 @@ export function validateBundle(
 ): BundleValidationResult {
   const errors: string[] = [];
 
+  // -----------------------------------------------------------------------
+  // Structural checks — a bundle that asserts nothing must not pass.
+  // -----------------------------------------------------------------------
+  if (!Array.isArray(bundle.events) || bundle.events.length === 0) {
+    errors.push(
+      `Bundle "${bundle.name}" declares no events. An empty member list asserts nothing: ` +
+        `it satisfies any transport claim vacuously and pins nothing for a CRD to gate on.`,
+    );
+    // No members ⇒ nothing else is checkable. Bail early rather than fall
+    // through to a transport check that would trivially pass.
+    return { valid: false, errors };
+  }
+
+  if (!isBundleTransport(bundle.transport)) {
+    errors.push(
+      `Bundle "${bundle.name}" declares unknown transport ${JSON.stringify(bundle.transport)} — ` +
+        `must be one of ${BUNDLE_TRANSPORTS.join(', ')}.`,
+    );
+    // An uninterpretable transport claim can't be checked for satisfiability;
+    // the member checks below still run.
+  }
+
+  const seen = new Set<string>();
+  for (const ref of bundle.events) {
+    if (seen.has(ref.name)) {
+      errors.push(
+        `Event "${ref.name}" is listed more than once in bundle "${bundle.name}". ` +
+          `Duplicate members change the fingerprint without changing the contract.`,
+      );
+    }
+    seen.add(ref.name);
+  }
+
+  // Declared names, for "did you mean…?" on a misspelled member. Computed
+  // lazily: `registry.list()` is only worth paying for on the error path.
+  let declaredNames: string[] | null = null;
+  const nameHint = (name: string): string => {
+    if (declaredNames === null) {
+      try {
+        declaredNames = registry.list().map((e) => e.name);
+      } catch {
+        declaredNames = [];
+      }
+    }
+    return didYouMean(name, declaredNames);
+  };
+
   for (const ref of bundle.events) {
     const entry = registry.get(ref.name);
 
     if (!entry) {
       if (ref.required !== false) {
         // required: true or required: undefined (default required) both fail
-        errors.push(`Required event "${ref.name}" is not registered in the catalog.`);
+        errors.push(
+          `Required event "${ref.name}" is not registered in the catalog.${nameHint(ref.name)}`,
+        );
       }
       // optional missing events are silently skipped
       continue;
@@ -217,21 +289,51 @@ export function validateBundle(
   //                        that nothing in it uses)
   //
   // Unregistered members contribute nothing: an optional event that is not
-  // in this registry cannot make the bundle's transport claim false.
+  // in this registry cannot make the bundle's transport claim false. But a
+  // bundle where NOTHING is registered can't have its claim checked at all,
+  // and "unfalsifiable" is not the same as "valid" — see below.
   const supports = (
     entryTransport: string,
     bus: 'signal' | 'durable',
   ): boolean => entryTransport === bus || entryTransport === 'both';
 
   const registeredMembers: Array<{ name: string; transport: string }> = [];
+  const untypedMembers: string[] = [];
   for (const ref of bundle.events) {
     const entry = registry.get(ref.name);
-    if (entry && entry.transport) {
-      registeredMembers.push({ name: ref.name, transport: entry.transport });
+    if (!entry) continue;
+    // `entry.transport` is non-optional in the type, but entries arrive from
+    // HTTP bodies and test doubles too — check at runtime, not just in tsc.
+    const entryTransport = entry.transport as string | undefined;
+    if (typeof entryTransport === 'string' && entryTransport !== '') {
+      registeredMembers.push({ name: ref.name, transport: entryTransport });
+    } else {
+      // Registered but with no transport recorded. Silently dropping these
+      // is how a bundle full of them ends up "satisfying" any claim.
+      untypedMembers.push(ref.name);
     }
   }
 
-  if (registeredMembers.length > 0) {
+  if (untypedMembers.length > 0) {
+    errors.push(
+      `Bundle transport "${bundle.transport}" cannot be checked against ` +
+        `${untypedMembers.length} event(s) with no transport recorded in the catalog — ` +
+        `${untypedMembers.join(', ')}.`,
+    );
+  }
+
+  if (registeredMembers.length === 0) {
+    // Every member is optional-and-absent (a required-and-absent member has
+    // already produced its own error above, so don't pile on). The bundle's
+    // transport claim is unfalsifiable, which used to read as "valid".
+    if (errors.length === 0) {
+      errors.push(
+        `Bundle "${bundle.name}" has ${bundle.events.length} member(s) but none are ` +
+          `registered in this catalog, so its transport claim "${bundle.transport}" is ` +
+          `unverifiable. An all-optional bundle over unknown events asserts nothing.`,
+      );
+    }
+  } else if (isBundleTransport(bundle.transport)) {
     if (bundle.transport === 'signal' || bundle.transport === 'durable') {
       const bus = bundle.transport;
       const unreachable = registeredMembers.filter((m) => !supports(m.transport, bus));

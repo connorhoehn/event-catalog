@@ -33,6 +33,12 @@
 //   5. POST /api/events       — declare, with the recursive compat gate
 //                               off and strict, including the single
 //                               deepest real declaration.
+//   6. Response compression   — before/after body size AND the CPU cost
+//                               per request for the three responses that
+//                               dominate this server's egress. Printed
+//                               as its own table because the interesting
+//                               number is bytes saved per millisecond
+//                               spent, not latency.
 //
 // Latencies are p50/p99 in microseconds, plus ops/sec.
 
@@ -46,6 +52,12 @@ import { sseRegistry } from '../src/server/sse.js';
 import { tapEmitter, type TapEvent } from '../src/server/tap-emitter.js';
 import { allDeclarations } from '../src/declarations/index.js';
 import type { EventDeclaration } from '../src/types/index.js';
+import {
+  DEFAULT_COMPRESSION,
+  compressBody,
+  negotiateEncoding,
+  type Encoding,
+} from '../src/server/compression.js';
 
 // ─── args ────────────────────────────────────────────────────────────────
 
@@ -378,6 +390,81 @@ function benchFanout(n: number, iters: number, flowStream: (req: RouteRequest, r
   return stats;
 }
 
+// ─── response compression ────────────────────────────────────────────────
+
+interface CompressionRow {
+  label: string;
+  /** Coding under test; the level-1 gzip row is tagged `gzip L1`. */
+  encoding: Encoding | string;
+  rawBytes: number;
+  encodedBytes: number;
+  savedPct: number;
+  meanMs: number;
+  /** KiB saved per millisecond of blocked event loop. */
+  kibPerMs: number;
+}
+
+/**
+ * Measure one payload through one coding. `iters` is small for the
+ * expensive ones — these are 0.7–6 ms each, not microseconds.
+ */
+function benchCompression(
+  label: string,
+  raw: Buffer,
+  encoding: Exclude<Encoding, 'identity'>,
+  level: number,
+  iters: number,
+): CompressionRow {
+  compressBody(raw, encoding, level); // warm
+  const t0 = process.hrtime.bigint();
+  let out = raw;
+  for (let i = 0; i < iters; i++) out = compressBody(raw, encoding, level);
+  const meanMs = Number(process.hrtime.bigint() - t0) / 1e6 / iters;
+  const saved = raw.length - out.length;
+  return {
+    label,
+    encoding,
+    rawBytes: raw.length,
+    encodedBytes: out.length,
+    savedPct: round((saved / raw.length) * 100),
+    meanMs: round(meanMs),
+    kibPerMs: round(saved / 1024 / meanMs),
+  };
+}
+
+/**
+ * The three responses named in the scale audit, built from the same
+ * route handlers that serve them, plus the small-response control that
+ * the 1 KiB threshold exists to protect.
+ */
+async function compressionPayloads(
+  router: HttpRouter,
+  registry: Registry,
+  metrics: MetricsCollector,
+): Promise<Array<[label: string, buf: Buffer]>> {
+  const listRes = await call(router, 'GET', '/events');
+  const exportRes = await call(router, 'GET', '/events/bulk/export');
+
+  // /api/metrics/history is empty until publishes have been recorded and
+  // the 15s health tick has run 60 times. Simulate ~15 minutes of a live
+  // server so the measured body is the one an operator actually pulls.
+  for (const e of registry.list()) metrics.recordPublish(e.name);
+  for (let t = 0; t < 60; t++) {
+    for (const e of registry.list()) metrics.recordPublish(e.name);
+    metrics.tickRateHistory();
+  }
+  const historyRes = await call(router, 'GET', '/metrics/history');
+  const healthRes = await call(router, 'GET', '/health');
+
+  const buf = (body: unknown): Buffer => Buffer.from(JSON.stringify(body), 'utf8');
+  return [
+    ['GET /api/events', buf(listRes.body)],
+    ['GET /api/events/bulk/export', buf(exportRes.body)],
+    ['GET /api/metrics/history', buf(historyRes.body)],
+    ['GET /health (control)', buf(healthRes.body)],
+  ];
+}
+
 // ─── main ────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -521,6 +608,41 @@ async function main(): Promise<void> {
     },
   ));
 
+  // ── 6. response compression ───────────────────────────────────────────
+  //
+  // Two numbers matter here and neither is a latency percentile: how many
+  // bytes leave the box, and how long the event loop is blocked to save
+  // them. zlib's sync API is what `makeRouteResponse` calls (an async
+  // compressor would let AdmissionHttpServer release the admission slot
+  // before the response existed), so this IS the production cost.
+  const payloads = await compressionPayloads(router, registry, metrics);
+  const compressionRows: CompressionRow[] = [];
+  for (const [label, buf] of payloads) {
+    const iters = buf.length > 100_000 ? 50 : 500;
+    compressionRows.push(benchCompression(label, buf, 'gzip', DEFAULT_COMPRESSION.level, iters));
+    // Level 1 is the knob an operator turns when event-loop time matters
+    // more than the last few points of ratio.
+    const l1 = benchCompression(label, buf, 'gzip', 1, iters);
+    l1.encoding = 'gzip L1' as Encoding;
+    compressionRows.push(l1);
+    compressionRows.push(benchCompression(label, buf, 'br', DEFAULT_COMPRESSION.level, iters));
+  }
+
+  // Negotiation runs on EVERY request, compressed or not — including the
+  // ones below the threshold and the SSE streams. If it were not
+  // sub-microsecond it would be the wrong design.
+  const negotiationHeaders = [
+    undefined,
+    'gzip, deflate, br',
+    'identity;q=1, gzip;q=0',
+    'gzip;q=0.8, *;q=0.1',
+  ];
+  const negotiation = benchSync('negotiateEncoding() per request', ITERS, (i) => {
+    const chosen = negotiateEncoding(negotiationHeaders[i % negotiationHeaders.length]);
+    sink.frames += chosen.length;
+  });
+  results.push(negotiation);
+
   // ── report ────────────────────────────────────────────────────────────
   const seriesCount = promMetrics.getRegistry().getSnapshot().metrics.length;
   const promBytes = promMetrics.renderProm().length;
@@ -536,6 +658,11 @@ async function main(): Promise<void> {
       topologyEdges: topo.edges.length,
       iters: ITERS,
       results,
+      compression: {
+        threshold: DEFAULT_COMPRESSION.threshold,
+        level: DEFAULT_COMPRESSION.level,
+        rows: compressionRows,
+      },
     }, null, 2));
     process.exit(0);
   }
@@ -559,6 +686,40 @@ async function main(): Promise<void> {
       + `${r.opsPerSec.toLocaleString().padStart(11)}  ${(r.perUnitUs !== undefined ? r.perUnitUs.toFixed(3) : '').padStart(9)}`,
     );
   }
+  // ── compression table ─────────────────────────────────────────────────
+  console.log(
+    `\nRESPONSE COMPRESSION — threshold ${DEFAULT_COMPRESSION.threshold} B, `
+    + `default gzip level ${DEFAULT_COMPRESSION.level}, `
+    + `preference ${DEFAULT_COMPRESSION.encodings.join(' > ')}`,
+  );
+  const cpad = Math.max(...compressionRows.map((r) => r.label.length));
+  console.log(
+    `${'endpoint'.padEnd(cpad)}  ${'coding'.padStart(9)}  ${'before'.padStart(11)}  `
+    + `${'after'.padStart(11)}  ${'saved'.padStart(7)}  ${'cpu/req'.padStart(9)}  ${'KiB/ms'.padStart(9)}`,
+  );
+  console.log('-'.repeat(cpad + 64));
+  for (const r of compressionRows) {
+    // Rows below the threshold are what the floor exists to skip — they
+    // are measured and printed so the decision stays visible, but the
+    // server never actually compresses them.
+    const coding = r.rawBytes < DEFAULT_COMPRESSION.threshold
+      ? `${r.encoding}*`
+      : r.encoding;
+    console.log(
+      `${r.label.padEnd(cpad)}  ${coding.padStart(9)}  `
+      + `${`${(r.rawBytes / 1024).toFixed(1)} KiB`.padStart(11)}  `
+      + `${`${(r.encodedBytes / 1024).toFixed(1)} KiB`.padStart(11)}  `
+      + `${`${r.savedPct.toFixed(1)}%`.padStart(7)}  `
+      + `${`${r.meanMs.toFixed(3)} ms`.padStart(9)}  ${r.kibPerMs.toFixed(1).padStart(9)}`,
+    );
+  }
+  console.log(
+    `\n* below the ${DEFAULT_COMPRESSION.threshold} B threshold — measured here, never `
+    + 'compressed in production. Saving a few dozen bytes is not worth the CPU, '
+    + 'the extra headers, or splitting every shared-cache entry on Vary; and '
+    + 'under ~100 bytes a gzip member is LARGER than its input (15 B -> 35 B).',
+  );
+
   console.log(`\n(sink: ${sink.bytes} bytes, ${sink.frames} frames)\n`);
   // SSE streams hold unref'd heartbeat timers; nothing else keeps the
   // loop alive, but be explicit so the script always terminates.

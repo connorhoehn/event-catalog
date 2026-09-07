@@ -19,8 +19,9 @@
 // call 2, activity 1 — deliberately lopsided, which is the point).
 
 import { allDeclarations } from '../../../../declarations/index.js';
+import { allBundles } from '../../../../declarations/bundles/index.js';
 import { resolveNamespace } from '../../../../registry/namespace.js';
-import type { EventEntry, EventStats, TopologyGraph } from '../../api';
+import type { EventEntry, EventStats, FeatureBundleEntry, TopologyGraph } from '../../api';
 
 /**
  * Deterministic 32-bit hash. Stats, subscriber counts and rate history are
@@ -268,10 +269,42 @@ export function tapBurst(n: number, startAt = BASE_TIME): ReturnType<typeof tapF
   return out;
 }
 
+/**
+ * Every declared FeatureBundle, shaped the way `GET /api/feature-bundles`
+ * returns it — derived from `src/declarations/bundles` for the same reason
+ * the events are: the interesting property of this data is its LOPSIDEDNESS
+ * (18 bundles covering 142 of 226 events, one of them deprecated with a
+ * replacement), and a hand-written handful would assert nothing about the
+ * catalog that actually ships.
+ *
+ * The fingerprints are the real ones: each declaration stamps itself with
+ * `computeFingerprint`, so FingerprintChip renders genuine 64-char sha256s.
+ */
+export const realBundles: FeatureBundleEntry[] = allBundles.map((b) => ({
+  name: b.name,
+  version: b.version,
+  fingerprint: b.fingerprint,
+  transport: b.transport,
+  events: b.events.map((e) => ({ ...e })),
+  ...(b.description !== undefined ? { description: b.description } : {}),
+  ...(b.deprecated !== undefined ? { deprecated: { ...b.deprecated } } : {}),
+}));
+
+export const REAL_BUNDLE_COUNT = realBundles.length;
+
+/** The `GET /api/feature-bundles` envelope. */
+export const realBundlesResponse = { bundles: realBundles, total: realBundles.length };
+
+/** Distinct event names claimed by at least one bundle. */
+export const realBundleMemberNames: string[] = [
+  ...new Set(realBundles.flatMap((b) => b.events.map((e) => e.name))),
+].sort();
+
 /** The route table every view needs to render the full catalog. */
 export const realRoutes = {
   '/api/events': { body: realEventsResponse },
   '/api/metrics/history': { body: realMetricsHistory },
   '/api/topology': { body: realTopology },
   '/api/namespaces/summary': { body: realNamespaceSummary },
+  '/api/feature-bundles': { body: realBundlesResponse },
 };

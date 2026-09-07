@@ -353,6 +353,107 @@ describe('multi-replica convergence', () => {
   });
 
   // ---------------------------------------------------------------
+  // Q4b — regressions found by tests/fuzz-replica-convergence.test.ts
+  // ---------------------------------------------------------------
+  describe('Q4b fuzz regressions', () => {
+    it('the loser of a concurrent declare adopts the winner\'s version and history', async () => {
+      // Registry.declare derives `version` and `schemaHistory` from the
+      // *local* prior schema. On the replication path that is the wrong
+      // source: the loser would bump its own counter and push its own
+      // discarded schema into history, leaving two replicas serving the
+      // same contract under different version numbers.
+      deferring = true;
+      await localDeclare(a, { name: 'ver.evt', schema: S1, transport: 'signal', producer: 'svc' });
+      await localDeclare(b, { name: 'ver.evt', schema: S2, transport: 'signal', producer: 'svc' });
+      flush();
+
+      const av = a.registry.get('ver.evt')!;
+      const bv = b.registry.get('ver.evt')!;
+      expect(bv.version).toBe(av.version);
+      expect(bv.schemaHistory).toEqual(av.schemaHistory);
+    });
+
+    it('a delayed duplicate does not look like a missed broadcast', async () => {
+      // peerSeq is a high-water mark. Writing a redelivered (lower) seq
+      // back over it made the next in-order message look like a gap, so
+      // a healthy replica reloaded its whole registry for nothing.
+      await localDeclare(a, { name: 'hw.one', schema: {}, transport: 'signal', producer: 'svc' });
+      await localDeclare(a, { name: 'hw.two', schema: {}, transport: 'signal', producer: 'svc' });
+
+      deferring = true;
+      await localDeclare(a, { name: 'hw.three', schema: {}, transport: 'signal', producer: 'svc' });
+      const [third] = queued.splice(0, 1);
+      fanout(third.channel, third.message);
+      // ...and now Redis redelivers seq 1, out of position.
+      fanout(MUTATIONS_CHANNEL, JSON.stringify({
+        replicaId: a.coord.replicaId, kind: 'declare',
+        payload: a.registry.get('hw.one'), seq: 1, ts: 1,
+      }));
+      deferring = false;
+
+      await localDeclare(a, { name: 'hw.four', schema: {}, transport: 'signal', producer: 'svc' });
+      expect(b.coord.isStale()).toBe(false);
+      expect(b.registry.size()).toBe(4);
+    });
+
+    it('a subscriber parked for a removed event does not attach to the next one', async () => {
+      // b parks the add (it has no such event yet), then learns the
+      // event was deleted. Replaying the parked add on the *next*
+      // declare would give b a consumer that a never had.
+      a.registry.declare({ name: 'ghost.evt', schema: {}, transport: 'signal', producer: 'svc' });
+      const declared = a.registry.get('ghost.evt');
+      a.registry.addSubscriber('ghost.evt', 'c1');
+
+      deferring = true;
+      await a.coord.broadcast('declare', declared);
+      await a.coord.broadcast('subscriber.add', { eventName: 'ghost.evt', serviceName: 'c1' });
+      // The add overtakes its declare; b parks it.
+      const [decl, add] = queued.splice(0, 2);
+      fanout(add.channel, add.message);
+      expect(b.registry.get('ghost.evt')).toBeUndefined();
+
+      // a deletes the event. b hears about the delete while the add is
+      // still parked — that is what has to kill the parked add.
+      a.registry.remove('ghost.evt');
+      await a.coord.broadcast('remove', { name: 'ghost.evt' });
+      const [rm] = queued.splice(0, 1);
+      fanout(rm.channel, rm.message);
+
+      // ...and then re-declares it from scratch.
+      a.registry.declare({ name: 'ghost.evt', schema: S1, transport: 'signal', producer: 'svc' });
+      await a.coord.broadcast('declare', a.registry.get('ghost.evt'));
+      queued.push(decl); // the original declare finally lands, too late
+      flush();
+
+      expect(a.registry.get('ghost.evt')!.subscribers).toEqual([]);
+      expect(b.registry.get('ghost.evt')!.subscribers).toEqual([]);
+      expect(b.coord.getConflicts().some((c) => c.detail?.includes('was removed'))).toBe(true);
+    });
+
+    it('a redelivery of an edit that died with its event is still refused', async () => {
+      // Discarding a mutation is only safe if the copy Redis sends again
+      // reaches the same verdict — the tombstone is gone once the event
+      // is re-declared, so the discard has to leave a stamp behind.
+      await localDeclare(a, { name: 'tomb.evt', schema: {}, transport: 'signal', producer: 'svc' });
+      a.registry.addSubscriber('tomb.evt', 'c1');
+      const addMsg = JSON.stringify({
+        replicaId: a.coord.replicaId, kind: 'subscriber.add',
+        payload: { eventName: 'tomb.evt', serviceName: 'c1' }, seq: 99, ts: Date.now() + 5,
+      });
+
+      a.registry.remove('tomb.evt');
+      await a.coord.broadcast('remove', { name: 'tomb.evt' });
+      fanout(MUTATIONS_CHANNEL, addMsg); // arrives after the delete — discarded
+
+      a.registry.declare({ name: 'tomb.evt', schema: {}, transport: 'signal', producer: 'svc' });
+      await a.coord.broadcast('declare', a.registry.get('tomb.evt'));
+      fanout(MUTATIONS_CHANNEL, addMsg); // Redis redelivers it
+
+      expect(b.registry.get('tomb.evt')!.subscribers).toEqual([]);
+    });
+  });
+
+  // ---------------------------------------------------------------
   // Q5 — the compat gate on the replication path
   // ---------------------------------------------------------------
   describe('Q5 compat gate under replication', () => {
@@ -481,6 +582,28 @@ describe('multi-replica convergence — unstamped peers', () => {
 
     send('subscriber.remove', { eventName: 'legacy.evt', serviceName: 'c1' });
     expect(a.registry.get('legacy.evt')!.subscribers).toEqual([]);
+  });
+
+  it('a peer that omits version/schemaHistory does not wipe ours', async () => {
+    // A replicated declare now adopts the peer's version and history so
+    // the loser of a concurrent write stops re-deriving its own. An
+    // older peer's payload carries neither field, and reading them as
+    // "the peer says: empty" would reset a live event's history during
+    // a rolling upgrade. Each adoption is guarded on the field existing.
+    a.registry.declare({ name: 'mixver.evt', schema: S1, transport: 'signal', producer: 'svc' });
+    a.registry.declare({ name: 'mixver.evt', schema: S2, transport: 'signal', producer: 'svc' });
+    const before = a.registry.get('mixver.evt')!;
+    expect(before.version).toBe(2);
+    expect(before.schemaHistory).toHaveLength(1);
+
+    fanout(MUTATIONS_CHANNEL, JSON.stringify({
+      replicaId: 'legacy-peer', kind: 'declare',
+      payload: { name: 'mixver.evt', schema: S1, transport: 'signal', producer: 'svc' },
+    }));
+
+    const after = a.registry.get('mixver.evt')!;
+    expect(after.version).toBe(3);            // derived locally, as before
+    expect(after.schemaHistory).toHaveLength(2);
   });
 
   it('a stamped local write is not clobbered by an unstamped peer being dropped', async () => {
