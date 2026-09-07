@@ -8,6 +8,12 @@ const maxWorkers = process.env.VITEST_MAX_WORKERS ?? '25%';
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
+    // Gives every file one loopback listener and one keep-alive connection
+    // pool instead of the one-server-and-one-socket-per-request that
+    // supertest defaults to. See the header of that file for the flake it
+    // fixes; it is a setup file rather than a per-suite import so the ~30
+    // supertest-using files need no changes.
+    setupFiles: ['./tests/helpers/shared-http-server.ts'],
     maxWorkers,
     minWorkers: 1,
   },

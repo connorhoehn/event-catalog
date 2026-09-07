@@ -21,6 +21,7 @@ import {
 } from './_shared.js';
 import {
   MAX_BULK_EVENTS,
+  MAX_BULK_EXPORT_NAMES,
   validateEventName,
   withinArrayLimit,
 } from './limits.js';
@@ -300,6 +301,10 @@ export function createEventHandlers(deps: RoutesDeps) {
     if (existing && schema && Object.keys(schema).length > 0 && effectiveMode !== 'off') {
       const compat = registry.checkSchemaCompat(name, schema);
       if (!compat.compatible) {
+        // Recorded in both modes: the `mode` label separates changes the gate
+        // actually blocked from ones it only would have, which is what tells
+        // you whether flipping an event to strict is safe yet.
+        promMetrics?.recordEvolutionRejection(name, effectiveMode === 'strict' ? 'strict' : 'warn');
         if (effectiveMode === 'strict') {
           // Phase E6 — surface both fingerprints on the 409 so the caller
           // can confirm in one round-trip whether their local cache matches
@@ -603,6 +608,7 @@ export function createEventHandlers(deps: RoutesDeps) {
       .split(',')
       .map(n => n.trim())
       .filter(Boolean);
+    if (!withinArrayLimit(res, nameList, MAX_BULK_EXPORT_NAMES, 'names')) return;
 
     const entries = nameList.length > 0
       ? nameList.map(n => registry.get(n)).filter(Boolean)

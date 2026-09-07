@@ -100,7 +100,18 @@ function createDeprecationHandlers(deps) {
             coordinator?.broadcast('deprecate', { name, opts: { reason, by } }).catch(() => { });
             deprecated.push(name);
         }
-        res.status(notFound.length > 0 && deprecated.length === 0 ? 400 : 200).json({
+        // A 400 here used to carry the SUCCESS body, so a caller checking
+        // `error` saw nothing wrong while the status said otherwise. Errors get
+        // the `{ error }` envelope every other guard in this router uses; the
+        // unknown names ride along so the caller still knows which ones missed.
+        if (notFound.length > 0 && deprecated.length === 0) {
+            res.status(400).json({
+                error: `none of the ${notFound.length} requested event(s) exist`,
+                notFound,
+            });
+            return;
+        }
+        res.status(200).json({
             deprecated,
             notFound,
             total: deprecated.length,

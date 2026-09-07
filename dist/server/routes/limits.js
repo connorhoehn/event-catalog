@@ -18,7 +18,7 @@
 // committed registry snapshot holds 194 events across every service —
 // so they bound abuse without constraining legitimate callers.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RESERVED_EVENT_NAMES = exports.MAX_CONSUMER_NAME_LENGTH = exports.MAX_EVENT_NAME_LENGTH = exports.MAX_AUDIT_QUERY_LIMIT = exports.MAX_MANIFEST_EVENTS = exports.MAX_FRESHNESS_EVENTS = exports.MAX_DLQ_REPLAY_IDS = exports.MAX_BULK_DEPRECATE_NAMES = exports.MAX_BULK_EVENTS = void 0;
+exports.RESERVED_EVENT_NAMES = exports.MAX_CONSUMER_NAME_LENGTH = exports.MAX_EVENT_NAME_LENGTH = exports.MAX_AUDIT_QUERY_LIMIT = exports.MAX_MANIFEST_EVENTS = exports.MAX_FRESHNESS_EVENTS = exports.MAX_DLQ_REPLAY_IDS = exports.MAX_BULK_EXPORT_NAMES = exports.MAX_BULK_DEPRECATE_NAMES = exports.MAX_BULK_EVENTS = void 0;
 exports.validateEventName = validateEventName;
 exports.withinArrayLimit = withinArrayLimit;
 exports.keySafeRecord = keySafeRecord;
@@ -27,6 +27,12 @@ const _shared_js_1 = require("./_shared.js");
 exports.MAX_BULK_EVENTS = 1000;
 /** Max names accepted by one POST /api/events/bulk/deprecate. */
 exports.MAX_BULK_DEPRECATE_NAMES = 1000;
+/**
+ * Cap on `?names=` for bulk export. Every sibling bulk surface bounds its
+ * input; export did not, so one request could ask the registry to serialize
+ * an unbounded name list.
+ */
+exports.MAX_BULK_EXPORT_NAMES = 1000;
 /**
  * Max ids accepted by one POST /api/transports/durable/dlq/replay.
  * Each id costs a DynamoDB read plus a message-queue POST, run

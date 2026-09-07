@@ -138,6 +138,33 @@ const MIXED_SEPARATOR_EXCEPTIONS: Record<string, string> = {
   'transcription:job.queued': 'Backfilled to match the queue name platform-api already publishes to.',
   'transcription:transcript.ready': 'Backfilled to match the name the transcription worker already publishes.',
   'transcription:summary.ready': 'Backfilled to match the name platform-api already publishes.',
+  'call:reaction.recorded': 'Backfilled to match the name the gateway already publishes (realtime-examples/src/server.ts:1058) and platform-api already subscribes to.',
+};
+
+/**
+ * Payload fields whose names belong to a FOREIGN wire protocol, not to this
+ * platform — so the lowerCamelCase rule does not apply and cannot be made to.
+ *
+ * The only members are the three IVS Chat frames the SFU republishes on
+ * `chat-bus:<channelArn>`. Their keys are PascalCase (Type, Id, Sender,
+ * Content, SendTime …) because ChatHub hands the SAME object to
+ * `_publishCluster` and to `_broadcast` (live-video-streaming
+ * src/chat/ChatHub.js:161 and :73) — meaning the object on the bus is the
+ * object AWS-IVS-compatible chat clients receive on
+ * `/api/channels/:arn/chat`. LVS is the IVS replacement target; renaming
+ * these keys would break that parity, and declaring them camelCase here
+ * would simply be false.
+ *
+ * This is the one exception the codebase has to "payload fields are
+ * lowerCamelCase, platform-wide", and it is scoped by EVENT so that a
+ * platform-native event cannot slip a PascalCase field through. Do not add
+ * an event here to make your own declaration pass — the rule is right for
+ * everything the platform itself defines.
+ */
+const FOREIGN_WIRE_PROTOCOL_EVENTS: Record<string, string> = {
+  'sfu.chat.message': 'IVS Chat wire protocol — the same object goes to IVS-compatible clients verbatim.',
+  'sfu.chat.message_deleted': 'IVS Chat wire protocol — the same object goes to IVS-compatible clients verbatim.',
+  'sfu.chat.user_disconnected': 'IVS Chat wire protocol — the same object goes to IVS-compatible clients verbatim.',
 };
 
 /** Events with a camelCase segment where the namespace otherwise uses lower-kebab. */
@@ -580,11 +607,26 @@ describe('payload fields', () => {
   it('every property name is lowerCamelCase', () => {
     const bad: string[] = [];
     for (const d of allDeclarations) {
+      if (d.name in FOREIGN_WIRE_PROTOCOL_EVENTS) continue;
       for (const prop of eachProperty(d)) {
         if (!LOWER_CAMEL_FIELD.test(prop.name)) bad.push(`${d.name} $.${prop.path}`);
       }
     }
     expect(bad, `payload fields that are not lowerCamelCase: ${bad.join(', ')}`).toEqual([]);
+  });
+
+  it('every foreign-wire-protocol exemption is a real declaration that actually needs it', () => {
+    const byName = new Map(allDeclarations.map((d) => [d.name, d]));
+    const stale: string[] = [];
+    for (const name of Object.keys(FOREIGN_WIRE_PROTOCOL_EVENTS)) {
+      const decl = byName.get(name);
+      if (!decl) {
+        stale.push(`${name} is no longer declared`);
+      } else if (eachProperty(decl).every((p) => LOWER_CAMEL_FIELD.test(p.name))) {
+        stale.push(`${name} is now fully lowerCamelCase`);
+      }
+    }
+    expect(stale, `exemptions that no longer earn their place — delete them: ${stale.join('; ')}`).toEqual([]);
   });
 
   // -------------------------------------------------------------------------

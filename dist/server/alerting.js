@@ -1,16 +1,40 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AlertManager = void 0;
+exports.AlertManager = exports.DEFAULT_MAX_TRACKED_KEYS = void 0;
+/**
+ * Ceiling on the per-key bookkeeping maps.
+ *
+ * `lastAlerted` and `lastErrorCount` are keyed partly by event name, and
+ * event names are writable over HTTP, so these are unbounded maps fed by
+ * request input. Evicting oldest-first past the cap costs at worst a
+ * duplicate alert for an evicted key.
+ */
+exports.DEFAULT_MAX_TRACKED_KEYS = 5000;
+/** Health states this manager treats as "the dependency is working". */
+const HEALTHY = 'connected';
 class AlertManager {
     webhookUrl;
     errorRateThreshold;
     cooldownMs;
+    healthConfirmations;
+    maxTrackedKeys;
     lastAlerted = new Map();
     previousHealthState = new Map();
+    /** component → { state, consecutive } for transition debouncing. */
+    pendingHealth = new Map();
+    /** Components with an open (alerted, unresolved) health incident. */
+    alertedDown = new Set();
+    /**
+     * eventName → cumulative errorCount at the last evaluation. The alert
+     * fires on the DELTA, not on the cumulative total.
+     */
+    lastErrorCount = new Map();
     constructor(config = {}) {
         this.webhookUrl = config.webhookUrl ?? process.env.ALERT_WEBHOOK_URL;
         this.errorRateThreshold = config.errorRateThreshold ?? 10;
         this.cooldownMs = config.cooldownMs ?? 300_000;
+        this.healthConfirmations = Math.max(1, config.healthConfirmations ?? 2);
+        this.maxTrackedKeys = config.maxTrackedKeys ?? exports.DEFAULT_MAX_TRACKED_KEYS;
     }
     get enabled() {
         return !!this.webhookUrl;
@@ -21,12 +45,66 @@ class AlertManager {
     setPreviousState(component, state) {
         this.previousHealthState.set(component, state);
     }
+    /**
+     * Feed one health probe and alert on a *confirmed* transition.
+     *
+     * This owns the whole state machine — previous state, debounce, and
+     * which alert to send — so a caller only has to hand it each probe
+     * result. It replaces the hand-rolled compare-and-set the health
+     * interval was doing, which fired on a single sample: one 15s probe
+     * blipping to `degraded` paged, and the very next probe returning to
+     * `connected` sent a `resolved`, so a flapping Redis produced an
+     * alternating alert stream rather than one incident.
+     *
+     * Returns what it did, which is what makes the transitions testable.
+     */
+    async observeHealth(component, status) {
+        const previous = this.previousHealthState.get(component);
+        // First observation establishes a baseline without alerting: a
+        // dependency that has simply not connected yet at boot is not an
+        // incident, and paging on it would fire on every deploy.
+        if (previous === undefined) {
+            this.previousHealthState.set(component, status);
+            return 'ignored';
+        }
+        if (status === previous) {
+            // Steady state — discard any half-formed transition.
+            this.pendingHealth.delete(component);
+            return 'ignored';
+        }
+        const pending = this.pendingHealth.get(component);
+        const count = pending && pending.state === status ? pending.count + 1 : 1;
+        if (count < this.healthConfirmations) {
+            this.pendingHealth.set(component, { state: status, count });
+            return 'pending';
+        }
+        this.pendingHealth.delete(component);
+        this.previousHealthState.set(component, status);
+        if (status === HEALTHY) {
+            // Only resolve an incident we actually opened. Otherwise a service
+            // that boots with Redis still connecting sends a "recovered" for a
+            // failure nobody was ever told about.
+            if (!this.alertedDown.delete(component))
+                return 'ignored';
+            await this.onRecovery(component);
+            return 'recovered';
+        }
+        this.alertedDown.add(component);
+        await this.onHealthChange(component, previous, status);
+        return 'alerted';
+    }
     async onHealthChange(component, from, to) {
         if (!this.enabled)
             return;
         const severity = to === 'disconnected' ? 'critical' : 'warning';
         const title = `${capitalize(component)} transport ${to}`;
         const message = `${capitalize(component)} health transitioned from "${from}" to "${to}"`;
+        // A component going down again must be able to alert even if it was
+        // already declared recovered inside the cooldown window. Without
+        // this, down → recovered → down within 5 minutes delivered the
+        // "resolved" and swallowed the second failure, leaving the operator
+        // with a green page over a broken dependency.
+        this.clearCooldown(`health:${component}:recovered`);
         await this.fire(`health:${component}:${to}`, {
             service: 'event-catalog',
             severity,
@@ -36,23 +114,47 @@ class AlertManager {
             metadata: { component, from, to },
         });
     }
+    /**
+     * Alert when an event accrues `errorRateThreshold` NEW errors between
+     * two evaluations.
+     *
+     * `errorCount` is the cumulative lifetime counter from
+     * `MetricsCollector`. Comparing that directly against a threshold —
+     * which is what this did — means that once an event has ever crossed
+     * 10 errors it is permanently over threshold: the alert re-fires every
+     * cooldown, forever, long after the cause is fixed, and there is no
+     * state in which it stops. Differencing against the last observed
+     * value turns it into an actual rate alert that goes quiet when the
+     * errors do.
+     */
     async onErrorThreshold(eventName, errorCount) {
         if (!this.enabled)
             return;
-        if (errorCount < this.errorRateThreshold)
+        const previous = this.lastErrorCount.get(eventName) ?? 0;
+        // A decrease means the counter was reset (metrics reset, restart);
+        // treat the current value as the new delta rather than a negative.
+        const newErrors = errorCount < previous ? errorCount : errorCount - previous;
+        this.remember(this.lastErrorCount, eventName, errorCount);
+        if (newErrors < this.errorRateThreshold)
             return;
         await this.fire(`errors:${eventName}`, {
             service: 'event-catalog',
             severity: 'warning',
             title: `Error threshold exceeded for "${eventName}"`,
-            message: `Event "${eventName}" has accumulated ${errorCount} errors (threshold: ${this.errorRateThreshold})`,
+            message: `Event "${eventName}" accrued ${newErrors} new errors since the last check ` +
+                `(threshold: ${this.errorRateThreshold}, lifetime total: ${errorCount})`,
             timestamp: new Date().toISOString(),
-            metadata: { eventName, errorCount, threshold: this.errorRateThreshold },
+            metadata: { eventName, errorCount, newErrors, threshold: this.errorRateThreshold },
         });
     }
     async onRecovery(component) {
         if (!this.enabled)
             return;
+        // Symmetric to onHealthChange: once recovered, a subsequent failure
+        // must not be suppressed by the cooldown left over from the previous
+        // failure alert.
+        this.clearCooldown(`health:${component}:disconnected`);
+        this.clearCooldown(`health:${component}:degraded`);
         await this.fire(`health:${component}:recovered`, {
             service: 'event-catalog',
             severity: 'resolved',
@@ -61,6 +163,18 @@ class AlertManager {
             timestamp: new Date().toISOString(),
             metadata: { component },
         });
+    }
+    clearCooldown(key) {
+        this.lastAlerted.delete(key);
+    }
+    /** Insertion-ordered eviction so an unbounded key source cannot grow the map. */
+    remember(map, key, value) {
+        if (!map.has(key) && map.size >= this.maxTrackedKeys) {
+            const oldest = map.keys().next();
+            if (!oldest.done)
+                map.delete(oldest.value);
+        }
+        map.set(key, value);
     }
     async fire(key, payload) {
         const now = Date.now();
@@ -86,7 +200,7 @@ class AlertManager {
                 console.warn(`[alerting] webhook returned ${res.status} — alert not delivered, cooldown NOT applied`);
                 return;
             }
-            this.lastAlerted.set(key, now);
+            this.remember(this.lastAlerted, key, now);
         }
         catch (err) {
             console.warn('[alerting] webhook delivery failed:', err.message);

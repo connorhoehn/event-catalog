@@ -255,6 +255,14 @@ async function startServer(config = {}) {
     });
     const promMetrics = new prom_metrics_js_1.PromMetrics();
     const serviceVersion = readServiceVersion();
+    // Pull-style gauges, sampled at scrape time rather than pushed on a timer —
+    // registry size, poisoned events and SSE saturation are all cheap reads whose
+    // value is "what is true right now", and a timer would only add staleness.
+    promMetrics.collect(() => {
+        promMetrics.setRegistrySize(registry.size());
+        promMetrics.setPoisonedEvents(poisonDetector.listPoisoned().length);
+        promMetrics.setSseStreams(sse_js_1.sseRegistry.size, sse_js_1.sseRegistry.getLimits().maxStreams);
+    });
     // Bridge: original DLQ deadLetter hook also bumps the prom gauge.
     durable.onDeadLetter((message) => {
         promMetrics.recordFailure(message.envelope.eventName, 'transport');
@@ -303,14 +311,18 @@ async function startServer(config = {}) {
         try {
             // Refresh DLQ gauges by scanning the DLQ store. Best-effort —
             // if DDB is down we still want /metrics to respond.
-            const dlqEntries = await dlqStore.list({ limit: 1000 }).catch(() => []);
+            // No `.catch(() => [])` here: an empty list from a DynamoDB outage would
+            // publish "DLQ is empty" during exactly the incident where its depth
+            // matters. Let it throw to the catch below, which leaves the last known
+            // gauges in place instead.
+            const dlqEntries = await dlqStore.list({ limit: 1000 });
             const counts = new Map();
             for (const entry of dlqEntries) {
                 counts.set(entry.eventName, (counts.get(entry.eventName) ?? 0) + 1);
             }
-            for (const [event, count] of counts) {
-                promMetrics.setDLQEntries(event, count);
-            }
+            // syncDLQEntries, not a setDLQEntries loop: a drained queue has no entry
+            // to iterate, so per-event sets left stale non-zero depths forever.
+            promMetrics.syncDLQEntries(counts);
         }
         catch {
             // swallow; gauges may be stale but text rendering still works
@@ -471,17 +483,17 @@ async function startServer(config = {}) {
             { component: 'redis', status: redisHealth.status, latencyMs: redisHealth.latencyMs },
             { component: 'message-queue', status: mqHealth.status, latencyMs: mqHealth.latencyMs },
         ];
-        for (const { component, status } of checks) {
-            const prev = alertManager.getPreviousState(component);
-            if (prev && prev !== status) {
-                if (status === 'connected' && prev !== 'connected') {
-                    await alertManager.onRecovery(component);
-                }
-                else if (status !== 'connected') {
-                    await alertManager.onHealthChange(component, prev, status);
-                }
+        for (const { component, status, latencyMs } of checks) {
+            // observeHealth owns previous-state, N-sample debounce, and which alert
+            // to send. The hand-rolled compare-and-set this replaces paged on a
+            // single probe blip and could swallow a second failure that arrived
+            // inside the recovery cooldown.
+            await alertManager.observeHealth(component, status);
+            promMetrics.setTransportUp(component, status === 'connected');
+            if (typeof latencyMs === 'number') {
+                // The probe reports milliseconds; the metric name says seconds.
+                promMetrics.setTransportProbeLatencySeconds(component, latencyMs / 1000);
             }
-            alertManager.setPreviousState(component, status);
         }
         const snapshot = metrics.snapshot();
         for (const [eventName, stats] of Object.entries(snapshot)) {

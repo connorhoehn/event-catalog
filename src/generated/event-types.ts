@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-07T13:54:43.979Z
+// Generated at: 2026-09-07T14:42:36.024Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -1157,6 +1157,198 @@ export interface EventPayloadMap {
       [key: string]: unknown;
     };
     [key: string]: unknown;
+  };
+  /** A user-initiated activity-feed entry. Durable for analytics, replay and pipeline triggering (platform-api drains it into the user-activity table); signal for the live activity feed. Anonymous entries (userId null) are dropped by the DDB writer but still fire pipeline triggers. */
+  'activity.recorded': {
+    eventType: string;
+    detail: Record<string, unknown>;
+    timestamp: string;
+    userId: string | null;
+    displayName: string;
+    [key: string]: unknown;
+  };
+  /** An in-call emoji reaction, captured durably for playback, retro and transcript injection. Identity is stamped server-side at send time and is never trusted from the client frame. Drained by platform-api into the call-reactions table, keyed `<at>#<reactionId>`. */
+  'call:reaction.recorded': {
+    reactionId: string;
+    channel: string;
+    lobbyName: string;
+    userId: string | null;
+    displayName?: string;
+    emoji: string;
+    effect?: string;
+    at: string;
+    [key: string]: unknown;
+  };
+  /** A WebRTC transport session has been established for a participant on a channel. Emitted once per participant per session join (api/channels/index.js:412). */
+  'sfu.session.created': {
+    channelArn: string;
+    sessionId: string;
+    participantId: string;
+  };
+  /** A WebRTC transport session has closed — the transport observer fired "close". Carries the whole session lifetime (api/channels/index.js:434). */
+  'sfu.session.ended': {
+    channelArn: string;
+    sessionId: string;
+    participantId: string;
+    durationMs: number;
+  };
+  /** A producer (one audio or video track) was added on a channel — the first track of a live stream going online. Emitted from api/channels/transports.js:137 and api/channels/index.js:641. */
+  'sfu.stream.started': {
+    channelArn: string;
+    participantId: string;
+    kind: 'audio' | 'video';
+    producerId: string;
+  };
+  /** A producer track was removed — the transport observer fired "close" on the live transport. Emitted from api/channels/transports.js:142 and api/channels/index.js:644. */
+  'sfu.stream.ended': {
+    channelArn: string;
+    participantId: string;
+    kind: 'audio' | 'video';
+    producerId: string;
+  };
+  /** Stream health metrics fell below their thresholds — bitrate drop, low fps, or an over-long keyframe gap. `reasons` enumerates every predicate that tripped (services/streamHealthMonitor.js:99). */
+  'sfu.stream.health.degraded': {
+    channelArn: string;
+    reasons: string[];
+    bitrateBps: number;
+    fps: number | null;
+    keyframeGapSec: number | null;
+  };
+  /** Stream health returned to nominal after a previous degraded state (services/streamHealthMonitor.js:111). */
+  'sfu.stream.health.recovered': {
+    channelArn: string;
+    bitrateBps: number;
+    fps: number | null;
+  };
+  /** A new thumbnail snapshot was written to storage for a live channel (thumbnails/ThumbnailManager.js:266). */
+  'sfu.stream.thumbnail.updated': {
+    channelArn: string;
+    path: string;
+    sizeBytes: number;
+  };
+  /** A recording session opened on a live stream. Emitted from both the single-file path (recording/RecordingManager.js:943) and the per-peer path (:2426); only the latter carries `legCount`. */
+  'sfu.recording.started': {
+    channelArn: string;
+    recordingId: string;
+    startedAt: string;
+    destination: string;
+    legCount?: number;
+  };
+  /** A recording session finalized. Carries the segment manifest, the per-participant track manifest, total encoded size, duration, and the recording profile the run began under. Drained by platform-api's lvsWebhooks route into video-call-recordings (recording/RecordingManager.js:1756). */
+  'sfu.recording.completed': {
+    channelArn: string;
+    recordingId: string;
+    segments: ({
+      key: string;
+      url: string;
+      size: number;
+    })[];
+    totalSize: number;
+    durationMs: number;
+    destination: string;
+    thumbnailUrl?: string;
+    composedUrl?: string;
+    tracks?: ({
+      participantId: string;
+      userId?: string;
+      key: string;
+      url: string;
+      size?: number;
+      kind: string;
+      [key: string]: unknown;
+    })[];
+    recordingProfile: string;
+    profileVersion: number;
+    composePerPeer: boolean;
+    transcribe: boolean;
+  };
+  /** A new IVS-style channel was created via POST /api/channels (api/channels/index.js:1375). */
+  'sfu.channel.created': {
+    channelArn: string;
+    name: string;
+    type: string;
+  };
+  /** A configuration field on an existing channel was mutated. `field` names which one (api/channels/index.js:1877, :1907). */
+  'sfu.channel.updated': {
+    channelArn: string;
+    field: string;
+  };
+  /** A channel was hard-deleted via DELETE /api/channels/:arn. The wire `data` is empty; the envelope's channelArn identifies the removed channel (api/channels/index.js:2014). */
+  'sfu.channel.deleted': {
+    channelArn: string;
+  };
+  /** A mediasoup Producer was created on the cluster. Emitted from the create-producer API path (api/channels/index.js:617), which stamps identity and initial state, and from the transport produce path (api/channels/transports.js:110), which does not. */
+  'sfu.producer.added': {
+    channelArn: string;
+    producerId: string;
+    kind: 'audio' | 'video';
+    participantId: string;
+    displayName?: string;
+    userId?: string;
+    isPiped: boolean;
+    state?: {
+      muted: boolean;
+      [key: string]: unknown;
+    };
+  };
+  /** A mediasoup Producer was closed — the underlying transport observer fired "close". Emitted from api/channels/index.js:624 and api/channels/transports.js:115. */
+  'sfu.producer.removed': {
+    channelArn: string;
+    producerId: string;
+    kind: 'audio' | 'video';
+    participantId: string;
+  };
+  /** Recording started or stopped for a channel. Pushed onto the per-channel stream-events bus so stage-WS subscribers can drop their GET /:arn/recording poll. Emitted from recording/RecordingManager.js via _emitStateChange (:501) on start (:948), per-peer start (:2433), stop (:1837) and zero-track prune (:1644). */
+  'sfu.recording.state.changed': {
+    channelArn: string;
+    isRecording: boolean;
+    recordingId?: string;
+    startedAt?: string;
+    pruned?: boolean;
+    reason?: string;
+  };
+  /** A chat message was sent by a participant, in IVS Chat wire-protocol shape. Persisted to the per-channel history list before fan-out; republished cross-pod on chat-bus so other pods can broadcast it to their local sockets (chat/ChatHub.js:206). */
+  'sfu.chat.message': {
+    Type: 'MESSAGE';
+    Id: string;
+    RequestId?: string;
+    Sender: {
+      UserId: string;
+      Attributes: Record<string, unknown>;
+      [key: string]: unknown;
+    };
+    Content: string;
+    Attributes: Record<string, unknown>;
+    SendTime: string;
+    [key: string]: unknown;
+  };
+  /** A previously sent chat message was deleted by a moderator, in IVS Chat wire-protocol shape (chat/ChatHub.js:226). */
+  'sfu.chat.message_deleted': {
+    Type: 'MESSAGE_DELETED';
+    Id: string;
+    Reason: string;
+    DeleteTime: string;
+    [key: string]: unknown;
+  };
+  /** A user was forcibly disconnected from a chat channel by a moderator, in IVS Chat wire-protocol shape. Subscribing pods close any local sockets held by the named user (producer chat/ChatHub.js:238; the cross-pod consumer is chat/ChatHub.js:137). */
+  'sfu.chat.user_disconnected': {
+    Type: 'USER_DISCONNECTED';
+    UserId: string;
+    Reason: string;
+    DisconnectTime: string;
+    [key: string]: unknown;
+  };
+  /** A user was banned from chat on a channel — internal cross-pod propagation, NOT part of the IVS Chat wire protocol, so the keys are lowercase and no client ever sees it (api/channels/chatBans.js:42). */
+  'sfu.chat.user.banned': {
+    type: 'user.banned';
+    userId: string;
+    reason: string;
+    durationSeconds: number | null;
+  };
+  /** A previously banned user was unbanned — internal cross-pod propagation, lowercase keys, no client visibility (api/channels/chatBans.js:90). */
+  'sfu.chat.user.unbanned': {
+    type: 'user.unbanned';
+    userId: string;
   };
   /** Client request to join a chat channel and start receiving its messages. Sent by GatewaySocketProvider on connect when the chat feature is declared. GROUND TRUTH (hub#1497): the gateway ChatService verb is "join" — the previously declared "subscribe" was never accepted. channel is required; on success the gateway replies chat/joined and auto-pushes recent channel history. */
   'client.chat.join': {

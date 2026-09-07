@@ -4,6 +4,11 @@ exports.MetricsObserver = void 0;
 const durable_js_1 = require("../client/durable.js");
 const tap_emitter_js_1 = require("./tap-emitter.js");
 const audit_emitter_js_1 = require("./audit-emitter.js");
+/**
+ * Ceiling on how many synthetic publish/error observations one poll pass
+ * will replay from a single queue's counter delta.
+ */
+const MAX_CATCHUP_PER_POLL = 10_000;
 class MetricsObserver {
     registry;
     signal;
@@ -21,6 +26,19 @@ class MetricsObserver {
     // makes the delta go negative and silently drops durable observations.
     lastDurableSent = new Map();
     lastDurableFailed = new Map();
+    /**
+     * Re-entrancy guard for the durable poll.
+     *
+     * `setInterval` fires on a wall clock, not on completion, and
+     * `pollDurableStats` awaits one `getQueueAttributes` round-trip per
+     * durable event. Once the message-queue is slow enough that a pass
+     * outlasts the 5s interval — precisely the incident you are looking at
+     * the metrics during — two passes interleave: both read the same
+     * `lastDurableSent` baseline before either writes it, so every publish
+     * in the delta is counted twice and the publish rate reads roughly
+     * double. Serialize instead.
+     */
+    polling = false;
     constructor(deps) {
         this.registry = deps.registry;
         this.signal = deps.signal;
@@ -112,6 +130,17 @@ class MetricsObserver {
         }
     }
     async pollDurableStats() {
+        if (this.polling)
+            return;
+        this.polling = true;
+        try {
+            await this.pollDurableStatsOnce();
+        }
+        finally {
+            this.polling = false;
+        }
+    }
+    async pollDurableStatsOnce() {
         // Include transport:'both' — its durable side has the same SQS-style
         // counters as a pure 'durable' event. The registry's transport filter
         // is strict equality, so we widen here rather than calling list()
@@ -128,12 +157,33 @@ class MetricsObserver {
                         ? attrs['ApproximateNumberOfMessages'] : undefined,
                     messagesInFlight: typeof attrs['ApproximateNumberOfMessagesNotVisible'] === 'number'
                         ? attrs['ApproximateNumberOfMessagesNotVisible'] : undefined,
+                    // `oldestMessageAge` is declared on EventStats and gauged by
+                    // MetricsCollector but was never populated, so it read 0 —
+                    // i.e. "nothing is stuck" — for every queue forever. Depth
+                    // alone does not distinguish a busy queue from a wedged one;
+                    // the age of the head does.
+                    oldestMessageAge: typeof attrs['ApproximateAgeOfOldestMessage'] === 'number'
+                        ? attrs['ApproximateAgeOfOldestMessage'] : undefined,
                 });
             }
             const transportMetrics = this.durable.getMetrics(queueName);
             if (transportMetrics) {
-                const seenBefore = this.lastDurableSent.get(entry.name) ?? 0;
-                const newSends = transportMetrics.sent - seenBefore;
+                // Counter-reset handling. The transport's `sent`/`failed` are
+                // process-lifetime counters on the DurableTransport instance; a
+                // reconnect or a swapped transport restarts them at 0. The old
+                // code only advanced the baseline when the new value was HIGHER,
+                // so after a reset every publish was silently dropped on the
+                // floor until the counter climbed back past the stale high-water
+                // mark — an outage-shaped gap in the publish rate caused by the
+                // recovery, not by the incident. Treat a decrease as a reset and
+                // re-baseline at the observed value.
+                const rawSentBaseline = this.lastDurableSent.get(entry.name) ?? 0;
+                const seenBefore = transportMetrics.sent < rawSentBaseline ? 0 : rawSentBaseline;
+                // Bound the catch-up loop. A first poll against a long-running
+                // transport, or a reset, can produce an enormous delta; each
+                // iteration emits a tap frame to every SSE subscriber, so an
+                // unbounded loop here is a self-inflicted stall.
+                const newSends = Math.min(transportMetrics.sent - seenBefore, MAX_CATCHUP_PER_POLL);
                 for (let i = 0; i < newSends; i++) {
                     this.metrics.recordPublish(entry.name);
                     // Phase E8 — durable taps are coarse: one tap event per
@@ -148,17 +198,15 @@ class MetricsObserver {
                         queue: queueName,
                     });
                 }
-                if (transportMetrics.sent > seenBefore) {
-                    this.lastDurableSent.set(entry.name, transportMetrics.sent);
-                }
-                const prevErrors = this.lastDurableFailed.get(entry.name) ?? 0;
-                for (let i = 0; i < transportMetrics.failed - prevErrors; i++) {
+                this.lastDurableSent.set(entry.name, transportMetrics.sent);
+                const rawFailedBaseline = this.lastDurableFailed.get(entry.name) ?? 0;
+                const prevErrors = transportMetrics.failed < rawFailedBaseline ? 0 : rawFailedBaseline;
+                const newErrors = Math.min(transportMetrics.failed - prevErrors, MAX_CATCHUP_PER_POLL);
+                for (let i = 0; i < newErrors; i++) {
                     this.metrics.recordError(entry.name);
                     this.maybePoison(entry.name);
                 }
-                if (transportMetrics.failed > prevErrors) {
-                    this.lastDurableFailed.set(entry.name, transportMetrics.failed);
-                }
+                this.lastDurableFailed.set(entry.name, transportMetrics.failed);
             }
         }
     }

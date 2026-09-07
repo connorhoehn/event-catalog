@@ -7,13 +7,32 @@ info:
     topology, DLQ), and by Kubernetes / Prometheus (`/health`, `/metrics`).
 
     This spec is for **documentation and tooling**. SDK generation is a
-    non-goal per ROADMAP.md §5 ("Out of scope"). The library half
-    (`@connorhoehn/event-catalog`) is what producers actually publish
-    through; this admin surface is the slow path.
+    non-goal. The library half (`@connorhoehn/event-catalog`) is what
+    producers actually publish through; this admin surface is the slow
+    path.
 
-    Source of truth for shapes: `src/server/routes.ts` and
-    `src/types/index.ts`.
-  version: 0.4.0
+    Source of truth for shapes: the handlers in `src/server/routes/*.ts`
+    (wired onto the router by `src/server/routes.ts`) and
+    `src/types/index.ts`. `scripts/openapi-check.ts` enforces that this
+    file's routes, status codes and query parameters are grounded in
+    those handlers.
+
+    **Cross-cutting responses** every operation can return, not repeated
+    per-operation below:
+
+      - `401` — only when the deployment injects an `authMiddleware`
+        (the catalog ships unauthenticated by design).
+      - `404 {"error":"NotFound","path":...}` — no route matched.
+      - `413` — request body over the 1 MiB `MAX_REQUEST_BODY_BYTES`
+        cap; rejected by the HTTP layer before the handler runs. Only
+        documented explicitly on operations that take a body.
+      - `400 {"error":"InvalidJson"}` — an `application/json` body that
+        did not parse.
+
+    **Undocumented family**: `/api/feature-bundles/*` (see
+    `src/server/bundle-routes.ts`) is mounted alongside `/api` but is
+    not described here yet.
+  version: 0.5.0
   license:
     name: UNLICENSED
 servers:
@@ -42,19 +61,22 @@ paths:
       tags: [ops]
       summary: Tri-state health probe (Kubernetes-compatible)
       description: |
-        Returns 200 when healthy or degraded, 503 when unhealthy. Body
-        carries per-dependency status for Redis and message-queue.
+        Returns 200 when healthy or degraded, 503 when any check is
+        unhealthy. This is `makeHealthHandler` (`src/server/health.ts`),
+        NOT the same body as `GET /api/health`: it reports a `checks[]`
+        array (ids `redis`, `message-queue`, `registry`) rather than
+        named `redis` / `messageQueue` objects.
       responses:
         '200':
           description: Healthy or degraded
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/HealthResponse' }
+              schema: { $ref: '#/components/schemas/ServiceHealthResponse' }
         '503':
-          description: Unhealthy — at least one dependency is disconnected
+          description: Unhealthy — at least one check reported unhealthy or timed out
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/HealthResponse' }
+              schema: { $ref: '#/components/schemas/ServiceHealthResponse' }
 
   /metrics:
     get:
@@ -174,16 +196,41 @@ paths:
                     type: array
                     items: { type: string }
                     description: Present when an evolution had compat violations (warn mode).
+                  affectedConsumers:
+                    type: array
+                    description: |
+                      Present only under `?check-manifests=warn` when the
+                      declare would stale at least one pinned consumer.
+                    items:
+                      type: object
+                      required: [consumerName, pinnedFingerprint]
+                      properties:
+                        consumerName: { type: string }
+                        pinnedFingerprint: { type: string, pattern: '^[0-9a-f]{64}$' }
         '400':
-          description: Missing required field or invalid `transport`
+          description: |
+            Missing `name` / `transport` / `producer`, a `transport`
+            outside the enum, an event name rejected by
+            `validateEventName` (over 512 chars, containing control
+            characters, or one of `__proto__` / `constructor` /
+            `prototype`), or a `Registry.declare` rejection.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '409':
-          description: Compat violation under strict mode
+          description: |
+            Either a compat violation under strict mode
+            (`COMPAT_VIOLATION`), or — under `?check-manifests=strict` —
+            a fingerprint change that would stale a pinned consumer
+            (`PINNED_CONSUMER_BREAK`). The `error.code` discriminates.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CompatViolationError' }
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/CompatViolationError'
+                  - $ref: '#/components/schemas/PinnedConsumerBreakError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
 
   /api/events/bulk:
     post:
@@ -203,24 +250,49 @@ paths:
                 serviceName: { type: string }
                 events:
                   type: array
+                  maxItems: 1000
+                  description: |
+                    At most `MAX_BULK_EVENTS` (1000) declarations per
+                    request — over that the whole request is rejected
+                    with 400. Entries missing `name` or `transport`, and
+                    entries whose `Registry.declare` throws, are skipped
+                    silently; entries with an unusable name come back in
+                    `rejected`.
                   items: { $ref: '#/components/schemas/EventDeclarationInput' }
       responses:
         '201':
-          description: Bulk declare succeeded
+          description: |
+            Bulk declare processed. Always 201, even when every entry was
+            skipped or rejected — callers must read `declared` / `rejected`.
           content:
             application/json:
               schema:
                 type: object
+                required: [declared, count]
                 properties:
                   declared:
                     type: array
                     items: { type: string }
                   count: { type: integer }
+                  rejected:
+                    type: array
+                    description: |
+                      Omitted entirely when nothing was rejected. Present
+                      for names refused by `validateEventName`; the name
+                      is truncated to 128 characters in the echo.
+                    items:
+                      type: object
+                      required: [name, error]
+                      properties:
+                        name: { type: string }
+                        error: { type: string }
         '400':
-          description: Missing serviceName or events
+          description: Missing `serviceName`, missing/non-array `events`, or more than 1000 entries
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
 
   /api/events/{name}:
     parameters:
@@ -251,12 +323,17 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/RegistryEntry'
                   - type: object
+                    required: [validationMode]
                     properties:
                       validationMode:
                         type: string
                         enum: [off, warn, strict]
+                        description: |
+                          Always `off` today — validation enforcement is
+                          system-wide and per-event overrides are not yet
+                          surfaced here (EC-6/EC-7).
         '400':
-          description: Invalid `?version=` value
+          description: Repeated `?version=` key, or a value that is not a positive integer
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -299,8 +376,12 @@ paths:
 
         This is the canonical form of the check. The `get` variant below
         exists only for callers that predate it.
+
+        The body is read first; if it carries no `schema`, the handler
+        falls back to the same URL-encoded `?schema=` param the `get`
+        form uses. One of the two must be present.
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -308,6 +389,14 @@ paths:
               required: [schema]
               properties:
                 schema: { type: object, description: JSON Schema (draft-07) }
+      parameters:
+        - in: query
+          name: schema
+          required: false
+          schema: { type: string }
+          description: |
+            URL-encoded JSON Schema object. Fallback for callers that
+            send no request body; the body wins when both are present.
       responses:
         '200':
           description: Compat result
@@ -315,7 +404,10 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/CompatCheckResponse' }
         '400':
-          description: Missing or non-object schema
+          description: |
+            No schema supplied on either the body or `?schema=`, a
+            non-object `schema`, an unparseable `?schema=`, or a
+            repeated `?schema=` key.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -324,6 +416,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
     get:
       tags: [events]
       summary: Dry-run schema compat check (query-param form)
@@ -393,10 +487,17 @@ paths:
         For signal events, returns the last N envelopes from the
         per-channel Redis ring buffer. Durable events return an empty
         array with a `note` (message-queue peek not yet implemented).
+
+        An event declared `transport: both` takes the durable branch, so
+        the reported `transport` is only ever `signal` or `durable`.
       parameters:
         - in: query
           name: count
-          schema: { type: integer, default: 50, minimum: 1 }
+          schema: { type: integer, default: 50 }
+          description: |
+            Parsed with `parseInt`, falling back to 50 for anything that
+            does not parse (including `0`). Not otherwise bounded — the
+            underlying Redis ring buffer caps the real result size.
       responses:
         '200':
           description: History (may be empty)
@@ -404,12 +505,20 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [messages, transport]
                 properties:
                   messages:
                     type: array
                     items: { $ref: '#/components/schemas/EventEnvelope' }
                   transport: { type: string, enum: [signal, durable] }
-                  note: { type: string }
+                  note:
+                    type: string
+                    description: Present only on the durable branch.
+        '400':
+          description: Repeated `?count=` key
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '404':
           description: Event not declared
           content:
@@ -441,6 +550,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [event, subscriber]
                 properties:
                   event: { type: string }
                   subscriber: { type: string }
@@ -454,6 +564,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
 
   /api/events/{name}/subscribers/{serviceName}:
     parameters:
@@ -475,6 +587,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [event, removedSubscriber]
                 properties:
                   event: { type: string }
                   removedSubscriber: { type: string }
@@ -534,6 +647,11 @@ paths:
               properties:
                 events:
                   type: array
+                  maxItems: 5000
+                  description: |
+                    At most `MAX_FRESHNESS_EVENTS` (5000) entries. An
+                    entry missing a string `name` or `fingerprint` is not
+                    rejected — it comes back with `status: "invalid"`.
                   items:
                     type: object
                     required: [name, fingerprint]
@@ -553,19 +671,30 @@ paths:
                     type: array
                     items:
                       type: object
+                      required: [name, status]
                       properties:
-                        name: { type: string }
+                        name:
+                          type: string
+                          description: Empty string when the request entry had no string `name`.
                         status:
                           type: string
                           enum: [fresh, stale, unknown, invalid]
-                        localFingerprint: { type: string }
-                        remoteFingerprint: { type: [string, 'null'] }
-                        error: { type: string }
+                        localFingerprint:
+                          type: string
+                          description: Absent on `invalid` entries.
+                        remoteFingerprint:
+                          type: [string, 'null']
+                          description: Absent on `invalid` entries; `null` when the event is unknown.
+                        error:
+                          type: string
+                          description: Present only on `invalid` entries.
         '400':
-          description: Body missing events[]
+          description: Body `events` missing, not an array, or over 5000 entries
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
 
   /api/topology:
     get:
@@ -585,9 +714,16 @@ paths:
         - in: query
           name: eventType
           schema: { type: string }
+          description: Exact match on the canonical event name.
         - in: query
           name: transport
-          schema: { type: string, enum: [signal, durable, both] }
+          schema: { type: string }
+          description: |
+            Compared with strict equality against the declaration's
+            `transport`, so only `signal`, `durable` and `both` can
+            match — but unlike `GET /api/events` this handler does NOT
+            validate the value; an unknown one yields an empty subgraph
+            rather than a 400.
         - in: query
           name: namespace
           schema: { type: string }
@@ -598,6 +734,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TopologyGraph' }
+        '400':
+          description: |
+            A filter key was repeated (`?producer=a&producer=b`). The
+            repeated form used to collapse to `undefined`, silently
+            widening the response back to the full topology.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/audit:
     get:
@@ -623,12 +767,27 @@ paths:
         flushed as SSE frames *before* the live stream begins. Each
         replayed frame carries `_replay: true` so the client can
         distinguish history from live.
+        Every filter here is best-effort: an unrecognized `kind`, or any
+        filter sent as a repeated key, is treated as "no filter" rather
+        than rejected. An SSE client that mistypes a filter is better
+        served by an open stream than by a 400 it never reads.
       parameters:
         - in: query
           name: kind
           schema:
             type: string
-            enum: [event.declared, event.version.bumped, event.removed, subscriber.added, subscriber.removed]
+            enum:
+              - event.declared
+              - event.version.bumped
+              - event.removed
+              - event.deprecated
+              - event.undeprecated
+              - event.poisoned
+              - event.poison.cleared
+              - subscriber.added
+              - subscriber.removed
+              - event.manifest.drift
+          description: A value outside this set is ignored, not rejected.
         - in: query
           name: eventName
           schema: { type: string }
@@ -640,14 +799,19 @@ paths:
           schema: { type: string }
         - in: query
           name: replay
-          schema: { type: integer, minimum: 0, default: 0 }
-          description: Number of historical events to replay before streaming live (wave23-a).
+          schema: { type: integer, minimum: 0, maximum: 1000, default: 0 }
+          description: |
+            Number of historical events to replay before streaming live
+            (wave23-a). Clamped to `MAX_AUDIT_QUERY_LIMIT` (1000), not
+            rejected; ignored when no persistent audit log is wired.
       responses:
         '200':
           description: SSE stream (long-lived)
           content:
             text/event-stream:
               schema: { type: string, description: SSE-formatted AuditEvent frames }
+        '503':
+          $ref: '#/components/responses/TooManyStreams'
 
   /api/asyncapi:
     get:
@@ -711,17 +875,27 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [serviceName, refreshed, count]
                 properties:
                   serviceName: { type: string }
                   refreshed:
                     type: array
+                    description: |
+                      The subset of events actually refreshed — a service
+                      may have been pruned by the TTL sweeper in the
+                      meantime, so this can be shorter than the request.
                     items: { type: string }
                   count: { type: integer }
         '400':
-          description: Missing serviceName
+          description: |
+            `serviceName` missing or not a non-empty string. A malformed
+            `events` (not an array of strings) is ignored, not rejected —
+            it is treated as if omitted, refreshing every subscription.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
 
   /api/subscribers:
     get:
@@ -731,7 +905,10 @@ paths:
         - in: query
           name: staleAfter
           schema: { type: integer, minimum: 1 }
-          description: Seconds — return only subscribers older than the threshold.
+          description: |
+            Seconds — return only subscribers older than the threshold.
+            Anything that does not parse as a positive integer (including
+            a repeated key) is ignored and the full list is returned.
       responses:
         '200':
           description: Subscribers + heartbeat timestamps
@@ -739,11 +916,13 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [subscribers, total]
                 properties:
                   subscribers:
                     type: array
                     items:
                       type: object
+                      required: [eventName, serviceName, lastSeenAt]
                       properties:
                         eventName: { type: string }
                         serviceName: { type: string }
@@ -751,6 +930,8 @@ paths:
                   total: { type: integer }
                   filter:
                     type: object
+                    description: Echoed only when `?staleAfter=` was applied.
+                    required: [staleAfter]
                     properties:
                       staleAfter: { type: integer }
 
@@ -770,6 +951,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [manifests, count]
                 properties:
                   manifests:
                     type: array
@@ -785,6 +967,11 @@ paths:
     put:
       tags: [events]
       summary: Pin a consumer's manifest
+      description: |
+        Replaces the consumer's pinned set wholesale. `consumerName`
+        comes straight off the path and is capped at
+        `MAX_CONSUMER_NAME_LENGTH` (256) because it becomes a
+        never-expiring Redis hash field.
       requestBody:
         required: true
         content:
@@ -795,6 +982,8 @@ paths:
               properties:
                 events:
                   type: array
+                  maxItems: 5000
+                  description: At most `MAX_MANIFEST_EVENTS` (5000) entries.
                   items:
                     type: object
                     required: [name, fingerprint]
@@ -808,10 +997,15 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ConsumerManifest' }
         '400':
-          description: Malformed body
+          description: |
+            `consumerName` over 256 characters, `events` missing or not
+            an array, over 5000 entries, or an entry whose `name` /
+            `fingerprint` is not a string.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
     get:
       tags: [events]
       summary: Fetch one consumer's manifest
@@ -836,6 +1030,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [removed]
                 properties:
                   removed: { type: string }
         '404':
@@ -859,6 +1054,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [reports]
                 properties:
                   reports:
                     type: array
@@ -876,7 +1072,11 @@ paths:
       parameters:
         - in: query
           name: limit
-          schema: { type: integer, minimum: 1, default: 50 }
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 50 }
+          description: |
+            Rejected with 400 above `MAX_AUDIT_QUERY_LIMIT` (1000).
+            Values that do not parse fall back to 50; values below 1 are
+            clamped up to 1.
       responses:
         '200':
           description: Recent audit events in chronological order
@@ -901,6 +1101,11 @@ paths:
                   note:
                     type: string
                     description: Present when no audit log is wired (returns empty events).
+        '400':
+          description: '`limit` above 1000'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/flow:
     get:
@@ -934,6 +1139,10 @@ paths:
         - in: query
           name: transport
           schema: { type: string, enum: [signal, durable] }
+          description: |
+            A value outside this set — and any filter sent as a repeated
+            key — is ignored rather than rejected. This route never
+            returns 400.
         - in: query
           name: producer
           schema: { type: string }
@@ -943,13 +1152,17 @@ paths:
         - in: query
           name: sample
           schema: { type: integer, minimum: 1, default: 1 }
-          description: Emit 1-in-N events. 1 = unfiltered.
+          description: |
+            Emit 1-in-N events. 1 = unfiltered. Clamped to a minimum of
+            1; a value that does not parse falls back to 1.
       responses:
         '200':
           description: SSE stream (long-lived)
           content:
             text/event-stream:
               schema: { type: string, description: SSE-formatted event frames }
+        '503':
+          $ref: '#/components/responses/TooManyStreams'
 
   /api/transports/signal/channels:
     get:
@@ -962,11 +1175,13 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [channels, total]
                 properties:
                   channels:
                     type: array
                     items:
                       type: object
+                      required: [channel, publishCount, lastPublishedAt, subscriberCount]
                       properties:
                         channel: { type: string }
                         publishCount: { type: integer }
@@ -986,11 +1201,13 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [queues, total]
                 properties:
                   queues:
                     type: array
                     items:
                       type: object
+                      required: [queue, sent, received, failed, inFlight]
                       properties:
                         queue: { type: string }
                         sent: { type: integer }
@@ -1004,15 +1221,22 @@ paths:
       tags: [transports]
       summary: List dead-letter queue entries
       description: |
-        Backed by the DDB-based `DlqStore`. On DDB error, falls back to
-        the in-memory mirror and reports `source: "in-memory"`.
+        Backed by the DDB-based `DLQStore`. On DDB error, falls back to
+        the in-memory mirror and reports `source: "in-memory"` — and the
+        `messages` entries then have a **different shape**
+        (`InMemoryDlqEntry`, keyed by `messageId`, carrying the whole
+        envelope). Clients must branch on `source`.
       parameters:
         - in: query
           name: eventName
           schema: { type: string }
+          description: Repeating the key is rejected with 400, not silently joined.
         - in: query
           name: limit
-          schema: { type: integer, minimum: 1 }
+          schema: { type: integer, minimum: 1, maximum: 1000 }
+          description: |
+            Must be a positive integer no greater than 1000
+            (`MAX_DLQ_LIMIT`) — anything else is a 400, not a clamp.
       responses:
         '200':
           description: DLQ entries
@@ -1020,13 +1244,27 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [messages, total]
                 properties:
                   messages:
                     type: array
-                    items: { $ref: '#/components/schemas/DlqEntry' }
+                    items:
+                      oneOf:
+                        - $ref: '#/components/schemas/DlqEntry'
+                        - $ref: '#/components/schemas/InMemoryDlqEntry'
                   total: { type: integer }
-                  source: { type: string, enum: [in-memory] }
+                  source:
+                    type: string
+                    enum: [in-memory]
+                    description: |
+                      Present only on the DynamoDB-failure fallback path,
+                      alongside `error`. The response is still 200.
                   error: { type: string }
+        '400':
+          description: Repeated `?eventName=`, or a `limit` outside 1..1000
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/transports/durable/dlq/clear:
     post:
@@ -1051,6 +1289,11 @@ paths:
                 required: [cleared]
                 properties:
                   cleared: { type: integer }
+        '400':
+          description: Repeated `?eventName=` key
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/transports/durable/dlq/replay:
     post:
@@ -1074,6 +1317,11 @@ paths:
                 ids:
                   type: array
                   minItems: 1
+                  maxItems: 100
+                  description: |
+                    At most `MAX_DLQ_REPLAY_IDS` (100) — each id costs a
+                    DynamoDB read plus a message-queue POST, run
+                    sequentially inside the request.
                   items: { type: string }
       responses:
         '200':
@@ -1100,10 +1348,12 @@ paths:
                         error: { type: string }
                   total: { type: integer }
         '400':
-          description: Missing or malformed `ids`
+          description: '`ids` missing, empty, containing a non-string, or over 100 entries'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
 
   /api/transports/durable/dlq/{id}:
     parameters:
@@ -1121,6 +1371,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [removed]
                 properties:
                   removed: { type: string }
         '404':
@@ -1150,6 +1401,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [replayed, eventName]
                 properties:
                   replayed: { type: string }
                   eventName: { type: string }
@@ -1197,30 +1449,36 @@ paths:
                 names:
                   type: array
                   minItems: 1
+                  maxItems: 1000
+                  description: At most `MAX_BULK_DEPRECATE_NAMES` (1000) names.
                   items: { type: string }
                 reason: { type: string }
                 by: { type: string }
       responses:
         '200':
-          description: Deprecation results
+          description: |
+            At least one name was deprecated. Partial success (some names
+            in `notFound`) is still a 200.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BulkDeprecateResult' }
+        '400':
+          description: |
+            Two different bodies share this status.
+
+            When `names` is missing, empty, not an array, or over 1000
+            entries, the body is the standard `Error` envelope. When
+            `names` was well-formed but **every** name was unknown, the
+            body is the same `BulkDeprecateResult` as the 200 — with an
+            empty `deprecated` — not an `Error`.
           content:
             application/json:
               schema:
-                type: object
-                required: [deprecated, notFound, total]
-                properties:
-                  deprecated:
-                    type: array
-                    items: { type: string }
-                  notFound:
-                    type: array
-                    items: { type: string }
-                  total: { type: integer }
-        '400':
-          description: Missing names or all events not found
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+                oneOf:
+                  - $ref: '#/components/schemas/Error'
+                  - $ref: '#/components/schemas/BulkDeprecateResult'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
 
   /api/events/bulk/export:
     get:
@@ -1230,11 +1488,19 @@ paths:
         Returns a JSON archive with schema + fingerprint for each named event.
         Sets `Content-Disposition: attachment` so browsers download the file.
         When no `names` param is provided, exports all events.
+
+        The archive entries are a **projection**, not full registry
+        entries: no `compatibilityMode`, `schemaHistory`, `subscribers`,
+        `metadata` or `stats`.
       parameters:
         - in: query
           name: names
           schema: { type: string }
-          description: Comma-separated list of event names. Omit to export all.
+          description: |
+            Comma-separated list of event names; blank segments are
+            dropped. Omit to export all. Names that are not declared are
+            skipped silently rather than 404-ing, so `eventCount` can be
+            lower than the number of names requested.
       responses:
         '200':
           description: Export archive
@@ -1247,8 +1513,13 @@ paths:
                   eventCount: { type: integer }
                   events:
                     type: array
-                    items: { $ref: '#/components/schemas/RegistryEntry' }
+                    items: { $ref: '#/components/schemas/ExportedEvent' }
                   exportedAt: { type: string, format: date-time }
+        '400':
+          description: Repeated `?names=` key
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/events/{name}/deprecate:
     parameters:
@@ -1283,6 +1554,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
     delete:
       tags: [deprecation]
       summary: Remove deprecation from an event (wave25-a)
@@ -1293,10 +1566,13 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [undeprecated]
                 properties:
                   undeprecated: { type: string }
         '404':
-          description: Event not declared
+          description: |
+            Event not declared **or** not currently deprecated — the
+            handler does not distinguish the two.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1354,9 +1630,15 @@ paths:
     delete:
       tags: [deprecation]
       summary: Clear poison state for an event (wave26-e)
+      description: |
+        Dismisses the rolling-window poison flag. Note this is **not**
+        gated on the event existing: an undeclared name returns 200 with
+        `wasPoison: false`.
       responses:
         '200':
-          description: Poison cleared
+          description: |
+            Poison state cleared, or there was none to clear
+            (`wasPoison: false`).
           content:
             application/json:
               schema:
@@ -1366,7 +1648,9 @@ paths:
                   cleared: { type: string }
                   wasPoison: { type: boolean }
         '404':
-          description: Event not declared
+          description: |
+            The poison detector is not enabled on this deployment — not
+            "event not found".
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1389,7 +1673,7 @@ paths:
                     type: array
                     items:
                       type: object
-                      required: [name, transport, version, deprecation]
+                      required: [name, namespace, transport, version, deprecation]
                       properties:
                         name: { type: string }
                         namespace: { type: string }
@@ -1424,11 +1708,19 @@ paths:
     get:
       tags: [topology]
       summary: Namespace rollup summary with optional event list (wave25-b)
+      description: |
+        One row per namespace, sorted by namespace. A `transport: both`
+        declaration counts toward BOTH `signalCount` and `durableCount`,
+        so those two need not sum to `eventCount`.
       parameters:
         - in: query
           name: detail
           schema: { type: string, enum: [summary, full] }
-          description: When `full`, each namespace row includes its event list.
+          description: |
+            When `full`, each namespace row includes its event list. Only
+            the exact value `full` is special; every other value —
+            including a repeated key — falls back to the summary rows
+            without erroring.
       responses:
         '200':
           description: Namespace summary
@@ -1454,12 +1746,15 @@ paths:
                         durableCount: { type: integer }
                         events:
                           type: array
-                          description: Present only when `?detail=full`.
+                          description: |
+                            Present only when `?detail=full`. Sorted by
+                            name.
                           items:
                             type: object
+                            required: [name, transport, version, deprecated]
                             properties:
                               name: { type: string }
-                              transport: { type: string }
+                              transport: { type: string, enum: [signal, durable, both] }
                               version: { type: integer }
                               deprecated: { type: boolean }
 
@@ -1498,16 +1793,13 @@ paths:
                   orphanCount: { type: integer }
                   manifestCount:
                     type: [integer, 'null']
+                    description: |
+                      Always present. `null` when no manifest store is
+                      wired, or when reading it threw.
                   signal:
-                    type: object
-                    properties:
-                      status: { type: string, enum: [healthy, degraded, unhealthy, disconnected] }
-                      latencyMs: { type: number }
+                    $ref: '#/components/schemas/TransportHealth'
                   durable:
-                    type: object
-                    properties:
-                      status: { type: string, enum: [healthy, degraded, unhealthy, disconnected] }
-                      latencyMs: { type: number }
+                    $ref: '#/components/schemas/TransportHealth'
                   capturedAt: { type: string, format: date-time }
 
   /api/metrics:
@@ -1528,12 +1820,17 @@ paths:
     get:
       tags: [ops]
       summary: Per-event publish-rate sparkline history (wave26-a)
-      description: Returns up to 60 samples of publish rate per event (one per collector tick).
+      description: |
+        Returns up to 60 samples of publish rate per event (one per
+        collector tick), keyed by event name.
       parameters:
         - in: query
           name: eventName
           schema: { type: string }
-          description: Restrict to one event. Omit for all events.
+          description: |
+            Restrict to one event. Omit for all events. A name with no
+            recorded history still yields that key with an empty array,
+            rather than an empty object.
       responses:
         '200':
           description: Rate history
@@ -1544,8 +1841,34 @@ paths:
                 additionalProperties:
                   type: array
                   items: { type: number }
+        '400':
+          description: Repeated `?eventName=` key
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
 components:
+  responses:
+    PayloadTooLarge:
+      description: |
+        Request body exceeded `MAX_REQUEST_BODY_BYTES` (1 MiB). Produced
+        by the HTTP transport before the route handler runs, so the body
+        is the transport's, not this API's `Error` envelope.
+
+    TooManyStreams:
+      description: |
+        The process is at its concurrent SSE ceiling
+        (`EVENT_CATALOG_MAX_SSE_STREAMS`, default 256). No stream is
+        opened; retry or reduce fan-out.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error, message]
+            properties:
+              error: { type: string, enum: [TooManyStreams] }
+              message: { type: string }
+
   schemas:
     EventDeclarationInput:
       type: object
@@ -1670,7 +1993,62 @@ components:
                 publishCount: { type: integer }
                 errorCount: { type: integer }
             stats:
-              $ref: '#/components/schemas/EventStats'
+              oneOf:
+                - $ref: '#/components/schemas/EventStats'
+                - type: 'null'
+              description: |
+                `null` for an event the metrics collector has never seen
+                (declared but never published). Only present on the
+                responses that enrich the entry — `GET /api/events` and
+                `GET /api/events/{name}`.
+
+    ExportedEvent:
+      type: object
+      description: |
+        The reduced entry shape emitted by `GET /api/events/bulk/export`.
+        Deliberately not a `RegistryEntry`: subscribers, schema history,
+        compatibility mode, metadata and stats are all omitted.
+      required: [name, namespace, transport, producer, version, schemaFingerprint, schema]
+      properties:
+        name: { type: string }
+        namespace: { type: string }
+        transport: { type: string, enum: [signal, durable, both] }
+        producer:
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: string }
+        version: { type: integer }
+        schemaFingerprint: { type: string, pattern: '^[0-9a-f]{64}$' }
+        schema: { type: object }
+        description: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        deprecation: { $ref: '#/components/schemas/DeprecationInfo' }
+
+    BulkDeprecateResult:
+      type: object
+      required: [deprecated, notFound, total]
+      properties:
+        deprecated:
+          type: array
+          items: { type: string }
+        notFound:
+          type: array
+          items: { type: string }
+        total:
+          type: integer
+          description: Size of `deprecated` — NOT the number of names submitted.
+
+    TransportHealth:
+      type: object
+      required: [status, latencyMs]
+      properties:
+        status: { type: string, enum: [connected, degraded, disconnected] }
+        latencyMs:
+          type: number
+          description: Round-trip of the probe; 0 when never connected.
 
     EventEnvelope:
       type: object
@@ -1692,6 +2070,7 @@ components:
 
     EventStats:
       type: object
+      required: [publishCount, publishRate, lastPublishedAt, errorCount, subscriberCount]
       properties:
         publishCount: { type: integer }
         publishRate: { type: number }
@@ -1699,9 +2078,15 @@ components:
           type: [string, 'null']
         errorCount: { type: integer }
         subscriberCount: { type: integer }
-        queueDepth: { type: integer }
-        messagesInFlight: { type: integer }
-        oldestMessageAge: { type: integer }
+        queueDepth:
+          type: integer
+          description: Durable gauges — omitted entirely when the value is 0.
+        messagesInFlight:
+          type: integer
+          description: Durable gauge — omitted entirely when the value is 0.
+        oldestMessageAge:
+          type: integer
+          description: Durable gauge — omitted entirely when the value is 0.
 
     TopologyGraph:
       type: object
@@ -1711,11 +2096,31 @@ components:
           type: array
           items:
             type: object
-            required: [id, type]
+            required: [id, type, metadata]
             properties:
-              id: { type: string }
+              id:
+                type: string
+                description: The event name for `event` nodes, the service name for `service` nodes.
               type: { type: string, enum: [service, event] }
-              metadata: { type: object }
+              metadata:
+                type: object
+                description: |
+                  Always present; an empty object on `service` nodes.
+                properties:
+                  transport:
+                    type: string
+                    enum: [signal, durable, both]
+                    description: '`event` nodes only.'
+                  description:
+                    type: string
+                    description: '`event` nodes only; absent when the declaration has none.'
+                  namespace:
+                    type: string
+                    description: |
+                      Phase E7/E8.4 — `event` nodes only. The admin
+                      TopologyView and FlowView build their namespace
+                      `<select>` from this, and NamespaceClusters draws
+                      the cluster overlay from it.
         edges:
           type: array
           items:
@@ -1728,19 +2133,54 @@ components:
 
     HealthResponse:
       type: object
+      description: |
+        Body of `GET /api/health` only. The root `GET /health` returns
+        `ServiceHealthResponse` instead.
       required: [status, redis, messageQueue, uptime, eventCount]
       properties:
-        status: { type: string, enum: [healthy, degraded, unhealthy] }
-        redis:
-          type: object
-          properties:
-            status: { type: string, enum: [connected, degraded, disconnected] }
-        messageQueue:
-          type: object
-          properties:
-            status: { type: string, enum: [connected, degraded, disconnected] }
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: |
+            `unhealthy` (HTTP 503) when either dependency is
+            `disconnected`; `degraded` when either is `degraded`.
+        redis: { $ref: '#/components/schemas/TransportHealth' }
+        messageQueue: { $ref: '#/components/schemas/TransportHealth' }
         uptime: { type: integer, description: seconds since process start }
         eventCount: { type: integer }
+
+    ServiceHealthResponse:
+      type: object
+      description: |
+        Body of the root `GET /health` — the service-runtime tri-state
+        shape produced by `makeHealthHandler` (`src/server/health.ts`).
+      required: [service, version, status, checks, timestamp]
+      properties:
+        service: { type: string, enum: [event-catalog] }
+        version:
+          type: string
+          description: Service version read at boot from package.json.
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: |
+            Roll-up of `checks`: any unhealthy ⇒ unhealthy (HTTP 503),
+            else any degraded ⇒ degraded, else healthy.
+        checks:
+          type: array
+          items:
+            type: object
+            required: [id, status, durationMs]
+            properties:
+              id: { type: string, enum: [redis, message-queue, registry] }
+              status: { type: string, enum: [healthy, degraded, unhealthy] }
+              durationMs: { type: integer }
+              details:
+                description: |
+                  Per-check payload — `{ latencyMs }` for the transports,
+                  `{ eventCount }` for the registry, `{ error }` when the
+                  check threw or timed out (5s).
+        timestamp: { type: string, format: date-time }
 
     CompatCheckResponse:
       type: object
@@ -1758,15 +2198,36 @@ components:
 
     DlqEntry:
       type: object
-      required: [id, eventName, payload]
+      description: |
+        A row from the DynamoDB-backed `DLQStore` (`src/server/dlq-store.ts`).
+        `pk`/`sk`/`ttl` are storage keys that come back on the wire as-is.
+      required: [id, pk, sk, eventName, payload, error, attempts, deadAt, ttl]
       properties:
         id: { type: string }
+        pk: { type: string }
+        sk: { type: string }
         eventName: { type: string }
         payload: {}
         error: { type: string }
         attempts: { type: integer }
-        firstSeenAt: { type: string, format: date-time }
-        lastAttemptAt: { type: string, format: date-time }
+        deadAt: { type: string, format: date-time }
+        ttl: { type: integer, description: Epoch seconds at which DynamoDB expires the row. }
+
+    InMemoryDlqEntry:
+      type: object
+      description: |
+        The in-process mirror (`DurableTransport.getDLQ()`), returned
+        instead of `DlqEntry` on the DynamoDB-failure fallback path. A
+        different shape entirely — note `messageId` rather than `id`, and
+        the full envelope rather than a bare payload.
+      required: [messageId, queueName, envelope, error, attempts, deadLetteredAt]
+      properties:
+        messageId: { type: string }
+        queueName: { type: string }
+        envelope: { $ref: '#/components/schemas/EventEnvelope' }
+        error: { type: string }
+        attempts: { type: integer }
+        deadLetteredAt: { type: string, format: date-time }
 
     ConsumerManifest:
       type: object

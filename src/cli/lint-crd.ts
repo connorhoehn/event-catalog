@@ -8,7 +8,7 @@
 //   2. If a fingerprint is pinned (e.g., "chat@1.0.0#abc123"), it matches
 //   3. Optional: --fix-fingerprints rewrites the YAML with current fingerprint
 //
-// Exit 0 = all valid, 1 = errors found, 2 = warnings only / usage error
+// Exit 0 = all valid, 1 = errors found, 2 = usage error, 3 = warnings only
 
 import { readFileSync, readdirSync, statSync, writeFileSync, type Dirent } from 'node:fs';
 import { join, extname } from 'node:path';
@@ -372,6 +372,9 @@ function fixFingerprints(file: string, crds: ParsedCrd[]): boolean {
 
 const BIN = 'ec-lint-crd';
 const USAGE = 'ec-lint-crd <path> [--fix-fingerprints]';
+
+/** Completed the lint, found only warnings. Distinct from 2 (usage error). */
+const EXIT_WARNINGS = 3;
 const SPEC = { boolean: ['fix-fingerprints', 'list-deprecated'] } as const;
 
 export async function lintCrd(args: string[]): Promise<number> {
@@ -392,7 +395,8 @@ ARGUMENTS
 EXIT CODES
   0   All checked CRDs are valid (or --list-deprecated ran cleanly)
   1   At least one CRD has an error (bundle not found, fingerprint mismatch)
-  2   Usage error or warnings only (deprecated bundles)
+  2   Usage error (unknown flag, missing path, path not found, not YAML)
+  3   Warnings only (deprecated bundles)
 
 EXAMPLES
   ec-lint-crd crds/
@@ -535,7 +539,11 @@ CI INTEGRATION (GitHub Actions)
   );
 
   if (totalErrors > 0) return 1;
-  if (totalWarns > 0) return 2;
+  // 3, not 2: exit 2 means "you invoked me wrong" across every bin in this
+  // package. Sharing it with "completed, with warnings" made the documented
+  // `|| [ $? -eq 2 ]` recipe swallow a typo'd path as a clean-with-warnings
+  // run — the one outcome an operator most needs to see.
+  if (totalWarns > 0) return EXIT_WARNINGS;
   return 0;
 }
 

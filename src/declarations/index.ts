@@ -48,6 +48,36 @@ export {
 export { gatewaySignalDeclarations } from './gateway-signal';
 
 export {
+  activityRecorded,
+  callReactionRecorded,
+  gatewayDurableDeclarations,
+} from './gateway-durable';
+
+export {
+  sfuSessionCreated,
+  sfuSessionEnded,
+  sfuStreamStarted,
+  sfuStreamEnded,
+  sfuStreamHealthDegraded,
+  sfuStreamHealthRecovered,
+  sfuStreamThumbnailUpdated,
+  sfuRecordingStarted,
+  sfuRecordingCompleted,
+  sfuChannelCreated,
+  sfuChannelUpdated,
+  sfuChannelDeleted,
+  sfuProducerAdded,
+  sfuProducerRemoved,
+  sfuRecordingStateChanged,
+  sfuChatMessage,
+  sfuChatMessageDeleted,
+  sfuChatUserDisconnected,
+  sfuChatUserBanned,
+  sfuChatUserUnbanned,
+  sfuDeclarations,
+} from './sfu';
+
+export {
   clientFrameOutboundDeclarations,
   clientContractInboundDeclarations,
   clientFrameDeclarations,
@@ -108,6 +138,8 @@ import { pipelineP1Declarations } from './pipeline-p1';
 import { pipelineP2Declarations } from './pipeline-p2';
 import { pipelineRaftDeclarations } from './pipeline-raft';
 import { gatewaySignalDeclarations } from './gateway-signal';
+import { gatewayDurableDeclarations } from './gateway-durable';
+import { sfuDeclarations } from './sfu';
 import { clientFrameDeclarations } from './client-frames';
 import { agUiDeclarations } from './ag-ui';
 import { orgiqSignalDeclarations } from './orgiq-signal';
@@ -137,6 +169,8 @@ export const allDeclarations: readonly EventDeclaration[] = [
   ...callCaptionDeclarations,
   ...pipelineAgentDeclarations,
   ...gatewaySignalDeclarations,
+  ...gatewayDurableDeclarations,
+  ...sfuDeclarations,
   ...clientFrameDeclarations,
   ...agUiDeclarations,
   ...orgiqSignalDeclarations,

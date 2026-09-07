@@ -276,3 +276,29 @@ describe('/api/events/:name/schema/check — no body required on a GET', () => {
     expect(res.body.error).toContain('schema is required');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bulk export was the one bulk surface with no input bound: every sibling
+// (declare, deprecate, replay, freshness, manifests) caps its list.
+// ---------------------------------------------------------------------------
+
+describe('GET /api/events/bulk/export — ?names= is bounded', () => {
+  it('rejects a name list past the cap with 400 rather than serializing it', async () => {
+    const { app } = createApp();
+    const names = Array.from({ length: 1001 }, (_, i) => `evt.${i}`).join(',');
+
+    const res = await request(app).get(`/api/events/bulk/export?names=${names}`);
+
+    expect(res.status).toBe(400);
+    expect(String(res.body.error)).toContain('at most 1000');
+  });
+
+  it('accepts a list at the cap', async () => {
+    const { app } = createApp();
+    const names = Array.from({ length: 1000 }, (_, i) => `evt.${i}`).join(',');
+
+    const res = await request(app).get(`/api/events/bulk/export?names=${names}`);
+
+    expect(res.status).toBe(200);
+  });
+});

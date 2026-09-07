@@ -10,8 +10,8 @@
 // own its declaration. Service-owned events still live in the producing
 // service's own source tree per the charter.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.transcriptionSummaryReady = exports.transcriptionTranscriptReady = exports.transcriptionJobQueued = exports.callCaptionLine = exports.pipelineImageVisionDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionToken = exports.pipelineImageVisionStarted = exports.pipelineJudgeDeclarations = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.pipelineEventDeclarations = exports.orgiqSignalDeclarations = exports.orgiqArticlesReactions = exports.orgiqInvokePresence = exports.orgiqSearchPresence = exports.orgiqBriefsPresence = exports.orgiqResearcherActivity = exports.orgiqResearcherPresence = exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.gatewaySignalDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
-exports.allDeclarations = exports.agUiDeclarations = exports.pipelineAgentDeclarations = exports.pipelineStepAgentTool = exports.callCaptionDeclarations = void 0;
+exports.clientFrameOutboundDeclarations = exports.sfuDeclarations = exports.sfuChatUserUnbanned = exports.sfuChatUserBanned = exports.sfuChatUserDisconnected = exports.sfuChatMessageDeleted = exports.sfuChatMessage = exports.sfuRecordingStateChanged = exports.sfuProducerRemoved = exports.sfuProducerAdded = exports.sfuChannelDeleted = exports.sfuChannelUpdated = exports.sfuChannelCreated = exports.sfuRecordingCompleted = exports.sfuRecordingStarted = exports.sfuStreamThumbnailUpdated = exports.sfuStreamHealthRecovered = exports.sfuStreamHealthDegraded = exports.sfuStreamEnded = exports.sfuStreamStarted = exports.sfuSessionEnded = exports.sfuSessionCreated = exports.gatewayDurableDeclarations = exports.callReactionRecorded = exports.activityRecorded = exports.gatewaySignalDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
+exports.allDeclarations = exports.agUiDeclarations = exports.pipelineAgentDeclarations = exports.pipelineStepAgentTool = exports.callCaptionDeclarations = exports.transcriptionSummaryReady = exports.transcriptionTranscriptReady = exports.transcriptionJobQueued = exports.callCaptionLine = exports.pipelineImageVisionDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionToken = exports.pipelineImageVisionStarted = exports.pipelineJudgeDeclarations = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.pipelineEventDeclarations = exports.orgiqSignalDeclarations = exports.orgiqArticlesReactions = exports.orgiqInvokePresence = exports.orgiqSearchPresence = exports.orgiqBriefsPresence = exports.orgiqResearcherActivity = exports.orgiqResearcherPresence = exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = void 0;
 var pipeline_1 = require("./pipeline");
 Object.defineProperty(exports, "pipelineApprovalRequested", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRequested; } });
 Object.defineProperty(exports, "pipelineApprovalRecorded", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRecorded; } });
@@ -42,6 +42,32 @@ Object.defineProperty(exports, "pipelineRaftDeclarations", { enumerable: true, g
 Object.defineProperty(exports, "pipelineRaftStateMachineDeclarations", { enumerable: true, get: function () { return pipeline_raft_1.pipelineRaftStateMachineDeclarations; } });
 var gateway_signal_1 = require("./gateway-signal");
 Object.defineProperty(exports, "gatewaySignalDeclarations", { enumerable: true, get: function () { return gateway_signal_1.gatewaySignalDeclarations; } });
+var gateway_durable_1 = require("./gateway-durable");
+Object.defineProperty(exports, "activityRecorded", { enumerable: true, get: function () { return gateway_durable_1.activityRecorded; } });
+Object.defineProperty(exports, "callReactionRecorded", { enumerable: true, get: function () { return gateway_durable_1.callReactionRecorded; } });
+Object.defineProperty(exports, "gatewayDurableDeclarations", { enumerable: true, get: function () { return gateway_durable_1.gatewayDurableDeclarations; } });
+var sfu_1 = require("./sfu");
+Object.defineProperty(exports, "sfuSessionCreated", { enumerable: true, get: function () { return sfu_1.sfuSessionCreated; } });
+Object.defineProperty(exports, "sfuSessionEnded", { enumerable: true, get: function () { return sfu_1.sfuSessionEnded; } });
+Object.defineProperty(exports, "sfuStreamStarted", { enumerable: true, get: function () { return sfu_1.sfuStreamStarted; } });
+Object.defineProperty(exports, "sfuStreamEnded", { enumerable: true, get: function () { return sfu_1.sfuStreamEnded; } });
+Object.defineProperty(exports, "sfuStreamHealthDegraded", { enumerable: true, get: function () { return sfu_1.sfuStreamHealthDegraded; } });
+Object.defineProperty(exports, "sfuStreamHealthRecovered", { enumerable: true, get: function () { return sfu_1.sfuStreamHealthRecovered; } });
+Object.defineProperty(exports, "sfuStreamThumbnailUpdated", { enumerable: true, get: function () { return sfu_1.sfuStreamThumbnailUpdated; } });
+Object.defineProperty(exports, "sfuRecordingStarted", { enumerable: true, get: function () { return sfu_1.sfuRecordingStarted; } });
+Object.defineProperty(exports, "sfuRecordingCompleted", { enumerable: true, get: function () { return sfu_1.sfuRecordingCompleted; } });
+Object.defineProperty(exports, "sfuChannelCreated", { enumerable: true, get: function () { return sfu_1.sfuChannelCreated; } });
+Object.defineProperty(exports, "sfuChannelUpdated", { enumerable: true, get: function () { return sfu_1.sfuChannelUpdated; } });
+Object.defineProperty(exports, "sfuChannelDeleted", { enumerable: true, get: function () { return sfu_1.sfuChannelDeleted; } });
+Object.defineProperty(exports, "sfuProducerAdded", { enumerable: true, get: function () { return sfu_1.sfuProducerAdded; } });
+Object.defineProperty(exports, "sfuProducerRemoved", { enumerable: true, get: function () { return sfu_1.sfuProducerRemoved; } });
+Object.defineProperty(exports, "sfuRecordingStateChanged", { enumerable: true, get: function () { return sfu_1.sfuRecordingStateChanged; } });
+Object.defineProperty(exports, "sfuChatMessage", { enumerable: true, get: function () { return sfu_1.sfuChatMessage; } });
+Object.defineProperty(exports, "sfuChatMessageDeleted", { enumerable: true, get: function () { return sfu_1.sfuChatMessageDeleted; } });
+Object.defineProperty(exports, "sfuChatUserDisconnected", { enumerable: true, get: function () { return sfu_1.sfuChatUserDisconnected; } });
+Object.defineProperty(exports, "sfuChatUserBanned", { enumerable: true, get: function () { return sfu_1.sfuChatUserBanned; } });
+Object.defineProperty(exports, "sfuChatUserUnbanned", { enumerable: true, get: function () { return sfu_1.sfuChatUserUnbanned; } });
+Object.defineProperty(exports, "sfuDeclarations", { enumerable: true, get: function () { return sfu_1.sfuDeclarations; } });
 var client_frames_1 = require("./client-frames");
 Object.defineProperty(exports, "clientFrameOutboundDeclarations", { enumerable: true, get: function () { return client_frames_1.clientFrameOutboundDeclarations; } });
 Object.defineProperty(exports, "clientContractInboundDeclarations", { enumerable: true, get: function () { return client_frames_1.clientContractInboundDeclarations; } });
@@ -88,6 +114,8 @@ const pipeline_p1_2 = require("./pipeline-p1");
 const pipeline_p2_2 = require("./pipeline-p2");
 const pipeline_raft_2 = require("./pipeline-raft");
 const gateway_signal_2 = require("./gateway-signal");
+const gateway_durable_2 = require("./gateway-durable");
+const sfu_2 = require("./sfu");
 const client_frames_2 = require("./client-frames");
 const ag_ui_2 = require("./ag-ui");
 const orgiq_signal_2 = require("./orgiq-signal");
@@ -116,6 +144,8 @@ exports.allDeclarations = [
     ...call_captions_2.callCaptionDeclarations,
     ...pipeline_agent_2.pipelineAgentDeclarations,
     ...gateway_signal_2.gatewaySignalDeclarations,
+    ...gateway_durable_2.gatewayDurableDeclarations,
+    ...sfu_2.sfuDeclarations,
     ...client_frames_2.clientFrameDeclarations,
     ...ag_ui_2.agUiDeclarations,
     ...orgiq_signal_2.orgiqSignalDeclarations,

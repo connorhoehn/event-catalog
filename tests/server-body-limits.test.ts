@@ -47,61 +47,91 @@ async function startEchoServer(): Promise<number> {
   return addr.port;
 }
 
+function requestOptions(port: number, declaredLength: number): http.RequestOptions {
+  return {
+    host: '127.0.0.1',
+    port,
+    method: 'POST',
+    path: '/api/events',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': declaredLength,
+    },
+  };
+}
+
+/** Collect a response into `{ status, body }`, parsing JSON when it is JSON. */
+function readResponse(
+  res: http.IncomingMessage,
+  resolve: (value: { status: number; body: unknown }) => void,
+): void {
+  const chunks: Buffer[] = [];
+  res.on('data', c => chunks.push(c as Buffer));
+  res.on('end', () => {
+    const text = Buffer.concat(chunks).toString('utf8');
+    let parsed: unknown = text;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // Leave as text — the assertion below only needs the status.
+    }
+    resolve({ status: res.statusCode ?? 0, body: parsed });
+  });
+}
+
 /** POST a raw body and resolve with the status + parsed JSON (when JSON). */
 function post(
   port: number,
   body: string,
 ): Promise<{ status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        host: '127.0.0.1',
-        port,
-        method: 'POST',
-        path: '/api/events',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
-        },
-      },
-      res => {
-        const chunks: Buffer[] = [];
-        res.on('data', c => chunks.push(c as Buffer));
-        res.on('end', () => {
-          const text = Buffer.concat(chunks).toString('utf8');
-          let parsed: unknown = text;
-          try {
-            parsed = JSON.parse(text);
-          } catch {
-            // Leave as text — the assertion below only needs the status.
-          }
-          resolve({ status: res.statusCode ?? 0, body: parsed });
-        });
-      },
+    const req = http.request(requestOptions(port, Buffer.byteLength(body)), res =>
+      readResponse(res, resolve),
     );
-    // The server rejects oversized bodies on the Content-Length pre-check and
-    // destroys the socket immediately — while the client may still be writing
-    // megabytes. That surfaces here as ECONNRESET/EPIPE on the request stream,
-    // which is the rejection working, not a failure. The 413 has already been
-    // written, so wait for the response and only surface a write error if no
-    // response ever arrives.
-    let sawResponse = false;
-    req.on('response', () => {
-      sawResponse = true;
-    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+/**
+ * Announce an oversized body in Content-Length without sending one, and
+ * resolve with whatever the server answers.
+ *
+ * The over-cap assertions deliberately do NOT transmit a body. The rejection
+ * they cover is the Content-Length pre-check in distributed-core's
+ * AdmissionHttpServer, which answers 413 before a single body byte is read
+ * and closes with `Connection: close`. Actually streaming the megabytes is
+ * therefore not needed to reach that branch — and it is actively harmful: the
+ * server closes as soon as it has answered, the client is still writing, and
+ * the resulting RST discards the client's receive buffer along with the very
+ * 413 being asserted on. That is a real TCP race, not a flaky assertion, and
+ * it cannot be closed from the client side; it used to be papered over with a
+ * 250ms "did the response land yet?" timer, which failed whenever the box was
+ * busy. Declaring the length and sending no body removes the race outright.
+ */
+function postDeclaredLength(
+  port: number,
+  declaredLength: number,
+): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(requestOptions(port, declaredLength), res =>
+      readResponse(res, value => {
+        // The body was never written, so this request would otherwise stay
+        // open and hold the connection that `afterEach`'s server.stop() waits
+        // on. Drop it explicitly.
+        req.destroy();
+        resolve(value);
+      }),
+    );
+    // A late socket teardown is expected here, not a failure: the server
+    // answers 413 with `Connection: close` and hangs up on a request whose
+    // announced body never arrives.
     req.on('error', err => {
       const code = (err as NodeJS.ErrnoException).code;
-      if (sawResponse && (code === 'ECONNRESET' || code === 'EPIPE')) return;
-      if (code === 'ECONNRESET' || code === 'EPIPE') {
-        // Give the response a tick to land before calling it a failure.
-        setTimeout(() => {
-          if (!sawResponse) reject(err);
-        }, 250);
-        return;
-      }
+      if (code === 'ECONNRESET' || code === 'EPIPE') return;
       reject(err);
     });
-    req.end(body);
+    req.flushHeaders();
   });
 }
 
@@ -133,16 +163,17 @@ describe('request body limits', () => {
 
   it('rejects a body one byte over the cap with 413', async () => {
     const port = await startEchoServer();
-    const body = jsonBodyOfSize(MAX_REQUEST_BODY_BYTES + 1);
-    const res = await post(port, body);
+    const res = await postDeclaredLength(port, MAX_REQUEST_BODY_BYTES + 1);
     expect(res.status).toBe(413);
+    expect(res.body).toMatchObject({ error: 'PayloadTooLarge' });
   });
 
   it('rejects a body that would have squeaked under the 16 MiB default', async () => {
     // 2 MiB: under distributed-core's DEFAULT_MAX_BODY_BYTES, over ours.
     // This is the case the misspelled key let through.
     const port = await startEchoServer();
-    const res = await post(port, jsonBodyOfSize(2 * 1_048_576));
+    const res = await postDeclaredLength(port, 2 * 1_048_576);
     expect(res.status).toBe(413);
+    expect(res.body).toMatchObject({ error: 'PayloadTooLarge' });
   });
 });

@@ -29,9 +29,9 @@ npm run dev:stack
 
 ## Configuration
 
-Every variable below is read and validated at startup by `src/cli/config.ts`.
-A missing or malformed value exits `2` with one line naming the variable; the
-service never boots half-configured.
+Every variable in the first table is read and validated at startup by
+`src/cli/config.ts`. A missing or malformed value exits `2` with one line per
+problem naming the variable; the service never boots half-configured.
 
 | Variable | Default | Notes |
 |----------|---------|-------|
@@ -45,6 +45,14 @@ service never boots half-configured.
 | `EVENT_CATALOG_STRICT` | `false` | Reject publishes of undeclared events instead of warning. |
 | `ALERT_WEBHOOK_URL` | — | Optional; health transitions are POSTed here. |
 | `DYNAMODB_ENDPOINT` / `LOCALSTACK_ENDPOINT` | — | Optional DynamoDB override. Without one (and without AWS credentials) DLQ reads and writes fail; nothing else does. |
+
+Two more are read by the server itself rather than by the config gate, so they
+are not validated at boot:
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `EVENT_CATALOG_CORS_ORIGIN` | — (no CORS headers) | Set to an origin to allow it, or `*` to reflect any origin. Off by default: the API has no authentication, so reflecting every origin let any page the operator had open write to the registry. The admin UI is same-origin and needs nothing here. |
+| `EVENT_CATALOG_MAX_SSE_STREAMS` | `256` | Concurrent `/api/flow` streams; over-cap connections get `503`. `0` disables the cap. |
 
 `REDIS_URL` is deliberately required rather than defaulted. The old default of
 `redis://localhost:6379` is right on a laptop and silently wrong in every
@@ -60,9 +68,10 @@ unreachable** — it degrades to an in-memory registry rather than blocking boot
 Redis). A registry that will not start because Redis is slow would stall every
 producer that syncs declarations at boot.
 
-`GET /health` is a tri-state **dependency** report — `200` healthy, `503` when
-Redis or message-queue is down — so it is a readiness signal, not a liveness
-one. The image's `HEALTHCHECK` deliberately passes on any HTTP response;
+`GET /health` is a tri-state **dependency** report — `healthy` / `degraded` /
+`unhealthy` per check, `200` for the first two and `503` once Redis or
+message-queue is unhealthy — so it is a readiness signal, not a liveness one.
+The image's `HEALTHCHECK` deliberately passes on any HTTP response;
 wiring container liveness to `/health` would let a message-queue outage restart
 the registry too.
 
@@ -84,9 +93,9 @@ docker build --ssh default -f event-catalog/Dockerfile -t event-catalog ..
 - The admin bundle is **built** in the image. `src/admin/dist` is gitignored,
   so copying the host tree would ship nothing and every admin route would 404.
 - Runs as the unprivileged `node` user (uid 1000).
-- `dist/`, `dist/admin/dist/index.html` and `contracts/` are asserted present
-  at build time, so a missing bundle fails the build rather than the first
-  request.
+- `dist/cli/index.js` and `dist/admin/dist/index.html` are asserted present at
+  build time, so a missing entrypoint or bundle fails the build rather than the
+  first request.
 
 ## CLI tools
 
@@ -113,12 +122,13 @@ Ready-made templates for wiring the CLI into GitHub Actions and git hooks:
 |------|---------|
 | `0` | Clean |
 | `1` | Error (missing bundle, stale fingerprint) — fails PR |
-| `2` | Warnings only (deprecated bundle) — passes by default, fails in strict mode |
+| `2` | Usage error — unknown flag, missing path, path not found, non-YAML file. |
+| `3` | Warnings only (deprecated bundle) — passes by default, fails in strict mode. |
 
 Fail on errors only (recommended default):
 
 ```bash
-npx ec-lint-crd crds/ || [ $? -eq 2 ]
+npx ec-lint-crd crds/ || [ $? -eq 3 ]
 ```
 
 Fail on errors and warnings (strict mode):
@@ -136,6 +146,9 @@ import { publishSignal }        from '@connorhoehn/event-catalog/signal';    // 
 import { publishDurable }       from '@connorhoehn/event-catalog/durable';   // durable transport
 import { EventRegistry }        from '@connorhoehn/event-catalog/registry';  // local registry
 import { DLQClient }            from '@connorhoehn/event-catalog/dlq';       // DLQ browser
+
+import type { EventPayloadMap }    from '@connorhoehn/event-catalog/types';         // generated payload types
+import type { ClientFramePayload } from '@connorhoehn/event-catalog/client-frames'; // generated WS frame types
 ```
 
 ## Documentation

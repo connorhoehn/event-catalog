@@ -4,6 +4,12 @@ export declare const MAX_BULK_EVENTS = 1000;
 /** Max names accepted by one POST /api/events/bulk/deprecate. */
 export declare const MAX_BULK_DEPRECATE_NAMES = 1000;
 /**
+ * Cap on `?names=` for bulk export. Every sibling bulk surface bounds its
+ * input; export did not, so one request could ask the registry to serialize
+ * an unbounded name list.
+ */
+export declare const MAX_BULK_EXPORT_NAMES = 1000;
+/**
  * Max ids accepted by one POST /api/transports/durable/dlq/replay.
  * Each id costs a DynamoDB read plus a message-queue POST, run
  * sequentially inside the request, so this also bounds how long a single

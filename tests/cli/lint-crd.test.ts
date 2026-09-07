@@ -214,7 +214,7 @@ describe('CRD with stale fingerprint', () => {
 describe('deprecated bundle', () => {
   // We don't have a built-in deprecated bundle in v1. We test this by
   // importing the registry and temporarily registering a deprecated bundle.
-  it('exits 2 (warn) and shows deprecation message for deprecated bundle', async () => {
+  it('exits 3 (warn) and shows deprecation message for deprecated bundle', async () => {
     // Dynamically register a deprecated bundle for this test
     const { registerFeatureBundle } = await import('../../src/bundles/FeatureBundle.js');
     registerFeatureBundle({
@@ -229,7 +229,8 @@ describe('deprecated bundle', () => {
       eventBundle: 'legacy-chat@0.9.0',
     }));
     const code = await lintCrd([f]);
-    expect(code).toBe(2);
+    // 3 = warnings only; 2 stays reserved for usage errors.
+    expect(code).toBe(3);
 
     const out = logSpy.mock.calls.flat().join('\n');
     expect(out).toContain('deprecated since 1.0.0');

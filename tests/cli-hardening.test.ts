@@ -456,3 +456,37 @@ describe('ec-bundle-create write safety', () => {
     expect(stderr()).toContain('--help');
   });
 });
+
+// ---------------------------------------------------------------------------
+// ec-lint-crd exit-code separation
+//
+// `2` used to mean BOTH "completed, with warnings" and "you invoked me wrong",
+// so the recipe the README documented for ignoring warnings
+// (`ec-lint-crd crds/ || [ $? -eq 2 ]`) silently swallowed a typo'd path —
+// reporting a run that never happened as a clean-with-warnings pass.
+// ---------------------------------------------------------------------------
+
+describe('ec-lint-crd exit codes are unambiguous', () => {
+  it('returns 3 (not 2) for a CRD pinned to a deprecated bundle', async () => {
+    const crd = writeTmp(
+      'deprecated-bundle.yaml',
+      [
+        'apiVersion: platform.connorhoehn.dev/v1',
+        'kind: FeatureService',
+        'metadata:',
+        '  name: legacy-pipeline',
+        'spec:',
+        '  eventBundle: agentic-pipeline@1.0.0',
+        '',
+      ].join('\n'),
+    );
+
+    const code = await lintCrd([crd]);
+    expect(stdout()).toContain('deprecated');
+    expect(code).toBe(3);
+  });
+
+  it('keeps 2 for a usage error, so the two outcomes stay distinguishable', async () => {
+    expect(await lintCrd(['/no/such/crds'])).toBe(2);
+  });
+});

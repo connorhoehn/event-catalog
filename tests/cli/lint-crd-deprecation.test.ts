@@ -89,12 +89,14 @@ function makeCrdYaml(opts: {
 // ---------------------------------------------------------------------------
 
 describe('CRD referencing deprecated bundle', () => {
-  it('exits 2 (warn, not error) when only deprecated refs found', async () => {
+  it('exits 3 (warn, not error) when only deprecated refs found', async () => {
     const f = writeCrd('deprecated.yaml', makeCrdYaml({
       eventBundle: `${DEPRECATED_NAME}@${DEPRECATED_VERSION}`,
     }));
     const code = await lintCrd([f]);
-    expect(code).toBe(2);
+    // 3, not 2: 2 is reserved for usage errors so `|| [ $? -eq 3 ]` cannot
+    // swallow a mistyped path as a clean-with-warnings run.
+    expect(code).toBe(3);
   });
 
   it('outputs DEPRECATED warning with since date', async () => {

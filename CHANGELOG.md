@@ -7,6 +7,209 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.5.0] - 2026-09-07
+
+Three hardening sweeps over the server, the CLI, the publish hot path and the
+declarations. The library consumer surface (`EventCatalog`, the transports,
+`Registry`, the generated types) keeps its shape, but two things change for
+consumers regardless: the schema-evolution gate now rejects changes it used to
+wave through, and the service refuses to boot without `$REDIS_URL`.
+
+### BREAKING (schema-evolution gate — `src/registry/schema-compat.ts`)
+
+- **The compat checker now recurses.** It was top-level-only and knew three
+  keywords (property removal, `required`, `type`), while the validator that
+  actually runs at publish time descends `properties`, `items` and schema-form
+  `additionalProperties`. A `required` added three levels deep, or inside an
+  array item, shipped silently. All three are descended now, to a depth bound
+  of 16.
+- **Four keyword families are gated that never were**: `enum` shrinks,
+  `additionalProperties` `true` → `false`, an added or tightened `pattern`,
+  and all six bounds (`minimum`/`maximum`, `minLength`/`maxLength`,
+  `minItems`/`maxItems`). Every one of them is enforced by the fallback
+  validator at publish time, so every one could already reject a payload the
+  previous schema promised to accept.
+- **Consequence: schema changes that deployed clean before are now refused.**
+  `Registry.declare()` reports the violations, and in strict mode **throws at
+  declare time** — for a service that declares at boot, that is a failed boot.
+  `POST /api/events` returns `409` with both fingerprints. Consumers are
+  SHA-pinned to `v0.3.59`, so the exposure is deferred until they re-pin, not
+  absent: dry-run a candidate schema through
+  `POST /api/events/:name/schema/check` before bumping the pin.
+- **Deliberately NOT gated**: `format`, `multipleOf`, `const`,
+  `oneOf`/`anyOf`/`$ref`, tuple-form `items`. The fallback validator ignores
+  all of them, so a rule there would block deploys over a constraint nothing
+  enforces.
+- **Two false rejections fixed**: `integer` → `number` is a widening, and
+  dropping `type` altogether is not a narrowing. Both used to be reported.
+- `checkBackwardCompat` / `checkForwardCompat` keep their signatures and
+  `CompatResult` shape; only the verdict changed.
+
+### Changed (configuration — `src/cli/config.ts`, new)
+
+- **`REDIS_URL` is now required.** The old default of
+  `redis://localhost:6379` is right on a laptop and silently wrong in every
+  container: the service came up, reported itself healthy, ran an empty
+  in-memory registry and said nothing about why. Unset or malformed is now a
+  labelled boot error and exit `2`. `--redis-url` overrides it.
+- **`EVENT_CATALOG_PORT` is now actually read.** The code only ever looked at
+  `$PORT`, so the variable the deploy notes have always named silently did
+  nothing. `$PORT` still wins when both are set, and a disagreement warns.
+- All 11 runtime variables are resolved and validated in one pure function
+  before any socket is opened, and **every** problem is reported at once, so a
+  container with three bad values needs one restart rather than three.
+  `EVENT_CATALOG_STRICT` now accepts `1`/`yes`/`on` as well as `true` (it was
+  `=== 'true'`, so `=1` quietly meant "not strict") and rejects anything else.
+- The boot banner redacts credentials; it used to print `REDIS_URL` with its
+  password into container logs.
+
+### Changed (server hardening)
+
+- **CORS is off by default.** `startServer` passed `corsOrigin: true`, which
+  reflects any `Origin` — with no authentication on 20 mutating endpoints,
+  that let any web page the operator had open rewrite the registry. No CORS
+  headers are emitted unless `EVENT_CATALOG_CORS_ORIGIN` is set; `=*` restores
+  the old behaviour, a string pins one origin. The admin UI is same-origin and
+  non-browser callers (CI, `syncToRemoteRegistry`, curl) are unaffected.
+- **The 1 MiB request body cap is now enforced.** `index.ts` passed
+  `bodyLimits: { maxBodyBytes }` but the field is `maxBytes`, so the key was
+  dropped and the server silently ran on distributed-core's 16 MiB default. A
+  2 MiB body now gets a `413`.
+- **Per-collection caps on what one in-budget request can create** — 1000
+  events per `POST /api/events/bulk`, 1000 bulk-deprecate names, 100 DLQ
+  replay ids, 5000 freshness/manifest entries, 1000 audit rows. A 35-byte
+  declaration meant ~30 000 of them fit under the body cap; 20 000 were
+  verified accepted before this.
+- **`__proto__`, `constructor` and `prototype` are rejected as event names**
+  (as are control characters and names over 512 chars). Declaring `__proto__`
+  returned `201` and listed in `GET /api/events` while making
+  `/api/fingerprints` and `/api/metrics/history` return `{}` — the exact
+  endpoints a CI drift check reads. The response builders use null-prototype
+  maps now as well.
+- **SSE streams are capped at 256 concurrent** (`EVENT_CATALOG_MAX_SSE_STREAMS`,
+  `0` disables), over-cap connections getting a `503`. Admission control
+  releases its slot when the handler resolves, so it never gated `/api/flow`
+  at all.
+- **SIGTERM completes.** `admission.stop()` is `http.Server.close()`, so a
+  single open SSE stream blocked it forever and `redisClient.quit()` never
+  ran — every deploy was a hard kill. Shutdown now drains with a 10s bound.
+- **`GET /health` reports dependencies**, returning `503` when Redis or
+  message-queue is unhealthy. The image's `HEALTHCHECK` deliberately accepts
+  any HTTP response, so a message-queue outage cannot restart the registry.
+- **Repeated query keys are guarded.** `bulk/export?names=a&names=b` arrived
+  as an array and exported the entire catalog.
+- **`Registry.getTopology()` emits `namespace`** on event nodes, so the admin
+  namespace filter and the E7 cluster overlay work rather than being stuck on
+  "all".
+
+### Changed (HTTP surface)
+
+- **`POST /api/events/:name/schema/check` is the canonical form.** The `GET`
+  variant originally required a JSON body on a `GET`, which browsers cannot
+  send and many proxies drop; it now takes a URL-encoded `?schema=` instead,
+  is marked `deprecated: true` in `openapi/event-catalog.yaml`, and still
+  honours a body for existing callers. No consumer in the platform calls it.
+- Unmatched repeated-key and over-limit requests return `400` with a message
+  naming the field, not a partial success.
+
+### Performance
+
+- **`publish()` p50 13.4µs → 1.25µs (68.6k → 735k ops/sec).** Profiling put
+  ~90% of a no-I/O publish in `ulid()`: the package's default PRNG draws
+  `crypto.randomBytes(1)` sixteen times per id and rebuilds the same
+  per-millisecond time prefix on every call. **`src/utils/hot-path.ts` (new)**
+  exports `eventId()` and `nowIso()` — a pooled `randomFillSync` PRNG plus a
+  memoized time prefix, built on the `ulid` package's own `encodeTime` /
+  `encodeRandom`, so format, ordering, entropy source and the emitted ISO
+  string are byte-identical. Plus an alias index for `resolve()` and a lazy
+  `eventNameToQueueName` (two regex passes that signal-only publishes were
+  paying for). Benchmark: `scripts/bench-publish.ts`.
+
+### Changed (declarations)
+
+- **143 `format` annotations** (137 `date-time`, 6 `uri`) and **~780 property
+  `description`s** stamped on by the new `src/declarations/field-glossary.ts`,
+  which resolves a field name (or dotted path) to its canonical meaning once
+  instead of the same sentence being retyped 58 times. Annotation only ever
+  fills an absent value; a hand-written one always wins.
+- Both are documentary, not enforcing: `ajv` is not a dependency, so the
+  hand-rolled fallback validator runs, and it ignores `format` entirely.
+  Nothing that validated before is rejected now.
+- **Fingerprints moved** — descriptions are part of the canonical
+  serialization — and `contracts/registry.snapshot.json` was regenerated (194
+  events). Verified against the real consumer repos that nothing pins or
+  caches a schema fingerprint, so the churn is inert.
+- `ws.pipeline.event` `$.emittedAt` and `ws.presence.joined`
+  `$.client.lastHeartbeat` are epoch numbers, not ISO strings (traced to
+  `EventBus.ts` and `PresenceService.ts`); the descriptions were wrong, the
+  types were right.
+
+### Fixed (build + tooling)
+
+- **The Docker image never built.** `npm install` died with `spawn git ENOENT`
+  (node:20-alpine has no git and `distributed-core` is a private `github:` SSH
+  pin), `RUN npx tsc` never emitted `dist/cli/index.js` because the root
+  tsconfig excludes `src/cli`, and the build context was a 15 GB parent
+  directory. Now a three-stage build with `--mount=type=ssh`, a non-root
+  runtime user, build-time asserts on `dist/cli/index.js` and
+  `dist/admin/dist/index.html`, and a 774 MB → 5 MB context. Verified by
+  building and running it.
+- **`npm run lint` never typechecked the server or the CLI.** `tsconfig.json`
+  excludes `src/server`, `src/cli` and `src/admin` from `include` — its
+  exclude list is what makes `npm run build` emit exactly the committed
+  `dist/` tree, so it is left alone. New **`tsconfig.lint.json`** +
+  **`npm run lint:all`** cover all of `src` except `src/admin` (which has its
+  own build). The nine real type errors that were hiding there are fixed with
+  real types.
+- The four CLI bins used `void fn().then(code => process.exit(code))` with no
+  `catch`, so any throw surfaced as an unhandled rejection with a raw stack,
+  and `process.exit()` immediately after `stdout.write()` truncated piped
+  output — `snapshot > file` could silently lose data. They set
+  `process.exitCode` now, share flag parsing in `src/cli/_args.ts`, and reject
+  unknown flags instead of ignoring them.
+- `validateBundle` never handled the legal `'both'` transport, so any
+  all-`both` bundle reported invalid with `Bundle transport "both" does not
+  match inferred transport "signal"`. `pipeline.approval.requested`/`.recorded`
+  were affected; a CRD gate over those bundles would have failed at boot.
+- The admin `/topology` and `/flow` routes were white screens: `@ui` aliases to
+  ui-components' source, so `@xyflow/react` resolved twice and `AnimatedEdge`
+  threw "you have not used ReactFlowProvider as an ancestor". Fixed with
+  `resolve.dedupe`; the routes are also code-split now (initial JS 234 kB →
+  74 kB gzipped).
+
+### Notes
+
+- Tests 1463 → 1950, plus 32 Playwright e2e specs. The 64 schema-gate tests
+  each prove their case with a witness payload the old schema accepts and the
+  new one rejects.
+- **Not done, needs a decision**: the 20 mutating endpoints still have no
+  authentication. `ServerConfig.authMiddleware` exists but nothing wires it and
+  distributed-core has no auth convention to follow, so no scheme was invented.
+  DLQ handlers still return raw AWS SDK error text to clients.
+- Known flake: the suite has a pre-existing ~1-in-6 `ECONNRESET` under parallel
+  workers, measured at `v0.4.2` as well.
+
+## [0.4.2] - 2026-08-25
+
+- **`transcription:summary.ready`** declared (durable, producer
+  `platform-api`): summary markdown persisted → projectors and summary-bound
+  pipelines run. Light payload; consumers re-read `summaryMarkdown` from the
+  recording row.
+- **Fixed a `0.4.1` regression** — `callCaptionDeclarations` was re-exported
+  from `./pipeline-image-vision`, a compile error for any consumer importing it
+  from the declarations barrel. Now exported from `./call-captions` alongside
+  the individual declarations. Snapshot regenerated (194 events).
+
+## [0.4.1] - 2026-08-25
+
+- **`call:caption:line`** declared — the live-caption signal event produced by
+  the LVS live-captions sidecar and relayed to `captions:<channelArn>` WS
+  subscribers, following the streaming-token conventions (per-speaker `seq`,
+  hot-path tags, cheap-subscriber contract).
+- Backfilled **`transcription:job.queued`** and
+  **`transcription:transcript.ready`**, which had ridden declared queues as
+  undeclared events since the 2026-08-24 transcription wave.
+
 ## [0.4.0] - 2026-08-16
 
 Replace Express with distributed-core's HTTP transport, per the platform

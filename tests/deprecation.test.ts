@@ -153,3 +153,43 @@ describe('wave25-a — AsyncAPI export', () => {
     expect(msg['x-deprecated'].reason).toBe('replaced by a.y');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Error-envelope shape on the all-unknown bulk deprecate.
+//
+// The handler returned 400 with the SUCCESS body ({deprecated, notFound,
+// total}), so a client branching on `error` saw a well-formed success while
+// the status line said otherwise.
+// ---------------------------------------------------------------------------
+
+describe('POST /api/events/bulk/deprecate — 400 carries an error envelope', () => {
+  it('returns {error, notFound} when none of the names exist', async () => {
+    const { app } = makeApp();
+
+    const res = await request(app)
+      .post('/api/events/bulk/deprecate')
+      .send({ names: ['nope.one', 'nope.two'], reason: 'cleanup' });
+
+    expect(res.status).toBe(400);
+    expect(typeof res.body.error).toBe('string');
+    expect(res.body.notFound).toEqual(['nope.one', 'nope.two']);
+    // The success body must NOT be what a 400 hands back.
+    expect(res.body.deprecated).toBeUndefined();
+    expect(res.body.total).toBeUndefined();
+  });
+
+  it('still returns 200 with the success body when at least one name resolves', async () => {
+    const { app, registry } = makeApp();
+    registry.declare({ name: 'real.one', schema: {}, transport: 'signal', producer: 's' });
+
+    const res = await request(app)
+      .post('/api/events/bulk/deprecate')
+      .send({ names: ['real.one', 'nope.two'], reason: 'cleanup' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.error).toBeUndefined();
+    expect(res.body.deprecated).toEqual(['real.one']);
+    expect(res.body.notFound).toEqual(['nope.two']);
+    expect(res.body.total).toBe(1);
+  });
+});

@@ -1,8 +1,22 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MetricsCollector = void 0;
+exports.MetricsCollector = exports.DEFAULT_MAX_TRACKED_EVENTS = void 0;
 const distributed_core_1 = require("distributed-core");
 const SNAPSHOT_KEY = 'event-catalog:metrics:snapshot';
+/**
+ * Ceiling on distinct events this collector will track.
+ *
+ * Each tracked event costs six distributed-core metric handles, a
+ * RateTracker and a 60-slot rate-history ring buffer, and every entry is
+ * walked on each 15s health tick (`snapshot()` + `tickRateHistory()`).
+ * `POST /api/events/bulk` accepts 1000 declarations per request with no
+ * ceiling on requests, and the observer tracks whatever the registry
+ * holds, so "however many events exist" is not a bound the service
+ * controls. 5000 is ~25x the committed registry (194 events); past it
+ * new events are refused a handle and counted in `droppedEvents` rather
+ * than growing the process without limit.
+ */
+exports.DEFAULT_MAX_TRACKED_EVENTS = 5000;
 class MetricsCollector {
     events = new Map();
     registry;
@@ -10,26 +24,46 @@ class MetricsCollector {
     /** wave26-a — ring buffer: eventName → last N rate snapshots. */
     rateHistory = new Map();
     HISTORY_BUCKETS = 60;
-    constructor(rateWindowSeconds = 60) {
+    maxTrackedEvents;
+    droppedEvents = 0;
+    warnedAboutCap = false;
+    constructor(rateWindowSeconds = 60, maxTrackedEvents = exports.DEFAULT_MAX_TRACKED_EVENTS) {
         this.rateWindowSeconds = rateWindowSeconds;
+        this.maxTrackedEvents = maxTrackedEvents;
         this.registry = new distributed_core_1.MetricsRegistry('event-catalog', { namespace: 'event_catalog' });
     }
     recordPublish(eventName) {
         const handles = this.getOrCreate(eventName);
+        if (!handles)
+            return;
         handles.publishCounter.inc();
         handles.lastPublishedAt = new Date().toISOString();
         handles.rateTracker.record();
     }
     recordError(eventName) {
         const handles = this.getOrCreate(eventName);
+        if (!handles)
+            return;
         handles.errorCounter.inc();
     }
     setSubscriberCount(eventName, count) {
         const handles = this.getOrCreate(eventName);
+        if (!handles)
+            return;
         handles.subscriberGauge.set(count);
+    }
+    /** Events refused a metric handle because the tracking cap was hit. */
+    get droppedEventCount() {
+        return this.droppedEvents;
+    }
+    /** Number of events currently holding metric handles. */
+    size() {
+        return this.events.size;
     }
     updateDurableStats(eventName, stats) {
         const handles = this.getOrCreate(eventName);
+        if (!handles)
+            return;
         if (stats.queueDepth !== undefined)
             handles.queueDepthGauge.set(stats.queueDepth);
         if (stats.messagesInFlight !== undefined)
@@ -98,13 +132,39 @@ class MetricsCollector {
         }
         return out;
     }
+    /**
+     * Drop tracking for one event (or all of them).
+     *
+     * The handles must be zeroed before they are dropped. `MetricsRegistry`
+     * keys its store by `(name, labels)` and hands back the EXISTING
+     * instance when the same key is requested again, so deleting from
+     * `this.events` alone left the counter alive in the registry: the next
+     * `recordPublish` for that name re-fetched the old handle and
+     * `publishCount` resumed from its pre-reset value instead of 1. That
+     * made `POST /api/metrics/reset` look like it worked (getStats went
+     * null) and then silently un-reset itself on the next publish.
+     */
     reset(eventName) {
+        const drop = (handles) => {
+            handles.publishCounter.reset();
+            handles.errorCounter.reset();
+            handles.subscriberGauge.set(0);
+            handles.queueDepthGauge.set(0);
+            handles.messagesInFlightGauge.set(0);
+            handles.oldestMessageAgeGauge.set(0);
+        };
         if (eventName) {
+            const handles = this.events.get(eventName);
+            if (handles)
+                drop(handles);
             this.events.delete(eventName);
+            this.rateHistory.delete(eventName);
+            return;
         }
-        else {
-            this.events.clear();
-        }
+        for (const handles of this.events.values())
+            drop(handles);
+        this.events.clear();
+        this.rateHistory.clear();
     }
     async snapshotToRedis(redis) {
         const data = {};
@@ -130,16 +190,32 @@ class MetricsCollector {
         }
         for (const [eventName, persisted] of Object.entries(data)) {
             const handles = this.getOrCreate(eventName);
-            handles.publishCounter.reset();
-            handles.publishCounter.inc(persisted.publishCount);
-            handles.errorCounter.reset();
-            handles.errorCounter.inc(persisted.errorCount);
-            handles.lastPublishedAt = persisted.lastPublishedAt;
+            if (!handles)
+                continue;
+            // Never move a counter backwards. Restore is a boot-time rehydrate,
+            // but a stale snapshot (or a second restore after traffic has
+            // started) would otherwise rewrite a live counter to a lower value
+            // and make `rate()` read the drop as a counter reset — a phantom
+            // spike on every dashboard that queries it.
+            restoreCounter(handles.publishCounter, persisted.publishCount);
+            restoreCounter(handles.errorCounter, persisted.errorCount);
+            if (handles.lastPublishedAt === null) {
+                handles.lastPublishedAt = persisted.lastPublishedAt;
+            }
         }
     }
     getOrCreate(eventName) {
         let handles = this.events.get(eventName);
         if (!handles) {
+            if (this.events.size >= this.maxTrackedEvents) {
+                this.droppedEvents++;
+                if (!this.warnedAboutCap) {
+                    this.warnedAboutCap = true;
+                    console.warn(`[metrics] tracking cap of ${this.maxTrackedEvents} events reached — ` +
+                        'further events are not measured. Registry is larger than this service expects.');
+                }
+                return null;
+            }
             const labels = { event: eventName };
             handles = {
                 publishCounter: this.registry.counter('publish_total', labels),
@@ -157,4 +233,17 @@ class MetricsCollector {
     }
 }
 exports.MetricsCollector = MetricsCollector;
+/**
+ * Rehydrate a counter to `target` without ever decreasing it.
+ * A counter that goes down is read by Prometheus as a process restart,
+ * so a stale snapshot must be ignored rather than applied.
+ */
+function restoreCounter(counter, target) {
+    if (!Number.isFinite(target) || target <= 0)
+        return;
+    const current = counter.get();
+    if (target <= current)
+        return;
+    counter.inc(target - current);
+}
 //# sourceMappingURL=metrics.js.map

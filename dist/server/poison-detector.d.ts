@@ -16,9 +16,21 @@ export interface PoisonState {
     threshold: number;
     windowMs: number;
 }
+/**
+ * Ceiling on distinct events held in the failure window.
+ *
+ * `failures` is keyed by event name and event names are writable over
+ * HTTP, so without a cap this is an unbounded map fed by request input —
+ * and entries are only ever pruned by a subsequent failure for the SAME
+ * event, so a burst of one-off failures across many names never ages
+ * out. Sweeping expired windows before admitting a new key keeps the map
+ * proportional to what is actually failing, not to what ever failed.
+ */
+export declare const DEFAULT_MAX_TRACKED_FAILURE_EVENTS = 5000;
 export declare class PoisonEventDetector {
     private readonly windowMs;
     private readonly threshold;
+    private readonly maxTrackedEvents;
     /** eventName → timestamps of recent failures within the window. */
     private readonly failures;
     /** eventName → PoisonState (only present when poisoned). */
@@ -26,7 +38,16 @@ export declare class PoisonEventDetector {
     constructor(opts?: {
         windowMs?: number;
         threshold?: number;
+        maxTrackedEvents?: number;
     });
+    /** Distinct events currently inside the failure window. */
+    get trackedEventCount(): number;
+    /**
+     * Drop events whose every recorded failure has aged out of the window.
+     * A poisoned event keeps its slot — its state is operator-dismissed,
+     * not time-expired.
+     */
+    private sweepExpired;
     /**
      * Record one failure for eventName. Returns true the first time the
      * event crosses the threshold (caller can emit an audit event).

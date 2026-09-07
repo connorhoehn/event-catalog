@@ -3,6 +3,8 @@ export { pipelineP1Declarations, } from './pipeline-p1';
 export { pipelineRunStarted, pipelineRunCompleted, pipelineRunFailed, pipelineRunOrphaned, pipelineRunReassigned, pipelineRunResumedFromStep, pipelineRunRetry, pipelineRunStuck, pipelineStepBreakpoint, pipelineJoinWaiting, pipelineJoinFired, pipelineP2Declarations, } from './pipeline-p2';
 export { pipelineRaftRunStarted, pipelineRaftRunUpdated, pipelineRaftRunSynthesized, pipelineRaftRunCheckpointed, pipelineRaftRunTerminated, pipelineRaftDeclarations, pipelineRaftStateMachineDeclarations, } from './pipeline-raft';
 export { gatewaySignalDeclarations } from './gateway-signal';
+export { activityRecorded, callReactionRecorded, gatewayDurableDeclarations, } from './gateway-durable';
+export { sfuSessionCreated, sfuSessionEnded, sfuStreamStarted, sfuStreamEnded, sfuStreamHealthDegraded, sfuStreamHealthRecovered, sfuStreamThumbnailUpdated, sfuRecordingStarted, sfuRecordingCompleted, sfuChannelCreated, sfuChannelUpdated, sfuChannelDeleted, sfuProducerAdded, sfuProducerRemoved, sfuRecordingStateChanged, sfuChatMessage, sfuChatMessageDeleted, sfuChatUserDisconnected, sfuChatUserBanned, sfuChatUserUnbanned, sfuDeclarations, } from './sfu';
 export { clientFrameOutboundDeclarations, clientContractInboundDeclarations, clientFrameDeclarations, } from './client-frames';
 export { orgiqResearcherPresence, orgiqResearcherActivity, orgiqBriefsPresence, orgiqSearchPresence, orgiqInvokePresence, orgiqArticlesReactions, orgiqSignalDeclarations, } from './orgiq-signal';
 export { pipelineEventDeclarations, } from './pipeline-events';
