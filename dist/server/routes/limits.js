@@ -18,7 +18,7 @@
 // committed registry snapshot holds 194 events across every service —
 // so they bound abuse without constraining legitimate callers.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RESERVED_EVENT_NAMES = exports.validateServiceName = exports.MAX_SERVICE_NAME_LENGTH = exports.MAX_SUBSCRIBERS_PER_EVENT = exports.MAX_CONSUMER_NAME_LENGTH = exports.MAX_EVENT_NAME_LENGTH = exports.MAX_AUDIT_QUERY_LIMIT = exports.MAX_MANIFEST_EVENTS = exports.MAX_FRESHNESS_EVENTS = exports.MAX_DLQ_REPLAY_IDS = exports.MAX_BULK_EXPORT_NAMES = exports.MAX_BULK_DEPRECATE_NAMES = exports.MAX_BULK_EVENTS = void 0;
+exports.RESERVED_EVENT_NAMES = exports.schemaDepthExceededMessage = exports.MAX_SCHEMA_DEPTH = exports.validateServiceName = exports.MAX_SERVICE_NAME_LENGTH = exports.MAX_SUBSCRIBERS_PER_EVENT = exports.MAX_CONSUMER_NAME_LENGTH = exports.MAX_EVENT_NAME_LENGTH = exports.MAX_AUDIT_QUERY_LIMIT = exports.MAX_MANIFEST_EVENTS = exports.MAX_FRESHNESS_EVENTS = exports.MAX_DLQ_REPLAY_IDS = exports.MAX_BULK_EXPORT_NAMES = exports.MAX_BULK_DEPRECATE_NAMES = exports.MAX_BULK_EVENTS = void 0;
 exports.validateEventName = validateEventName;
 exports.withinArrayLimit = withinArrayLimit;
 exports.keySafeRecord = keySafeRecord;
@@ -68,6 +68,23 @@ var limits_js_1 = require("../../registry/limits.js");
 Object.defineProperty(exports, "MAX_SUBSCRIBERS_PER_EVENT", { enumerable: true, get: function () { return limits_js_1.MAX_SUBSCRIBERS_PER_EVENT; } });
 Object.defineProperty(exports, "MAX_SERVICE_NAME_LENGTH", { enumerable: true, get: function () { return limits_js_1.MAX_SERVICE_NAME_LENGTH; } });
 Object.defineProperty(exports, "validateServiceName", { enumerable: true, get: function () { return limits_js_1.validateServiceName; } });
+/**
+ * Max nesting depth of a declared JSON Schema. Defined in
+ * `src/registry/limits.ts` and re-exported here for the same reason as
+ * the subscriber caps: the schema walkers it bounds run on the library
+ * declare path as well as the HTTP one, so the ceiling cannot live in a
+ * route handler — but every HTTP-visible ceiling stays listed in this
+ * file.
+ *
+ * Enforced today inside `stableStringify` (so it covers every
+ * fingerprint computation). `validateSchemaShape` still recurses
+ * unbounded and throws `RangeError` past ~6900 levels; it runs before
+ * the fingerprint in `Registry.declare`, so a body deep enough to reach
+ * it produces a 400 whose message names nothing useful.
+ */
+var limits_js_2 = require("../../registry/limits.js");
+Object.defineProperty(exports, "MAX_SCHEMA_DEPTH", { enumerable: true, get: function () { return limits_js_2.MAX_SCHEMA_DEPTH; } });
+Object.defineProperty(exports, "schemaDepthExceededMessage", { enumerable: true, get: function () { return limits_js_2.schemaDepthExceededMessage; } });
 /**
  * Object keys that JavaScript treats specially on assignment. An event
  * name is used as a key in the plain-object responses built by

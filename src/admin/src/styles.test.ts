@@ -76,3 +76,44 @@ describe('bundler config — one copy of the graph library', () => {
     expect(viteConfig).toMatch(/@xyflow\|dagre/);
   });
 });
+
+describe('coordinator card — degraded must not be a milder unhealthy', () => {
+  // jsdom applies no stylesheet, so the component tests can prove the glyph
+  // and the words differ but not that the CARD does. This is the only place
+  // that can, and it is the cue an operator sees first at a glance.
+  const degraded = ruleBody('.coordinator-card.degraded');
+  const unhealthy = ruleBody('.coordinator-card.unhealthy');
+
+  it('gives each state a left rule that differs in style, not only in hue', () => {
+    // A colour-blind operator reading a greyscale screenshot gets nothing from
+    // amber-vs-red. Dashed-vs-solid survives it.
+    expect(decl(degraded, 'border-left-style')).toBe('dashed');
+    expect(decl(unhealthy, 'border-left-style')).toBe('solid');
+  });
+
+  it('does not let the two states share a background treatment either', () => {
+    const a = decl(degraded, 'background');
+    const b = decl(unhealthy, 'background');
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(a).not.toBe(b);
+    // The degraded field is hatched — a texture, which is the second cue that
+    // does not depend on colour at all.
+    expect(a).toMatch(/repeating-linear-gradient/);
+  });
+
+  it('keeps the glyph legible rather than a bare 12px disc', () => {
+    // The dot carries ▲ / ■ / ● as text; .status-dot's own 12px box would clip
+    // it to nothing.
+    const dot = ruleBody('.coordinator-dot');
+    expect(decl(dot, 'text-align')).toBe('center');
+    expect(decl(dot, 'width')).toBe('20px');
+  });
+
+  it('marks the "not reported" card as neither healthy nor failed', () => {
+    // A deployment that did not report replication must not borrow either
+    // state's styling — "we did not ask" is its own answer.
+    const unknown = ruleBody('.coordinator-card.unknown');
+    expect(decl(unknown, 'border-left-style')).toBe('dotted');
+  });
+});

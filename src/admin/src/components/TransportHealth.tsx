@@ -1,19 +1,39 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import Chip from '@ui/components/shared/Chip';
 import EmptyState from '@ui/components/shared/EmptyState';
 import ErrorState from '@ui/components/shared/ErrorState';
 import SkeletonCard from '@ui/components/shared/SkeletonCard';
 import LiveRegion from '@ui/components/shared/LiveRegion';
 import { Button } from '@ui/components/ui/Button';
-import { api, isTransportUp, transportTone, type HealthStatus, type ChannelInfo, type QueueInfo } from '../api';
+import {
+  api,
+  coordinatorExplanation,
+  coordinatorFromHealth,
+  isTransportUp,
+  transportTone,
+  type ChannelInfo,
+  type CoordinatorHealth,
+  type HealthStatus,
+  type QueueInfo,
+  type ServiceCheckStatus,
+} from '../api';
 
 export function TransportHealth() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [queues, setQueues] = useState<QueueInfo[]>([]);
+  const [coordinator, setCoordinator] = useState<CoordinatorHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
+    // The coordinator read is deliberately outside the Promise.all: it hits a
+    // different endpoint (root /health) that a proxy may not forward at all,
+    // and a deployment without it must still get its transports. `catch`
+    // rather than `reject` for the same reason — "not reported" is a state the
+    // card renders, not a page-level failure.
+    api.getServiceHealth()
+      .then(body => setCoordinator(coordinatorFromHealth(body)))
+      .catch(() => setCoordinator(null));
     Promise.all([
       api.getHealth(),
       api.getSignalChannels(),
@@ -67,6 +87,15 @@ export function TransportHealth() {
   const healthSummary =
     `Transports: signal ${health.redis.status}, durable ${health.messageQueue.status}.`;
 
+  // A second region rather than a longer first one. The coordinator changes
+  // on its own schedule (a replica goes stale and resyncs while both
+  // transports sit at "connected" throughout), and folding it into the
+  // sentence above would either re-announce the transports every time the
+  // replication state moved, or throttle the replication state behind them.
+  const replicationSummary = coordinator
+    ? `Registry replication: ${coordinator.status}.`
+    : 'Registry replication: not reported.';
+
   return (
     <div className="transport-health">
       <div className="page-header">
@@ -75,11 +104,17 @@ export function TransportHealth() {
       </div>
 
       <LiveRegion message={healthSummary} throttleMs={5_000} />
+      <LiveRegion message={replicationSummary} throttleMs={5_000} />
       {error && (
         <p className="stale-notice">
           Showing the last successful reading — the most recent refresh failed ({error}).
         </p>
       )}
+
+      {/* Above the transports, not beside them. A stale replica outranks a
+          slow Redis: the transports being fine is what makes it invisible
+          everywhere else in this UI. */}
+      <CoordinatorCard coordinator={coordinator} />
 
       <div className="health-overview">
         <div className={`transport-card ${isTransportUp(health.redis.status) ? 'healthy' : 'unhealthy'}`}>
@@ -175,6 +210,82 @@ export function TransportHealth() {
           <dd>{health.eventCount}</dd>
         </dl>
       </section>
+    </div>
+  );
+}
+
+/**
+ * Non-colour cues for a coordinator state, in the same discipline the
+ * deprecated bundle rows use: the state is spelled out in words, the card
+ * carries a left rule that differs in *style* (not just hue), and the dot
+ * differs in *shape*. Any one of the three survives a greyscale screenshot
+ * on its own.
+ *
+ * `degraded` and `unhealthy` are deliberately not neighbours on a severity
+ * ramp here — dashed/triangle versus solid/square — because they mean
+ * different things to the operator: one says "what you are reading may be
+ * wrong", the other says "replication is not running".
+ */
+const COORDINATOR_CUES: Record<ServiceCheckStatus, { glyph: string; word: string; tone: 'success' | 'warning' | 'danger' }> = {
+  healthy: { glyph: '●', word: 'in sync', tone: 'success' },
+  degraded: { glyph: '▲', word: 'stale replica', tone: 'warning' },
+  unhealthy: { glyph: '■', word: 'replication down', tone: 'danger' },
+};
+
+/** One stat, rendered only when the server actually reported it. */
+function statLine(label: string, value: number | undefined): ReactElement | null {
+  if (typeof value !== 'number') return null;
+  return <p key={label}>{label}: {value.toLocaleString()}</p>;
+}
+
+function CoordinatorCard({ coordinator }: { coordinator: CoordinatorHealth | null }) {
+  // "We did not ask" is not "the replicas agree". A deployment behind a proxy
+  // that forwards only /api, or an older server, gets told exactly that
+  // rather than a reassuring green card it has not earned.
+  if (!coordinator) {
+    return (
+      <div className="transport-card coordinator-card unknown">
+        <div className="transport-icon" aria-hidden="true">
+          <span className="status-dot large coordinator-dot unknown">?</span>
+        </div>
+        <div className="transport-info">
+          <h3>Registry Coordinator (Replication)</h3>
+          <p>
+            Status: <Chip tone="neutral" size="xs">not reported</Chip>
+          </p>
+          <p className="coordinator-explanation">
+            This deployment did not report a replication state — the root
+            <code> /health</code> endpoint is unreachable from the browser, or
+            the server predates the coordinator check. Whether this instance
+            agrees with its peers about the registry is unknown.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const { status, stats } = coordinator;
+  const cue = COORDINATOR_CUES[status];
+  return (
+    <div className={`transport-card coordinator-card ${status}`}>
+      <div className="transport-icon" aria-hidden="true">
+        <span className={`status-dot large coordinator-dot ${status}`}>{cue.glyph}</span>
+      </div>
+      <div className="transport-info">
+        <h3>Registry Coordinator (Replication)</h3>
+        <p>
+          Status: <Chip tone={cue.tone} size="xs">{status}</Chip>{' '}
+          <span className="coordinator-word">{cue.word}</span>
+        </p>
+        <p className="coordinator-explanation">{coordinatorExplanation(status)}</p>
+        <div className="coordinator-stats">
+          {stats.replicaId && <p>Replica: <span className="mono">{stats.replicaId.slice(0, 12)}</span></p>}
+          {statLine('Peers tracked', stats.peers)}
+          {statLine('Resyncs', stats.resyncs)}
+          {statLine('Pending mutations', stats.pending)}
+          {statLine('Replication conflicts', stats.conflicts)}
+        </div>
+      </div>
     </div>
   );
 }

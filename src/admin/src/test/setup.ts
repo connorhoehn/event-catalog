@@ -1,10 +1,17 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
+import { resetAuthState } from '../auth';
 
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  // The "this catalog requires a token" flag is a deliberate module-level
+  // latch — nothing in the UI clears it, because nothing in the UI can make
+  // the server stop requiring a token. That makes it leak across tests in a
+  // shared module graph, so the suite clears it here rather than every file
+  // remembering to.
+  resetAuthState();
 });
 
 // jsdom implements neither of these, and both are load-bearing here: ReactFlow

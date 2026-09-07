@@ -1,5 +1,5 @@
 # AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
-# Scope: broker-addressed backbone events — 119 of 229 declarations
+# Scope: broker-addressed backbone events — 121 of 236 declarations
 # Source of truth: @connorhoehn/event-catalog src/declarations/
 asyncapi: 3.0.0
 info:
@@ -16,8 +16,8 @@ info:
     is valid on. A `transport: both` event appears twice — once per server —
     because it genuinely goes to both.
 
-    SCOPE: this document describes 119 of the registry's
-    229 declarations. The other 110 are
+    SCOPE: this document describes 121 of the registry's
+    236 declarations. The other 115 are
     gateway WebSocket frames with no broker address; they are described in the
     companion document `contracts/asyncapi.yaml`. See
     `info.x-event-catalog-coverage` for the exact partition rule.
@@ -29,13 +29,13 @@ info:
     REGENERATE: `npm run generate-asyncapi` in @connorhoehn/event-catalog.
     DO NOT hand-edit — event shapes are owned by src/declarations/.
   x-event-catalog-coverage:
-    registryDeclarations: 229
-    describedInThisDocument: 119
+    registryDeclarations: 236
+    describedInThisDocument: 121
     describedInCompanionDocument:
       file: contracts/asyncapi.yaml
-      count: 110
+      count: 115
     partitionRule: "Declarations in namespace `client` or `ws` are gateway WebSocket frames: they carry no `channel` and no `queue` because they are multiplexed over one connection, so they are described in contracts/asyncapi.yaml as a single channel with a oneOf per direction. Every other declaration is broker-addressed (a Redis pub/sub channel or a message-queue queue) and is described in contracts/asyncapi.registry.yaml as one channel per event."
-    fullInventory: contracts/registry.snapshot.json lists all 229 events with their schema fingerprints.
+    fullInventory: contracts/registry.snapshot.json lists all 236 events with their schema fingerprints.
 externalDocs:
   description: "Companion document: the gateway WebSocket frames this file does not cover."
   url: ./asyncapi.yaml
@@ -766,6 +766,32 @@ channels:
       redis: {}
     x-event-catalog-transport: signal
     x-event-catalog-channel-source: derived-from-event-name
+  signal__pipeline_step_fanout:
+    address: pipeline:step:fanout
+    title: pipeline:step:fanout
+    description: A scatter source node dispatched its arms. Fires exactly once per fan-out, on the source step, carrying the number of arms; the arms themselves report through the ordinary pipeline:step:* events under synthesized stepIds of the form `<nodeId>:<armIndex>`. This is the only event that states the fan-out width.
+    servers:
+      - $ref: "#/servers/signalRedis"
+    messages:
+      signal__pipeline_step_fanout__msg:
+        $ref: "#/components/messages/signal__pipeline_step_fanout__msg"
+    bindings:
+      redis: {}
+    x-event-catalog-transport: signal
+    x-event-catalog-channel-source: derived-from-event-name
+  signal__pipeline_step_image_produced:
+    address: pipeline:step:image:produced
+    title: pipeline:step:image:produced
+    description: A pipeline step materialised an image artifact into the blob store. Emitted by every platform-api image handler (source, crop, resize, adjust, sharpen, watermark, upscale, generate, variation, edit-prompt, format-convert, geometric-transform, save) and by the vision handler factory, BEFORE the step's terminal pipeline:step:completed, so the run view can render the thumbnail inline while the step is still running.
+    servers:
+      - $ref: "#/servers/signalRedis"
+    messages:
+      signal__pipeline_step_image_produced__msg:
+        $ref: "#/components/messages/signal__pipeline_step_image_produced__msg"
+    bindings:
+      redis: {}
+    x-event-catalog-transport: signal
+    x-event-catalog-channel-source: derived-from-event-name
   signal__activity_recorded:
     address: activity.recorded
     title: activity.recorded
@@ -1184,7 +1210,7 @@ channels:
   signal__ag_ui_RUN_FINISHED:
     address: ag-ui.RUN_FINISHED
     title: ag-ui.RUN_FINISHED
-    description: Emitted when an agent run completes successfully.
+    description: "Emitted when an agent run completes successfully. GROUND TRUTH: neither producer repeats the run identity that RUN_STARTED already established. realtime-modules:src/agent-streaming/AgentStream.ts:117 `runFinished` sends { type, outcome?, result?, timestamp } — and its only in-repo caller (agentStreamMiddleware.ts:210) passes no args at all, so a bare { type, timestamp } is the common frame. platform-api:src/routes/pipelineLLMStream.ts:169 sends { type, runId }. Nothing sends `threadId`."
     servers:
       - $ref: "#/servers/signalRedis"
     messages:
@@ -1327,7 +1353,7 @@ channels:
   signal__ag_ui_TOOL_CALL_RESULT:
     address: ag-ui.TOOL_CALL_RESULT
     title: ag-ui.TOOL_CALL_RESULT
-    description: Carries the result of a completed tool call.
+    description: "Carries the result of a completed tool call. GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:273 `toolCallResult`): { type, messageId, toolCallId, content, role?, timestamp }. The tool NAME is established once on TOOL_CALL_START and is not repeated here — correlate on `toolCallId`."
     servers:
       - $ref: "#/servers/signalRedis"
     messages:
@@ -1392,7 +1418,7 @@ channels:
   signal__ag_ui_ACTIVITY_SNAPSHOT:
     address: ag-ui.ACTIVITY_SNAPSHOT
     title: ag-ui.ACTIVITY_SNAPSHOT
-    description: Full replacement of the activity feed (tool calls, reasoning, sub-steps).
+    description: "Full replacement of ONE activity-feed entry (a tool call, a reasoning trace, a sub-step). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:321 `activitySnapshot`): { type, messageId, activityType, content, replace?, timestamp }. The entry is addressed by `messageId`; this is NOT the upstream AG-UI spec's whole-feed `snapshot` array, which no producer has ever sent."
     servers:
       - $ref: "#/servers/signalRedis"
     messages:
@@ -1405,7 +1431,7 @@ channels:
   signal__ag_ui_ACTIVITY_DELTA:
     address: ag-ui.ACTIVITY_DELTA
     title: ag-ui.ACTIVITY_DELTA
-    description: Incremental update to the activity feed (append or update one item).
+    description: "Incremental update to ONE activity-feed entry. GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:337 `activityDelta`): { type, messageId, activityType, patch, timestamp }. The update rides on `patch`, not on the upstream AG-UI spec's `delta` array, which no producer has ever sent."
     servers:
       - $ref: "#/servers/signalRedis"
     messages:
@@ -1496,7 +1522,7 @@ channels:
   signal__ag_ui_REASONING_ENCRYPTED_VALUE:
     address: ag-ui.REASONING_ENCRYPTED_VALUE
     title: ag-ui.REASONING_ENCRYPTED_VALUE
-    description: Carries an encrypted reasoning payload (provider-specific format).
+    description: "Carries an encrypted reasoning payload (provider-specific format). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:420 `reasoningEncryptedValue`): { type, subtype, entityId, encryptedValue, timestamp }. The ciphertext rides on `encryptedValue`, not on the upstream AG-UI spec's `value`, which no producer has ever sent."
     servers:
       - $ref: "#/servers/signalRedis"
     messages:
@@ -1535,7 +1561,7 @@ channels:
   signal__ag_ui_META_EVENT:
     address: ag-ui.META_EVENT
     title: ag-ui.META_EVENT
-    description: Protocol metadata event (e.g. heartbeats, version negotiation).
+    description: "Protocol metadata event (e.g. heartbeats, version negotiation). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:448 `meta`): { type, metaType, payload, timestamp }. The discriminator is `metaType`, not the upstream AG-UI spec's `name`, which no producer has ever sent."
     servers:
       - $ref: "#/servers/signalRedis"
     messages:
@@ -2455,6 +2481,36 @@ operations:
       - name: agent
       - name: producer:platform-api
       - name: step-lifecycle
+  signal__pipeline_step_fanout__send_by__distributed_core:
+    action: send
+    channel:
+      $ref: "#/channels/signal__pipeline_step_fanout"
+    messages:
+      - $ref: "#/channels/signal__pipeline_step_fanout/messages/signal__pipeline_step_fanout__msg"
+    title: distributed-core → pipeline:step:fanout
+    summary: distributed-core publishes pipeline:step:fanout
+    description: A scatter source node dispatched its arms. Fires exactly once per fan-out, on the source step, carrying the number of arms; the arms themselves report through the ordinary pipeline:step:* events under synthesized stepIds of the form `<nodeId>:<armIndex>`. This is the only event that states the fan-out width.
+    tags:
+      - name: pipeline
+      - name: scatter
+      - name: producer:distributed-core
+      - name: step-lifecycle
+      - name: observability
+  signal__pipeline_step_image_produced__send_by__platform_api:
+    action: send
+    channel:
+      $ref: "#/channels/signal__pipeline_step_image_produced"
+    messages:
+      - $ref: "#/channels/signal__pipeline_step_image_produced/messages/signal__pipeline_step_image_produced__msg"
+    title: platform-api → pipeline:step:image:produced
+    summary: platform-api publishes pipeline:step:image:produced
+    description: A pipeline step materialised an image artifact into the blob store. Emitted by every platform-api image handler (source, crop, resize, adjust, sharpen, watermark, upscale, generate, variation, edit-prompt, format-convert, geometric-transform, save) and by the vision handler factory, BEFORE the step's terminal pipeline:step:completed, so the run view can render the thumbnail inline while the step is still running.
+    tags:
+      - name: pipeline
+      - name: image
+      - name: producer:platform-api
+      - name: step-lifecycle
+      - name: artifact
   signal__activity_recorded__send_by__websocket_gateway:
     action: send
     channel:
@@ -2961,7 +3017,7 @@ operations:
       - $ref: "#/channels/signal__ag_ui_RUN_FINISHED/messages/signal__ag_ui_RUN_FINISHED__msg"
     title: ag-ui-agent → ag-ui.RUN_FINISHED
     summary: ag-ui-agent publishes ag-ui.RUN_FINISHED
-    description: Emitted when an agent run completes successfully.
+    description: "Emitted when an agent run completes successfully. GROUND TRUTH: neither producer repeats the run identity that RUN_STARTED already established. realtime-modules:src/agent-streaming/AgentStream.ts:117 `runFinished` sends { type, outcome?, result?, timestamp } — and its only in-repo caller (agentStreamMiddleware.ts:210) passes no args at all, so a bare { type, timestamp } is the common frame. platform-api:src/routes/pipelineLLMStream.ts:169 sends { type, runId }. Nothing sends `threadId`."
     tags:
       - name: ag-ui
       - name: agent
@@ -3104,7 +3160,7 @@ operations:
       - $ref: "#/channels/signal__ag_ui_TOOL_CALL_RESULT/messages/signal__ag_ui_TOOL_CALL_RESULT__msg"
     title: ag-ui-agent → ag-ui.TOOL_CALL_RESULT
     summary: ag-ui-agent publishes ag-ui.TOOL_CALL_RESULT
-    description: Carries the result of a completed tool call.
+    description: "Carries the result of a completed tool call. GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:273 `toolCallResult`): { type, messageId, toolCallId, content, role?, timestamp }. The tool NAME is established once on TOOL_CALL_START and is not repeated here — correlate on `toolCallId`."
     tags:
       - name: ag-ui
       - name: agent
@@ -3169,7 +3225,7 @@ operations:
       - $ref: "#/channels/signal__ag_ui_ACTIVITY_SNAPSHOT/messages/signal__ag_ui_ACTIVITY_SNAPSHOT__msg"
     title: ag-ui-agent → ag-ui.ACTIVITY_SNAPSHOT
     summary: ag-ui-agent publishes ag-ui.ACTIVITY_SNAPSHOT
-    description: Full replacement of the activity feed (tool calls, reasoning, sub-steps).
+    description: "Full replacement of ONE activity-feed entry (a tool call, a reasoning trace, a sub-step). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:321 `activitySnapshot`): { type, messageId, activityType, content, replace?, timestamp }. The entry is addressed by `messageId`; this is NOT the upstream AG-UI spec's whole-feed `snapshot` array, which no producer has ever sent."
     tags:
       - name: ag-ui
       - name: agent
@@ -3182,7 +3238,7 @@ operations:
       - $ref: "#/channels/signal__ag_ui_ACTIVITY_DELTA/messages/signal__ag_ui_ACTIVITY_DELTA__msg"
     title: ag-ui-agent → ag-ui.ACTIVITY_DELTA
     summary: ag-ui-agent publishes ag-ui.ACTIVITY_DELTA
-    description: Incremental update to the activity feed (append or update one item).
+    description: "Incremental update to ONE activity-feed entry. GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:337 `activityDelta`): { type, messageId, activityType, patch, timestamp }. The update rides on `patch`, not on the upstream AG-UI spec's `delta` array, which no producer has ever sent."
     tags:
       - name: ag-ui
       - name: agent
@@ -3273,7 +3329,7 @@ operations:
       - $ref: "#/channels/signal__ag_ui_REASONING_ENCRYPTED_VALUE/messages/signal__ag_ui_REASONING_ENCRYPTED_VALUE__msg"
     title: ag-ui-agent → ag-ui.REASONING_ENCRYPTED_VALUE
     summary: ag-ui-agent publishes ag-ui.REASONING_ENCRYPTED_VALUE
-    description: Carries an encrypted reasoning payload (provider-specific format).
+    description: "Carries an encrypted reasoning payload (provider-specific format). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:420 `reasoningEncryptedValue`): { type, subtype, entityId, encryptedValue, timestamp }. The ciphertext rides on `encryptedValue`, not on the upstream AG-UI spec's `value`, which no producer has ever sent."
     tags:
       - name: ag-ui
       - name: agent
@@ -3312,7 +3368,7 @@ operations:
       - $ref: "#/channels/signal__ag_ui_META_EVENT/messages/signal__ag_ui_META_EVENT__msg"
     title: ag-ui-agent → ag-ui.META_EVENT
     summary: ag-ui-agent publishes ag-ui.META_EVENT
-    description: Protocol metadata event (e.g. heartbeats, version negotiation).
+    description: "Protocol metadata event (e.g. heartbeats, version negotiation). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:448 `meta`): { type, metaType, payload, timestamp }. The discriminator is `metaType`, not the upstream AG-UI spec's `name`, which no producer has ever sent."
     tags:
       - name: ag-ui
       - name: agent
@@ -4079,6 +4135,30 @@ components:
         - name: step-lifecycle
       payload:
         $ref: "#/components/schemas/pipeline_step_agent_tool__schema"
+    signal__pipeline_step_fanout__msg:
+      name: pipeline:step:fanout
+      title: pipeline:step:fanout
+      description: A scatter source node dispatched its arms. Fires exactly once per fan-out, on the source step, carrying the number of arms; the arms themselves report through the ordinary pipeline:step:* events under synthesized stepIds of the form `<nodeId>:<armIndex>`. This is the only event that states the fan-out width.
+      tags:
+        - name: pipeline
+        - name: scatter
+        - name: producer:distributed-core
+        - name: step-lifecycle
+        - name: observability
+      payload:
+        $ref: "#/components/schemas/pipeline_step_fanout__schema"
+    signal__pipeline_step_image_produced__msg:
+      name: pipeline:step:image:produced
+      title: pipeline:step:image:produced
+      description: A pipeline step materialised an image artifact into the blob store. Emitted by every platform-api image handler (source, crop, resize, adjust, sharpen, watermark, upscale, generate, variation, edit-prompt, format-convert, geometric-transform, save) and by the vision handler factory, BEFORE the step's terminal pipeline:step:completed, so the run view can render the thumbnail inline while the step is still running.
+      tags:
+        - name: pipeline
+        - name: image
+        - name: producer:platform-api
+        - name: step-lifecycle
+        - name: artifact
+      payload:
+        $ref: "#/components/schemas/pipeline_step_image_produced__schema"
     signal__activity_recorded__msg:
       name: activity.recorded
       title: activity.recorded
@@ -4478,7 +4558,7 @@ components:
     signal__ag_ui_RUN_FINISHED__msg:
       name: ag-ui.RUN_FINISHED
       title: ag-ui.RUN_FINISHED
-      description: Emitted when an agent run completes successfully.
+      description: "Emitted when an agent run completes successfully. GROUND TRUTH: neither producer repeats the run identity that RUN_STARTED already established. realtime-modules:src/agent-streaming/AgentStream.ts:117 `runFinished` sends { type, outcome?, result?, timestamp } — and its only in-repo caller (agentStreamMiddleware.ts:210) passes no args at all, so a bare { type, timestamp } is the common frame. platform-api:src/routes/pipelineLLMStream.ts:169 sends { type, runId }. Nothing sends `threadId`."
       tags:
         - name: ag-ui
         - name: agent
@@ -4588,7 +4668,7 @@ components:
     signal__ag_ui_TOOL_CALL_RESULT__msg:
       name: ag-ui.TOOL_CALL_RESULT
       title: ag-ui.TOOL_CALL_RESULT
-      description: Carries the result of a completed tool call.
+      description: "Carries the result of a completed tool call. GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:273 `toolCallResult`): { type, messageId, toolCallId, content, role?, timestamp }. The tool NAME is established once on TOOL_CALL_START and is not repeated here — correlate on `toolCallId`."
       tags:
         - name: ag-ui
         - name: agent
@@ -4638,7 +4718,7 @@ components:
     signal__ag_ui_ACTIVITY_SNAPSHOT__msg:
       name: ag-ui.ACTIVITY_SNAPSHOT
       title: ag-ui.ACTIVITY_SNAPSHOT
-      description: Full replacement of the activity feed (tool calls, reasoning, sub-steps).
+      description: "Full replacement of ONE activity-feed entry (a tool call, a reasoning trace, a sub-step). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:321 `activitySnapshot`): { type, messageId, activityType, content, replace?, timestamp }. The entry is addressed by `messageId`; this is NOT the upstream AG-UI spec's whole-feed `snapshot` array, which no producer has ever sent."
       tags:
         - name: ag-ui
         - name: agent
@@ -4648,7 +4728,7 @@ components:
     signal__ag_ui_ACTIVITY_DELTA__msg:
       name: ag-ui.ACTIVITY_DELTA
       title: ag-ui.ACTIVITY_DELTA
-      description: Incremental update to the activity feed (append or update one item).
+      description: "Incremental update to ONE activity-feed entry. GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:337 `activityDelta`): { type, messageId, activityType, patch, timestamp }. The update rides on `patch`, not on the upstream AG-UI spec's `delta` array, which no producer has ever sent."
       tags:
         - name: ag-ui
         - name: agent
@@ -4718,7 +4798,7 @@ components:
     signal__ag_ui_REASONING_ENCRYPTED_VALUE__msg:
       name: ag-ui.REASONING_ENCRYPTED_VALUE
       title: ag-ui.REASONING_ENCRYPTED_VALUE
-      description: Carries an encrypted reasoning payload (provider-specific format).
+      description: "Carries an encrypted reasoning payload (provider-specific format). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:420 `reasoningEncryptedValue`): { type, subtype, entityId, encryptedValue, timestamp }. The ciphertext rides on `encryptedValue`, not on the upstream AG-UI spec's `value`, which no producer has ever sent."
       tags:
         - name: ag-ui
         - name: agent
@@ -4748,7 +4828,7 @@ components:
     signal__ag_ui_META_EVENT__msg:
       name: ag-ui.META_EVENT
       title: ag-ui.META_EVENT
-      description: Protocol metadata event (e.g. heartbeats, version negotiation).
+      description: "Protocol metadata event (e.g. heartbeats, version negotiation). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:448 `meta`): { type, metaType, payload, timestamp }. The discriminator is `metaType`, not the upstream AG-UI spec's `name`, which no producer has ever sent."
       tags:
         - name: ag-ui
         - name: agent
@@ -6325,6 +6405,85 @@ components:
         - phase
         - at
       additionalProperties: true
+    pipeline_step_fanout__schema:
+      type: object
+      properties:
+        runId:
+          type: string
+          description: Identifier of the run this event belongs to. The correlation key for every event in a single execution.
+        stepId:
+          type: string
+          description: Identifier of the scatter SOURCE node — the step whose handler returned `fanOut`. Arm steps carry `<stepId>:<armIndex>` instead.
+        count:
+          type: integer
+          minimum: 0
+          description: Number of arms dispatched (`fanOut.items.length`). Folded onto the source step as `fanoutCount` by the run-detail reducer.
+        at:
+          type: string
+          description: ISO-8601 timestamp at which the executor dispatched the arms.
+          format: date-time
+      required:
+        - runId
+        - stepId
+        - count
+        - at
+      additionalProperties: true
+    pipeline_step_image_produced__schema:
+      type: object
+      properties:
+        runId:
+          type: string
+          description: Identifier of the run this event belongs to. The correlation key for every event in a single execution.
+        stepId:
+          type: string
+          description: Identifier of the pipeline step this event belongs to (node id within the pipeline graph).
+        imageId:
+          type: string
+          description: Identifier of the image in the ImageBlobStore. The dedup key the run-detail reducer uses.
+        width:
+          type: integer
+          description: Width of the produced image in pixels, from the blob store metadata.
+        height:
+          type: integer
+          description: Height of the produced image in pixels, from the blob store metadata.
+        mimeType:
+          type: string
+          description: IANA media type of the uploaded file.
+        bbox:
+          type: object
+          description: Crop rectangle in SOURCE-image coordinates. Emitted by the crop handler alone; absent on every other producer.
+          properties:
+            x:
+              type: number
+              description: Left edge of the crop rectangle, in source-image pixels.
+            y:
+              type: number
+              description: Top edge of the crop rectangle, in source-image pixels.
+            width:
+              type: number
+              description: Width of the crop rectangle, in source-image pixels.
+            height:
+              type: number
+              description: Height of the crop rectangle, in source-image pixels.
+          required:
+            - x
+            - y
+            - width
+            - height
+          additionalProperties: true
+        at:
+          type: string
+          description: ISO-8601 timestamp at which the handler announced the artifact.
+          format: date-time
+      required:
+        - runId
+        - stepId
+        - imageId
+        - width
+        - height
+        - mimeType
+        - at
+      additionalProperties: true
     activity_recorded__schema:
       type: object
       properties:
@@ -7269,8 +7428,6 @@ components:
       type: object
       required:
         - type
-        - threadId
-        - runId
       properties:
         type:
           type: string
@@ -7278,10 +7435,18 @@ components:
           description: AG-UI event type discriminator — always the literal name of this event.
         threadId:
           type: string
-          description: Identifier of the conversation thread this run belongs to.
+          description: "NEVER EMITTED — RUN_STARTED carries the thread identity and neither RUN_FINISHED producer repeats it: AgentStream omits it and platform-api's pipelineLLMStream sends runId only. Correlate on the runId from RUN_STARTED instead. Declared-but-optional only because removing a property is breaking; do not re-add it to `required`."
         runId:
           type: string
-          description: Identifier of the agent run this event belongs to.
+          description: Identifier of the agent run that finished. Sent by platform-api's pipelineLLMStream; omitted by AgentStream, which relies on the RUN_STARTED correlation.
+        outcome:
+          type: string
+          description: Caller-supplied summary of how the run ended, when the caller chose to label it. Free-form; AgentStream does not constrain the value.
+        result:
+          description: Caller-supplied final result of the run. Shape is defined by the agent and deliberately unconstrained.
+        timestamp:
+          type: number
+          description: Epoch milliseconds at which AgentStream emitted the frame (its injectable `now()`, defaulting to Date.now()). Not an ISO string.
       additionalProperties: true
     ag_ui_RUN_ERROR__schema:
       type: object
@@ -7463,7 +7628,6 @@ components:
         - type
         - messageId
         - toolCallId
-        - toolCallName
         - content
       properties:
         type:
@@ -7478,9 +7642,15 @@ components:
           description: Identifier correlating the start, args, and result events of a single tool call.
         toolCallName:
           type: string
-          description: Name of the tool being invoked.
+          description: NEVER EMITTED — AgentStream sends the tool name only on TOOL_CALL_START; the result frame omits it and consumers correlate on toolCallId. Declared-but-optional only because removing a property is breaking; do not re-add it to `required`.
+        role:
+          type: string
+          description: Role attributed to the result message when the caller supplies one (AgentStream spreads it in only if passed).
         content:
           description: Result content returned by the tool call.
+        timestamp:
+          type: number
+          description: Epoch milliseconds at which AgentStream emitted the frame (its injectable `now()`, defaulting to Date.now()). Not an ISO string.
       additionalProperties: true
     ag_ui_TOOL_CALL_CHUNK__schema:
       type: object
@@ -7576,31 +7746,52 @@ components:
       type: object
       required:
         - type
-        - snapshot
       properties:
         type:
           type: string
           const: ACTIVITY_SNAPSHOT
           description: AG-UI event type discriminator — always the literal name of this event.
+        messageId:
+          description: Identifier of the message this event contributes to. Stable across the start/content/end triple.
+        activityType:
+          type: string
+          description: Kind of activity this feed entry represents (e.g. "search", "tool"), chosen by the emitting agent.
+        content:
+          description: Full current body of this activity entry. Replaces whatever the consumer has rendered for the same messageId.
+        replace:
+          type: boolean
+          description: Whether the consumer should replace an existing entry rather than append a new one. Absent when the producer did not set it.
+        timestamp:
+          type: number
+          description: Epoch milliseconds at which AgentStream emitted the frame (its injectable `now()`, defaulting to Date.now()). Not an ISO string.
         snapshot:
           type: array
           items: {}
-          description: Full replacement snapshot of the stream's state; supersedes every delta received so far.
+          description: NEVER EMITTED — the upstream AG-UI whole-feed array. AgentStream sends one entry at a time ({ messageId, activityType, content }), so nothing has ever assigned this. Declared-but-optional only because removing a property is breaking; do not re-add it to `required`.
       additionalProperties: true
     ag_ui_ACTIVITY_DELTA__schema:
       type: object
       required:
         - type
-        - delta
       properties:
         type:
           type: string
           const: ACTIVITY_DELTA
           description: AG-UI event type discriminator — always the literal name of this event.
+        messageId:
+          description: Identifier of the message this event contributes to. Stable across the start/content/end triple.
+        activityType:
+          type: string
+          description: Kind of activity this feed entry represents (e.g. "search", "tool"), chosen by the emitting agent.
+        patch:
+          description: Producer-defined incremental update to apply to the entry named by messageId. Shape is agent-specific and deliberately unconstrained.
+        timestamp:
+          type: number
+          description: Epoch milliseconds at which AgentStream emitted the frame (its injectable `now()`, defaulting to Date.now()). Not an ISO string.
         delta:
           type: array
           items: {}
-          description: Incremental update since the previous event of this stream.
+          description: NEVER EMITTED — the upstream AG-UI delta array. AgentStream carries its incremental update on `patch` instead. Declared-but-optional only because removing a property is breaking; do not re-add it to `required`.
       additionalProperties: true
     ag_ui_REASONING_MESSAGE_START__schema:
       type: object
@@ -7690,15 +7881,26 @@ components:
       type: object
       required:
         - type
-        - value
       properties:
         type:
           type: string
           const: REASONING_ENCRYPTED_VALUE
           description: AG-UI event type discriminator — always the literal name of this event.
+        subtype:
+          type: string
+          description: Provider-specific kind of encrypted reasoning artifact, so a consumer can route it without decrypting.
+        entityId:
+          type: string
+          description: Identifier of the reasoning entity this ciphertext belongs to, used to correlate it with the surrounding trace.
+        encryptedValue:
+          type: string
+          description: Opaque encrypted bytes, in whatever encoding the provider uses.
+        timestamp:
+          type: number
+          description: Epoch milliseconds at which AgentStream emitted the frame (its injectable `now()`, defaulting to Date.now()). Not an ISO string.
         value:
           type: string
-          description: Opaque encrypted bytes.
+          description: NEVER EMITTED — the upstream AG-UI spec's ciphertext field. AgentStream sends `encryptedValue` instead. Declared-but-optional only because removing a property is breaking; do not re-add it to `required`.
       additionalProperties: true
     ag_ui_RAW__schema:
       type: object
@@ -7733,15 +7935,22 @@ components:
       type: object
       required:
         - type
-        - name
       properties:
         type:
           type: string
           const: META_EVENT
           description: AG-UI event type discriminator — always the literal name of this event.
+        metaType:
+          type: string
+          description: Kind of protocol metadata this frame carries (e.g. "trace", "heartbeat"). The routing key a consumer switches on.
+        payload:
+          description: Metadata body for this metaType. Shape is defined by the emitting agent and deliberately unconstrained.
+        timestamp:
+          type: number
+          description: Epoch milliseconds at which AgentStream emitted the frame (its injectable `now()`, defaulting to Date.now()). Not an ISO string.
         name:
           type: string
-          description: Name of the custom/meta event, used by the frontend to route it.
+          description: NEVER EMITTED — the upstream AG-UI spec's meta discriminator. AgentStream sends `metaType` instead. Declared-but-optional only because removing a property is breaking; do not re-add it to `required`.
       additionalProperties: true
     orgiq_newsroom_researcher_presence__schema:
       type: object

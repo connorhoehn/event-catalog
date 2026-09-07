@@ -36,14 +36,45 @@ export const agUiRunFinished: EventDeclaration = {
   transport: 'signal',
   producer: PRODUCER,
   tags: TAGS,
-  description: 'Emitted when an agent run completes successfully.',
+  description:
+    'Emitted when an agent run completes successfully. GROUND TRUTH: neither producer repeats the '
+    + 'run identity that RUN_STARTED already established. realtime-modules:src/agent-streaming/'
+    + 'AgentStream.ts:117 `runFinished` sends { type, outcome?, result?, timestamp } — and its only '
+    + 'in-repo caller (agentStreamMiddleware.ts:210) passes no args at all, so a bare '
+    + '{ type, timestamp } is the common frame. platform-api:src/routes/pipelineLLMStream.ts:169 '
+    + 'sends { type, runId }. Nothing sends `threadId`.',
   schema: {
     type: 'object',
-    required: ['type', 'threadId', 'runId'],
+    required: ['type'],
     properties: {
       type: { type: 'string', const: 'RUN_FINISHED' },
-      threadId: { type: 'string' },
-      runId: { type: 'string' },
+      threadId: {
+        type: 'string',
+        description:
+          'NEVER EMITTED — RUN_STARTED carries the thread identity and neither RUN_FINISHED producer '
+          + 'repeats it: AgentStream omits it and platform-api\'s pipelineLLMStream sends runId only. '
+          + 'Correlate on the runId from RUN_STARTED instead. Declared-but-optional only because '
+          + 'removing a property is breaking; do not re-add it to `required`.',
+      },
+      runId: {
+        type: 'string',
+        description:
+          'Identifier of the agent run that finished. Sent by platform-api\'s pipelineLLMStream; omitted by AgentStream, which relies on the RUN_STARTED correlation.',
+      },
+      outcome: {
+        type: 'string',
+        description:
+          'Caller-supplied summary of how the run ended, when the caller chose to label it. Free-form; AgentStream does not constrain the value.',
+      },
+      result: {
+        description:
+          'Caller-supplied final result of the run. Shape is defined by the agent and deliberately unconstrained.',
+      },
+      timestamp: {
+        type: 'number',
+        description:
+          'Epoch milliseconds at which AgentStream emitted the frame (its injectable `now()`, defaulting to Date.now()). Not an ISO string.',
+      },
     },
     additionalProperties: true,
   },

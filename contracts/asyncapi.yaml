@@ -1,5 +1,5 @@
 # AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
-# Scope: the gateway WebSocket protocol — 110 of 229 declarations
+# Scope: the gateway WebSocket protocol — 115 of 236 declarations
 # Source of truth: @connorhoehn/event-catalog src/declarations/
 asyncapi: 2.6.0
 info:
@@ -20,10 +20,10 @@ info:
     frames carry `{ service, action, channel?, ... }`; inbound frames carry
     a `type` discriminator.
 
-    SCOPE: this document describes 110 of the registry's
-    229 declarations — the gateway WebSocket frames, and
+    SCOPE: this document describes 115 of the registry's
+    236 declarations — the gateway WebSocket frames, and
     only those. It is NOT the platform event inventory. The other
-    119 declarations are broker-addressed backbone events
+    121 declarations are broker-addressed backbone events
     (Redis pub/sub and the durable message-queue) and are described in the
     companion document `contracts/asyncapi.registry.yaml`. See
     `info.x-event-catalog-coverage` below for the exact partition rule.
@@ -33,13 +33,13 @@ info:
   license:
     name: UNLICENSED
   x-event-catalog-coverage:
-    registryDeclarations: 229
-    describedInThisDocument: 110
+    registryDeclarations: 236
+    describedInThisDocument: 115
     describedInCompanionDocument:
       file: contracts/asyncapi.registry.yaml
-      count: 119
+      count: 121
     partitionRule: "Declarations in namespace `client` or `ws` are gateway WebSocket frames: they carry no `channel` and no `queue` because they are multiplexed over one connection, so they are described in contracts/asyncapi.yaml as a single channel with a oneOf per direction. Every other declaration is broker-addressed (a Redis pub/sub channel or a message-queue queue) and is described in contracts/asyncapi.registry.yaml as one channel per event."
-    fullInventory: contracts/registry.snapshot.json lists all 229 events with their schema fingerprints.
+    fullInventory: contracts/registry.snapshot.json lists all 236 events with their schema fingerprints.
 externalDocs:
   description: "Companion document: the broker-addressed backbone events this file does not cover."
   url: ./asyncapi.registry.yaml
@@ -144,6 +144,7 @@ channels:
           - $ref: "#/components/messages/ws_reaction_received"
           - $ref: "#/components/messages/ws_reaction_removed"
           - $ref: "#/components/messages/ws_reaction_list"
+          - $ref: "#/components/messages/ws_reaction_history"
           - $ref: "#/components/messages/ws_reaction_sent"
           - $ref: "#/components/messages/ws_call_invite"
           - $ref: "#/components/messages/ws_call_accepted"
@@ -173,6 +174,10 @@ channels:
           - $ref: "#/components/messages/ws_subscribe_unsubscribed"
           - $ref: "#/components/messages/ws_presence_joined"
           - $ref: "#/components/messages/ws_presence_left"
+          - $ref: "#/components/messages/ws_fileupload_url"
+          - $ref: "#/components/messages/ws_fileupload_complete"
+          - $ref: "#/components/messages/ws_fileupload_failed"
+          - $ref: "#/components/messages/ws_fileupload_started"
           - $ref: "#/components/messages/ws_fileupload_progress"
           - $ref: "#/components/messages/ws_fileupload_scanning"
           - $ref: "#/components/messages/ws_fileupload_cancelled"
@@ -2242,7 +2247,7 @@ components:
       messageId: ws.reaction.removed
       name: ws.reaction.removed
       title: ws.reaction.removed
-      summary: "Broadcast to all reaction channel subscribers when a previously sent reaction is removed. NOTE (2026-06-12 dist re-audit): the realtime-modules dist ReactionService the gateway currently runs has NO reaction-remove action — this frame is a historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service."
+      summary: 'Broadcast to all reaction channel subscribers when a previously sent reaction is removed. GROUND TRUTH (realtime-modules:dist/reactions/ReactionService.js:330, src at src/reactions/ReactionService.ts:403): { type:"reaction", action:"reaction_removed", data:{ channel, targetId, emoji, userId, timestamp } }. The removal is keyed by the durable (targetId, emoji, userId) triple, not by a reaction id — realtime-modules:src/client/useReactions.ts:163 filters on exactly that triple because ids differ between the live broadcast and the stored replay.'
       schemaFormat: application/schema+json;version=draft-07
       payload:
         type: object
@@ -2264,7 +2269,7 @@ components:
             properties:
               id:
                 type: string
-                description: Identifier of the subject of this frame.
+                description: NEVER EMITTED — ReactionService builds the removal frame from the durable key (targetId, emoji, userId) and never assigns an id; useReactions matches on that triple for the same reason. Was `required` until 2026-09-07, which rejected every real removal frame. Declared-but-optional only because removing a property is breaking; do not re-add it to `required`.
               clientId:
                 type: string
                 description: Gateway-assigned WebSocket connection id for one client socket.
@@ -2274,8 +2279,17 @@ components:
               emoji:
                 type: string
                 description: Single emoji character carried by the reaction.
+              targetId:
+                type: string
+                description: Identifier of the thing the reaction was attached to (message, article, …). Half of the durable key the consumer matches on.
+              userId:
+                type: string
+                description: Platform user id of the acting or referenced user.
+              timestamp:
+                type: string
+                description: ISO-8601 timestamp at which the producer removed the reaction.
+                format: date-time
             required:
-              - id
               - channel
             additionalProperties: true
             description: Frame body — the per-action payload of this frame.
@@ -2317,6 +2331,90 @@ components:
                   type: object
                   additionalProperties: true
                 description: Reactions currently recorded on the channel.
+            required:
+              - channel
+            additionalProperties: true
+            description: Frame body — the per-action payload of this frame.
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_reaction_history:
+      messageId: ws.reaction.history
+      name: ws.reaction.history
+      title: ws.reaction.history
+      summary: 'Durable reaction replay delivered to one client when it subscribes to a channel. GROUND TRUTH (realtime-modules:src/reactions/ReactionService.ts:473 `_replayStoredReactions` via sendSuccess): { type:"reaction", action:"reaction_history", success:true, data:{ channel, reactions } }. Each row is rehydrated into full Reaction shape by `_fromStored` (:452), whose `id` is DERIVED from the durable key so replaying twice cannot look like two reactions. realtime-modules:src/client/useReactions.ts:143 REPLACES its reaction list with this payload — it is the channel state, not additional events. This is the frame the previously declared ws.reaction.list (action "reaction_list") was mistaken for; no producer uses that action.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: reaction
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: reaction_history
+            description: Which action of the frame's service this frame reports.
+          success:
+            type: boolean
+            const: true
+            description: Whether the requested operation succeeded.
+          data:
+            type: object
+            properties:
+              channel:
+                type: string
+                description: Gateway channel (room) this frame is scoped to.
+              reactions:
+                type: array
+                description: Stored reactions for the channel, oldest first, capped by the service's maxHistoryReplay. Present and empty when nothing is stored.
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      description: Identifier derived from the durable key (`reaction_<targetId>_<emoji>_<userId>`), so a re-replay is recognisably the same fact rather than a new one.
+                    clientId:
+                      type: string
+                      description: Gateway-assigned WebSocket connection id for one client socket.
+                    channel:
+                      type: string
+                      description: Gateway channel (room) this frame is scoped to.
+                    emoji:
+                      type: string
+                      description: Single emoji character carried by the reaction.
+                    effect:
+                      type: string
+                      description: Visual effect to play alongside the reaction, resolved from the service's emoji catalog. Empty string when the emoji has no catalog entry.
+                    position:
+                      description: Screen position the reaction was placed at, when the sender supplied one. Always null on a replayed row — the store does not keep it.
+                    metadata:
+                      description: Free-form producer-supplied metadata; opaque to the transport and never interpreted by the gateway.
+                    timestamp:
+                      type: string
+                      description: ISO-8601 timestamp at which the reaction was originally sent.
+                      format: date-time
+                    targetId:
+                      type: string
+                      description: Identifier of the thing the reaction is attached to. A reaction is only durable when it names one, so every replayed row carries it.
+                    userId:
+                      type: string
+                      description: Platform user id of the acting or referenced user.
+                    displayName:
+                      type: string
+                      description: Human-readable display name shown in the UI.
+                  required:
+                    - id
+                    - clientId
+                    - channel
+                    - emoji
+                  additionalProperties: true
             required:
               - channel
             additionalProperties: true
@@ -3493,6 +3591,202 @@ components:
           - type
           - channel
           - clientId
+        additionalProperties: true
+    ws_fileupload_url:
+      messageId: ws.fileupload.url
+      name: ws.fileupload.url
+      title: ws.fileupload.url
+      summary: The HTTP PUT target for an accepted upload, returned privately to the requesting client. Supersedes the type:"upload" ws.upload.requested handshake, which the fileupload producer does not build.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: fileupload:url
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          id:
+            type: string
+            description: client-generated upload id
+          transferId:
+            type: string
+            description: Server-minted storage id; the uploadUrl path is built from this, not from `id`.
+          uploadUrl:
+            type: string
+            format: uri
+            description: HTTP PUT target the client uploads the bytes to.
+        required:
+          - type
+          - channel
+          - id
+          - transferId
+          - uploadUrl
+        additionalProperties: true
+    ws_fileupload_complete:
+      messageId: ws.fileupload.complete
+      name: ws.fileupload.complete
+      title: ws.fileupload.complete
+      summary: A file transfer completed and is available for download. Broadcast to the channel. Supersedes the type:"upload" ws.upload.completed frame, which the fileupload producer does not build.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: fileupload:complete
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          id:
+            type: string
+            description: client-generated upload id
+          transferId:
+            type: string
+            description: Server-minted storage id. Peers key their in-flight row on this, not on `id`.
+          actor:
+            type: string
+            description: Identity attributed with the upload, as recorded when the transfer began.
+          uploader:
+            type: string
+            description: Display identity of the participant who uploaded the file.
+          downloadUrl:
+            type: string
+            format: uri
+            description: HTTP GET target for the finished file.
+          filename:
+            type: string
+            description: Original filename as supplied by the uploading client.
+          size:
+            type: integer
+            minimum: 0
+            description: Total size of the upload in bytes.
+          contentType:
+            type: string
+            description: MIME type, when either the stored row or the active transfer recorded one.
+          width:
+            type: integer
+            minimum: 0
+            description: Pixel width, for image uploads that could be measured.
+          height:
+            type: integer
+            minimum: 0
+            description: Pixel height, for image uploads that could be measured.
+          preview:
+            type: string
+            description: Inline preview payload or URL, when one could be generated.
+        required:
+          - type
+          - channel
+          - id
+          - transferId
+          - downloadUrl
+          - filename
+          - size
+        additionalProperties: true
+    ws_fileupload_failed:
+      messageId: ws.fileupload.failed
+      name: ws.fileupload.failed
+      title: ws.fileupload.failed
+      summary: A file transfer failed. Delivered privately to the requesting client. Supersedes the type:"upload" ws.upload.failed frame, which the fileupload producer does not build.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: fileupload:failed
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          id:
+            type: string
+            description: client-generated upload id
+          error:
+            type: string
+            description: Human-readable reason the transfer failed.
+        required:
+          - type
+          - channel
+          - id
+          - error
+        additionalProperties: true
+    ws_fileupload_started:
+      messageId: ws.fileupload.started
+      name: ws.fileupload.started
+      title: ws.fileupload.started
+      summary: A file transfer has started and is announced to the channel. Supersedes the type:"upload" ws.upload.requested frame, which the fileupload producer does not build.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: fileupload:started
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          transferId:
+            type: string
+            description: Server-side transfer id for this upload; distinct from the client-generated `id`.
+          id:
+            type: string
+            description: client-generated upload id
+          actor:
+            type: string
+            description: Identity attributed with the upload, as recorded when the transfer began.
+          uploader:
+            type: string
+            description: Display identity of the participant who started the upload.
+          filename:
+            type: string
+            description: Original filename as supplied by the uploading client.
+          size:
+            type: integer
+            minimum: 0
+            description: Total size of the upload in bytes.
+          contentType:
+            type: string
+            description: MIME type, when the client supplied one.
+          preview:
+            type: string
+            description: Inline preview payload or URL, when one could be generated.
+          width:
+            type: integer
+            minimum: 0
+            description: Pixel width, for image uploads that could be measured.
+          height:
+            type: integer
+            minimum: 0
+            description: Pixel height, for image uploads that could be measured.
+        required:
+          - type
+          - channel
+          - transferId
+          - id
+          - filename
+          - size
         additionalProperties: true
     ws_fileupload_progress:
       messageId: ws.fileupload.progress

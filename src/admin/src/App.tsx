@@ -4,6 +4,7 @@ import SkeletonCard from '@ui/components/shared/SkeletonCard';
 import SkipLink from '@ui/components/shared/SkipLink';
 import LiveRegion from '@ui/components/shared/LiveRegion';
 import { Dashboard } from './components/Dashboard';
+import { AuthNotice } from './components/AuthNotice';
 
 // Every route except the landing Dashboard is code-split. Topology and Flow
 // are the reason: they pull @xyflow/react + dagre, which together are most of
@@ -39,7 +40,12 @@ const NAV: ReadonlyArray<{ to: string; label: string; end?: boolean }> = [
   { to: '/subscribers', label: 'Subscribers' },
   { to: '/live', label: 'Live Inspector' },
   { to: '/dlq', label: 'DLQ' },
-  { to: '/health', label: 'Transports' },
+  // NOT '/health': the server serves its health JSON at that exact path
+  // (src/server/index.ts rootRouter.get('/health')), and the admin bundle is
+  // served from the same origin — so deep-linking or reloading the Transports
+  // view returned raw JSON instead of the UI. Found when the e2e harness
+  // started serving a root /health of its own.
+  { to: '/transports', label: 'Transports' },
 ];
 
 /** Human name for the current path, for the route announcer. */
@@ -120,6 +126,9 @@ export function App() {
       </nav>
 
       <main className="content" id="main-content" ref={mainRef} tabIndex={-1}>
+        {/* Inside <main> so the skip link reaches it, above <Routes> so a
+            route swap cannot unmount it. */}
+        <AuthNotice />
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
@@ -136,7 +145,7 @@ export function App() {
             <Route path="/subscribers" element={<SubscribersView />} />
             <Route path="/live" element={<LiveInspector />} />
             <Route path="/dlq" element={<DLQBrowser />} />
-            <Route path="/health" element={<TransportHealth />} />
+            <Route path="/transports" element={<TransportHealth />} />
           </Routes>
         </Suspense>
       </main>

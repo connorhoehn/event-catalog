@@ -7,9 +7,115 @@
 //
 // Sliced verbatim out of the former single-file client-frames.ts.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = void 0;
+exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsFileuploadStarted = exports.wsFileuploadUrl = exports.wsFileuploadFailed = exports.wsFileuploadComplete = void 0;
 const _shared_1 = require("./_shared");
 // --- fileupload --------------------------------------------------------------
+/**
+ * Consumed by useFileUpload: a transfer finished and the file is fetchable.
+ * Broadcast to the whole channel
+ * (realtime-modules:src/fileupload/FileUploadService.ts:664).
+ *
+ * `transferId` is load-bearing here, not decorative: peers never saw the
+ * correlation `id` and have tracked this transfer by the minted id since
+ * `fileupload:started`, so a completion without it leaves their in-flight row
+ * unresolved and the file shows up twice. `contentType` can be undefined when
+ * neither the row nor the active transfer recorded one.
+ */
+exports.wsFileuploadComplete = {
+    namespace: 'ws',
+    name: 'ws.fileupload.complete',
+    transport: 'signal',
+    producer: _shared_1.GATEWAY_PRODUCER,
+    description: 'A file transfer completed and is available for download. Broadcast to the channel. Supersedes the type:"upload" ws.upload.completed frame, which the fileupload producer does not build.',
+    tags: [..._shared_1.GATEWAY_BASE_TAGS, 'fileupload', 'client-contract'],
+    schema: (0, _shared_1.inboundSchema)('fileupload:complete', {
+        channel: { type: 'string' },
+        id: { type: 'string', description: 'client-generated upload id' },
+        transferId: { type: 'string', description: 'Server-minted storage id. Peers key their in-flight row on this, not on `id`.' },
+        actor: { type: 'string', description: 'Identity attributed with the upload, as recorded when the transfer began.' },
+        uploader: { type: 'string', description: 'Display identity of the participant who uploaded the file.' },
+        downloadUrl: { type: 'string', format: 'uri', description: 'HTTP GET target for the finished file.' },
+        filename: { type: 'string', description: 'Original filename as supplied by the uploading client.' },
+        size: { type: 'integer', minimum: 0, description: 'Total size of the upload in bytes.' },
+        contentType: { type: 'string', description: 'MIME type, when either the stored row or the active transfer recorded one.' },
+        width: { type: 'integer', minimum: 0, description: 'Pixel width, for image uploads that could be measured.' },
+        height: { type: 'integer', minimum: 0, description: 'Pixel height, for image uploads that could be measured.' },
+        preview: { type: 'string', description: 'Inline preview payload or URL, when one could be generated.' },
+    }, ['channel', 'id', 'transferId', 'downloadUrl', 'filename', 'size']),
+};
+/**
+ * Consumed by useFileUpload: a transfer failed. Sent to the requesting client
+ * (realtime-modules:src/fileupload/FileUploadService.ts:292 and :319).
+ */
+exports.wsFileuploadFailed = {
+    namespace: 'ws',
+    name: 'ws.fileupload.failed',
+    transport: 'signal',
+    producer: _shared_1.GATEWAY_PRODUCER,
+    description: 'A file transfer failed. Delivered privately to the requesting client. Supersedes the type:"upload" ws.upload.failed frame, which the fileupload producer does not build.',
+    tags: [..._shared_1.GATEWAY_BASE_TAGS, 'fileupload', 'client-contract'],
+    schema: (0, _shared_1.inboundSchema)('fileupload:failed', {
+        channel: { type: 'string' },
+        id: { type: 'string', description: 'client-generated upload id' },
+        error: { type: 'string', description: 'Human-readable reason the transfer failed.' },
+    }, ['channel', 'id', 'error']),
+};
+/**
+ * Consumed by useFileUpload: the server-minted PUT target for a transfer.
+ * Sent to the REQUESTING CLIENT only, not the channel
+ * (realtime-modules:src/fileupload/FileUploadService.ts:483).
+ *
+ * Note the two ids: `id` echoes the caller's correlation id, while
+ * `transferId` carries the server-minted storage id that the uploadUrl path
+ * is built from — the sender's hook keys its local entry on the latter so it
+ * matches what every other participant will see.
+ */
+exports.wsFileuploadUrl = {
+    namespace: 'ws',
+    name: 'ws.fileupload.url',
+    transport: 'signal',
+    producer: _shared_1.GATEWAY_PRODUCER,
+    description: 'The HTTP PUT target for an accepted upload, returned privately to the requesting client. Supersedes the type:"upload" ws.upload.requested handshake, which the fileupload producer does not build.',
+    tags: [..._shared_1.GATEWAY_BASE_TAGS, 'fileupload', 'client-contract'],
+    schema: (0, _shared_1.inboundSchema)('fileupload:url', {
+        channel: { type: 'string' },
+        id: { type: 'string', description: 'client-generated upload id' },
+        transferId: { type: 'string', description: 'Server-minted storage id; the uploadUrl path is built from this, not from `id`.' },
+        uploadUrl: { type: 'string', format: 'uri', description: 'HTTP PUT target the client uploads the bytes to.' },
+    }, ['channel', 'id', 'transferId', 'uploadUrl']),
+};
+/**
+ * Consumed by useFileUpload: a transfer has begun and is now visible to the
+ * channel. Emitted by FileUploadService at the point the transfer is
+ * registered (realtime-modules:src/fileupload/FileUploadService.ts:521).
+ *
+ * Declared late: the triage of "events whose producer emits nothing" named
+ * this frame as what superseded `ws.upload.requested`, and a test asserting
+ * every claimed replacement is really declared caught that the replacement
+ * itself was missing from the catalog.
+ */
+exports.wsFileuploadStarted = {
+    namespace: 'ws',
+    name: 'ws.fileupload.started',
+    transport: 'signal',
+    producer: _shared_1.GATEWAY_PRODUCER,
+    description: 'A file transfer has started and is announced to the channel. Supersedes the type:"upload" ws.upload.requested frame, which the fileupload producer does not build.',
+    tags: [..._shared_1.GATEWAY_BASE_TAGS, 'fileupload', 'client-contract'],
+    schema: (0, _shared_1.inboundSchema)('fileupload:started', {
+        channel: { type: 'string' },
+        transferId: { type: 'string', description: 'Server-side transfer id for this upload; distinct from the client-generated `id`.' },
+        id: { type: 'string', description: 'client-generated upload id' },
+        actor: { type: 'string', description: 'Identity attributed with the upload, as recorded when the transfer began.' },
+        uploader: { type: 'string', description: 'Display identity of the participant who started the upload.' },
+        filename: { type: 'string', description: 'Original filename as supplied by the uploading client.' },
+        size: { type: 'integer', minimum: 0, description: 'Total size of the upload in bytes.' },
+        // The producer spreads these in conditionally, so none are required.
+        contentType: { type: 'string', description: 'MIME type, when the client supplied one.' },
+        preview: { type: 'string', description: 'Inline preview payload or URL, when one could be generated.' },
+        width: { type: 'integer', minimum: 0, description: 'Pixel width, for image uploads that could be measured.' },
+        height: { type: 'integer', minimum: 0, description: 'Pixel height, for image uploads that could be measured.' },
+    }, ['channel', 'transferId', 'id', 'filename', 'size']),
+};
 /** Consumed by useFileUpload: optional server-side upload progress. */
 exports.wsFileuploadProgress = {
     namespace: 'ws',

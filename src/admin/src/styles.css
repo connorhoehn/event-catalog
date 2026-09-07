@@ -1807,3 +1807,114 @@ tbody th {
   color: var(--color-danger-fg);
   text-decoration: line-through;
 }
+
+/* ==========================================================================
+   Registry coordinator (replication) — Transport Health
+   A stale replica is the failure this whole card exists for: Redis says
+   connected, the message queue says connected, and the registry underneath
+   them disagrees with its peers about what the contracts are. Nothing else in
+   this UI can say so.
+
+   Same three-cue discipline as the deprecated bundle rows: the state is
+   spelled out in words (chip + a plain-English sentence), the left rule
+   differs in STYLE not only hue, and the dot differs in SHAPE. `degraded` and
+   `unhealthy` are pulled deliberately far apart — dashed triangle vs solid
+   square — because they are different failures, not two rungs of one ladder.
+   ========================================================================== */
+
+.coordinator-card {
+  margin-bottom: 1rem;
+  border-left-width: 4px;
+  border-left-style: solid;
+}
+
+.coordinator-card.healthy { border-color: var(--success); }
+
+.coordinator-card.degraded {
+  /* Dashed rule + tinted field. Dashed reads as "attention" in greyscale in a
+     way a heavier solid rule does not — and it is the cue that separates this
+     from the unhealthy card below when both are the same grey. */
+  border-color: var(--warning);
+  border-left-style: dashed;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      transparent 0 10px,
+      rgba(245, 158, 11, 0.06) 10px 20px
+    ),
+    var(--bg-surface);
+}
+
+.coordinator-card.unhealthy {
+  border-color: var(--error);
+  border-left-style: solid;
+  background: rgba(239, 68, 68, 0.07);
+}
+
+.coordinator-card.unknown {
+  border-color: var(--border-strong);
+  border-left-style: dotted;
+}
+
+/* The dot carries a glyph rather than being a bare disc, so the shape cue is
+   legible at 12px and survives a screenshot. Decorative — every glyph has the
+   status word next to it in the chip. */
+.coordinator-dot {
+  width: 20px;
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+  font-size: 11px;
+  border-radius: 50%;
+  background: transparent;
+  margin-right: 0;
+}
+
+.coordinator-dot.healthy { color: var(--success); }
+.coordinator-dot.degraded { color: var(--warning); }
+.coordinator-dot.unhealthy {
+  color: var(--error);
+  /* Ringed, like .status-dot.red, so "down" is the same shape language here
+     as it is on the transport cards. */
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.35);
+}
+.coordinator-dot.unknown { color: var(--text-muted); }
+
+/* The third cue: the state in words, next to the chip rather than instead of
+   it. "degraded" is server vocabulary; "stale replica" is what it means. */
+.coordinator-word {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.coordinator-card.degraded .coordinator-word { color: var(--warning-text); }
+.coordinator-card.unhealthy .coordinator-word { color: var(--error-text); }
+
+.coordinator-explanation {
+  max-width: 68ch;
+  line-height: 1.5;
+}
+
+.coordinator-card.degraded .coordinator-explanation,
+.coordinator-card.unhealthy .coordinator-explanation {
+  /* Body copy strength, not the saturated fill value — see the note on
+     --error-text at the top of this file. */
+  color: var(--text);
+}
+
+.coordinator-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.25rem;
+  margin-top: 0.5rem;
+}
+
+.coordinator-stats p { margin-bottom: 0.15rem; }
+
+/* The app-wide "this catalog requires an API token" banner. Sits at the top
+   of <main>, above whichever route is mounted, because the gate is a property
+   of the deployment rather than of the view. */
+.auth-notice { margin-bottom: 1rem; }

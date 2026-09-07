@@ -142,6 +142,10 @@ import {
     wsCrdtAwareness,
 } from './client-frames/inbound-fanout';
 import {
+    wsFileuploadUrl,
+    wsFileuploadComplete,
+    wsFileuploadFailed,
+    wsFileuploadStarted,
     wsFileuploadProgress,
     wsFileuploadScanning,
     wsFileuploadCancelled,
@@ -205,6 +209,10 @@ export {
     wsCrdtAwareness,
 } from './client-frames/inbound-fanout';
 export {
+    wsFileuploadUrl,
+    wsFileuploadComplete,
+    wsFileuploadFailed,
+    wsFileuploadStarted,
     wsFileuploadProgress,
     wsFileuploadScanning,
     wsFileuploadCancelled,
@@ -280,6 +288,10 @@ export const clientContractInboundDeclarations: EventDeclaration[] = [
     wsPresenceJoined,
     wsPresenceLeft,
     // fileupload
+    wsFileuploadUrl,
+    wsFileuploadComplete,
+    wsFileuploadFailed,
+    wsFileuploadStarted,
     wsFileuploadProgress,
     wsFileuploadScanning,
     wsFileuploadCancelled,

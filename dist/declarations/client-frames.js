@@ -97,7 +97,8 @@
 // description lands on which property. Never call `annotateDeclarations` from
 // a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsCrdtAwareness = exports.wsReactionAvailable = exports.wsReactionUnsubscribed = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
+exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsFileuploadStarted = exports.wsFileuploadFailed = exports.wsFileuploadComplete = exports.wsFileuploadUrl = exports.wsCrdtAwareness = exports.wsReactionAvailable = exports.wsReactionUnsubscribed = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
+exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = void 0;
 const field_glossary_1 = require("./field-glossary");
 const outbound_fanout_1 = require("./client-frames/outbound-fanout");
 const outbound_media_1 = require("./client-frames/outbound-media");
@@ -148,6 +149,10 @@ Object.defineProperty(exports, "wsReactionUnsubscribed", { enumerable: true, get
 Object.defineProperty(exports, "wsReactionAvailable", { enumerable: true, get: function () { return inbound_fanout_2.wsReactionAvailable; } });
 Object.defineProperty(exports, "wsCrdtAwareness", { enumerable: true, get: function () { return inbound_fanout_2.wsCrdtAwareness; } });
 var inbound_media_2 = require("./client-frames/inbound-media");
+Object.defineProperty(exports, "wsFileuploadUrl", { enumerable: true, get: function () { return inbound_media_2.wsFileuploadUrl; } });
+Object.defineProperty(exports, "wsFileuploadComplete", { enumerable: true, get: function () { return inbound_media_2.wsFileuploadComplete; } });
+Object.defineProperty(exports, "wsFileuploadFailed", { enumerable: true, get: function () { return inbound_media_2.wsFileuploadFailed; } });
+Object.defineProperty(exports, "wsFileuploadStarted", { enumerable: true, get: function () { return inbound_media_2.wsFileuploadStarted; } });
 Object.defineProperty(exports, "wsFileuploadProgress", { enumerable: true, get: function () { return inbound_media_2.wsFileuploadProgress; } });
 Object.defineProperty(exports, "wsFileuploadScanning", { enumerable: true, get: function () { return inbound_media_2.wsFileuploadScanning; } });
 Object.defineProperty(exports, "wsFileuploadCancelled", { enumerable: true, get: function () { return inbound_media_2.wsFileuploadCancelled; } });
@@ -217,6 +222,10 @@ exports.clientContractInboundDeclarations = [
     inbound_fanout_1.wsPresenceJoined,
     inbound_fanout_1.wsPresenceLeft,
     // fileupload
+    inbound_media_1.wsFileuploadUrl,
+    inbound_media_1.wsFileuploadComplete,
+    inbound_media_1.wsFileuploadFailed,
+    inbound_media_1.wsFileuploadStarted,
     inbound_media_1.wsFileuploadProgress,
     inbound_media_1.wsFileuploadScanning,
     inbound_media_1.wsFileuploadCancelled,

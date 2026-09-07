@@ -12,6 +12,8 @@ export { pipelineJudgeStarted, pipelineJudgeScored, pipelineJudgeFailed, pipelin
 export { pipelineImageVisionStarted, pipelineImageVisionToken, pipelineImageVisionAnalyzed, pipelineImageVisionFailed, pipelineImageVisionDeclarations, } from './pipeline-image-vision';
 export { callCaptionLine, transcriptionJobQueued, transcriptionTranscriptReady, transcriptionSummaryReady, callCaptionDeclarations, } from './call-captions';
 export { pipelineStepAgentTool, pipelineAgentDeclarations, } from './pipeline-agent';
+export { pipelineStepFanout, pipelineScatterDeclarations, } from './pipeline-scatter';
+export { pipelineStepImageProduced, pipelineImageArtifactDeclarations, } from './pipeline-image-artifacts';
 export { agUiDeclarations } from './ag-ui';
 import type { EventDeclaration } from '../types/index';
 /**

@@ -84,6 +84,7 @@ import {
     wsReactionReceived,
     wsReactionRemoved,
     wsReactionList,
+    wsReactionHistory,
     wsReactionSent,
 } from './gateway-signal/reaction';
 import {
@@ -170,6 +171,7 @@ export {
     wsReactionReceived,
     wsReactionRemoved,
     wsReactionList,
+    wsReactionHistory,
     wsReactionSent,
 } from './gateway-signal/reaction';
 export {
@@ -303,6 +305,7 @@ export const gatewaySignalDeclarations: EventDeclaration[] = [
     wsReactionReceived,
     wsReactionRemoved,
     wsReactionList,
+    wsReactionHistory,
     wsReactionSent,
     // call
     wsCallInvite,

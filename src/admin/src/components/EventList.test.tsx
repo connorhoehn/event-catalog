@@ -3,6 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EventList } from './EventList';
 import { mockFetch, renderWithRouter, type RouteTable } from '../test/helpers';
+import { realEvents, realRoutes } from '../test/fixtures/registry';
 
 const event = (name: string, over: Record<string, unknown> = {}) => ({
   name,
@@ -194,5 +195,33 @@ describe('EventList — filters and bulk actions', () => {
     await user.type(screen.getByLabelText('Deprecation reason'), 'why not');
     await user.click(screen.getByRole('button', { name: 'Deprecate' }));
     expect(await screen.findByText(/Error: API 500/)).toBeInTheDocument();
+  });
+});
+
+describe('EventList at full catalog scale, on a token-gated catalog', () => {
+  // Derived fixture: the real ~229 declarations from src/declarations, so this
+  // is the list an operator actually looks at when they reach for a bulk
+  // deprecate — not a two-row toy.
+  it('names the auth gate when a bulk deprecate over the real catalog is refused', async () => {
+    const user = userEvent.setup();
+    const { fn } = mockFetch({
+      ...realRoutes,
+      '/api/events/bulk/deprecate': { status: 401, text: '{"error":"Unauthorized"}' },
+    });
+    renderWithRouter(<EventList />);
+
+    const first = realEvents[0]!.name;
+    await screen.findByText(first);
+    // The read succeeded — all 229 are on screen. Only the write is gated.
+    expect(fn.mock.calls.some(([url]) => String(url).startsWith('/api/events'))).toBe(true);
+
+    await user.click(screen.getByRole('checkbox', { name: `Select ${first}` }));
+    await user.type(screen.getByLabelText('Deprecation reason'), 'retiring');
+    await user.click(screen.getByRole('button', { name: 'Deprecate' }));
+
+    expect(await screen.findByText(/requires an API token/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Error: API 401/)).not.toBeInTheDocument();
+    // Nothing was deprecated, and the UI must not imply otherwise.
+    expect(screen.queryByText(/Deprecated \d+ event/)).not.toBeInTheDocument();
   });
 });

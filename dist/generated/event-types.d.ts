@@ -528,6 +528,32 @@ export interface EventPayloadMap {
         at: string;
         [key: string]: unknown;
     };
+    /** A scatter source node dispatched its arms. Fires exactly once per fan-out, on the source step, carrying the number of arms; the arms themselves report through the ordinary pipeline:step:* events under synthesized stepIds of the form `<nodeId>:<armIndex>`. This is the only event that states the fan-out width. */
+    'pipeline:step:fanout': {
+        runId: string;
+        stepId: string;
+        count: number;
+        at: string;
+        [key: string]: unknown;
+    };
+    /** A pipeline step materialised an image artifact into the blob store. Emitted by every platform-api image handler (source, crop, resize, adjust, sharpen, watermark, upscale, generate, variation, edit-prompt, format-convert, geometric-transform, save) and by the vision handler factory, BEFORE the step's terminal pipeline:step:completed, so the run view can render the thumbnail inline while the step is still running. */
+    'pipeline:step:image:produced': {
+        runId: string;
+        stepId: string;
+        imageId: string;
+        width: number;
+        height: number;
+        mimeType: string;
+        bbox?: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+            [key: string]: unknown;
+        };
+        at: string;
+        [key: string]: unknown;
+    };
     /** Confirmation sent to a client when they successfully join a chat channel. */
     'ws.chat.joined': {
         type: 'chat';
@@ -843,16 +869,19 @@ export interface EventPayloadMap {
         };
         [key: string]: unknown;
     };
-    /** Broadcast to all reaction channel subscribers when a previously sent reaction is removed. NOTE (2026-06-12 dist re-audit): the realtime-modules dist ReactionService the gateway currently runs has NO reaction-remove action — this frame is a historical/in-tree-gateway surface, retained for back-compat but not emitted by the current service. */
+    /** Broadcast to all reaction channel subscribers when a previously sent reaction is removed. GROUND TRUTH (realtime-modules:dist/reactions/ReactionService.js:330, src at src/reactions/ReactionService.ts:403): { type:"reaction", action:"reaction_removed", data:{ channel, targetId, emoji, userId, timestamp } }. The removal is keyed by the durable (targetId, emoji, userId) triple, not by a reaction id — realtime-modules:src/client/useReactions.ts:163 filters on exactly that triple because ids differ between the live broadcast and the stored replay. */
     'ws.reaction.removed': {
         type: 'reaction';
         timestamp?: string;
         action: 'reaction_removed';
         data: {
-            id: string;
+            id?: string;
             clientId?: string;
             channel: string;
             emoji?: string;
+            targetId?: string;
+            userId?: string;
+            timestamp?: string;
             [key: string]: unknown;
         };
         [key: string]: unknown;
@@ -865,6 +894,32 @@ export interface EventPayloadMap {
         data: {
             channel: string;
             reactions?: Record<string, unknown>[];
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Durable reaction replay delivered to one client when it subscribes to a channel. GROUND TRUTH (realtime-modules:src/reactions/ReactionService.ts:473 `_replayStoredReactions` via sendSuccess): { type:"reaction", action:"reaction_history", success:true, data:{ channel, reactions } }. Each row is rehydrated into full Reaction shape by `_fromStored` (:452), whose `id` is DERIVED from the durable key so replaying twice cannot look like two reactions. realtime-modules:src/client/useReactions.ts:143 REPLACES its reaction list with this payload — it is the channel state, not additional events. This is the frame the previously declared ws.reaction.list (action "reaction_list") was mistaken for; no producer uses that action. */
+    'ws.reaction.history': {
+        type: 'reaction';
+        timestamp?: string;
+        action: 'reaction_history';
+        success?: true;
+        data: {
+            channel: string;
+            reactions?: ({
+                id: string;
+                clientId: string;
+                channel: string;
+                emoji: string;
+                effect?: string;
+                position?: unknown;
+                metadata?: unknown;
+                timestamp?: string;
+                targetId?: string;
+                userId?: string;
+                displayName?: string;
+                [key: string]: unknown;
+            })[];
             [key: string]: unknown;
         };
         [key: string]: unknown;
@@ -1743,6 +1798,60 @@ export interface EventPayloadMap {
         clientId: string;
         [key: string]: unknown;
     };
+    /** The HTTP PUT target for an accepted upload, returned privately to the requesting client. Supersedes the type:"upload" ws.upload.requested handshake, which the fileupload producer does not build. */
+    'ws.fileupload.url': {
+        type: 'fileupload:url';
+        timestamp?: string;
+        channel: string;
+        id: string;
+        transferId: string;
+        uploadUrl: string;
+        [key: string]: unknown;
+    };
+    /** A file transfer completed and is available for download. Broadcast to the channel. Supersedes the type:"upload" ws.upload.completed frame, which the fileupload producer does not build. */
+    'ws.fileupload.complete': {
+        type: 'fileupload:complete';
+        timestamp?: string;
+        channel: string;
+        id: string;
+        transferId: string;
+        actor?: string;
+        uploader?: string;
+        downloadUrl: string;
+        filename: string;
+        size: number;
+        contentType?: string;
+        width?: number;
+        height?: number;
+        preview?: string;
+        [key: string]: unknown;
+    };
+    /** A file transfer failed. Delivered privately to the requesting client. Supersedes the type:"upload" ws.upload.failed frame, which the fileupload producer does not build. */
+    'ws.fileupload.failed': {
+        type: 'fileupload:failed';
+        timestamp?: string;
+        channel: string;
+        id: string;
+        error: string;
+        [key: string]: unknown;
+    };
+    /** A file transfer has started and is announced to the channel. Supersedes the type:"upload" ws.upload.requested frame, which the fileupload producer does not build. */
+    'ws.fileupload.started': {
+        type: 'fileupload:started';
+        timestamp?: string;
+        channel: string;
+        transferId: string;
+        id: string;
+        actor?: string;
+        uploader?: string;
+        filename: string;
+        size: number;
+        contentType?: string;
+        preview?: string;
+        width?: number;
+        height?: number;
+        [key: string]: unknown;
+    };
     /** Server-side upload progress (0-100) for an in-flight file upload. Part of the fileupload:* hook contract (useFileUpload); the gateway's own upload lifecycle is declared as ws.upload.* with type:"upload" frames — naming tension documented per Wave A2, not renamed. */
     'ws.fileupload.progress': {
         type: 'fileupload:progress';
@@ -1931,11 +2040,14 @@ export interface EventPayloadMap {
         runId: string;
         [key: string]: unknown;
     };
-    /** Emitted when an agent run completes successfully. */
+    /** Emitted when an agent run completes successfully. GROUND TRUTH: neither producer repeats the run identity that RUN_STARTED already established. realtime-modules:src/agent-streaming/AgentStream.ts:117 `runFinished` sends { type, outcome?, result?, timestamp } — and its only in-repo caller (agentStreamMiddleware.ts:210) passes no args at all, so a bare { type, timestamp } is the common frame. platform-api:src/routes/pipelineLLMStream.ts:169 sends { type, runId }. Nothing sends `threadId`. */
     'ag-ui.RUN_FINISHED': {
         type: 'RUN_FINISHED';
-        threadId: string;
-        runId: string;
+        threadId?: string;
+        runId?: string;
+        outcome?: string;
+        result?: unknown;
+        timestamp?: number;
         [key: string]: unknown;
     };
     /** Emitted when an agent run terminates due to an error. */
@@ -2006,13 +2118,15 @@ export interface EventPayloadMap {
         toolCallId: string;
         [key: string]: unknown;
     };
-    /** Carries the result of a completed tool call. */
+    /** Carries the result of a completed tool call. GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:273 `toolCallResult`): { type, messageId, toolCallId, content, role?, timestamp }. The tool NAME is established once on TOOL_CALL_START and is not repeated here — correlate on `toolCallId`. */
     'ag-ui.TOOL_CALL_RESULT': {
         type: 'TOOL_CALL_RESULT';
         messageId: string;
         toolCallId: string;
-        toolCallName: string;
+        toolCallName?: string;
+        role?: string;
         content: unknown;
+        timestamp?: number;
         [key: string]: unknown;
     };
     /** Single-frame variant: complete tool call in one event. */
@@ -2048,16 +2162,25 @@ export interface EventPayloadMap {
         messages: unknown[];
         [key: string]: unknown;
     };
-    /** Full replacement of the activity feed (tool calls, reasoning, sub-steps). */
+    /** Full replacement of ONE activity-feed entry (a tool call, a reasoning trace, a sub-step). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:321 `activitySnapshot`): { type, messageId, activityType, content, replace?, timestamp }. The entry is addressed by `messageId`; this is NOT the upstream AG-UI spec's whole-feed `snapshot` array, which no producer has ever sent. */
     'ag-ui.ACTIVITY_SNAPSHOT': {
         type: 'ACTIVITY_SNAPSHOT';
-        snapshot: unknown[];
+        messageId?: unknown;
+        activityType?: string;
+        content?: unknown;
+        replace?: boolean;
+        timestamp?: number;
+        snapshot?: unknown[];
         [key: string]: unknown;
     };
-    /** Incremental update to the activity feed (append or update one item). */
+    /** Incremental update to ONE activity-feed entry. GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:337 `activityDelta`): { type, messageId, activityType, patch, timestamp }. The update rides on `patch`, not on the upstream AG-UI spec's `delta` array, which no producer has ever sent. */
     'ag-ui.ACTIVITY_DELTA': {
         type: 'ACTIVITY_DELTA';
-        delta: unknown[];
+        messageId?: unknown;
+        activityType?: string;
+        patch?: unknown;
+        timestamp?: number;
+        delta?: unknown[];
         [key: string]: unknown;
     };
     /** Opens a reasoning trace message stream. */
@@ -2096,10 +2219,14 @@ export interface EventPayloadMap {
         type: 'REASONING_END';
         [key: string]: unknown;
     };
-    /** Carries an encrypted reasoning payload (provider-specific format). */
+    /** Carries an encrypted reasoning payload (provider-specific format). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:420 `reasoningEncryptedValue`): { type, subtype, entityId, encryptedValue, timestamp }. The ciphertext rides on `encryptedValue`, not on the upstream AG-UI spec's `value`, which no producer has ever sent. */
     'ag-ui.REASONING_ENCRYPTED_VALUE': {
         type: 'REASONING_ENCRYPTED_VALUE';
-        value: string;
+        subtype?: string;
+        entityId?: string;
+        encryptedValue?: string;
+        timestamp?: number;
+        value?: string;
         [key: string]: unknown;
     };
     /** Escape hatch for unstructured provider-native payloads. */
@@ -2115,10 +2242,13 @@ export interface EventPayloadMap {
         value?: unknown;
         [key: string]: unknown;
     };
-    /** Protocol metadata event (e.g. heartbeats, version negotiation). */
+    /** Protocol metadata event (e.g. heartbeats, version negotiation). GROUND TRUTH (realtime-modules:src/agent-streaming/AgentStream.ts:448 `meta`): { type, metaType, payload, timestamp }. The discriminator is `metaType`, not the upstream AG-UI spec's `name`, which no producer has ever sent. */
     'ag-ui.META_EVENT': {
         type: 'META_EVENT';
-        name: string;
+        metaType?: string;
+        payload?: unknown;
+        timestamp?: number;
+        name?: string;
         [key: string]: unknown;
     };
     /** Presence roster for the newsroom researcher assistant page. Consumed by usePresence("newsroom-researcher") in ResearcherPage. */

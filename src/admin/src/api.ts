@@ -1,21 +1,56 @@
+import { AUTH_REQUIRED_MESSAGE, noteResponseStatus } from './auth';
+
 const BASE = '/api';
+
+/**
+ * A failed API call, carrying the status so a caller can branch on it without
+ * pattern-matching a message string.
+ *
+ * `message` is what every view already renders (`setError(err.message)`), so
+ * making a 401 legible is a matter of what goes in here rather than a change
+ * at ten call sites. For everything else the wording is byte-for-byte what it
+ * was — `API <status>: <body>` — because those messages are what the existing
+ * error-state tests and screenshots assert on.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  /** Raw response body, for the rare caller that wants the server's detail. */
+  readonly body: string;
+
+  constructor(status: number, body: string) {
+    super(status === 401 ? AUTH_REQUIRED_MESSAGE : `API ${status}: ${body}`);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/** True when this failure was the auth gate, not the catalog being unwell. */
+export function isAuthError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 401;
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
+  // Every response, not only the failures: this is the one funnel all ~45
+  // endpoints pass through, so the app-wide "writes are being challenged"
+  // latch cannot miss a call site.
+  noteResponseStatus(res.status);
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`API ${res.status}: ${body}`);
+    throw new ApiError(res.status, body);
   }
   return res.json() as Promise<T>;
 }
 
 async function requestText(path: string): Promise<string> {
   const res = await fetch(path);
+  noteResponseStatus(res.status);
   if (!res.ok) {
-    throw new Error(`API ${res.status}`);
+    throw new ApiError(res.status, '');
   }
   return res.text();
 }
@@ -144,6 +179,89 @@ export interface HealthStatus {
   eventCount: number;
 }
 
+// ─── Root /health (service-runtime shape) ────────────────────────────────────
+
+/** The three states `src/server/health.ts` rolls a check up to. */
+export type ServiceCheckStatus = 'healthy' | 'degraded' | 'unhealthy';
+
+export interface ServiceHealthCheck {
+  id: string;
+  status: ServiceCheckStatus;
+  details?: unknown;
+  durationMs: number;
+}
+
+export interface ServiceHealthBody {
+  service: string;
+  version: string;
+  status: ServiceCheckStatus;
+  checks: ServiceHealthCheck[];
+  timestamp: string;
+}
+
+/**
+ * `coordinator.getStats()`, as the health check embeds it verbatim. Every
+ * field optional here: this crosses a version boundary (an older or newer
+ * server), and a missing counter must render as "not reported" rather than
+ * as a zero an operator would read as "no conflicts".
+ */
+export interface CoordinatorStats {
+  replicaId?: string;
+  stale?: boolean;
+  resyncs?: number;
+  resyncsCoalesced?: number;
+  pending?: number;
+  pendingBytes?: number;
+  peers?: number;
+  peersForgotten?: number;
+  conflicts?: number;
+}
+
+/** What the transports view renders for the replication coordinator. */
+export interface CoordinatorHealth {
+  status: ServiceCheckStatus;
+  stats: CoordinatorStats;
+}
+
+/**
+ * Pull the coordinator out of a root-`/health` body.
+ *
+ * Returns `null` — meaning "this deployment did not report it" — rather than
+ * inventing a `healthy`, because "we did not ask" and "the replicas agree"
+ * are the two answers an operator must never see rendered the same way.
+ */
+export function coordinatorFromHealth(body: ServiceHealthBody | null): CoordinatorHealth | null {
+  if (!body) return null;
+  const check = body.checks.find(c => c.id === 'coordinator');
+  if (!check) return null;
+  const details = (check.details && typeof check.details === 'object')
+    ? check.details as CoordinatorStats
+    : {};
+  return { status: check.status, stats: details };
+}
+
+/**
+ * The one sentence that says what a coordinator state actually means for the
+ * page the operator is reading. `degraded` is not a milder `unhealthy` here —
+ * it is a *different failure*: the service is up and answering, and that is
+ * precisely the problem, because what it answers may be wrong.
+ */
+export function coordinatorExplanation(status: ServiceCheckStatus): string {
+  switch (status) {
+    case 'healthy':
+      return 'This replica has applied every registry mutation its peers broadcast.';
+    case 'degraded':
+      return 'STALE REPLICA — this instance missed at least one registry '
+        + 'broadcast and has not resynced. Declarations shown here may be '
+        + 'missing or out of date, and they may differ from what another '
+        + 'replica serves. Drain this instance rather than restarting it; it '
+        + 'repairs itself from shared state.';
+    case 'unhealthy':
+      return 'The replication coordinator itself failed its health check — '
+        + 'this instance is not tracking peer mutations at all.';
+  }
+}
+
 export interface ChannelInfo {
   channel: string;
   publishCount: number;
@@ -255,6 +373,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
     });
     const raw = await res.text().catch(() => '');
+    noteResponseStatus(res.status);
     if (res.ok) {
       return JSON.parse(raw) as HealthStatus;
     }
@@ -268,7 +387,43 @@ export const api = {
         // Not JSON — fall through to the throw below.
       }
     }
-    throw new Error(`API ${res.status}: ${raw}`);
+    throw new ApiError(res.status, raw);
+  },
+
+  /**
+   * The **root** `/health`, not `/api/health` — a different endpoint with a
+   * different shape and a different job. `/api/health` reports the two
+   * transports; this one runs the service-runtime check list, and the
+   * `coordinator` check in it is the only place the registry replication
+   * state is exposed (`src/server/index.ts`, `coordinator.isStale()`).
+   *
+   * Why the admin needs it: a replica that missed a mutation broadcast
+   * answers every read from a registry that disagrees with its peers about
+   * what the contracts are, while Redis and the message queue both report
+   * `connected`. Nothing else on this surface can tell an operator that the
+   * page they are looking at is not the truth.
+   *
+   * Tolerant on three axes, because none of them mean "hide the card":
+   *   * A 503 body is a health report — an unhealthy check is exactly the
+   *     state worth rendering, so parse it rather than throwing it away
+   *     (same reasoning as `getHealth` above).
+   *   * A 404 means this deployment does not expose the root route (behind a
+   *     proxy that only forwards `/api`). Resolves to `null`, and the card
+   *     says "not reported" rather than "broken".
+   *   * A missing `coordinator` check means an older server. Also `null`.
+   */
+  async getServiceHealth(): Promise<ServiceHealthBody | null> {
+    const res = await fetch('/health', { headers: { Accept: 'application/json' } });
+    const raw = await res.text().catch(() => '');
+    noteResponseStatus(res.status);
+    if (!res.ok && res.status !== 503) return null;
+    try {
+      const body = JSON.parse(raw) as ServiceHealthBody;
+      if (body && typeof body === 'object' && Array.isArray(body.checks)) return body;
+    } catch {
+      // A proxy's HTML error page, not the catalog. Nothing to render.
+    }
+    return null;
   },
 
   /** wave26-b — richer registry health for the Dashboard health card. */

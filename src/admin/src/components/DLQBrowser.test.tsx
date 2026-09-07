@@ -256,3 +256,43 @@ describe('DLQBrowser — acting on entries', () => {
     expect(dataRows()).toHaveLength(2);
   });
 });
+
+describe('DLQBrowser — a catalog with EVENT_CATALOG_AUTH_TOKEN set', () => {
+  // Auth gates non-GET only (src/server/auth.ts `requiresAuth`), so the DLQ
+  // loads perfectly and then every button on it is dead. The failure has to
+  // say which of those two things happened.
+  const authFail = { status: 401, text: '{"error":"Unauthorized"}' };
+
+  it('explains a refused single-row replay instead of showing "API 401"', async () => {
+    const user = userEvent.setup();
+    mount({ [`${DLQ}/2/replay`]: authFail });
+    await screen.findByRole('table');
+    await user.click(within(rowFor('b:two')).getByRole('button', { name: 'Replay b:two' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/requires an API token/i);
+    expect(alert).not.toHaveTextContent(/^Error: API 401/);
+    // The table is still the truth — auth did not break the read.
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(rowFor('b:two')).toBeInTheDocument();
+  });
+
+  it('explains a refused batch redrive the same way', async () => {
+    const user = userEvent.setup();
+    mount({ [`${DLQ}/replay`]: authFail });
+    await screen.findByRole('table');
+    await user.click(within(rowFor('a:one')).getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: 'Replay selected (1)' }));
+
+    expect(await screen.findByText(/requires an API token/i)).toBeInTheDocument();
+  });
+
+  it('explains a refused delete the same way', async () => {
+    const user = userEvent.setup();
+    mount({ [`${DLQ}/1`]: authFail });
+    await screen.findByRole('table');
+    await user.click(within(rowFor('a:one')).getByRole('button', { name: 'Delete dead letter for a:one' }));
+
+    expect(await screen.findByText(/requires an API token/i)).toBeInTheDocument();
+  });
+});

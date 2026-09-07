@@ -24,6 +24,15 @@ export default defineConfig({
         target: 'http://localhost:3010',
         changeOrigin: true,
       },
+      // The root /health, which is a different endpoint from /api/health: it
+      // runs the service-runtime check list, and the `coordinator` check in it
+      // is the only place the registry replication state is exposed. Without
+      // this proxy entry the Transports view renders "not reported" in dev
+      // while the server is answering it perfectly one port over.
+      '/health': {
+        target: 'http://localhost:3010',
+        changeOrigin: true,
+      },
     },
   },
   build: {

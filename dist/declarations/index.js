@@ -11,7 +11,7 @@
 // service's own source tree per the charter.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sfuRecordingComposeProgress = exports.sfuRecordingComposeStarted = exports.sfuRecordingComposeQueued = exports.sfuChatEvent = exports.sfuMemberOwnerChanged = exports.sfuParticipantDisconnected = exports.sfuProducerStateChanged = exports.sfuRecordingStateChanged = exports.sfuProducerRemoved = exports.sfuProducerAdded = exports.sfuChannelDeleted = exports.sfuChannelUpdated = exports.sfuChannelCreated = exports.sfuRecordingCompleted = exports.sfuRecordingStarted = exports.sfuStreamThumbnailUpdated = exports.sfuStreamHealthRecovered = exports.sfuStreamHealthDegraded = exports.sfuStreamEnded = exports.sfuStreamStarted = exports.sfuSessionEnded = exports.sfuSessionCreated = exports.gatewayDurableDeclarations = exports.callReactionRecorded = exports.activityRecorded = exports.gatewaySignalDeclarations = exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = exports.pipelineP1Declarations = exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
-exports.allDeclarations = exports.agUiDeclarations = exports.pipelineAgentDeclarations = exports.pipelineStepAgentTool = exports.callCaptionDeclarations = exports.transcriptionSummaryReady = exports.transcriptionTranscriptReady = exports.transcriptionJobQueued = exports.callCaptionLine = exports.pipelineImageVisionDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionToken = exports.pipelineImageVisionStarted = exports.pipelineJudgeDeclarations = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.pipelineEventDeclarations = exports.orgiqSignalDeclarations = exports.orgiqArticlesReactions = exports.orgiqInvokePresence = exports.orgiqSearchPresence = exports.orgiqBriefsPresence = exports.orgiqResearcherActivity = exports.orgiqResearcherPresence = exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.sfuDeclarations = exports.sfuChatUserUnbanned = exports.sfuChatUserBanned = exports.sfuChatUserDisconnected = exports.sfuChatMessageDeleted = exports.sfuChatMessage = exports.sfuRecordingComposeCompleted = exports.sfuRecordingComposeFailed = void 0;
+exports.allDeclarations = exports.agUiDeclarations = exports.pipelineImageArtifactDeclarations = exports.pipelineStepImageProduced = exports.pipelineScatterDeclarations = exports.pipelineStepFanout = exports.pipelineAgentDeclarations = exports.pipelineStepAgentTool = exports.callCaptionDeclarations = exports.transcriptionSummaryReady = exports.transcriptionTranscriptReady = exports.transcriptionJobQueued = exports.callCaptionLine = exports.pipelineImageVisionDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionToken = exports.pipelineImageVisionStarted = exports.pipelineJudgeDeclarations = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = exports.pipelineEventDeclarations = exports.orgiqSignalDeclarations = exports.orgiqArticlesReactions = exports.orgiqInvokePresence = exports.orgiqSearchPresence = exports.orgiqBriefsPresence = exports.orgiqResearcherActivity = exports.orgiqResearcherPresence = exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.sfuDeclarations = exports.sfuChatUserUnbanned = exports.sfuChatUserBanned = exports.sfuChatUserDisconnected = exports.sfuChatMessageDeleted = exports.sfuChatMessage = exports.sfuRecordingComposeCompleted = exports.sfuRecordingComposeFailed = void 0;
 var pipeline_1 = require("./pipeline");
 Object.defineProperty(exports, "pipelineApprovalRequested", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRequested; } });
 Object.defineProperty(exports, "pipelineApprovalRecorded", { enumerable: true, get: function () { return pipeline_1.pipelineApprovalRecorded; } });
@@ -116,6 +116,12 @@ Object.defineProperty(exports, "callCaptionDeclarations", { enumerable: true, ge
 var pipeline_agent_1 = require("./pipeline-agent");
 Object.defineProperty(exports, "pipelineStepAgentTool", { enumerable: true, get: function () { return pipeline_agent_1.pipelineStepAgentTool; } });
 Object.defineProperty(exports, "pipelineAgentDeclarations", { enumerable: true, get: function () { return pipeline_agent_1.pipelineAgentDeclarations; } });
+var pipeline_scatter_1 = require("./pipeline-scatter");
+Object.defineProperty(exports, "pipelineStepFanout", { enumerable: true, get: function () { return pipeline_scatter_1.pipelineStepFanout; } });
+Object.defineProperty(exports, "pipelineScatterDeclarations", { enumerable: true, get: function () { return pipeline_scatter_1.pipelineScatterDeclarations; } });
+var pipeline_image_artifacts_1 = require("./pipeline-image-artifacts");
+Object.defineProperty(exports, "pipelineStepImageProduced", { enumerable: true, get: function () { return pipeline_image_artifacts_1.pipelineStepImageProduced; } });
+Object.defineProperty(exports, "pipelineImageArtifactDeclarations", { enumerable: true, get: function () { return pipeline_image_artifacts_1.pipelineImageArtifactDeclarations; } });
 var ag_ui_1 = require("./ag-ui");
 Object.defineProperty(exports, "agUiDeclarations", { enumerable: true, get: function () { return ag_ui_1.agUiDeclarations; } });
 const pipeline_2 = require("./pipeline");
@@ -132,6 +138,8 @@ const pipeline_judge_2 = require("./pipeline-judge");
 const pipeline_image_vision_2 = require("./pipeline-image-vision");
 const call_captions_2 = require("./call-captions");
 const pipeline_agent_2 = require("./pipeline-agent");
+const pipeline_scatter_2 = require("./pipeline-scatter");
+const pipeline_image_artifacts_2 = require("./pipeline-image-artifacts");
 /**
  * The flat set of every event this repo declares on behalf of producers
  * that don't import event-catalog directly (distributed-core et al).
@@ -152,6 +160,8 @@ exports.allDeclarations = [
     ...pipeline_image_vision_2.pipelineImageVisionDeclarations,
     ...call_captions_2.callCaptionDeclarations,
     ...pipeline_agent_2.pipelineAgentDeclarations,
+    ...pipeline_scatter_2.pipelineScatterDeclarations,
+    ...pipeline_image_artifacts_2.pipelineImageArtifactDeclarations,
     ...gateway_signal_2.gatewaySignalDeclarations,
     ...gateway_durable_2.gatewayDurableDeclarations,
     ...sfu_2.sfuDeclarations,

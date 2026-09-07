@@ -146,6 +146,17 @@ describe('bundle validity against the real catalog', () => {
  *   (d) ALIASES — the deprecated pipeline run-resume spellings.
  */
 const INTENTIONALLY_UNBUNDLED: readonly string[] = [
+  // (a) The file-upload bundle pins the ws.upload.* set, which the
+  //     producer-triage found the fileupload service does not build — nothing
+  //     emits type:"upload". These two ARE the frames it really sends
+  //     (FileUploadService.ts:483 and :521). Swapping the bundle's member set
+  //     to the frames that exist is the right fix and changes its fingerprint,
+  //     so it is a file-upload@2.0.0 decision for the operator, not a silent
+  //     edit that would break every pinned CRD.
+  'ws.fileupload.started',
+  'ws.fileupload.url',
+  'ws.fileupload.complete',
+  'ws.fileupload.failed',
   // (a) durable mirrors of bundled signal features — activity@2.0.0 / reactions@2.0.0
   'activity.recorded',
   'call:reaction.recorded',
@@ -189,7 +200,19 @@ const INTENTIONALLY_UNBUNDLED: readonly string[] = [
   'orgiq.newsroom-researcher.presence',
   'orgiq.search.presence',
   // (c) pipeline internals — agentic-pipeline-signal@2.0.0 / -durable@2.0.0
+  //
+  // The three entries dated 2026-09-07 were backfilled by the
+  // declared-vs-emitted audit: each was already emitted AND branched on by a
+  // consumer while the catalog said nothing about it. They land here for the
+  // same reason as their neighbours, and for one more: `reactions@1.0.0` and
+  // `agentic-pipeline-signal@1.0.0` are fingerprint-LOCKED below, and
+  // operators pin those fingerprints in CRDs. Adding a member to either moves
+  // its fingerprint, which is a MAJOR bump and an operator's decision — not a
+  // side effect of declaring an event that was already on the wire. Fold them
+  // into the 2.0.0 bundles when those are cut.
   'pipeline.run.checkpoint',
+  'pipeline:step:fanout',                       // 2026-09-07 backfill → agentic-pipeline-signal@2.0.0
+  'pipeline:step:image:produced',               // 2026-09-07 backfill → agentic-pipeline-signal@2.0.0
   'pipeline:image:vision:analyzed',
   'pipeline:image:vision:failed',
   'pipeline:image:vision:started',
@@ -232,6 +255,11 @@ const INTENTIONALLY_UNBUNDLED: readonly string[] = [
   'ws.presence.joined',
   'ws.presence.left',
   'ws.reaction.available',
+  // 2026-09-07 backfill → reactions@2.0.0. This is the frame that really
+  // replays stored reactions; the bundled ws.reaction.list names an action no
+  // producer sends. Unbundled for now because reactions@1.0.0's fingerprint
+  // is locked — see the note in the (c) block above.
+  'ws.reaction.history',
   'ws.reaction.unsubscribed',
   'ws.videohangout.media',
   'ws.videohangout.participant',

@@ -300,7 +300,7 @@ export type CrdtInboundFrame = EventPayloadMap['ws.crdt.subscribed'] | EventPayl
 /** Union of every inbound gateway→client push frame for the `presence` service. */
 export type PresenceInboundFrame = EventPayloadMap['ws.presence.set'] | EventPayloadMap['ws.presence.update'] | EventPayloadMap['ws.presence.subscribed'] | EventPayloadMap['ws.presence.unsubscribed'] | EventPayloadMap['ws.presence.data'] | EventPayloadMap['ws.presence.offline'] | EventPayloadMap['ws.presence.joined'] | EventPayloadMap['ws.presence.left'];
 /** Union of every inbound gateway→client push frame for the `reaction` service. */
-export type ReactionInboundFrame = EventPayloadMap['ws.reaction.subscribed'] | EventPayloadMap['ws.reaction.received'] | EventPayloadMap['ws.reaction.removed'] | EventPayloadMap['ws.reaction.list'] | EventPayloadMap['ws.reaction.sent'] | EventPayloadMap['ws.reaction.unsubscribed'] | EventPayloadMap['ws.reaction.available'];
+export type ReactionInboundFrame = EventPayloadMap['ws.reaction.subscribed'] | EventPayloadMap['ws.reaction.received'] | EventPayloadMap['ws.reaction.removed'] | EventPayloadMap['ws.reaction.list'] | EventPayloadMap['ws.reaction.history'] | EventPayloadMap['ws.reaction.sent'] | EventPayloadMap['ws.reaction.unsubscribed'] | EventPayloadMap['ws.reaction.available'];
 /** Union of every inbound gateway→client push frame for the `call` service. */
 export type CallInboundFrame = EventPayloadMap['ws.call.invite'] | EventPayloadMap['ws.call.accepted'] | EventPayloadMap['ws.call.declined'] | EventPayloadMap['ws.call.cancelled'] | EventPayloadMap['ws.call.ended'] | EventPayloadMap['ws.call.video-on'] | EventPayloadMap['ws.call.video-off'] | EventPayloadMap['ws.call.recording-started'] | EventPayloadMap['ws.call.recording-completed'];
 /** Union of every inbound gateway→client push frame for the `upload` service. */
@@ -312,7 +312,7 @@ export type SessionInboundFrame = EventPayloadMap['ws.session.connected'];
 /** Union of every inbound gateway→client push frame for the `subscribe` service. */
 export type SubscribeInboundFrame = EventPayloadMap['ws.subscribe.subscribed'] | EventPayloadMap['ws.subscribe.unsubscribed'];
 /** Union of every inbound gateway→client push frame for the `fileupload` service. */
-export type FileuploadInboundFrame = EventPayloadMap['ws.fileupload.progress'] | EventPayloadMap['ws.fileupload.scanning'] | EventPayloadMap['ws.fileupload.cancelled'];
+export type FileuploadInboundFrame = EventPayloadMap['ws.fileupload.url'] | EventPayloadMap['ws.fileupload.complete'] | EventPayloadMap['ws.fileupload.failed'] | EventPayloadMap['ws.fileupload.started'] | EventPayloadMap['ws.fileupload.progress'] | EventPayloadMap['ws.fileupload.scanning'] | EventPayloadMap['ws.fileupload.cancelled'];
 /** Union of every inbound gateway→client push frame for the `videohangout` service. */
 export type VideohangoutInboundFrame = EventPayloadMap['ws.videohangout.participant'] | EventPayloadMap['ws.videohangout.media'];
 /** Union of every inbound gateway→client push frame for the `notification` service. */

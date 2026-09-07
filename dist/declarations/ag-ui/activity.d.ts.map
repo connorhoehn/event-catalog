@@ -1,1 +1,1 @@
-{"version":3,"file":"activity.d.ts","sourceRoot":"","sources":["../../../src/declarations/ag-ui/activity.ts"],"names":[],"mappings":"AAMA,OAAO,KAAK,EAAE,gBAAgB,EAAE,MAAM,mBAAmB,CAAC;AAO1D,eAAO,MAAM,oBAAoB,EAAE,gBAgBlC,CAAC;AAEF,eAAO,MAAM,iBAAiB,EAAE,gBAgB/B,CAAC"}
+{"version":3,"file":"activity.d.ts","sourceRoot":"","sources":["../../../src/declarations/ag-ui/activity.ts"],"names":[],"mappings":"AAkBA,OAAO,KAAK,EAAE,gBAAgB,EAAE,MAAM,mBAAmB,CAAC;AAO1D,eAAO,MAAM,oBAAoB,EAAE,gBAgDlC,CAAC;AAEF,eAAO,MAAM,iBAAiB,EAAE,gBA0C/B,CAAC"}

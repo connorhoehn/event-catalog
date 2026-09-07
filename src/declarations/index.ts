@@ -139,6 +139,16 @@ export {
   pipelineAgentDeclarations,
 } from './pipeline-agent';
 
+export {
+  pipelineStepFanout,
+  pipelineScatterDeclarations,
+} from './pipeline-scatter';
+
+export {
+  pipelineStepImageProduced,
+  pipelineImageArtifactDeclarations,
+} from './pipeline-image-artifacts';
+
 export { agUiDeclarations } from './ag-ui';
 
 import type { EventDeclaration } from '../types/index';
@@ -156,6 +166,8 @@ import { pipelineJudgeDeclarations } from './pipeline-judge';
 import { pipelineImageVisionDeclarations } from './pipeline-image-vision';
 import { callCaptionDeclarations } from './call-captions';
 import { pipelineAgentDeclarations } from './pipeline-agent';
+import { pipelineScatterDeclarations } from './pipeline-scatter';
+import { pipelineImageArtifactDeclarations } from './pipeline-image-artifacts';
 
 /**
  * The flat set of every event this repo declares on behalf of producers
@@ -177,6 +189,8 @@ export const allDeclarations: readonly EventDeclaration[] = [
   ...pipelineImageVisionDeclarations,
   ...callCaptionDeclarations,
   ...pipelineAgentDeclarations,
+  ...pipelineScatterDeclarations,
+  ...pipelineImageArtifactDeclarations,
   ...gatewaySignalDeclarations,
   ...gatewayDurableDeclarations,
   ...sfuDeclarations,

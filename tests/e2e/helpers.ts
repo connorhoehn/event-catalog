@@ -199,3 +199,36 @@ export function trackPageErrors(page: Page): () => void {
     expect(errors, `uncaught errors on ${page.url()}`).toEqual([]);
   };
 }
+
+// ─── Auth gate + replication coordinator ────────────────────────────────────
+
+/**
+ * Turn the server's bearer gate on (or off, with `null`).
+ *
+ * The gate the test server installs is the real `requiresAuth` from
+ * `src/server/auth.ts`, so what it challenges here is exactly what a
+ * deployment with `EVENT_CATALOG_AUTH_TOKEN` set challenges: every non-safe
+ * method on `/api`, and nothing else. `resetServer` clears it.
+ */
+export async function setAuthToken(
+  request: APIRequestContext,
+  token: string | null,
+): Promise<void> {
+  const res = await request.post('/__e2e__/auth', { data: { token } });
+  expect(res.ok(), 'failed to change the auth gate').toBeTruthy();
+}
+
+/**
+ * Put the replication coordinator into one of its three health states.
+ *
+ * `degraded` is the interesting one: the instance is up and both transports
+ * report connected, and the registry it is serving may be missing
+ * declarations its peers already have.
+ */
+export async function setCoordinator(
+  request: APIRequestContext,
+  state: 'healthy' | 'degraded' | 'unhealthy',
+): Promise<void> {
+  const res = await request.post('/__e2e__/coordinator', { data: { state } });
+  expect(res.ok(), 'failed to set the coordinator state').toBeTruthy();
+}

@@ -34,8 +34,8 @@
 // guarantees the split cannot silently change which description lands on
 // which property. Never call `annotateDeclarations` from a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallRecordingCompleted = exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionList = exports.wsReactionRemoved = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtAwarenessBatch = exports.wsCrdtSnapshotStored = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorBatch = exports.wsCursorClear = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
-exports.gatewaySignalDeclarations = exports.wsSubscribeUnsubscribed = exports.wsSubscribeSubscribed = exports.wsSessionConnected = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = void 0;
+exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallRecordingCompleted = exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionHistory = exports.wsReactionList = exports.wsReactionRemoved = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtAwarenessBatch = exports.wsCrdtSnapshotStored = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorBatch = exports.wsCursorClear = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
+exports.gatewaySignalDeclarations = exports.wsSubscribeUnsubscribed = exports.wsSubscribeSubscribed = exports.wsSessionConnected = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = exports.wsPipelineAck = void 0;
 const field_glossary_1 = require("./field-glossary");
 const chat_1 = require("./gateway-signal/chat");
 const cursor_1 = require("./gateway-signal/cursor");
@@ -95,6 +95,7 @@ Object.defineProperty(exports, "wsReactionSubscribed", { enumerable: true, get: 
 Object.defineProperty(exports, "wsReactionReceived", { enumerable: true, get: function () { return reaction_2.wsReactionReceived; } });
 Object.defineProperty(exports, "wsReactionRemoved", { enumerable: true, get: function () { return reaction_2.wsReactionRemoved; } });
 Object.defineProperty(exports, "wsReactionList", { enumerable: true, get: function () { return reaction_2.wsReactionList; } });
+Object.defineProperty(exports, "wsReactionHistory", { enumerable: true, get: function () { return reaction_2.wsReactionHistory; } });
 Object.defineProperty(exports, "wsReactionSent", { enumerable: true, get: function () { return reaction_2.wsReactionSent; } });
 var call_2 = require("./gateway-signal/call");
 Object.defineProperty(exports, "wsCallInvite", { enumerable: true, get: function () { return call_2.wsCallInvite; } });
@@ -224,6 +225,7 @@ exports.gatewaySignalDeclarations = [
     reaction_1.wsReactionReceived,
     reaction_1.wsReactionRemoved,
     reaction_1.wsReactionList,
+    reaction_1.wsReactionHistory,
     reaction_1.wsReactionSent,
     // call
     call_1.wsCallInvite,

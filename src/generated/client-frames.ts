@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-07T18:52:34.475Z
+// Generated at: 2026-09-07T20:28:13.986Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -402,6 +402,7 @@ export type ReactionInboundFrame =
   | EventPayloadMap['ws.reaction.received']
   | EventPayloadMap['ws.reaction.removed']
   | EventPayloadMap['ws.reaction.list']
+  | EventPayloadMap['ws.reaction.history']
   | EventPayloadMap['ws.reaction.sent']
   | EventPayloadMap['ws.reaction.unsubscribed']
   | EventPayloadMap['ws.reaction.available'];
@@ -448,6 +449,10 @@ export type SubscribeInboundFrame =
 
 /** Union of every inbound gateway→client push frame for the `fileupload` service. */
 export type FileuploadInboundFrame =
+  | EventPayloadMap['ws.fileupload.url']
+  | EventPayloadMap['ws.fileupload.complete']
+  | EventPayloadMap['ws.fileupload.failed']
+  | EventPayloadMap['ws.fileupload.started']
   | EventPayloadMap['ws.fileupload.progress']
   | EventPayloadMap['ws.fileupload.scanning']
   | EventPayloadMap['ws.fileupload.cancelled'];

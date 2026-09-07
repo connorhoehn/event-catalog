@@ -26,7 +26,11 @@ import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serveStatic } from 'distributed-core/server';
-import { expressLikeApp, type TestApp } from '../helpers/test-app.js';
+import { Router, createRequestListener, type HttpRouter } from '../../src/server/http-router.js';
+import { DEFAULT_COMPRESSION } from '../../src/server/compression.js';
+import { sendStaticBuffer, withStaticCompression } from '../../src/server/static-compression.js';
+import { makeHealthHandler } from '../../src/server/health.js';
+import { requiresAuth, extractBearerToken, secretsMatch } from '../../src/server/auth.js';
 import { Registry } from '../../src/registry/index.js';
 import { MetricsCollector } from '../../src/server/metrics.js';
 import { PromMetrics } from '../../src/server/prom-metrics.js';
@@ -236,20 +240,27 @@ const dlqStore = new InMemoryServerDlqStore();
 
 // ─── Product routes ─────────────────────────────────────────────────────────
 
-const app = expressLikeApp();
-app.use(
-  '/api',
-  createRoutes({
-    registry,
-    metrics,
-    metricsObserver: { observe: async () => {} } as never,
-    signal: stubSignal as never,
-    durable: stubDurable as never,
-    dlqStore: dlqStore as never,
-    startedAt: Date.now(),
-    promMetrics: prom,
-  }),
-);
+// Compression is ON, exactly as `startServer()` runs it. It is on by default
+// in production (`DEFAULT_COMPRESSION`), it applies to every JSON body over
+// the threshold and to the whole admin bundle, and until now this harness
+// applied none of it — so the suite was asserting against a wire format no
+// deployment actually serves. `createRequestListener` is the production
+// response path (`makeRouteResponse` + `compressionFor`); the old
+// `expressLikeApp` built its responses with no compression context at all.
+const compression = DEFAULT_COMPRESSION;
+
+const apiRouter = createRoutes({
+  registry,
+  metrics,
+  metricsObserver: { observe: async () => {} } as never,
+  signal: stubSignal as never,
+  durable: stubDurable as never,
+  dlqStore: dlqStore as never,
+  startedAt: Date.now(),
+  promMetrics: prom,
+});
+
+const app = createRequestListener({ compression }, ['/api', apiRouter]);
 
 // ─── FeatureBundle surface ──────────────────────────────────────────────────
 //
@@ -274,13 +285,12 @@ const bundleRegistry = buildBundleRegistry();
 /** A deployment that genuinely declared no bundles — the OTHER empty state. */
 const emptyBundleRegistry = new FeatureBundleRegistry();
 
-function mountBundleRoutes(reg: FeatureBundleRegistry): TestApp {
-  const bundleApp = expressLikeApp();
-  bundleApp.use('/api/feature-bundles', createBundleRoutes({ bundleRegistry: reg, registry }));
-  return bundleApp;
+function mountBundleRoutes(reg: FeatureBundleRegistry): http.RequestListener {
+  const router: HttpRouter = createBundleRoutes({ bundleRegistry: reg, registry });
+  return createRequestListener({ compression }, ['/api/feature-bundles', router]);
 }
 
-const bundleApps: Record<'real' | 'empty', TestApp> = {
+const bundleApps: Record<'real' | 'empty', http.RequestListener> = {
   real: mountBundleRoutes(bundleRegistry),
   empty: mountBundleRoutes(emptyBundleRegistry),
 };
@@ -289,6 +299,92 @@ const bundleApps: Record<'real' | 'empty', TestApp> = {
 let bundleMode: 'real' | 'empty' = 'real';
 /** When set, `/api/feature-bundles*` fails with this message instead. */
 let bundleFailure: string | null = null;
+
+// ─── Root routes: /health, with the coordinator check ───────────────────────
+//
+// `startServer()` mounts a tri-state `/health` off a ROOT router, outside the
+// `/api` prefix, and the `coordinator` check on it is the only place the
+// registry replication state is exposed. A replica that missed a mutation
+// broadcast serves a registry that disagrees with its peers while Redis and
+// the message queue both report `connected` — which is precisely why the
+// admin needs a card for it, and why that card cannot be driven from
+// `/api/health`.
+//
+// The check list here is the production one from `src/server/index.ts`, minus
+// the two transports' real health calls (the stubs above stand in). The
+// coordinator's own state is spec-driven via `/__e2e__/coordinator`.
+
+/** What `coordinator.isStale()` / `getStats()` report to the health check. */
+let coordinatorState: { stale: boolean; failed: boolean } = { stale: false, failed: false };
+
+const rootHealthHandler = makeHealthHandler({
+  service: 'event-catalog',
+  version: '0.6.0-e2e',
+  checks: [
+    {
+      id: 'redis',
+      check: async () => ({ status: 'healthy', details: { latencyMs: 1 } }),
+    },
+    {
+      id: 'message-queue',
+      check: async () => ({ status: 'healthy', details: { latencyMs: 2 } }),
+    },
+    {
+      id: 'registry',
+      check: async () => ({ status: 'healthy', details: { eventCount: registry.size() } }),
+    },
+    {
+      id: 'coordinator',
+      check: async () => {
+        if (coordinatorState.failed) {
+          return { status: 'unhealthy', details: { error: 'coordinator not running' } };
+        }
+        return {
+          status: coordinatorState.stale ? 'degraded' : 'healthy',
+          details: {
+            replicaId: 'e2e-replica-0000',
+            stale: coordinatorState.stale,
+            resyncs: coordinatorState.stale ? 3 : 0,
+            resyncsCoalesced: 0,
+            pending: coordinatorState.stale ? 7 : 0,
+            pendingBytes: 0,
+            peers: 2,
+            peersForgotten: 0,
+            conflicts: coordinatorState.stale ? 1 : 0,
+          },
+        };
+      },
+    },
+  ],
+});
+
+const rootRouter = Router();
+rootRouter.get('/health', rootHealthHandler);
+const rootApp = createRequestListener({ compression }, ['', rootRouter]);
+
+// ─── Optional bearer auth, as src/server/auth.ts gates it ───────────────────
+//
+// Off by default, like production. A spec turns it on to prove the admin UI
+// renders an actionable message rather than a bare 401.
+//
+// `requiresAuth` is imported rather than reimplemented: it is the single
+// definition of "this request needs a credential" (safe methods pass, /health
+// and /metrics always pass), and a local copy of that rule here would let the
+// server's gate and the suite's gate drift apart silently.
+
+let authToken: string | null = null;
+
+/** True when the request was rejected — the caller must stop. */
+function rejectedByAuth(req: http.IncomingMessage, res: http.ServerResponse, path: string): boolean {
+  if (authToken === null) return false;
+  if (!requiresAuth(req.method ?? 'GET', path)) return false;
+  const header = req.headers.authorization;
+  const presented = extractBearerToken(Array.isArray(header) ? header[0] : header);
+  if (presented !== undefined && secretsMatch(presented, authToken)) return false;
+  res.setHeader('WWW-Authenticate', 'Bearer');
+  json(res, 401, { error: 'Unauthorized' });
+  return true;
+}
 
 // ─── /__e2e__ control plane ─────────────────────────────────────────────────
 
@@ -435,6 +531,23 @@ async function controlPlane(req: http.IncomingMessage, res: http.ServerResponse,
     return json(res, 200, { failing: bundleFailure });
   }
 
+  // Drive the replication coordinator's health. `stale` is the state that
+  // matters: the instance is up, both transports are connected, and the
+  // registry it serves may be missing declarations its peers have.
+  if (path === '/__e2e__/coordinator' && method === 'POST') {
+    const body = (await readBody(req)) as Record<string, unknown>;
+    const state = String(body.state ?? 'healthy');
+    coordinatorState = { stale: state === 'degraded', failed: state === 'unhealthy' };
+    return json(res, 200, { coordinator: state });
+  }
+
+  // Turn the bearer gate on/off. POST `{ "token": null }` to clear.
+  if (path === '/__e2e__/auth' && method === 'POST') {
+    const body = (await readBody(req)) as Record<string, unknown>;
+    authToken = body.token === null || body.token === undefined ? null : String(body.token);
+    return json(res, 200, { auth: authToken === null ? 'off' : 'on' });
+  }
+
   // Per-spec isolation: wipe mutable state and restore the small fixture.
   if (path === '/__e2e__/reset' && method === 'POST') {
     dlqStore.reset();
@@ -442,6 +555,8 @@ async function controlPlane(req: http.IncomingMessage, res: http.ServerResponse,
     nextPublishError = null;
     bundleMode = 'real';
     bundleFailure = null;
+    coordinatorState = { stale: false, failed: false };
+    authToken = null;
     seedSmall();
     return json(res, 200, { reset: true });
   }
@@ -503,8 +618,20 @@ async function ensureAdminBuild(): Promise<void> {
 async function main(): Promise<void> {
   await ensureAdminBuild();
 
-  const staticHandler = serveStatic({ staticDir: adminDist });
+  // The admin bundle goes out content-negotiated, as `startServer()` sends
+  // it: 629 KiB raw, ~196 KiB brotli. `serveStatic` writes straight to the
+  // socket, so it never reaches `makeRouteResponse`'s negotiation and has to
+  // be wrapped. Cache disabled so every spec run exercises a real compress
+  // rather than a warm buffer.
+  const staticHandler = withStaticCompression(
+    serveStatic({ staticDir: adminDist }),
+    { compression, cache: null },
+  );
   const spaIndex = join(adminDist, 'index.html');
+  const spaIndexHeaders = new Map<string, string>([
+    ['content-type', 'text/html'],
+    ['cache-control', 'no-cache'],
+  ]);
 
   http
     .createServer((req, res) => {
@@ -514,6 +641,11 @@ async function main(): Promise<void> {
         controlPlane(req, res, path).catch(err => json(res, 500, { error: String(err) }));
         return;
       }
+      // The gate sits in front of every product route and in exactly one
+      // place, as `startServer()` runs it. `/__e2e__` is above it so a spec
+      // can always turn the gate back off.
+      if (rejectedByAuth(req, res, path)) return;
+
       // Longest prefix first, as `startServer()` mounts it: the bundle router
       // has to get `/api/feature-bundles/*` before the general /api router.
       if (path === '/api/feature-bundles' || path.startsWith('/api/feature-bundles/')) {
@@ -532,13 +664,20 @@ async function main(): Promise<void> {
         app(req, res);
         return;
       }
+      // Root routes (/health) — outside /api, before static, as production
+      // orders them.
+      if (path === '/health') {
+        rootApp(req, res);
+        return;
+      }
       if (staticHandler(req, res)) return;
 
-      // SPA fallback — deep links like /events/test.alpha must serve index.html.
+      // SPA fallback — deep links like /events/test.alpha must serve
+      // index.html. Through sendStaticBuffer, so this last static path
+      // negotiates its coding like every other one.
       readFile(spaIndex)
         .then(html => {
-          res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
-          res.end(html);
+          sendStaticBuffer(req, res, 200, html, spaIndexHeaders, compression);
         })
         .catch(() => {
           res.writeHead(404, { 'Content-Type': 'application/json' });

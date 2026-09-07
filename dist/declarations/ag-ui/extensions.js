@@ -51,13 +51,32 @@ exports.agUiMetaEvent = {
     transport: 'signal',
     producer: _shared_1.PRODUCER,
     tags: _shared_1.TAGS,
-    description: 'Protocol metadata event (e.g. heartbeats, version negotiation).',
+    description: 'Protocol metadata event (e.g. heartbeats, version negotiation). GROUND TRUTH '
+        + '(realtime-modules:src/agent-streaming/AgentStream.ts:448 `meta`): '
+        + '{ type, metaType, payload, timestamp }. The discriminator is `metaType`, not the upstream '
+        + 'AG-UI spec\'s `name`, which no producer has ever sent.',
     schema: {
         type: 'object',
-        required: ['type', 'name'],
+        required: ['type'],
         properties: {
             type: { type: 'string', const: 'META_EVENT' },
-            name: { type: 'string' },
+            metaType: {
+                type: 'string',
+                description: 'Kind of protocol metadata this frame carries (e.g. "trace", "heartbeat"). The routing key a consumer switches on.',
+            },
+            payload: {
+                description: 'Metadata body for this metaType. Shape is defined by the emitting agent and deliberately unconstrained.',
+            },
+            timestamp: {
+                type: 'number',
+                description: 'Epoch milliseconds at which AgentStream emitted the frame (its injectable `now()`, defaulting to Date.now()). Not an ISO string.',
+            },
+            name: {
+                type: 'string',
+                description: 'NEVER EMITTED — the upstream AG-UI spec\'s meta discriminator. AgentStream sends `metaType` '
+                    + 'instead. Declared-but-optional only because removing a property is breaking; do not re-add '
+                    + 'it to `required`.',
+            },
         },
         additionalProperties: true,
     },

@@ -7,7 +7,18 @@
 // Every state the server can actually produce is enumerated here.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, isTransportUp, transportTone, type ComponentHealth } from './api';
+import {
+  ApiError,
+  api,
+  coordinatorExplanation,
+  coordinatorFromHealth,
+  isAuthError,
+  isTransportUp,
+  transportTone,
+  type ComponentHealth,
+  type ServiceHealthBody,
+} from './api';
+import { isAuthRequired, resetAuthState } from './auth';
 import { mockFetch } from './test/helpers';
 
 /**
@@ -254,4 +265,145 @@ describe('api — the endpoints the views call, and how they fail', () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bearer auth (EVENT_CATALOG_AUTH_TOKEN), and the coordinator on root /health.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('a 401 from the auth gate', () => {
+  /** Every mutating call the server's `requiresAuth` would challenge. */
+  const MUTATIONS: Array<[string, () => Promise<unknown>]> = [
+    ['declareEvent', () => api.declareEvent({ name: 'a:b', transport: 'signal', producer: 'svc' })],
+    ['deleteEvent', () => api.deleteEvent('a:b')],
+    ['deprecateEvent', () => api.deprecateEvent('a:b', { reason: 'x' })],
+    ['undeprecateEvent', () => api.undeprecateEvent('a:b')],
+    ['bulkDeprecate', () => api.bulkDeprecate(['a:b'])],
+    ['replayDLQ', () => api.replayDLQ('id-1')],
+    ['batchReplayDLQ', () => api.batchReplayDLQ(['id-1'])],
+    ['deleteDLQ', () => api.deleteDLQ('id-1')],
+    ['clearDLQ', () => api.clearDLQ()],
+    ['clearPoison', () => api.clearPoison('a:b')],
+  ];
+
+  it.each(MUTATIONS)('%s says what is wrong, not "API 401"', async (_name, call) => {
+    // What the views render is `err.message`. Before this, all ten of them
+    // showed `API 401: {"error":"Unauthorized"}` — a string that names neither
+    // the cause nor anything the operator can do.
+    mockFetch({ '/api': { status: 401, text: '{"error":"Unauthorized"}' } });
+    await expect(call()).rejects.toThrow(/requires an API token/i);
+    await expect(call()).rejects.not.toThrow(/^API 401/);
+  });
+
+  it('carries the status so a caller can branch without matching on prose', async () => {
+    mockFetch({ '/api': { status: 401, text: '{"error":"Unauthorized"}' } });
+    const err = await api.clearDLQ().catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(401);
+    expect(isAuthError(err)).toBe(true);
+  });
+
+  it('does not mistake other failures for the auth gate', async () => {
+    mockFetch({ '/api': { status: 403, text: 'forbidden by policy' } });
+    const err = await api.clearDLQ().catch((e) => e);
+    expect(isAuthError(err)).toBe(false);
+    expect((err as Error).message).toBe('API 403: forbidden by policy');
+  });
+
+  it('trips the app-wide latch so every other view can say so too', async () => {
+    expect(isAuthRequired()).toBe(false);
+    mockFetch({ '/api': { status: 401, text: '' } });
+    await api.replayDLQ('id-1').catch(() => {});
+    expect(isAuthRequired()).toBe(true);
+    resetAuthState();
+  });
+
+  it('never puts a credential on the wire — there is none to put', async () => {
+    const { fn } = mockFetch({ '/api': { body: { cleared: 0 } } });
+    await api.clearDLQ();
+    const init = fn.mock.calls[0]?.[1] as RequestInit | undefined;
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    expect(Object.keys(headers).map((k) => k.toLowerCase())).not.toContain('authorization');
+  });
+});
+
+describe('coordinatorFromHealth', () => {
+  const body = (status: string, details?: unknown): ServiceHealthBody => ({
+    service: 'event-catalog',
+    version: '0.6.0',
+    status: status === 'healthy' ? 'healthy' : 'degraded',
+    checks: [
+      { id: 'redis', status: 'healthy', durationMs: 1 },
+      { id: 'message-queue', status: 'healthy', durationMs: 1 },
+      { id: 'registry', status: 'healthy', durationMs: 0, details: { eventCount: 229 } },
+      { id: 'coordinator', status: status as 'healthy' | 'degraded' | 'unhealthy', durationMs: 0, ...(details !== undefined ? { details } : {}) },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+
+  it('picks the coordinator check out by id, not by position', () => {
+    const found = coordinatorFromHealth(body('degraded', { stale: true, peers: 2 }));
+    expect(found).toEqual({ status: 'degraded', stats: { stale: true, peers: 2 } });
+  });
+
+  it('returns null — not a green light — when the check is absent', () => {
+    // "We did not ask" and "the replicas agree" must never render the same
+    // way. An older server, or a proxy that forwards only /api, produces this.
+    const withoutCoordinator = { ...body('healthy'), checks: body('healthy').checks.filter((c) => c.id !== 'coordinator') };
+    expect(coordinatorFromHealth(withoutCoordinator)).toBeNull();
+    expect(coordinatorFromHealth(null)).toBeNull();
+  });
+
+  it('survives a check with no details at all', () => {
+    expect(coordinatorFromHealth(body('healthy'))).toEqual({ status: 'healthy', stats: {} });
+  });
+});
+
+describe('coordinatorExplanation', () => {
+  it('says a degraded replica may be serving the wrong contracts', () => {
+    const text = coordinatorExplanation('degraded');
+    expect(text).toMatch(/stale replica/i);
+    expect(text).toMatch(/out of date|missing/i);
+    expect(text).toMatch(/differ from what another replica serves/i);
+  });
+
+  it('does not describe degraded and unhealthy the same way', () => {
+    // They are different failures: one means "what you are reading may be
+    // wrong", the other means "replication is not running at all".
+    expect(coordinatorExplanation('degraded')).not.toBe(coordinatorExplanation('unhealthy'));
+    expect(coordinatorExplanation('healthy')).toMatch(/applied every registry mutation/i);
+  });
+});
+
+describe('api.getServiceHealth', () => {
+  const ok = {
+    service: 'event-catalog',
+    version: '0.6.0',
+    status: 'degraded',
+    checks: [{ id: 'coordinator', status: 'degraded', durationMs: 0, details: { stale: true } }],
+    timestamp: '2026-09-07T00:00:00.000Z',
+  };
+
+  it('reads the ROOT /health, not /api/health', async () => {
+    const { calls } = mockFetch({ '/health': { body: ok } });
+    await api.getServiceHealth();
+    expect(calls[0]).toBe('/health');
+  });
+
+  it('keeps a 503 body — an unhealthy check is exactly what is worth showing', async () => {
+    mockFetch({ '/health': { status: 503, body: { ...ok, status: 'unhealthy' } } });
+    await expect(api.getServiceHealth()).resolves.toMatchObject({ status: 'unhealthy' });
+  });
+
+  it('resolves to null when the deployment does not expose the root route', async () => {
+    // Behind a proxy that forwards only /api. The card says "not reported";
+    // the page must not break.
+    mockFetch({ '/health': { status: 404, text: 'not found' } });
+    await expect(api.getServiceHealth()).resolves.toBeNull();
+  });
+
+  it('resolves to null on a proxy error page rather than throwing mid-render', async () => {
+    mockFetch({ '/health': { status: 503, text: '<html>gateway timeout</html>' } });
+    await expect(api.getServiceHealth()).resolves.toBeNull();
+  });
 });

@@ -201,6 +201,73 @@ const DECLARED_BUT_NEVER_EMITTED = [
         mentions: ['PipelineExecutor', 'ISO'],
         consumer: null,
     },
+    // ---------------------------------------------------------------------
+    // ag-ui, 2026-09-07. Six declarations were transcribed from the upstream
+    // AG-UI v0.1.x spec and required a field `AgentStream` has never built,
+    // so the real frame failed validation (they were the
+    // AG_UI_SCHEMA_REJECTS_THE_REAL_FRAME table at the bottom of this file).
+    // Each was widened to describe the frame the producer really sends; the
+    // spec's field stays declared-but-optional because removing a property is
+    // breaking, and these notes are what stop it being re-required.
+    // `consumer: null` throughout — realtime-modules:src/client/
+    // useAgentStream.ts:317 ignores ACTIVITY_*, REASONING_* and META_EVENT
+    // entirely, which is why the defect was latent rather than live.
+    // ---------------------------------------------------------------------
+    {
+        event: 'ag-ui.ACTIVITY_SNAPSHOT',
+        field: 'snapshot',
+        marker: 'NEVER EMITTED',
+        mentions: ['AgentStream', 'messageId'],
+        consumer: null,
+    },
+    {
+        event: 'ag-ui.ACTIVITY_DELTA',
+        field: 'delta',
+        marker: 'NEVER EMITTED',
+        mentions: ['AgentStream', 'patch'],
+        consumer: null,
+    },
+    {
+        event: 'ag-ui.META_EVENT',
+        field: 'name',
+        marker: 'NEVER EMITTED',
+        mentions: ['AgentStream', 'metaType'],
+        consumer: null,
+    },
+    {
+        event: 'ag-ui.REASONING_ENCRYPTED_VALUE',
+        field: 'value',
+        marker: 'NEVER EMITTED',
+        mentions: ['AgentStream', 'encryptedValue'],
+        consumer: null,
+    },
+    {
+        event: 'ag-ui.RUN_FINISHED',
+        field: 'threadId',
+        marker: 'NEVER EMITTED',
+        mentions: ['RUN_STARTED', 'pipelineLLMStream'],
+        consumer: null,
+    },
+    {
+        event: 'ag-ui.TOOL_CALL_RESULT',
+        field: 'toolCallName',
+        marker: 'NEVER EMITTED',
+        mentions: ['TOOL_CALL_START', 'toolCallId'],
+        consumer: null,
+    },
+    // ---------------------------------------------------------------------
+    // ws.reaction.removed.data.id, 2026-09-07. Same class, but this one was
+    // LIVE: the frame is emitted on every un-react, and `id` was `required`,
+    // so the running service's payload was rejected by its own contract. See
+    // the acceptance test at the bottom of this file.
+    // ---------------------------------------------------------------------
+    {
+        event: 'ws.reaction.removed',
+        field: 'data.id',
+        marker: 'NEVER EMITTED',
+        mentions: ['ReactionService', 'targetId', 'useReactions'],
+        consumer: 'realtime-modules:src/client/useReactions.ts:163',
+    },
 ] as const;
 
 describe('(b) declared but never emitted — fields that are permanently undefined at the consumer', () => {
@@ -470,10 +537,15 @@ describe('ws.error — the flat shape is declared, and two consumers drop it on 
  */
 const EVENT_DRIFT_MARKER = 'historical/in-tree-gateway surface';
 
+// `ws.reaction.removed` was here until 2026-09-07 on the strength of a
+// 2026-06-12 note claiming the dist ReactionService has no remove action. It
+// has one (realtime-modules:dist/reactions/ReactionService.js:330, src at
+// src/reactions/ReactionService.ts:403) and useReactions.ts:163 reads it. The
+// note was corrected, the event's `data.id` was un-required, and the entry is
+// retired here: it is emitted, so it does not belong in a not-emitted list.
 const DECLARED_BUT_NOT_EMITTED_EVENTS = [
     'ws.cursor.clear',
     'ws.cursor.batch',
-    'ws.reaction.removed',
     'ws.reaction.list',
     'ws.crdt.sync-request',
     'ws.crdt.sync-response',
@@ -557,80 +629,20 @@ describe('the drift inventory is closed', () => {
  * publishing; on the durable path the event never reaches the queue. The
  * declaration is not merely wrong about reality, it is hostile to it.
  *
- * Each `payload` below is transcribed from the producer's object literal at
- * the cited line — not from the schema, and not from a TypeScript interface
- * (the interfaces agree with the schema; only the emit sites tell the
- * truth). If one of these starts validating, the contract was fixed and the
- * entry must be retired.
+ * The table that used to live here is EMPTY as of 2026-09-07. Its last
+ * entry, `ws.reaction.removed` (`data.id` required, never sent), was fixed
+ * rather than documented — see "ws.reaction.removed accepts its producer"
+ * at the bottom of this file, which runs the dist emit-site literal through
+ * the real validator. The `id` property stays declared-but-optional and its
+ * NEVER-EMITTED note is registered in DECLARED_BUT_NEVER_EMITTED above.
+ *
+ * The describe below keeps only the defect that is still live: the approval
+ * timestamps. If you find a new (e)-class case, restore a table here rather
+ * than burying it in a one-off test — the point of the table was that a
+ * fixed contract fails loudly and forces the entry to be retired.
  */
-const SCHEMA_REJECTS_THE_REAL_PAYLOAD = [
-    {
-        // realtime-modules:dist/reactions/ReactionService.js:330-341 (src at
-        // src/reactions/ReactionService.ts:402) emits
-        // data:{channel,targetId,emoji,userId,timestamp} — no `id`, which
-        // the schema requires. The consumer does not want `id` either:
-        // realtime-modules:src/client/useReactions.ts:163 filters on the
-        // (targetId, emoji, userId) triple precisely BECAUSE ids differ
-        // between the live broadcast and the history replay.
-        //
-        // Note this contradicts ws.reaction.removed's own description, which
-        // still claims the running dist service has no remove action. It has
-        // one; see DECLARED_BUT_NOT_EMITTED_EVENTS below, where the event is
-        // still registered on the strength of that stale note.
-        event: 'ws.reaction.removed',
-        missing: ['id'],
-        emitSite: 'realtime-modules:dist/reactions/ReactionService.js:330',
-        consumer: 'realtime-modules:src/client/useReactions.ts:163',
-        payload: {
-            type: 'reaction',
-            action: 'reaction_removed',
-            data: {
-                channel: 'room-1',
-                targetId: 'msg_1',
-                emoji: '👍',
-                userId: 'u_1',
-                timestamp: '2026-09-07T10:00:00.000Z',
-            },
-        },
-    },
-] as const;
 
 describe('(e) the declaration rejects the only payload its producer builds', () => {
-    it.each(SCHEMA_REJECTS_THE_REAL_PAYLOAD)(
-        "$event REJECTS the literal $emitSite constructs — the missing fields are $missing",
-        ({ event, missing, payload }) => {
-            const registry = registryWith(declarationFor(event));
-            const result = registry.validate(event, payload);
-            expect(
-                result.valid,
-                `${event} now accepts its producer's payload — the contract was fixed; retire this entry.`,
-            ).toBe(false);
-            const errors = JSON.stringify(result.errors);
-            for (const field of missing) {
-                expect(errors, `${event} no longer rejects on ${field}`).toContain(field);
-            }
-        },
-    );
-
-    it.each(SCHEMA_REJECTS_THE_REAL_PAYLOAD)(
-        '$event still marks $missing required, so no producer can satisfy it',
-        ({ event, missing }) => {
-            // The rejection above could in principle come from a type error
-            // rather than a missing-required. This pins the actual cause, so
-            // relaxing `required` (the minimal fix) fails here and forces the
-            // consumer at $consumer to be looked at.
-            const schema = declarationFor(event).schema as JsonSchema;
-            const requiredSomewhere = (node: JsonSchema | undefined, field: string): boolean => {
-                if (!node) return false;
-                if ((node.required ?? []).includes(field)) return true;
-                return Object.values(node.properties ?? {}).some((child) => requiredSomewhere(child, field));
-            };
-            for (const field of missing) {
-                expect(requiredSomewhere(schema, field), `${event}.${field} is no longer required`).toBe(true);
-            }
-        },
-    );
-
     it('all three pipeline approval events type their timestamp as a number while every producer sends ISO-8601', () => {
         // Separate from the required-field defect and separately fatal: even
         // a payload that DID carry `decidedAt` / `requestedAt` / `resolvedAt`
@@ -737,91 +749,180 @@ describe('(e) orgiq.* — declared flat, emitted nested, required `channel` neve
 
 /**
  * The (b') bucket at event granularity: the catalog names a producer, the
- * producer builds no such frame anywhere, and — unlike the eight already
- * registered in DECLARED_BUT_NOT_EMITTED_EVENTS — the declaration carries
- * no warning, so `/api/events` and the generated AsyncAPI both present them
- * as live contracts.
+ * producer builds no such frame anywhere, and — unlike the eight registered
+ * in DECLARED_BUT_NOT_EMITTED_EVENTS — the declaration carries no warning, so
+ * `/api/events` and the generated AsyncAPI both present them as live
+ * contracts.
+ *
+ * TRIAGED 2026-09-07, against the producers rather than against the previous
+ * pass's notes. "No producer" is not one fact, it is three, and they have
+ * opposite consequences:
+ *
+ *   'unimplemented' — the contract was written AHEAD of the code, and the
+ *       feature is still wanted. Legitimate. Leave it declared; the schema is
+ *       the spec whoever builds it will code against. The risk is silent
+ *       staleness, not deadness.
+ *
+ *   'renamed' — an equivalent surface EXISTS under another name. This is the
+ *       dangerous one: an integrator reads the declared name, subscribes, and
+ *       waits forever while the data flows past under the real name. Every
+ *       entry names its replacement in `replacedBy`, which is the only field
+ *       here that pays for itself.
+ *
+ *   'dead' — no producer, no consumer, no replacement, no plan. A deprecation
+ *       CANDIDATE — not a deletion: removing a declaration is breaking, and
+ *       these are exactly the names a stale consumer might still hold.
  *
  * `producer` is the assertion that bites: the day someone corrects the
- * attribution (or adds the drift note), one of these fails and they have to
- * move the entry into the registered inventory below rather than quietly
- * deleting the evidence.
+ * attribution (or adds a drift note), one of these fails and they have to
+ * move the entry rather than quietly delete the evidence.
  */
+const TRIAGE_CATEGORIES = ['unimplemented', 'renamed', 'dead'] as const;
+
 const DECLARED_WITH_A_PRODUCER_THAT_EMITS_NOTHING = [
-    // The whole ws.upload.* family. The producer's own file header disowns
-    // it: "the hook's `fileupload:*` frame types, NOT the ws.upload.* /
-    // type:'upload' ..." — realtime-modules:src/fileupload/FileUploadService.ts:14
-    // (and the vendored copy at realtime-examples:dist/realtime-fanout/
-    // fileupload/FileUploadService.js:15). Seven declarations, no emit site,
-    // no consumer.
-    { event: 'ws.upload.requested', why: 'ws.upload.* is disowned by the fileupload producer', consumer: 'none' },
-    { event: 'ws.upload.url-issued', why: 'ws.upload.* is disowned by the fileupload producer', consumer: 'none' },
-    { event: 'ws.upload.completed', why: 'ws.upload.* is disowned by the fileupload producer', consumer: 'none' },
-    { event: 'ws.upload.failed', why: 'ws.upload.* is disowned by the fileupload producer', consumer: 'none' },
-    { event: 'ws.upload.scanned', why: 'ws.upload.* is disowned by the fileupload producer', consumer: 'none' },
-    { event: 'ws.upload.scan-quarantined', why: 'ws.upload.* is disowned by the fileupload producer', consumer: 'none' },
-    { event: 'ws.upload.url-revoked', why: 'ws.upload.* is disowned by the fileupload producer', consumer: 'none' },
+    // ---------------------------------------------------------------- (b)
+    // The whole ws.upload.* family — seven declarations, no emit site, no
+    // consumer. Not merely absent: RENAMED, and the producer's own file
+    // header says so. realtime-modules:src/fileupload/FileUploadService.ts:13
+    // reads "GROUND TRUTH is realtime-modules/src/client/useFileUpload.ts
+    // (the hook's `fileupload:*` frame types), NOT the ws.upload.* /
+    // type:'upload' declarations in event-catalog". The literal `type:
+    // 'upload'` appears in NO code in any repo — only in that comment. What
+    // the service really builds: fileupload:failed (:292,:319,:336),
+    // fileupload:url (:483), fileupload:started (:521), fileupload:progress
+    // (:559), fileupload:cancelled (:588,:720), fileupload:complete (:664) —
+    // all of which are declared as ws.fileupload.*. Note the tail three have
+    // NO fileupload:* counterpart at all: scanned / scan-quarantined /
+    // url-revoked belong to the deferred AV-scan pipeline, so they are
+    // 'unimplemented' rather than 'renamed'.
+    { event: 'ws.upload.requested', category: 'renamed', replacedBy: 'ws.fileupload.started (realtime-modules:src/fileupload/FileUploadService.ts:521)', why: 'ws.upload.* is disowned by the fileupload producer; no code builds type:"upload"', consumer: 'none' },
+    { event: 'ws.upload.url-issued', category: 'renamed', replacedBy: 'ws.fileupload.url (FileUploadService.ts:483)', why: 'ws.upload.* is disowned by the fileupload producer', consumer: 'none' },
+    { event: 'ws.upload.completed', category: 'renamed', replacedBy: 'ws.fileupload.complete (FileUploadService.ts:664)', why: 'ws.upload.* is disowned by the fileupload producer', consumer: 'none' },
+    { event: 'ws.upload.failed', category: 'renamed', replacedBy: 'ws.fileupload.failed (FileUploadService.ts:292)', why: 'ws.upload.* is disowned by the fileupload producer', consumer: 'none' },
+    { event: 'ws.upload.scanned', category: 'unimplemented', replacedBy: null, why: 'the AV-scan pipeline is deferred at the producer (FileUploadService.ts:645); no fileupload:* counterpart exists either', consumer: 'none' },
+    { event: 'ws.upload.scan-quarantined', category: 'unimplemented', replacedBy: null, why: 'the AV-scan pipeline is deferred at the producer (FileUploadService.ts:645)', consumer: 'none' },
+    { event: 'ws.upload.url-revoked', category: 'unimplemented', replacedBy: null, why: 'no revoke path exists in FileUploadService; the presigned URL is left to expire', consumer: 'none' },
 
     // Deferred at the producer — realtime-modules:src/fileupload/
-    // FileUploadService.ts:645 ("AV-SCAN deferred ... would instead ack
-    // fileupload:scanning here") — but the hook branches on it and sets
-    // status:'scanning' (realtime-modules:src/client/useFileUpload.ts:463).
-    // The scan UI state is unreachable.
-    { event: 'ws.fileupload.scanning', why: 'AV scan deferred at the producer', consumer: 'realtime-modules:src/client/useFileUpload.ts:463' },
+    // FileUploadService.ts:645 ("AV-SCAN deferred: emit complete directly. A
+    // scanner integration would instead ack `fileupload:scanning` here and
+    // emit `fileupload:clean` / `fileupload:infected` asynchronously") — but
+    // the hook already branches on it and sets status:'scanning'
+    // (realtime-modules:src/client/useFileUpload.ts:463). The scan UI state
+    // is unreachable, and the contract is the spec for closing that.
+    { event: 'ws.fileupload.scanning', category: 'unimplemented', replacedBy: null, why: 'AV scan deferred at the producer; the consumer branch is already written', consumer: 'realtime-modules:src/client/useFileUpload.ts:463' },
 
-    // The running presence service only ever emits type:'presence' with
-    // action set|update|subscribed|unsubscribed|presence|offline
-    // (realtime-modules:dist/presence/PresenceService.js:191..322). The hook
-    // still carries the joined/left branches and labels them itself as
-    // "Legacy flat shapes ... fallback for non-gateway servers"
-    // (realtime-modules:src/client/usePresence.ts:28). Against THIS gateway
-    // they are dead, and the declarations attribute them to it anyway.
-    { event: 'ws.presence.joined', why: 'gateway presence service emits action frames only', consumer: 'realtime-modules:src/client/usePresence.ts:132' },
-    { event: 'ws.presence.left', why: 'gateway presence service emits action frames only', consumer: 'realtime-modules:src/client/usePresence.ts:141' },
+    // The running presence service emits type:'presence' with actions set
+    // (:233), presence (:263), subscribed (:293), unsubscribed (:316),
+    // update (:388) and offline (:517) — realtime-modules:src/presence/
+    // PresenceService.ts. The literals 'joined' and 'left' do not occur in
+    // that file at all, nor in the gateway-side copy
+    // (realtime-examples:src/realtime-fanout/presence-service.ts). The hook
+    // still carries the branches and labels them itself as "Legacy flat
+    // shapes ... fallback for non-gateway servers"
+    // (realtime-modules:src/client/usePresence.ts:28).
+    //
+    // 'dead', NOT 'renamed': the dedicated test below proves `update` cannot
+    // satisfy joined's schema, so this is an absent event rather than an
+    // event under a new name.
+    { event: 'ws.presence.joined', category: 'dead', replacedBy: null, why: 'the presence service emits set/presence/subscribed/unsubscribed/update/offline and never joined; the hook branch is self-labelled legacy', consumer: 'realtime-modules:src/client/usePresence.ts:132' },
+    { event: 'ws.presence.left', category: 'dead', replacedBy: null, why: 'the presence service emits offline on departure and never left; the hook branch is self-labelled legacy', consumer: 'realtime-modules:src/client/usePresence.ts:141' },
 
     // videohangout is rejected before any handler runs:
     // knownUnimplementedServices = ['videohangout'] at
-    // realtime-examples:src/validators/message-validator.ts:91. No inbound
-    // frame is accepted and no outbound frame is built.
-    { event: 'ws.videohangout.media', why: 'videohangout is a known-unimplemented service', consumer: 'realtime-modules:src/client/useVideoHangout.ts:188' },
-    { event: 'ws.videohangout.participant', why: 'videohangout is a known-unimplemented service', consumer: 'realtime-modules:src/client/useVideoHangout.ts:168' },
-    { event: 'client.videohangout.start', why: 'videohangout is a known-unimplemented service', consumer: 'none' },
-    { event: 'client.videohangout.join', why: 'videohangout is a known-unimplemented service', consumer: 'none' },
-    { event: 'client.videohangout.leave', why: 'videohangout is a known-unimplemented service', consumer: 'none' },
-    { event: 'client.videohangout.end', why: 'videohangout is a known-unimplemented service', consumer: 'none' },
-    { event: 'client.videohangout.toggle-audio', why: 'videohangout is a known-unimplemented service', consumer: 'none' },
-    { event: 'client.videohangout.toggle-video', why: 'videohangout is a known-unimplemented service', consumer: 'none' },
+    // realtime-examples:src/validators/message-validator.ts:91, whose own
+    // note (:69) says "LVS signaling deferred ... the implemented 'call'
+    // service is a separate invite/session surface, NOT a handler for these
+    // frames." So the two ws.videohangout.* PUSH frames have no producer —
+    // but see DECLARED_AND_EMITTED_BUT_REJECTED below for the six
+    // client.videohangout.* frames, which the previous pass filed here
+    // wrongly: their producer does emit them.
+    { event: 'ws.videohangout.media', category: 'unimplemented', replacedBy: null, why: 'videohangout is a known-unimplemented service; LVS signaling deferred', consumer: 'realtime-modules:src/client/useVideoHangout.ts:188' },
+    { event: 'ws.videohangout.participant', category: 'unimplemented', replacedBy: null, why: 'videohangout is a known-unimplemented service; LVS signaling deferred', consumer: 'realtime-modules:src/client/useVideoHangout.ts:168' },
 
-    // Not in CallService's action set at all (realtime-modules:src/call/
-    // types.ts:26 CallAction, :434 ALLOWED_CALL_ACTIONS), so a client sending
-    // one gets "Unknown call action". Recording state reaches the UI from the
-    // LVS stage socket instead (realtime-examples:frontend/src/hooks/
-    // useRecordingState.ts:84).
-    { event: 'ws.call.video-on', why: 'not a CallService action', consumer: 'none' },
-    { event: 'ws.call.video-off', why: 'not a CallService action', consumer: 'none' },
-    { event: 'ws.call.recording-started', why: 'not a CallService action; recording state comes from LVS', consumer: 'none' },
-    { event: 'ws.call.recording-completed', why: 'not a CallService action; recording state comes from LVS', consumer: 'none' },
+    // Not in CallService's action set (realtime-modules:src/call/types.ts:25
+    // CallAction, :434 ALLOWED_CALL_ACTIONS), so a client sending one gets
+    // "Unknown call action". All four literals occur in NO code anywhere.
+    //
+    // Both pairs are 'renamed', and the replacements are worth knowing:
+    //   - video-on/off → the `participant-state` broadcast, whose fields are
+    //     `cameraOn` (types.ts:104) and `audioOn` (:106) — note cameraOn, not
+    //     videoOn, which occurs nowhere in src/call/. Handled at
+    //     CallService.ts:1206 and :1246. That action is itself UNDECLARED in
+    //     this catalog, so following the rename leads to another gap.
+    //   - recording-* → the LVS surface: sfu.recording.* webhooks plus the
+    //     stage socket the UI actually reads
+    //     (realtime-examples:frontend/src/hooks/useRecordingState.ts:84).
+    { event: 'ws.call.video-on', category: 'renamed', replacedBy: 'the call `participant-state` broadcast (cameraOn/audioOn) — itself undeclared here', why: 'not a CallService action; mute state rides participant-state', consumer: 'none' },
+    { event: 'ws.call.video-off', category: 'renamed', replacedBy: 'the call `participant-state` broadcast (cameraOn/audioOn) — itself undeclared here', why: 'not a CallService action; mute state rides participant-state', consumer: 'none' },
+    { event: 'ws.call.recording-started', category: 'renamed', replacedBy: 'sfu.recording.started + the LVS stage socket (useRecordingState.ts:84)', why: 'not a CallService action; recording state comes from LVS', consumer: 'none' },
+    { event: 'ws.call.recording-completed', category: 'renamed', replacedBy: 'sfu.recording.completed + the LVS stage socket (useRecordingState.ts:84)', why: 'not a CallService action; recording state comes from LVS', consumer: 'none' },
 
     // distributed-core removed these from its event map in v0.16.0 and says
-    // so in the source: "The four producer-less Phase-5 events ... had no
-    // executor producer and consumers should not handle them" —
-    // distributed-core:src/applications/pipeline/types.ts:905.
-    { event: 'pipeline:run:paused', why: 'producer-less Phase-5 event, removed from DC v0.16.0', consumer: 'none' },
-    { event: 'pipeline:run:retry', why: 'producer-less Phase-5 event, removed from DC v0.16.0', consumer: 'none' },
+    // so in the source: "The four producer-less Phase-5 events
+    // ('pipeline:run:paused', 'pipeline:run:resumed',
+    // 'pipeline:run:resume-from-step', 'pipeline:run:retry') were removed
+    // from this map in v0.16.0. They had no executor producer and consumers
+    // should not handle them" — distributed-core:src/applications/pipeline/
+    // types.ts:903. Neither is a PipelineEventMap key today and neither is
+    // emitted in distributed-core/src or platform-api/src.
+    //
+    // That comment is itself partly stale, which is the reason to record it
+    // rather than cite it: 'pipeline:run:resumed' IS a map key again
+    // (types.ts:761) and IS emitted (PipelineExecutor.ts:785) — see the
+    // dedicated describe further down.
+    { event: 'pipeline:run:paused', category: 'dead', replacedBy: null, why: 'producer-less Phase-5 event, removed from the DC event map in v0.16.0', consumer: 'none' },
+    { event: 'pipeline:run:retry', category: 'dead', replacedBy: null, why: 'producer-less Phase-5 event, removed from the DC event map in v0.16.0', consumer: 'none' },
 
     // Declared producer `websocket-gateway`, described as "emitted when
     // handleResumeFromStep is invoked without a PipelineModule". That branch
     // exists and emits the OTHER name: realtime-examples:src/services/
-    // pipeline-service.ts:487 sends eventType 'pipeline:run:resumed-from-step'.
-    { event: 'pipeline:run:resumeFromStep', why: 'the gateway fallback emits pipeline:run:resumed-from-step instead', consumer: 'realtime-examples:frontend/src/components/pipelines/dev/SimulatorPanel.tsx:217' },
+    // pipeline-service.ts:487 sends eventType 'pipeline:run:resumed-from-step'
+    // ("DC canonical form: matches PipelineExecutor"), and the executor emits
+    // the same at PipelineExecutor.ts:1482. The camelCase spelling is never
+    // emitted as an event — it survives only as an inbound client action verb
+    // (pipeline-service.ts:261) and a span attribute (:475).
+    { event: 'pipeline:run:resumeFromStep', category: 'renamed', replacedBy: 'pipeline:run:resumed-from-step (realtime-examples:src/services/pipeline-service.ts:487)', why: 'the gateway fallback emits the canonical kebab spelling instead', consumer: 'realtime-examples:frontend/src/components/pipelines/dev/SimulatorPanel.tsx:217' },
 
     // Per-gate closure event. No emit site in distributed-core, platform-api,
-    // realtime-examples or realtime-modules — grepped both
-    // `pipeline:approval:resolved` and `pipeline.approval.resolved`; the only
-    // hit is a log message at platform-api:src/routes/pipelineTriggers.ts:1148.
-    // It is nevertheless `required: true` in the agentic-pipeline-durable
-    // bundle (src/declarations/bundles/agentic-pipeline-durable.ts:38).
-    { event: 'pipeline.approval.resolved', why: 'no emit site in any repo', consumer: 'none' },
+    // realtime-examples or realtime-modules — both `pipeline:approval:resolved`
+    // and `pipeline.approval.resolved` grep empty. The near-misses are a log
+    // line (platform-api:src/routes/pipelineTriggers.ts:1148, whose route just
+    // returns 204 at :1151) and an AUDIT ACTION string in the imperative mood,
+    // `pipeline.approval.resolve` (realtime-examples:src/services/
+    // audit-log.ts:36) — neither is this event.
+    //
+    // 'dead', and the most expensive of the three deads: it is `required:
+    // true` in the agentic-pipeline-durable bundle
+    // (src/declarations/bundles/agentic-pipeline-durable.ts:38), so an
+    // operator's CRD lint demands an event nothing will ever publish. Also
+    // still carries the numeric `resolvedAt` defect pinned above.
+    { event: 'pipeline.approval.resolved', category: 'dead', replacedBy: null, why: 'no emit site in any repo; the lifecycle ends at pipeline:approval:recorded', consumer: 'none' },
+] as const;
+
+/**
+ * The correction the triage turned up. The six `client.videohangout.*` frames
+ * were filed above as "a producer that emits nothing". Their producer emits
+ * all six: realtime-modules:src/client/useVideoHangout.ts sends
+ * `{service:'videohangout', action:…}` at :247 (start), :263 (join), :277
+ * (leave), :291 (end), :306 (toggle-video) and :319 (toggle-audio), and the
+ * declarations attribute them to `realtime-modules-client`, which is exactly
+ * that hook.
+ *
+ * What is missing is the far end: the gateway rejects the whole service
+ * before any handler runs (knownUnimplementedServices at
+ * realtime-examples:src/validators/message-validator.ts:91). So these are
+ * frames that go ON the wire and are dropped — a different defect from a
+ * contract nobody writes, and a different fix (implement the service, or
+ * stop the hook sending). Filing them as producer-less hid a live behaviour.
+ */
+const DECLARED_AND_EMITTED_BUT_REJECTED_BY_THE_SERVER = [
+    { event: 'client.videohangout.start', category: 'unimplemented', emitSite: 'realtime-modules:src/client/useVideoHangout.ts:247' },
+    { event: 'client.videohangout.join', category: 'unimplemented', emitSite: 'realtime-modules:src/client/useVideoHangout.ts:263' },
+    { event: 'client.videohangout.leave', category: 'unimplemented', emitSite: 'realtime-modules:src/client/useVideoHangout.ts:277' },
+    { event: 'client.videohangout.end', category: 'unimplemented', emitSite: 'realtime-modules:src/client/useVideoHangout.ts:291' },
+    { event: 'client.videohangout.toggle-video', category: 'unimplemented', emitSite: 'realtime-modules:src/client/useVideoHangout.ts:306' },
+    { event: 'client.videohangout.toggle-audio', category: 'unimplemented', emitSite: 'realtime-modules:src/client/useVideoHangout.ts:319' },
 ] as const;
 
 describe('events declared with a producer that emits nothing', () => {
@@ -849,6 +950,68 @@ describe('events declared with a producer that emits nothing', () => {
                 description,
                 `${event} gained a drift note — move it into DECLARED_BUT_NOT_EMITTED_EVENTS.`,
             ).not.toContain(EVENT_DRIFT_MARKER);
+        },
+    );
+
+    it('every entry is triaged into exactly one of the three categories', () => {
+        // The point of the triage: "no producer" is three different facts
+        // with three different fixes. An untriaged entry is a to-do wearing a
+        // finding's clothes, so a new one cannot be added without deciding.
+        for (const entry of DECLARED_WITH_A_PRODUCER_THAT_EMITS_NOTHING) {
+            expect(TRIAGE_CATEGORIES, `${entry.event} has no valid category`).toContain(entry.category);
+        }
+    });
+
+    it('every "renamed" entry names the surface that replaced it, and no other entry pretends to', () => {
+        // `replacedBy` is the field that saves an integrator the afternoon:
+        // the declared name is a dead end, and this says where the data went.
+        // A 'dead' or 'unimplemented' entry must NOT carry one — claiming a
+        // replacement that does not exist is worse than admitting the gap.
+        for (const entry of DECLARED_WITH_A_PRODUCER_THAT_EMITS_NOTHING) {
+            if (entry.category === 'renamed') {
+                expect(entry.replacedBy, `${entry.event} is 'renamed' but names no replacement`).toBeTruthy();
+            } else {
+                expect(entry.replacedBy, `${entry.event} is '${entry.category}' but names a replacement`).toBeNull();
+            }
+        }
+    });
+
+    it('every "renamed" replacement that this catalog claims to declare really is declared', () => {
+        // Half the replacements are in-catalog event names and half are prose
+        // pointers at another repo's wire. Only the first kind is checkable
+        // here — but that half is exactly the kind that rots when an event is
+        // renamed twice.
+        const named = new Set(allDeclarations.map((d) => d.name));
+        const inCatalog = DECLARED_WITH_A_PRODUCER_THAT_EMITS_NOTHING
+            .filter((e) => e.category === 'renamed')
+            .map((e) => (e.replacedBy ?? '').match(/^[a-z][\w.:-]*/)?.[0] ?? '')
+            .filter((n) => n.startsWith('ws.') || n.startsWith('pipeline:') || n.startsWith('sfu.'));
+        expect(inCatalog.length, 'no in-catalog replacements left to check — did the table lose its prefixes?').toBeGreaterThan(0);
+        for (const name of inCatalog) {
+            expect(named.has(name), `${name} is named as a replacement but is not declared`).toBe(true);
+        }
+    });
+
+    it('the two inventories are disjoint — nothing is both producer-less and emitted', () => {
+        const producerless = new Set<string>(
+            DECLARED_WITH_A_PRODUCER_THAT_EMITS_NOTHING.map((e) => e.event),
+        );
+        for (const entry of DECLARED_AND_EMITTED_BUT_REJECTED_BY_THE_SERVER) {
+            expect(
+                producerless.has(entry.event),
+                `${entry.event} is filed in both inventories — it cannot be both`,
+            ).toBe(false);
+        }
+    });
+
+    it.each(DECLARED_AND_EMITTED_BUT_REJECTED_BY_THE_SERVER)(
+        '$event is emitted at $emitSite and attributed to the hook that emits it',
+        ({ event }) => {
+            // The correction, pinned. These are NOT producer-less: the hook
+            // sends them and the gateway drops the whole service. If the
+            // producer attribution is ever changed away from the client hook,
+            // this fails and the classification has to be revisited.
+            expect(declarationFor(event).producer).toBe('realtime-modules-client');
         },
     );
 
@@ -1168,19 +1331,14 @@ function declarationForFrame(type: string, action?: string): EventDeclaration | 
     });
 }
 
+// `pipeline:step:fanout` and `pipeline:step:image:produced` were here until
+// 2026-09-07. Both are now declared — src/declarations/pipeline-scatter.ts and
+// src/declarations/pipeline-image-artifacts.ts — and the acceptance block at
+// the bottom of this file runs each producer's real literal through the real
+// validator. `pipeline:scatter:arm:checkpoint` stays: it is emitted
+// (PipelineExecutor.ts:1831) but has no consumer in any repo, so declaring it
+// would assert a contract nobody has agreed to.
 const EMITTED_AND_READ_BUT_UNDECLARED_BY_NAME = [
-    {
-        name: 'pipeline:step:fanout',
-        emitSite: 'distributed-core:src/applications/pipeline/PipelineExecutor.ts:1809',
-        consumer: 'realtime-examples:frontend/src/components/pipelines/context/PipelineRunsContext.tsx:728',
-        note: 'the reducer folds `count` onto the scatter source step as `fanoutCount`',
-    },
-    {
-        name: 'pipeline:step:image:produced',
-        emitSite: 'platform-api:src/pipeline/image/ImageSaveStepHandler.ts:117',
-        consumer: 'realtime-examples:frontend/src/components/pipelines/context/PipelineRunsContext.tsx:697',
-        note: 'the reducer dedups on `imageId` and appends an ImagePreview per event',
-    },
     {
         name: 'pipeline:scatter:arm:checkpoint',
         emitSite: 'distributed-core:src/applications/pipeline/PipelineExecutor.ts:1831',
@@ -1189,14 +1347,9 @@ const EMITTED_AND_READ_BUT_UNDECLARED_BY_NAME = [
     },
 ] as const;
 
+// reaction/reaction_history was here until 2026-09-07; it is now declared as
+// ws.reaction.history. The rest still have no declaration.
 const EMITTED_AND_READ_BUT_UNDECLARED_FRAMES = [
-    {
-        type: 'reaction',
-        action: 'reaction_history',
-        emitSite: 'realtime-modules:src/reactions/ReactionService.ts:473',
-        consumer: 'realtime-modules:src/client/useReactions.ts:143',
-        note: 'this is the frame that actually replays stored reactions; the declared ws.reaction.list (action "reaction_list") has no producer',
-    },
     {
         type: 'reaction',
         action: 'reaction_unsent',
@@ -1239,67 +1392,83 @@ describe('emitted and branched on, but absent from the catalog entirely', () => 
         },
     );
 
-    it('ws.reaction.list declares the action the producer does NOT use', () => {
-        // The pairing that makes the previous assertion a finding rather than
-        // a gap: the catalog has a reaction-replay event, it just names the
-        // wrong action, so the frame that carries the data is invisible and
-        // the frame that is declared never arrives.
+    it('ws.reaction.list still declares the action the producer does NOT use — but is no longer the only replay event', () => {
+        // ws.reaction.list names action "reaction_list", which no producer
+        // sends; that is why the replay frame was invisible for so long. The
+        // list event is NOT retired — removing a declaration is breaking —
+        // but ws.reaction.history now covers the frame that carries the data,
+        // so the two claims can no longer be confused for each other.
         const declaredAction = ((declarationFor('ws.reaction.list').schema as JsonSchema).properties?.action as { const?: string } | undefined)?.const;
         expect(declaredAction).toBe('reaction_list');
-        expect(declarationForFrame('reaction', 'reaction_history')).toBeUndefined();
+        expect(declarationForFrame('reaction', 'reaction_history')?.name).toBe('ws.reaction.history');
     });
 });
 
 /* ------------------------------------------------------------------ */
-/* (e) ag-ui — six declarations that name fields the producer has never  */
-/*     had                                                              */
+/* ag-ui — six contracts reconciled with the frame AgentStream builds   */
 /* ------------------------------------------------------------------ */
 
 /**
- * The ag-ui declarations were written from the upstream AG-UI protocol
+ * RETIRED FROM THE REJECTION TABLE, 2026-09-07.
+ *
+ * The ag-ui declarations were transcribed from the upstream AG-UI protocol
  * spec; `AgentStream` implements a different shape and always has. Six of
- * them require a field the emitter does not build, so the real frame fails
+ * them REQUIRED a field the emitter does not build, so the real frame failed
  * validation — same (e) class as the pipeline approvals, but latent rather
  * than live, because realtime-modules:src/client/useAgentStream.ts:317
  * explicitly ignores STATE_*, REASONING_*, ACTIVITY_*, RAW and META_EVENT.
+ * Latent is not harmless: these are the declarations the NEXT consumer is
+ * written against, and every one of them would have been written wrong.
  *
- * Latent is not harmless: these are the declarations the NEXT consumer will
- * be written against, and every one of them would be written wrong.
+ * All six were widened, not documented. Each now declares what AgentStream
+ * really sends (`content`/`patch` instead of `snapshot`/`delta`, `metaType`
+ * instead of `name`, `encryptedValue` instead of `value`, no repeated run
+ * identity on RUN_FINISHED, no repeated tool name on TOOL_CALL_RESULT), and
+ * the spec's field survives as declared-but-optional with a NEVER-EMITTED
+ * note registered in DECLARED_BUT_NEVER_EMITTED above.
  *
- * Payloads below are the literals at realtime-modules:src/agent-streaming/
- * AgentStream.ts (dist agrees line-for-line).
+ * The assertions below are the inverse of the table they replace, and they
+ * are not a restatement of the schema: every payload is the producer's own
+ * object literal, transcribed field for field from the cited emit site, run
+ * through the real validator. Re-tightening any of the six `required` arrays
+ * fails here.
  */
-const AG_UI_SCHEMA_REJECTS_THE_REAL_FRAME = [
-    { event: 'ag-ui.ACTIVITY_SNAPSHOT', missing: 'snapshot', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:322', payload: { type: 'ACTIVITY_SNAPSHOT', messageId: 'm_1', activityType: 'search', content: 'x', replace: true, timestamp: 1_757_240_000_000 } },
-    { event: 'ag-ui.ACTIVITY_DELTA', missing: 'delta', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:338', payload: { type: 'ACTIVITY_DELTA', messageId: 'm_1', activityType: 'search', patch: 'x', timestamp: 1_757_240_000_000 } },
-    { event: 'ag-ui.META_EVENT', missing: 'name', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:449', payload: { type: 'META_EVENT', metaType: 'trace', payload: {}, timestamp: 1_757_240_000_000 } },
-    { event: 'ag-ui.REASONING_ENCRYPTED_VALUE', missing: 'value', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:421', payload: { type: 'REASONING_ENCRYPTED_VALUE', subtype: 's', entityId: 'e_1', encryptedValue: 'v', timestamp: 1_757_240_000_000 } },
-    // RUN_FINISHED is the one with a second producer that also omits the
-    // fields: platform-api:src/routes/pipelineLLMStream.ts:169 emits
-    // {type, runId} — still no threadId. And the only in-repo caller passes
-    // no args at all (realtime-modules:src/agent-streaming/agentStreamMiddleware.ts:210).
-    { event: 'ag-ui.RUN_FINISHED', missing: 'threadId', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:121', payload: { type: 'RUN_FINISHED', outcome: 'ok', result: {}, timestamp: 1_757_240_000_000 } },
-    { event: 'ag-ui.TOOL_CALL_RESULT', missing: 'toolCallName', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:273', payload: { type: 'TOOL_CALL_RESULT', messageId: 'm_1', toolCallId: 't_1', content: 'c', timestamp: 1_757_240_000_000 } },
+const AG_UI_PRODUCER_FRAMES = [
+    { event: 'ag-ui.ACTIVITY_SNAPSHOT', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:322', payload: { type: 'ACTIVITY_SNAPSHOT', messageId: 'm_1', activityType: 'search', content: 'x', replace: true, timestamp: 1_757_240_000_000 } },
+    { event: 'ag-ui.ACTIVITY_DELTA', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:338', payload: { type: 'ACTIVITY_DELTA', messageId: 'm_1', activityType: 'search', patch: 'x', timestamp: 1_757_240_000_000 } },
+    { event: 'ag-ui.META_EVENT', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:449', payload: { type: 'META_EVENT', metaType: 'trace', payload: {}, timestamp: 1_757_240_000_000 } },
+    { event: 'ag-ui.REASONING_ENCRYPTED_VALUE', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:421', payload: { type: 'REASONING_ENCRYPTED_VALUE', subtype: 's', entityId: 'e_1', encryptedValue: 'v', timestamp: 1_757_240_000_000 } },
+    // RUN_FINISHED had a second producer that also omits the fields:
+    // platform-api:src/routes/pipelineLLMStream.ts:169 emits {type, runId} —
+    // still no threadId. And the only in-repo caller passes no args at all
+    // (realtime-modules:src/agent-streaming/agentStreamMiddleware.ts:210), so
+    // the bare frame below is what it really produces.
+    { event: 'ag-ui.RUN_FINISHED', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:121', payload: { type: 'RUN_FINISHED', outcome: 'ok', result: {}, timestamp: 1_757_240_000_000 } },
+    { event: 'ag-ui.RUN_FINISHED', emitSite: 'realtime-modules:src/agent-streaming/agentStreamMiddleware.ts:210 (no args)', payload: { type: 'RUN_FINISHED', timestamp: 1_757_240_000_000 } },
+    { event: 'ag-ui.RUN_FINISHED', emitSite: 'platform-api:src/routes/pipelineLLMStream.ts:169', payload: { type: 'RUN_FINISHED', runId: 'run_1' } },
+    { event: 'ag-ui.TOOL_CALL_RESULT', emitSite: 'realtime-modules:src/agent-streaming/AgentStream.ts:273', payload: { type: 'TOOL_CALL_RESULT', messageId: 'm_1', toolCallId: 't_1', content: 'c', timestamp: 1_757_240_000_000 } },
 ] as const;
 
-describe('(e) ag-ui — the declaration rejects the frame AgentStream builds', () => {
-    it.each(AG_UI_SCHEMA_REJECTS_THE_REAL_FRAME)(
-        '$event rejects the literal at $emitSite because it requires `$missing`',
-        ({ event, missing, payload }) => {
+describe('ag-ui — the declaration accepts the frame AgentStream builds', () => {
+    it.each(AG_UI_PRODUCER_FRAMES)(
+        '$event validates the literal at $emitSite',
+        ({ event, payload }) => {
             const result = registryWith(declarationFor(event)).validate(event, payload);
             expect(
                 result.valid,
-                `${event} now accepts AgentStream's frame — the contract was reconciled; retire this entry.`,
-            ).toBe(false);
-            expect(JSON.stringify(result.errors)).toContain(missing);
+                `${event} rejected its producer's payload again: ${JSON.stringify(result.errors)}`,
+            ).toBe(true);
         },
     );
 
-    it('TEXT_MESSAGE_CHUNK and TOOL_CALL_CHUNK require fields their emit site spreads in optionally', () => {
+    it('TEXT_MESSAGE_CHUNK and TOOL_CALL_CHUNK still require fields their emit site spreads in optionally', () => {
+        // NOT fixed, and deliberately left as a finding rather than widened:
         // AgentStream.ts:201 and :290 spread an all-optional opts object, so
-        // every "required" field on these two can legally be absent on the
-        // wire. A bare frame is what the producer can emit; the schema says
-        // it cannot exist.
+        // every "required" field on these two CAN be absent on the wire — but
+        // a chunk frame carrying no messageId and no delta is not a frame any
+        // consumer can use, so relaxing the schema would document a bug
+        // instead of catching it. The producer is the side that should stop
+        // allowing a bare call. Pinned here so the choice stays visible.
         for (const event of ['ag-ui.TEXT_MESSAGE_CHUNK', 'ag-ui.TOOL_CALL_CHUNK']) {
             const result = registryWith(declarationFor(event)).validate(event, { type: event.split('.')[1] });
             expect(result.valid, `${event} now accepts a bare chunk frame`).toBe(false);
@@ -1385,35 +1554,70 @@ describe('pipeline:judge:failed — the reason enum cannot express two of the pr
 });
 
 /* ------------------------------------------------------------------ */
-/* a registered entry that has gone stale under us                      */
+/* ws.reaction.removed — the stale entry, now corrected                 */
 /* ------------------------------------------------------------------ */
 
-describe('ws.reaction.removed is registered as not-emitted, but the running service does emit it', () => {
-    // DECLARED_BUT_NOT_EMITTED_EVENTS above still lists ws.reaction.removed
-    // on the strength of a 2026-06-12 note claiming the dist ReactionService
-    // has no remove action. It has one:
-    // realtime-modules:dist/reactions/ReactionService.js:330 (src at
-    // src/reactions/ReactionService.ts:402) builds
-    // {type:'reaction', action:'reaction_removed', data:{...}} and
-    // realtime-modules:src/client/useReactions.ts:163 filters state on it.
-    //
-    // So the event is emitted, read, AND rejected by its own schema (see
-    // SCHEMA_REJECTS_THE_REAL_PAYLOAD). This test exists so the two claims
-    // cannot drift apart silently: whichever way the note is corrected, one
-    // of these expectations moves.
-    it('is still carrying the stale not-emitted note', () => {
-        const description = declarationFor('ws.reaction.removed').description ?? '';
-        expect(description).toContain(EVENT_DRIFT_MARKER);
-        expect(
-            description,
-            'the ws.reaction.removed note changed — reconcile it with the dist emit site at ReactionService.js:330.',
-        ).toMatch(/NO reaction-remove action/);
+/**
+ * This block used to assert that ws.reaction.removed was STILL carrying a
+ * 2026-06-12 note claiming the dist ReactionService "has NO reaction-remove
+ * action". It has one, and always did:
+ * realtime-modules:dist/reactions/ReactionService.js:330 (src at
+ * src/reactions/ReactionService.ts:403) builds
+ * {type:'reaction', action:'reaction_removed', data:{channel, targetId,
+ * emoji, userId, timestamp}}, and realtime-modules:src/client/
+ * useReactions.ts:163 filters state on it.
+ *
+ * The stale note was hiding a live (e)-class defect: `data.id` was REQUIRED
+ * and the producer has never sent it, so every real removal frame failed
+ * validation. Both halves are fixed — the description now cites the emit
+ * site, and `id` is optional with a NEVER-EMITTED note registered in
+ * DECLARED_BUT_NEVER_EMITTED above.
+ *
+ * The assertions below are not a restatement of the schema. The first runs
+ * the dist emit-site literal — transcribed field for field, not derived from
+ * the declaration — through the real validator, so re-requiring `id` fails
+ * here. The second pins the consumer's actual matching key, so a "tidy-up"
+ * that reintroduces an id-based contract has to argue with useReactions.
+ */
+describe('ws.reaction.removed accepts its producer', () => {
+    // realtime-modules:dist/reactions/ReactionService.js:330-341.
+    const REACTION_REMOVED_PAYLOAD = Object.freeze({
+        type: 'reaction',
+        action: 'reaction_removed',
+        data: {
+            channel: 'room-1',
+            targetId: 'msg_1',
+            emoji: '\u{1F44D}',
+            userId: 'u_1',
+            timestamp: '2026-09-07T10:00:00.000Z',
+        },
     });
 
-    it('is the only entry in DECLARED_BUT_NOT_EMITTED_EVENTS with a live emit site', () => {
-        // Pins the scope of the correction: the other eight entries were
-        // re-verified during this pass and remain accurate.
-        expect(DECLARED_BUT_NOT_EMITTED_EVENTS).toContain('ws.reaction.removed');
+    it('validates the frame ReactionService.handleRemoveReaction broadcasts', () => {
+        const result = registryWith(declarationFor('ws.reaction.removed')).validate(
+            'ws.reaction.removed',
+            REACTION_REMOVED_PAYLOAD,
+        );
+        expect(
+            result.valid,
+            `ws.reaction.removed rejected its own producer's payload: ${JSON.stringify(result.errors)}`,
+        ).toBe(true);
+    });
+
+    it('declares the (targetId, emoji, userId) triple the consumer actually matches on', () => {
+        // useReactions.ts:163 filters on that triple BECAUSE ids differ
+        // between the live broadcast and the stored replay. Two of the three
+        // were undeclared before this fix.
+        const data = (declarationFor('ws.reaction.removed').schema as JsonSchema).properties?.data;
+        for (const field of ['targetId', 'emoji', 'userId']) {
+            expect(data?.properties?.[field], `ws.reaction.removed.data.${field} vanished`).toBeDefined();
+        }
+    });
+
+    it('no longer claims the running service has no remove action', () => {
+        const description = declarationFor('ws.reaction.removed').description ?? '';
+        expect(description).not.toMatch(/NO reaction-remove action/);
+        expect(description).not.toContain(EVENT_DRIFT_MARKER);
     });
 });
 
@@ -1498,5 +1702,152 @@ describe('ws.fileupload.progress accepts its producer', () => {
       result.valid,
       `rejected its own producer's payload: ${JSON.stringify(result.errors)}`,
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Backfilled 2026-09-07 — three events that were emitted AND branched on while
+// the catalog said nothing about them:
+//
+//   pipeline:step:fanout          src/declarations/pipeline-scatter.ts
+//   pipeline:step:image:produced  src/declarations/pipeline-image-artifacts.ts
+//   ws.reaction.history           src/declarations/gateway-signal/reaction.ts
+//
+// Their entries in EMITTED_AND_READ_BUT_UNDECLARED_* above are retired. What
+// replaces them is the assertion those entries could never make: the
+// producer's own object literal, transcribed field for field from the emit
+// site, driven through the real validator — plus, for each, the specific
+// field the consumer makes a decision on, because a declaration that
+// validates but omits the load-bearing field is the same bug one layer down.
+// ---------------------------------------------------------------------------
+
+describe('the backfilled declarations accept their producers', () => {
+  const cases = [
+    {
+      event: 'pipeline:step:fanout',
+      // distributed-core:src/applications/pipeline/PipelineExecutor.ts:1809
+      emitSite: 'distributed-core:src/applications/pipeline/PipelineExecutor.ts:1809',
+      payload: { runId: 'run_1', stepId: 'scatter_1', count: 3, at: '2026-09-07T10:00:00.000Z' },
+      // realtime-examples:.../PipelineRunsContext.tsx:728 folds this onto the
+      // source step as output.fanoutCount.
+      consumerReads: ['runId', 'stepId', 'count'],
+    },
+    {
+      event: 'pipeline:step:image:produced',
+      // platform-api:src/pipeline/image/ImageSaveStepHandler.ts:117 — the
+      // shape all fifteen image handlers build.
+      emitSite: 'platform-api:src/pipeline/image/ImageSaveStepHandler.ts:117',
+      payload: {
+        runId: 'run_1',
+        stepId: 'save_1',
+        imageId: 'img_1',
+        width: 1024,
+        height: 768,
+        mimeType: 'image/png',
+        at: '2026-09-07T10:00:00.000Z',
+      },
+      // realtime-examples:.../PipelineRunsContext.tsx:697 dedups on imageId
+      // and renders width/height/mimeType into the ImagePreview.
+      consumerReads: ['imageId', 'width', 'height', 'mimeType'],
+    },
+    {
+      event: 'ws.reaction.history',
+      // realtime-modules:src/reactions/ReactionService.ts:473 via sendSuccess
+      // (:537), with each row rehydrated by _fromStored (:452).
+      emitSite: 'realtime-modules:src/reactions/ReactionService.ts:473',
+      payload: {
+        type: 'reaction',
+        action: 'reaction_history',
+        success: true,
+        data: {
+          channel: 'room-1',
+          reactions: [
+            {
+              id: 'reaction_msg_1_\u{1F44D}_u_1',
+              clientId: 'u_1',
+              channel: 'room-1',
+              emoji: '\u{1F44D}',
+              effect: '',
+              position: null,
+              metadata: {},
+              timestamp: '2026-09-07T10:00:00.000Z',
+              targetId: 'msg_1',
+              userId: 'u_1',
+            },
+          ],
+        },
+      },
+      // realtime-modules:src/client/useReactions.ts:143 guards on
+      // data.channel + Array.isArray(data.reactions); asReaction (:289) drops
+      // any row missing id/clientId/channel/emoji.
+      consumerReads: ['data', 'action'],
+    },
+  ] as const;
+
+  it.each(cases)('$event validates the literal $emitSite constructs', ({ event, payload }) => {
+    const result = registryWith(declarationFor(event)).validate(event, payload);
+    expect(
+      result.valid,
+      `${event} rejected its producer's payload: ${JSON.stringify(result.errors)}`,
+    ).toBe(true);
+  });
+
+  it.each(cases)('$event declares every field its consumer branches on', ({ event, consumerReads }) => {
+    const props = (declarationFor(event).schema as JsonSchema).properties ?? {};
+    for (const field of consumerReads) {
+      expect(props[field], `${event} stopped declaring ${field}, which its consumer reads`).toBeDefined();
+    }
+  });
+
+  it('ws.reaction.history keeps the four fields asReaction hard-requires on each row', () => {
+    // useReactions.ts:289 returns null — silently dropping the row — unless
+    // id, clientId, channel and emoji are all strings. A replay row missing
+    // one of them vanishes from the UI with no error anywhere, so the row
+    // schema requires exactly those four and nothing more.
+    const data = (declarationFor('ws.reaction.history').schema as JsonSchema).properties?.data;
+    const row = data?.properties?.reactions?.items;
+    expect(row?.required).toEqual(['id', 'clientId', 'channel', 'emoji']);
+  });
+
+  it('ws.reaction.history rejects a replay row the consumer would silently drop', () => {
+    // The positive assertion above proves the good frame validates; this one
+    // proves the schema is doing work — a row with no `id` is exactly what
+    // asReaction throws away, and now the contract says so first.
+    const result = registryWith(declarationFor('ws.reaction.history')).validate('ws.reaction.history', {
+      type: 'reaction',
+      action: 'reaction_history',
+      success: true,
+      data: {
+        channel: 'room-1',
+        reactions: [{ clientId: 'u_1', channel: 'room-1', emoji: '\u{1F44D}' }],
+      },
+    });
+    expect(result.valid).toBe(false);
+    expect(JSON.stringify(result.errors)).toContain('id');
+  });
+
+  it('pipeline:step:image:produced declares crop\'s bbox, which only one of fifteen producers sends', () => {
+    // platform-api:src/pipeline/image/ImageCropStepHandler.ts:228 is the sole
+    // emitter that adds `bbox`, and the reducer spreads it into the preview
+    // only when present. Optional here for that reason — requiring it would
+    // reject the other fourteen handlers.
+    const schema = declarationFor('pipeline:step:image:produced').schema as JsonSchema;
+    expect(schema.properties?.bbox).toBeDefined();
+    expect(schema.required ?? []).not.toContain('bbox');
+
+    const withBbox = registryWith(declarationFor('pipeline:step:image:produced')).validate(
+      'pipeline:step:image:produced',
+      {
+        runId: 'run_1',
+        stepId: 'crop_1',
+        imageId: 'img_2',
+        width: 200,
+        height: 100,
+        mimeType: 'image/jpeg',
+        bbox: { x: 10, y: 20, width: 200, height: 100 },
+        at: '2026-09-07T10:00:00.000Z',
+      },
+    );
+    expect(withBbox.valid, JSON.stringify(withBbox.errors)).toBe(true);
   });
 });

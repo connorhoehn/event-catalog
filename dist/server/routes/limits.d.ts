@@ -42,6 +42,21 @@ export declare const MAX_CONSUMER_NAME_LENGTH = 256;
  */
 export { MAX_SUBSCRIBERS_PER_EVENT, MAX_SERVICE_NAME_LENGTH, validateServiceName, } from '../../registry/limits.js';
 /**
+ * Max nesting depth of a declared JSON Schema. Defined in
+ * `src/registry/limits.ts` and re-exported here for the same reason as
+ * the subscriber caps: the schema walkers it bounds run on the library
+ * declare path as well as the HTTP one, so the ceiling cannot live in a
+ * route handler — but every HTTP-visible ceiling stays listed in this
+ * file.
+ *
+ * Enforced today inside `stableStringify` (so it covers every
+ * fingerprint computation). `validateSchemaShape` still recurses
+ * unbounded and throws `RangeError` past ~6900 levels; it runs before
+ * the fingerprint in `Registry.declare`, so a body deep enough to reach
+ * it produces a 400 whose message names nothing useful.
+ */
+export { MAX_SCHEMA_DEPTH, schemaDepthExceededMessage } from '../../registry/limits.js';
+/**
  * Object keys that JavaScript treats specially on assignment. An event
  * name is used as a key in the plain-object responses built by
  * `GET /api/fingerprints` and `GET /api/metrics/history`; `__proto__`

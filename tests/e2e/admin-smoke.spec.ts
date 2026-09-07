@@ -53,7 +53,7 @@ test('event detail deep-link survives the SPA fallback and shows the schema', as
 
 test('transports view reports both transport backends as connected', async ({ page }) => {
   const assertNoErrors = trackPageErrors(page);
-  await page.goto('/health');
+  await page.goto('/transports');
 
   await expect(page.getByText('Redis (Signal Transport)')).toBeVisible();
   await expect(page.getByText('Message Queue (Durable Transport)')).toBeVisible();
@@ -78,7 +78,7 @@ test('every nav destination renders without an uncaught error', async ({ page })
     '/subscribers',
     '/live',
     '/dlq',
-    '/health',
+    '/transports',
   ];
 
   for (const route of routes) {
@@ -91,4 +91,18 @@ test('every nav destination renders without an uncaught error', async ({ page })
   }
 
   expect(errors).toEqual([]);
+});
+
+test('the server keeps /health for itself — the SPA must not claim it', async ({ page, request }) => {
+  // The Transports view used to live at '/health', the exact path the server
+  // serves its health JSON on from the same origin. Deep-linking or reloading
+  // that view returned raw JSON instead of the UI. The SPA route is
+  // '/transports' now; this pins both halves so neither can drift back.
+  const raw = await request.get('/health');
+  expect(raw.ok()).toBe(true);
+  expect(raw.headers()['content-type'] ?? '').toContain('json');
+  expect((await raw.json()).service).toBe('event-catalog');
+
+  await page.goto('/transports');
+  await expect(page.getByText('Redis (Signal Transport)')).toBeVisible();
 });

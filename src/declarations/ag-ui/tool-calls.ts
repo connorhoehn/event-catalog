@@ -74,16 +74,36 @@ export const agUiToolCallResult: EventDeclaration = {
   transport: 'signal',
   producer: PRODUCER,
   tags: TAGS,
-  description: 'Carries the result of a completed tool call.',
+  description:
+    'Carries the result of a completed tool call. GROUND TRUTH '
+    + '(realtime-modules:src/agent-streaming/AgentStream.ts:273 `toolCallResult`): '
+    + '{ type, messageId, toolCallId, content, role?, timestamp }. The tool NAME is established once '
+    + 'on TOOL_CALL_START and is not repeated here — correlate on `toolCallId`.',
   schema: {
     type: 'object',
-    required: ['type', 'messageId', 'toolCallId', 'toolCallName', 'content'],
+    required: ['type', 'messageId', 'toolCallId', 'content'],
     properties: {
       type: { type: 'string', const: 'TOOL_CALL_RESULT' },
       messageId: { type: 'string' },
       toolCallId: { type: 'string' },
-      toolCallName: { type: 'string' },
+      toolCallName: {
+        type: 'string',
+        description:
+          'NEVER EMITTED — AgentStream sends the tool name only on TOOL_CALL_START; the result frame '
+          + 'omits it and consumers correlate on toolCallId. Declared-but-optional only because '
+          + 'removing a property is breaking; do not re-add it to `required`.',
+      },
+      role: {
+        type: 'string',
+        description:
+          'Role attributed to the result message when the caller supplies one (AgentStream spreads it in only if passed).',
+      },
       content: {},
+      timestamp: {
+        type: 'number',
+        description:
+          'Epoch milliseconds at which AgentStream emitted the frame (its injectable `now()`, defaulting to Date.now()). Not an ISO string.',
+      },
     },
     additionalProperties: true,
   },
