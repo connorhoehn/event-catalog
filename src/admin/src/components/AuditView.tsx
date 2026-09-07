@@ -9,10 +9,11 @@
 // slow path — registry mutations that change *what's declared*,
 // not *what's flowing*.
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Chip from '@ui/components/shared/Chip';
 import Banner from '@ui/components/shared/Banner';
+import LiveRegion from '@ui/components/shared/LiveRegion';
 import { Button } from '@ui/components/ui/Button';
 import { useAuditTap, type AuditEvent, type AuditEventKind } from './topology/useAuditTap';
 
@@ -27,6 +28,8 @@ const kindMeta: Record<AuditEventKind, { label: string; tone: 'success' | 'dange
 export function AuditView() {
   const [kindFilter, setKindFilter] = useState<AuditEventKind | ''>('');
   const [namespaceFilter, setNamespaceFilter] = useState('');
+  const kindId = useId();
+  const namespaceId = useId();
 
   const tap = useAuditTap({
     kind: kindFilter || undefined,
@@ -43,11 +46,16 @@ export function AuditView() {
         <h2>Registry Changes</h2>
         <Chip tone={tap.isLive ? 'success' : 'neutral'}>{tap.isLive ? 'live' : 'paused'}</Chip>
         <Chip tone="neutral">{tap.events.length} events</Chip>
-        {tap.error && <Chip tone="warning">{tap.error}</Chip>}
+        {tap.error && (
+          <span role="status">
+            <Chip tone="warning">{tap.error}</Chip>
+          </span>
+        )}
 
         <div className="view-toolbar-right">
-          <label className="view-toolbar-label">kind</label>
+          <label className="view-toolbar-label" htmlFor={kindId}>kind</label>
           <select
+            id={kindId}
             value={kindFilter}
             onChange={(e) => setKindFilter(e.target.value as AuditEventKind | '')}
             className="view-select"
@@ -60,8 +68,9 @@ export function AuditView() {
             <option value="subscriber.removed">subscriber.removed</option>
           </select>
 
-          <label className="view-toolbar-label spaced">namespace</label>
+          <label className="view-toolbar-label spaced" htmlFor={namespaceId}>namespace</label>
           <select
+            id={namespaceId}
             value={namespaceFilter}
             onChange={(e) => setNamespaceFilter(e.target.value)}
             className="view-select"
@@ -88,9 +97,26 @@ export function AuditView() {
         </Banner>
       ) : (
         <div className="view-scroll tight">
-          {newestFirst.map((ev, i) => (
-            <AuditRow key={`${ev.timestamp}-${i}`} event={ev} />
-          ))}
+          {/* Registry mutations are rare — seconds to hours apart — so unlike
+              the flow ticker this feed can afford to announce, and a schema
+              changing under an operator mid-incident is worth hearing. Still
+              polite, and still coalesced, in case a deploy declares fifty
+              events at once. */}
+          <LiveRegion
+            throttleMs={3_000}
+            message={
+              newestFirst[0]
+                ? `Registry change: ${kindMeta[newestFirst[0].kind].label} ${newestFirst[0].eventName}.`
+                : ''
+            }
+          />
+          <ul className="audit-list" aria-live="off" aria-label="Registry changes, newest first">
+            {newestFirst.map((ev, i) => (
+              <li key={`${ev.timestamp}-${i}`}>
+                <AuditRow event={ev} />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

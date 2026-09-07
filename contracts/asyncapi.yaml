@@ -1,5 +1,5 @@
 # AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
-# Generated at: 2026-09-07T13:28:22.887Z
+# Generated at: 2026-09-07T13:54:44.303Z
 # Source of truth: @connorhoehn/event-catalog src/declarations/
 asyncapi: 2.6.0
 info:
@@ -3258,7 +3258,7 @@ components:
             description: Cluster node id of the gateway that originated the fan-out.
           emittedAt:
             type: number
-            description: ISO-8601 timestamp at which the originating producer emitted the underlying event.
+            description: Epoch milliseconds at which the originating producer emitted the underlying event.
         required:
           - type
           - eventType
@@ -3368,7 +3368,7 @@ components:
                 format: date-time
               lastHeartbeat:
                 type: number
-                description: ISO-8601 timestamp of the most recent heartbeat from this client.
+                description: Epoch milliseconds of the most recent heartbeat from this client.
             required:
               - clientId
               - status

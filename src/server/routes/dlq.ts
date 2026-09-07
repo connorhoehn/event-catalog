@@ -6,6 +6,7 @@
 import type { Request, Response } from '../http-router.js';
 import { DurableTransport } from '../../client/durable.js';
 import { badRequest, type RoutesDeps } from './_shared.js';
+import { MAX_DLQ_REPLAY_IDS, withinArrayLimit } from './limits.js';
 
 const MAX_DLQ_LIMIT = 1000;
 
@@ -91,6 +92,9 @@ export function createDlqHandlers(deps: RoutesDeps) {
       badRequest(res, 'ids must be a non-empty array of strings');
       return;
     }
+    // Each id is a DynamoDB read plus a message-queue POST, run
+    // sequentially inside this request.
+    if (!withinArrayLimit(res, ids, MAX_DLQ_REPLAY_IDS, 'ids')) return;
 
     const replayed: Array<{ id: string; eventName: string }> = [];
     const failed: Array<{ id: string; error: string }> = [];

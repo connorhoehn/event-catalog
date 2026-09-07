@@ -4,7 +4,7 @@
 // with click-to-expand showing the full hash + a copy button. Reads
 // naturally next to a version chip in the EventDetail header.
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 interface FingerprintChipProps {
   fingerprint: string | undefined;
@@ -14,6 +14,7 @@ interface FingerprintChipProps {
 export function FingerprintChip({ fingerprint, label = 'fingerprint' }: FingerprintChipProps) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const valueId = useId();
 
   if (!fingerprint) {
     return null;
@@ -30,23 +31,30 @@ export function FingerprintChip({ fingerprint, label = 'fingerprint' }: Fingerpr
     }
   };
 
+  // The toggle used to be `onClick` on a <span>: no tab stop, no Enter/Space,
+  // and nothing in the accessibility tree said it did anything. It is a
+  // <button> now — and the copy button had to move OUT of it, because a
+  // button nested inside a button is invalid and browsers disagree about
+  // which one a click belongs to.
   return (
-    <span
-      className="fingerprint-chip"
-      onClick={() => setExpanded((v) => !v)}
-      title={`Click to ${expanded ? 'collapse' : 'expand'} full fingerprint`}
-    >
-      <span className="fingerprint-label">
-        {label}
-      </span>
-      <span>{expanded ? fingerprint : short + (fingerprint.length > 12 ? '…' : '')}</span>
+    <span className="fingerprint-chip">
+      <button
+        type="button"
+        className="fingerprint-toggle"
+        aria-expanded={expanded}
+        aria-controls={valueId}
+        onClick={() => setExpanded(v => !v)}
+      >
+        {label ? <span className="fingerprint-label">{label}</span> : null}
+        <span id={valueId} className="fingerprint-value">
+          {expanded ? fingerprint : short + (fingerprint.length > 12 ? '…' : '')}
+        </span>
+      </button>
       {expanded ? (
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onCopy();
-          }}
+          onClick={onCopy}
+          aria-label={`Copy full ${label || 'fingerprint'} to clipboard`}
           className={`fingerprint-copy${copied ? ' copied' : ''}`}
         >
           {copied ? 'copied' : 'copy'}

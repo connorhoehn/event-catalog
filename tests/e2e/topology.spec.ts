@@ -32,12 +32,17 @@ test('the canvas draws every node and service the registry reports', async ({ pa
     await expect(page.getByText(node.id, { exact: true })).toHaveCount(1);
   }
 
-  // Event nodes are labelled with their transport; service nodes with the
-  // role the edges imply.
-  const signalCount = eventNodes.filter(n => n.metadata.transport === 'signal').length;
-  const durableCount = eventNodes.filter(n => n.metadata.transport === 'durable').length;
-  await expect(page.getByText('signal', { exact: true })).toHaveCount(signalCount);
-  await expect(page.getByText('durable', { exact: true })).toHaveCount(durableCount);
+  // Event nodes are labelled `<transport> · <namespace>`; service nodes with
+  // the role the edges imply.
+  const kindCounts = new Map<string, number>();
+  for (const n of eventNodes) {
+    const kind = `${n.metadata.transport as string} · ${n.metadata.namespace as string}`;
+    kindCounts.set(kind, (kindCounts.get(kind) ?? 0) + 1);
+  }
+  expect(kindCounts.size).toBeGreaterThan(0);
+  for (const [kind, count] of kindCounts) {
+    await expect(page.getByText(kind, { exact: true })).toHaveCount(count);
+  }
   await expect(page.getByText('service · producer', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('service · consumer', { exact: true }).first()).toBeVisible();
 
@@ -47,16 +52,11 @@ test('the canvas draws every node and service the registry reports', async ({ pa
   assertNoErrors();
 });
 
-// KNOWN DEFECT — `Registry.getTopology()` (src/registry/index.ts) builds event
-// nodes with `metadata: { transport, description }` and no `namespace`. Both
-// TopologyView and FlowView derive their namespace <select> options — and
-// NamespaceClusters derives the whole Phase E8.4 cluster overlay — from
-// `node.metadata.namespace`, so today the dropdown only ever offers "all" and
-// no cluster is ever drawn, even though GET /api/topology?namespace=… filters
-// correctly server-side. Marked `fail` so the suite stays honest: it flips to
-// a failure the moment the metadata is added, at which point delete this
-// annotation.
-test.fail(
+// `Registry.getTopology()` now stamps `namespace` onto every event node's
+// metadata, which is what TopologyView and FlowView build their namespace
+// <select> from and what NamespaceClusters uses to draw the Phase E8.4
+// cluster overlay.
+test(
   'the namespace filter narrows the graph via the server',
   async ({ page, request }) => {
     await page.goto('/topology');
@@ -81,8 +81,8 @@ test.fail(
 );
 
 test('the server-side namespace filter really does narrow the subgraph', async ({ request }) => {
-  // The endpoint the (currently unreachable) dropdown would call. Keeps the
-  // filter itself covered while the UI wiring is broken.
+  // The endpoint the dropdown calls. Covers the server-side filter directly,
+  // independent of the UI wiring exercised by the test above.
   const all = (await (await request.get('/api/topology')).json()) as { nodes: Array<{ id: string }> };
   const scoped = (await (await request.get('/api/topology?namespace=billing')).json()) as {
     nodes: Array<{ id: string; type: string }>;

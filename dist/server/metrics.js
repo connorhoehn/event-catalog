@@ -84,10 +84,15 @@ class MetricsCollector {
      * When omitted returns the full `{ [eventName]: number[] }` map.
      */
     getHistory(eventName) {
+        // Null-prototype so an event name of `__proto__` becomes an own
+        // property instead of hitting Object.prototype's setter — a plain
+        // `{}` there re-parents the map and the event disappears from
+        // GET /api/metrics/history entirely.
+        const out = Object.create(null);
         if (eventName) {
-            return { [eventName]: this.rateHistory.get(eventName) ?? [] };
+            out[eventName] = this.rateHistory.get(eventName) ?? [];
+            return out;
         }
-        const out = {};
         for (const [name, buf] of this.rateHistory) {
             out[name] = buf;
         }

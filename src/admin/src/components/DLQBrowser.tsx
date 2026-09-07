@@ -1,7 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import Chip from '@ui/components/shared/Chip';
 import Banner from '@ui/components/shared/Banner';
 import EmptyState from '@ui/components/shared/EmptyState';
+import ErrorState from '@ui/components/shared/ErrorState';
+import SkeletonCard from '@ui/components/shared/SkeletonCard';
+import LiveRegion from '@ui/components/shared/LiveRegion';
 import { Button } from '@ui/components/ui/Button';
 import { api, type DLQEntry } from '../api';
 
@@ -16,6 +19,11 @@ export function DLQBrowser() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResult, setBatchResult] = useState<string | null>(null);
+  const filterId = useId();
+  // A failed fetch and a failed action are different things: the first means
+  // "the table below is not the truth", the second means "the table is fine,
+  // this one row did not move". Only the first should replace the table.
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -24,8 +32,9 @@ export function DLQBrowser() {
         setEntries(res.messages);
         setSource(res.source);
         setError(null);
+        setLoadFailed(false);
       })
-      .catch(err => setError(err.message))
+      .catch(err => { setError(err.message); setLoadFailed(true); })
       .finally(() => setLoading(false));
   }, [filter]);
 
@@ -110,7 +119,9 @@ export function DLQBrowser() {
       </div>
 
       <div className="filters">
+        <label className="field-label" htmlFor={filterId}>Event name</label>
         <input
+          id={filterId}
           type="text"
           placeholder="Filter by event name..."
           value={filter}
@@ -129,10 +140,27 @@ export function DLQBrowser() {
         </Button>
       </div>
 
-      {error && <Banner variant="error">{error}</Banner>}
+      {/* One role=alert for action failures; the fetch failure below replaces
+          the table instead, so the two never both claim to explain the page. */}
+      {error && !loadFailed && <Banner variant="error">{error}</Banner>}
       {batchResult && <Banner variant="info">{batchResult}</Banner>}
 
-      {!loading && entries.length === 0 && (
+      {loading && entries.length === 0 && (
+        <div className="skeleton-stack tight" aria-busy="true">
+          {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} height={44} />)}
+          <LiveRegion role="none" message="Loading dead letters…" />
+        </div>
+      )}
+
+      {!loading && loadFailed && (
+        <ErrorState
+          title="Error loading the dead-letter queue"
+          description={error ?? 'The durable transport did not answer.'}
+          action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
+        />
+      )}
+
+      {!loading && !loadFailed && entries.length === 0 && (
         <EmptyState
           icon="OK"
           title="No dead-lettered messages"
@@ -144,7 +172,7 @@ export function DLQBrowser() {
         <table className="dlq-table">
           <thead>
             <tr>
-              <th>
+              <th scope="col">
                 <input
                   type="checkbox"
                   aria-label="Select all"
@@ -152,11 +180,11 @@ export function DLQBrowser() {
                   onChange={toggleSelectAll}
                 />
               </th>
-              <th>Event</th>
-              <th>Attempts</th>
-              <th>Dead At</th>
-              <th>Error</th>
-              <th>Actions</th>
+              <th scope="col">Event</th>
+              <th scope="col">Attempts</th>
+              <th scope="col">Dead At</th>
+              <th scope="col">Error</th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -175,9 +203,12 @@ export function DLQBrowser() {
                 <td>{typeof entry.deadAt === 'string' ? entry.deadAt : new Date(entry.deadAt).toISOString()}</td>
                 <td className="error-text">{entry.error}</td>
                 <td>
+                  {/* The visible label is the same on every row, so the
+                      accessible name has to carry which row it belongs to. */}
                   <Button
                     variant="secondary"
                     size="sm"
+                    aria-label={`Replay ${entry.eventName}`}
                     onClick={() => replay(entry.id)}
                     disabled={busyId === entry.id}
                   >
@@ -186,6 +217,7 @@ export function DLQBrowser() {
                   <Button
                     variant="danger"
                     size="sm"
+                    aria-label={`Delete dead letter for ${entry.eventName}`}
                     onClick={() => remove(entry.id)}
                     disabled={busyId === entry.id}
                   >

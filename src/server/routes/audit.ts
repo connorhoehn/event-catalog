@@ -14,7 +14,9 @@ import {
   type AuditEventKind,
   type AuditFilter,
 } from '../audit-emitter.js';
-import { openSseStream, startSseHeartbeat, stringParam, type RoutesDeps } from './_shared.js';
+import { sseRegistry, type SseStream } from '../sse.js';
+import { badRequest, stringParam, type RoutesDeps } from './_shared.js';
+import { MAX_AUDIT_QUERY_LIMIT } from './limits.js';
 
 /** The full AuditEventKind union, as a runtime value for `?kind=` narrowing. */
 const AUDIT_KINDS: readonly AuditEventKind[] = [
@@ -54,10 +56,26 @@ export function createAuditHandlers(deps: RoutesDeps) {
     // wave23-a — replay-on-connect knob. ?replay=N reads the last N
     // events from the persistent log and writes them as SSE frames
     // before streaming live. Default 0 (no replay) for back-compat.
-    const replayN = Math.max(0, parseInt(stringParam(req, 'replay') ?? '0', 10) || 0);
+    // Clamped: the underlying log is capped, and an unbounded ?replay=
+    // is otherwise an invitation to ask for millions of frames.
+    const replayN = Math.min(
+      MAX_AUDIT_QUERY_LIMIT,
+      Math.max(0, parseInt(stringParam(req, 'replay') ?? '0', 10) || 0),
+    );
 
-    openSseStream(res);
-    res.write(`: connected; filter=${JSON.stringify(filter)}; replay=${replayN}\n\n`);
+    let stream: SseStream | null = null;
+    const handler = (event: AuditEvent): void => {
+      if (!stream) return;
+      if (!matchesAuditFilter(event, filter)) return;
+      stream.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    stream = sseRegistry.open(req, res, () => {
+      auditEmitter.off('audit', handler);
+    });
+    if (!stream) return;
+
+    stream.write(`: connected; filter=${JSON.stringify(filter)}; replay=${replayN}\n\n`);
 
     // Replay history first when an audit log is wired and the caller
     // asked for it. Skipped if disconnected mid-replay.
@@ -65,8 +83,9 @@ export function createAuditHandlers(deps: RoutesDeps) {
       try {
         const history = await auditLog.recent(replayN);
         for (const event of history) {
+          if (stream.closed) return;
           if (matchesAuditFilter(event, filter)) {
-            res.write(`data: ${JSON.stringify({ ...event, _replay: true })}\n\n`);
+            stream.write(`data: ${JSON.stringify({ ...event, _replay: true })}\n\n`);
           }
         }
       } catch {
@@ -74,18 +93,8 @@ export function createAuditHandlers(deps: RoutesDeps) {
       }
     }
 
-    const handler = (event: AuditEvent): void => {
-      if (!matchesAuditFilter(event, filter)) return;
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
-    };
+    if (stream.closed) return;
     auditEmitter.on('audit', handler);
-
-    const heartbeat = startSseHeartbeat(res);
-
-    req.on('close', () => {
-      auditEmitter.off('audit', handler);
-      clearInterval(heartbeat);
-    });
   }
 
   // wave23-a — query the persistent audit log without subscribing
@@ -96,8 +105,12 @@ export function createAuditHandlers(deps: RoutesDeps) {
       res.json({ events: [], note: 'no persistent audit log wired' });
       return;
     }
-    const limit = Math.max(1, parseInt(stringParam(req, 'limit') ?? '50', 10) || 50);
-    const events = await auditLog.recent(limit);
+    const raw = parseInt(stringParam(req, 'limit') ?? '50', 10) || 50;
+    if (raw > MAX_AUDIT_QUERY_LIMIT) {
+      badRequest(res, `limit must be ≤ ${MAX_AUDIT_QUERY_LIMIT}`);
+      return;
+    }
+    const events = await auditLog.recent(Math.max(1, raw));
     res.json({ events });
   }
 

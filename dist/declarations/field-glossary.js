@@ -82,10 +82,10 @@ exports.COMMON_FIELDS = {
     // --- time --------------------------------------------------------------
     at: 'ISO-8601 timestamp at which the producer emitted this event.',
     timestamp: 'ISO-8601 timestamp at which the producer emitted this event.',
-    emittedAt: 'ISO-8601 timestamp at which the originating producer emitted the underlying event.',
+    emittedAt: 'Epoch milliseconds at which the originating producer emitted the underlying event.',
     joinedAt: 'ISO-8601 timestamp at which the participant joined.',
     lastSeen: 'ISO-8601 timestamp at which this client was last observed.',
-    lastHeartbeat: 'ISO-8601 timestamp of the most recent heartbeat from this client.',
+    lastHeartbeat: 'Epoch milliseconds of the most recent heartbeat from this client.',
     lastEventAt: 'ISO-8601 timestamp of the most recently applied event.',
     durationMs: 'Wall-clock duration in milliseconds.',
     latencyMs: 'Wall-clock latency of the underlying model call in milliseconds.',

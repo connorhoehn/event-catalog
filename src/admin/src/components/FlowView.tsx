@@ -9,7 +9,7 @@
 // bar (pause/resume + sample knob + filters) and the edge-state
 // dict driven by useFlowTap.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -24,7 +24,9 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import Chip from '@ui/components/shared/Chip';
-import Banner from '@ui/components/shared/Banner';
+import ErrorState from '@ui/components/shared/ErrorState';
+import LoadingState from '@ui/components/shared/LoadingState';
+import LiveRegion from '@ui/components/shared/LiveRegion';
 import { Button } from '@ui/components/ui/Button';
 import AnimatedEdge from '@ui/components/pipelines/canvas/edges/AnimatedEdge';
 
@@ -87,6 +89,8 @@ export function FlowView() {
   const [error, setError] = useState<string | null>(null);
   const [namespace, setNamespace] = useState<string>('');
   const [sample, setSample] = useState<number>(1);
+  const namespaceId = useId();
+  const sampleId = useId();
 
   // Edge states keyed by edge id. Stored in a ref + state to balance
   // 60Hz reads (ref) with re-renders triggered on state-change.
@@ -188,8 +192,22 @@ export function FlowView() {
     };
   }, []);
 
-  if (error) return <Banner variant="error" title="Error">{error}</Banner>;
-  if (!topology) return <div className="loading">Loading flow…</div>;
+  if (error) {
+    return (
+      <div className="flow-view view-column">
+        <div className="page-header view-toolbar"><h2>Live Flow</h2></div>
+        <ErrorState title="Error loading the flow graph" description={error} />
+      </div>
+    );
+  }
+  if (!topology) {
+    return (
+      <div className="flow-view view-column">
+        <div className="page-header view-toolbar"><h2>Live Flow</h2></div>
+        <LoadingState label="Loading flow…" />
+      </div>
+    );
+  }
 
   return (
     <div className="flow-view view-column">
@@ -197,10 +215,18 @@ export function FlowView() {
         <h2>Live Flow</h2>
         <Chip tone={tap.isLive ? 'success' : 'neutral'}>{tap.isLive ? 'live' : 'paused'}</Chip>
         <Chip tone="neutral">{tap.events.length} events in buffer</Chip>
-        {tap.error && <Chip tone="warning">{tap.error}</Chip>}
+        {/* A dead stream is worth interrupting for — it is the difference
+            between "nothing is happening" and "you are not being told what is
+            happening". role=status keeps it polite; the graph is still valid. */}
+        {tap.error && (
+          <span role="status">
+            <Chip tone="warning">{tap.error}</Chip>
+          </span>
+        )}
         <div className="view-toolbar-right">
-          <label className="view-toolbar-label">namespace</label>
+          <label className="view-toolbar-label" htmlFor={namespaceId}>namespace</label>
           <select
+            id={namespaceId}
             value={namespace}
             onChange={(e) => setNamespace(e.target.value)}
             className="view-select"
@@ -213,8 +239,9 @@ export function FlowView() {
             ))}
           </select>
 
-          <label className="view-toolbar-label spaced">sample 1/N</label>
+          <label className="view-toolbar-label spaced" htmlFor={sampleId}>sample 1/N</label>
           <input
+            id={sampleId}
             type="number"
             min={1}
             max={1000}
@@ -253,7 +280,10 @@ export function FlowView() {
             <NamespaceClusters nodeNamespaces={nodeNamespaces} />
             <Background />
             <Controls />
-            <MiniMap nodeColor={(n) => (n.type === 'event' ? '#0ea5e9' : '#94a3b8')} />
+            <MiniMap
+              nodeColor={(n) => (n.type === 'event' ? '#38bdf8' : '#94a3b8')}
+              maskColor="rgba(15, 17, 23, 0.7)"
+            />
           </ReactFlow>
         </ReactFlowProvider>
       </div>
@@ -265,20 +295,48 @@ export function FlowView() {
 
 function FlowTicker({ events }: { events: TapEvent[] }) {
   const last10 = events.slice(-10).reverse();
+  const latest = last10[0];
   return (
-    <div className="flow-ticker">
+    <>
+      {/*
+        Politeness, deliberately.
+
+        The obvious thing — aria-live on the ticker itself — is the wrong
+        thing. This list can take hundreds of rows a second off the SSE tap,
+        and a live region queues one utterance per mutation: the reader would
+        fall minutes behind the screen and the user could not interrupt it.
+        `assertive` would be worse still, cutting off every other announcement
+        on the page indefinitely.
+
+        So the ticker is explicitly aria-live="off" (stated rather than merely
+        omitted, so the next person knows it is a decision), and a coalesced
+        one-line summary is announced politely at most once every four
+        seconds. That is enough to know the flow is alive and what is loudest
+        in it, which is what the ticker is for; anyone who wants the rows
+        themselves can read them as a normal list.
+      */}
+      <LiveRegion
+        throttleMs={4_000}
+        message={
+          latest
+            ? `Flow active: ${events.length} taps received, most recent ${latest.eventName} from ${latest.producer}.`
+            : ''
+        }
+      />
+      <ul className="flow-ticker" aria-live="off" aria-label="Recent events, newest first">
       {last10.length === 0 ? (
-        <div className="flow-ticker-empty">Waiting for events…</div>
+        <li className="flow-ticker-empty">Waiting for events…</li>
       ) : (
         last10.map((e, i) => (
-          <div key={`${e.timestamp}-${i}`} className="flow-ticker-row">
+          <li key={`${e.timestamp}-${i}`} className="flow-ticker-row">
             <span className="flow-ticker-time">{e.timestamp.slice(11, 23)}</span>{' '}
             <span className="flow-ticker-transport">{e.transport}</span>{' '}
             <span className="flow-ticker-name">{e.eventName}</span>{' '}
             <span className="flow-ticker-producer">← {e.producer}</span>
-          </div>
+          </li>
         ))
       )}
-    </div>
+      </ul>
+    </>
   );
 }

@@ -15,12 +15,17 @@ interface NamespaceClustersProps {
   nodeNamespaces: Record<string, string>;
 }
 
+// Tuned for the dark canvas. The previous set was the light-mode palette:
+// pastel fills at 35% opacity over a near-black page came out as opaque grey
+// slabs that hid the nodes underneath, and the label colours (amber-800 on
+// black, 1.6:1) were unreadable. Dark fills recede instead of covering, and
+// the labels are the light end of each hue.
 const NAMESPACE_COLORS: Record<string, { fill: string; stroke: string; text: string }> = {
-  pipeline: { fill: '#fef3c7', stroke: '#fcd34d', text: '#92400e' },
-  ws: { fill: '#dbeafe', stroke: '#93c5fd', text: '#1e40af' },
-  sfu: { fill: '#fae8ff', stroke: '#d8b4fe', text: '#7e22ce' },
-  social: { fill: '#dcfce7', stroke: '#86efac', text: '#15803d' },
-  default: { fill: '#f1f5f9', stroke: '#cbd5e1', text: '#475569' },
+  pipeline: { fill: '#78350f', stroke: '#b45309', text: '#fcd34d' },
+  ws: { fill: '#1e3a8a', stroke: '#3b82f6', text: '#93c5fd' },
+  sfu: { fill: '#581c87', stroke: '#a855f7', text: '#d8b4fe' },
+  social: { fill: '#14532d', stroke: '#22c55e', text: '#86efac' },
+  default: { fill: '#1e293b', stroke: '#64748b', text: '#cbd5e1' },
 };
 
 const PADDING = 24;

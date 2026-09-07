@@ -9,6 +9,7 @@ exports.createEventHandlers = createEventHandlers;
 const fingerprint_js_1 = require("../../registry/fingerprint.js");
 const audit_emitter_js_1 = require("../audit-emitter.js");
 const _shared_js_1 = require("./_shared.js");
+const limits_js_1 = require("./limits.js");
 /** The transport values `?transport=` accepts, mirroring TransportType. */
 const TRANSPORTS = ['signal', 'durable', 'both'];
 /**
@@ -229,6 +230,13 @@ function createEventHandlers(deps) {
             (0, _shared_js_1.badRequest)(res, 'transport must be "signal", "durable", or "both"');
             return;
         }
+        // Reject names that can't survive being used as an object key or a
+        // log/SSE line before anything is written to the registry.
+        const nameError = (0, limits_js_1.validateEventName)(name);
+        if (nameError) {
+            (0, _shared_js_1.badRequest)(res, nameError);
+            return;
+        }
         // EC-7 — resolve enforcement BEFORE mutating the registry, then run
         // the same compat check the library uses against the prior version.
         // If strict and breaking, return 409 without applying the update so
@@ -405,10 +413,20 @@ function createEventHandlers(deps) {
             (0, _shared_js_1.badRequest)(res, 'serviceName and events[] are required');
             return;
         }
+        // The 1 MiB body cap bounds the bytes, not the number of registry
+        // entries + metric handles + Redis writes one request creates.
+        if (!(0, limits_js_1.withinArrayLimit)(res, events, limits_js_1.MAX_BULK_EVENTS, 'events'))
+            return;
         const declared = [];
+        const rejected = [];
         for (const event of events) {
             if (!event.name || !event.transport)
                 continue;
+            const nameError = (0, limits_js_1.validateEventName)(event.name);
+            if (nameError) {
+                rejected.push({ name: event.name.slice(0, 128), error: nameError });
+                continue;
+            }
             // Snapshot the prior version BEFORE declare mutates `before` in
             // place (same gotcha as the singleton route above).
             const priorVersion = registry.get(event.name)?.version;
@@ -451,7 +469,13 @@ function createEventHandlers(deps) {
             if (after)
                 coordinator?.broadcast('declare', after).catch(() => { });
         }
-        res.status(201).json({ declared, count: declared.length });
+        // `rejected` is omitted entirely on a clean bulk so the response
+        // shape existing callers parse is unchanged.
+        res.status(201).json({
+            declared,
+            count: declared.length,
+            ...(rejected.length > 0 ? { rejected } : {}),
+        });
     }
     // wave26-c — observed vs declared producer attribution
     function observedProducers(req, res) {

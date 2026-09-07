@@ -7,6 +7,7 @@
 import type { Request, Response } from '../http-router.js';
 import { buildAsyncApiSpec } from '../asyncapi.js';
 import { badRequest, jsonBody, stringParam, type RoutesDeps } from './_shared.js';
+import { MAX_FRESHNESS_EVENTS, keySafeRecord, withinArrayLimit } from './limits.js';
 
 export function createContractHandlers(deps: RoutesDeps) {
   const { registry } = deps;
@@ -29,7 +30,10 @@ export function createContractHandlers(deps: RoutesDeps) {
   function fingerprints(req: Request, res: Response): void {
     const namespace = stringParam(req, 'namespace');
     const entries = registry.list(namespace ? { namespace } : undefined);
-    const manifest: Record<string, string> = {};
+    // Null-prototype: an event named `__proto__` assigned into a plain
+    // `{}` hits the prototype setter, so the entry silently vanished
+    // from the manifest CI diffs against.
+    const manifest = keySafeRecord<string>();
     for (const e of entries) {
       manifest[e.name] = e.schemaFingerprint;
     }
@@ -58,6 +62,7 @@ export function createContractHandlers(deps: RoutesDeps) {
       badRequest(res, 'body.events must be an array of { name, fingerprint }');
       return;
     }
+    if (!withinArrayLimit(res, events, MAX_FRESHNESS_EVENTS, 'body.events')) return;
     const reports = events.map((evt: { name?: unknown; fingerprint?: unknown }) => {
       const name = typeof evt?.name === 'string' ? evt.name : null;
       const localFp = typeof evt?.fingerprint === 'string' ? evt.fingerprint : null;

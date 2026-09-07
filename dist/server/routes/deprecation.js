@@ -16,6 +16,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createDeprecationHandlers = createDeprecationHandlers;
 const audit_emitter_js_1 = require("../audit-emitter.js");
 const _shared_js_1 = require("./_shared.js");
+const limits_js_1 = require("./limits.js");
 function createDeprecationHandlers(deps) {
     const { registry, coordinator } = deps;
     function deprecate(req, res) {
@@ -70,6 +71,10 @@ function createDeprecationHandlers(deps) {
             (0, _shared_js_1.badRequest)(res, 'names[] is required and must be non-empty');
             return;
         }
+        // Each name is a registry mutation + an audit emit + a Redis
+        // broadcast; bound how many one request can trigger.
+        if (!(0, limits_js_1.withinArrayLimit)(res, names, limits_js_1.MAX_BULK_DEPRECATE_NAMES, 'names'))
+            return;
         const deprecated = [];
         const notFound = [];
         const ts = new Date().toISOString();

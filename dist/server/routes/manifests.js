@@ -11,15 +11,26 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createManifestHandlers = createManifestHandlers;
 const _shared_js_1 = require("./_shared.js");
+const limits_js_1 = require("./limits.js");
 function createManifestHandlers(deps, manifestStore) {
     const { registry } = deps;
     async function put(req, res) {
         const consumerName = req.params.consumerName;
+        // consumerName becomes a field in the `event-catalog:manifests`
+        // Redis hash and is never expired, so an unbounded one is unbounded
+        // Redis memory (and it is re-read in full by every checkAll and by
+        // every `?check-manifests=` declare).
+        if (consumerName.length > limits_js_1.MAX_CONSUMER_NAME_LENGTH) {
+            (0, _shared_js_1.badRequest)(res, `consumerName must be ≤ ${limits_js_1.MAX_CONSUMER_NAME_LENGTH} characters`);
+            return;
+        }
         const events = (0, _shared_js_1.jsonBody)(req)?.events;
         if (!Array.isArray(events)) {
             (0, _shared_js_1.badRequest)(res, 'body.events must be an array of { name, fingerprint }');
             return;
         }
+        if (!(0, limits_js_1.withinArrayLimit)(res, events, limits_js_1.MAX_MANIFEST_EVENTS, 'body.events'))
+            return;
         // Light shape check — every entry needs a string name + 64-char fingerprint.
         for (const [i, e] of events.entries()) {
             if (typeof e?.name !== 'string' || typeof e?.fingerprint !== 'string') {

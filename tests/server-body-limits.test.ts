@@ -79,7 +79,28 @@ function post(
         });
       },
     );
-    req.on('error', reject);
+    // The server rejects oversized bodies on the Content-Length pre-check and
+    // destroys the socket immediately — while the client may still be writing
+    // megabytes. That surfaces here as ECONNRESET/EPIPE on the request stream,
+    // which is the rejection working, not a failure. The 413 has already been
+    // written, so wait for the response and only surface a write error if no
+    // response ever arrives.
+    let sawResponse = false;
+    req.on('response', () => {
+      sawResponse = true;
+    });
+    req.on('error', err => {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (sawResponse && (code === 'ECONNRESET' || code === 'EPIPE')) return;
+      if (code === 'ECONNRESET' || code === 'EPIPE') {
+        // Give the response a tick to land before calling it a failure.
+        setTimeout(() => {
+          if (!sawResponse) reject(err);
+        }, 250);
+        return;
+      }
+      reject(err);
+    });
     req.end(body);
   });
 }

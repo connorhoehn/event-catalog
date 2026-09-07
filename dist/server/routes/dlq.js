@@ -7,6 +7,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createDlqHandlers = createDlqHandlers;
 const durable_js_1 = require("../../client/durable.js");
 const _shared_js_1 = require("./_shared.js");
+const limits_js_1 = require("./limits.js");
 const MAX_DLQ_LIMIT = 1000;
 // Express delivers duplicate `?eventName=A&eventName=B` as an array, which
 // silently coerces to `'A,B'` when passed to the DDB Query — wrong partition,
@@ -83,6 +84,10 @@ function createDlqHandlers(deps) {
             (0, _shared_js_1.badRequest)(res, 'ids must be a non-empty array of strings');
             return;
         }
+        // Each id is a DynamoDB read plus a message-queue POST, run
+        // sequentially inside this request.
+        if (!(0, limits_js_1.withinArrayLimit)(res, ids, limits_js_1.MAX_DLQ_REPLAY_IDS, 'ids'))
+            return;
         const replayed = [];
         const failed = [];
         for (const id of ids) {

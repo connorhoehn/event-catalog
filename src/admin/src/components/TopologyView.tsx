@@ -7,7 +7,7 @@
 // existing GET /api/topology endpoint; transformation to ReactFlow
 // node/edge format happens client-side.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -23,7 +23,8 @@ import '@xyflow/react/dist/style.css';
 
 import Chip from '@ui/components/shared/Chip';
 import EmptyState from '@ui/components/shared/EmptyState';
-import Banner from '@ui/components/shared/Banner';
+import ErrorState from '@ui/components/shared/ErrorState';
+import LoadingState from '@ui/components/shared/LoadingState';
 import AnimatedEdge from '@ui/components/pipelines/canvas/edges/AnimatedEdge';
 
 import { api, type TopologyGraph } from '../api';
@@ -101,6 +102,7 @@ export function TopologyView() {
   const [topology, setTopology] = useState<TopologyGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterState>({ namespace: '' });
+  const namespaceId = useId();
 
   useEffect(() => {
     const params = filter.namespace ? { namespace: filter.namespace } : undefined;
@@ -133,8 +135,24 @@ export function TopologyView() {
     return { rfNodes: laidOut, rfEdges: baseEdges, namespaces: [...ns].sort(), nodeNamespaces: byId };
   }, [topology]);
 
-  if (error) return <Banner variant="error" title="Error">{error}</Banner>;
-  if (!topology) return <div className="loading">Loading topology...</div>;
+  // Keeping the heading in the failure and loading states means the view
+  // always has its <h2> landmark, whatever the API did.
+  if (error) {
+    return (
+      <div className="topology-view view-column">
+        <div className="page-header view-toolbar"><h2>Event Topology</h2></div>
+        <ErrorState title="Error loading the topology" description={error} />
+      </div>
+    );
+  }
+  if (!topology) {
+    return (
+      <div className="topology-view view-column">
+        <div className="page-header view-toolbar"><h2>Event Topology</h2></div>
+        <LoadingState label="Loading topology…" />
+      </div>
+    );
+  }
 
   return (
     <div className="topology-view view-column">
@@ -143,8 +161,9 @@ export function TopologyView() {
         <Chip tone="neutral">{topology.nodes.filter((n) => n.type === 'event').length} events</Chip>
         <Chip tone="neutral">{topology.nodes.filter((n) => n.type === 'service').length} services</Chip>
         <div className="view-toolbar-right">
-          <label className="view-toolbar-label">namespace</label>
+          <label className="view-toolbar-label" htmlFor={namespaceId}>namespace</label>
           <select
+            id={namespaceId}
             value={filter.namespace}
             onChange={(e) => setFilter({ namespace: e.target.value })}
             className="view-select"
@@ -182,8 +201,8 @@ export function TopologyView() {
               <Background />
               <Controls />
               <MiniMap
-                nodeColor={(n) => (n.type === 'event' ? '#0ea5e9' : '#94a3b8')}
-                maskColor="rgba(15, 23, 42, 0.04)"
+                nodeColor={(n) => (n.type === 'event' ? '#38bdf8' : '#94a3b8')}
+                maskColor="rgba(15, 17, 23, 0.7)"
               />
             </ReactFlow>
           </ReactFlowProvider>

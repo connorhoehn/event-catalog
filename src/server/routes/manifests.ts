@@ -11,17 +11,31 @@
 import type { Request, Response } from '../http-router.js';
 import type { ManifestStore } from '../manifest-store.js';
 import { badRequest, jsonBody, type RoutesDeps } from './_shared.js';
+import {
+  MAX_CONSUMER_NAME_LENGTH,
+  MAX_MANIFEST_EVENTS,
+  withinArrayLimit,
+} from './limits.js';
 
 export function createManifestHandlers(deps: RoutesDeps, manifestStore: ManifestStore) {
   const { registry } = deps;
 
   async function put(req: Request, res: Response): Promise<void> {
     const consumerName = req.params.consumerName;
+    // consumerName becomes a field in the `event-catalog:manifests`
+    // Redis hash and is never expired, so an unbounded one is unbounded
+    // Redis memory (and it is re-read in full by every checkAll and by
+    // every `?check-manifests=` declare).
+    if (consumerName.length > MAX_CONSUMER_NAME_LENGTH) {
+      badRequest(res, `consumerName must be ≤ ${MAX_CONSUMER_NAME_LENGTH} characters`);
+      return;
+    }
     const events = jsonBody(req)?.events;
     if (!Array.isArray(events)) {
       badRequest(res, 'body.events must be an array of { name, fingerprint }');
       return;
     }
+    if (!withinArrayLimit(res, events, MAX_MANIFEST_EVENTS, 'body.events')) return;
     // Light shape check — every entry needs a string name + 64-char fingerprint.
     for (const [i, e] of events.entries()) {
       if (typeof e?.name !== 'string' || typeof e?.fingerprint !== 'string') {

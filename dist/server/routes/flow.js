@@ -8,6 +8,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createFlowHandlers = createFlowHandlers;
 const tap_emitter_js_1 = require("../tap-emitter.js");
+const sse_js_1 = require("../sse.js");
 const _shared_js_1 = require("./_shared.js");
 /**
  * Narrow a raw `?transport=` value to the tap's transport union. Anything
@@ -29,26 +30,31 @@ function createFlowHandlers(_deps) {
             namespace: (0, _shared_js_1.stringParam)(req, 'namespace'),
         };
         const sampleN = Math.max(1, parseInt((0, _shared_js_1.stringParam)(req, 'sample') ?? '1', 10) || 1);
-        (0, _shared_js_1.openSseStream)(res);
-        // Opening comment lets clients know the stream is live even before
-        // the first event arrives.
-        res.write(`: connected; filter=${JSON.stringify(filter)}; sample=${sampleN}\n\n`);
         let counter = 0;
+        let stream = null;
         const handler = (event) => {
+            if (!stream)
+                return;
             if (!(0, tap_emitter_js_1.matchesTapFilter)(event, filter))
                 return;
             counter += 1;
             if (counter % sampleN !== 0)
                 return;
             // SSE frame; one event per data line.
-            res.write(`data: ${JSON.stringify(event)}\n\n`);
+            stream.write(`data: ${JSON.stringify(event)}\n\n`);
         };
-        tap_emitter_js_1.tapEmitter.on('publish', handler);
-        const heartbeat = (0, _shared_js_1.startSseHeartbeat)(res);
-        req.on('close', () => {
+        // The registry answers 503 itself when the process is at its
+        // concurrent-stream ceiling, and detaches the listener below on
+        // disconnect, backlog drop, or shutdown.
+        stream = sse_js_1.sseRegistry.open(req, res, () => {
             tap_emitter_js_1.tapEmitter.off('publish', handler);
-            clearInterval(heartbeat);
         });
+        if (!stream)
+            return;
+        // Opening comment lets clients know the stream is live even before
+        // the first event arrives.
+        stream.write(`: connected; filter=${JSON.stringify(filter)}; sample=${sampleN}\n\n`);
+        tap_emitter_js_1.tapEmitter.on('publish', handler);
     }
     return { stream };
 }

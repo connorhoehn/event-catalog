@@ -113,12 +113,7 @@ test('clear empties the buffer without dropping the stream', async ({ page, requ
   await expect(bufferChip(page)).toHaveText('1 events in buffer');
 });
 
-// KNOWN DEFECT — see the matching note in topology.spec.ts. FlowView builds
-// its namespace <select> from `topology.nodes[].metadata.namespace`, which
-// `Registry.getTopology()` never sets, so "billing" is not an option to pick
-// and the tap can never be narrowed from the UI. The /api/flow handler's
-// namespace filter itself is fine.
-test.fail('the namespace filter is applied by the server, not the browser', async ({ page, request }) => {
+test('the namespace filter is applied by the server, not the browser', async ({ page, request }) => {
   await page.goto('/flow');
   await waitForFlowClients(request, 1);
 

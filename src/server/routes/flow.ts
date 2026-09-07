@@ -7,7 +7,8 @@
 
 import type { Request, Response } from '../http-router.js';
 import { tapEmitter, matchesTapFilter, type TapEvent, type TapFilter } from '../tap-emitter.js';
-import { openSseStream, startSseHeartbeat, stringParam, type RoutesDeps } from './_shared.js';
+import { sseRegistry, type SseStream } from '../sse.js';
+import { stringParam, type RoutesDeps } from './_shared.js';
 
 /**
  * Narrow a raw `?transport=` value to the tap's transport union. Anything
@@ -31,29 +32,29 @@ export function createFlowHandlers(_deps: RoutesDeps) {
     };
     const sampleN = Math.max(1, parseInt(stringParam(req, 'sample') ?? '1', 10) || 1);
 
-    openSseStream(res);
-
-    // Opening comment lets clients know the stream is live even before
-    // the first event arrives.
-    res.write(`: connected; filter=${JSON.stringify(filter)}; sample=${sampleN}\n\n`);
-
     let counter = 0;
+    let stream: SseStream | null = null;
     const handler = (event: TapEvent): void => {
+      if (!stream) return;
       if (!matchesTapFilter(event, filter)) return;
       counter += 1;
       if (counter % sampleN !== 0) return;
       // SSE frame; one event per data line.
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      stream.write(`data: ${JSON.stringify(event)}\n\n`);
     };
 
-    tapEmitter.on('publish', handler);
-
-    const heartbeat = startSseHeartbeat(res);
-
-    req.on('close', () => {
+    // The registry answers 503 itself when the process is at its
+    // concurrent-stream ceiling, and detaches the listener below on
+    // disconnect, backlog drop, or shutdown.
+    stream = sseRegistry.open(req, res, () => {
       tapEmitter.off('publish', handler);
-      clearInterval(heartbeat);
     });
+    if (!stream) return;
+
+    // Opening comment lets clients know the stream is live even before
+    // the first event arrives.
+    stream.write(`: connected; filter=${JSON.stringify(filter)}; sample=${sampleN}\n\n`);
+    tapEmitter.on('publish', handler);
   }
 
   return { stream };

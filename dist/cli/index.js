@@ -15,6 +15,7 @@ const manifest_js_1 = require("./commands/manifest.js");
 const deprecate_js_1 = require("./commands/deprecate.js");
 const asyncapi_js_1 = require("./commands/asyncapi.js");
 const _args_js_1 = require("./_args.js");
+const config_js_1 = require("./config.js");
 const BIN = 'event-catalog';
 const HELP = `
 event-catalog — schema registry + observability for cross-service events
@@ -38,9 +39,27 @@ USAGE
   event-catalog --help
 
 SERVER OPTIONS
-  --port=<n>                 Listen port (default: $PORT or 3010)
-  --redis-url=<url>          Redis for signal transport (default: $REDIS_URL)
-  --message-queue-url=<url>  message-queue base URL (default: $MESSAGE_QUEUE_URL)
+  --port=<n>                 Listen port (default: $PORT, else 3010)
+  --redis-url=<url>          REQUIRED. Redis for the registry, signal
+                             transport and audit log (default: $REDIS_URL)
+  --message-queue-url=<url>  message-queue base URL
+                             (default: $MESSAGE_QUEUE_URL, else
+                             http://localhost:3004)
+
+SERVER ENVIRONMENT
+  REDIS_URL                    required; redis:// or rediss://
+  PORT                         default 3010
+  HOST                         default 0.0.0.0
+  MESSAGE_QUEUE_URL            default http://localhost:3004
+  DLQ_TABLE_NAME               default event-catalog-dlq
+  SUBSCRIBER_TTL_SECONDS       default 1800 (0 disables the sweeper)
+  REDIS_BOOT_CONNECT_ATTEMPTS  default 3
+  EVENT_CATALOG_STRICT         default false
+  ALERT_WEBHOOK_URL            optional http(s) webhook
+  DYNAMODB_ENDPOINT            optional; LocalStack / DynamoDB Local
+
+Every one of these is validated at startup; a bad value exits 2 with a
+line naming the variable rather than booting a half-configured service.
 
 Every subcommand accepts \`--help\` for its own flags, e.g.
 \`event-catalog drift --help\`.
@@ -84,18 +103,32 @@ async function runServer(args) {
     if (parsed.args.positional.length > 0) {
         return (0, _args_js_1.usageError)(BIN, `unknown subcommand "${parsed.args.positional[0]}"`, SERVER_USAGE);
     }
-    const rawPort = parsed.args.values['port'] ?? process.env.PORT ?? '3010';
-    const port = Number(rawPort);
-    if (!Number.isInteger(port) || port < 0 || port > 65535) {
-        return (0, _args_js_1.usageError)(BIN, `invalid --port "${rawPort}" — expected an integer between 0 and 65535`, SERVER_USAGE);
+    // Single validated config gate. Everything the server reads out of the
+    // environment is checked HERE, before any socket is opened, so a bad
+    // value is one labelled line at boot instead of a NaN port bind or a
+    // node-redis AggregateError with an empty message ten seconds later.
+    const resolved = (0, config_js_1.resolveServerConfig)(process.env, {
+        ...(parsed.args.values['port'] !== undefined ? { port: parsed.args.values['port'] } : {}),
+        ...(parsed.args.values['redis-url'] !== undefined
+            ? { 'redis-url': parsed.args.values['redis-url'] } : {}),
+        ...(parsed.args.values['message-queue-url'] !== undefined
+            ? { 'message-queue-url': parsed.args.values['message-queue-url'] } : {}),
+    });
+    if (!resolved.ok) {
+        console.error(`${BIN}: invalid configuration — refusing to start`);
+        for (const line of resolved.errors)
+            console.error(`  - ${line}`);
+        console.error(`usage: ${SERVER_USAGE}`);
+        return 2;
     }
-    const redisUrl = parsed.args.values['redis-url'] ?? process.env.REDIS_URL ?? 'redis://localhost:6379';
-    const messageQueueUrl = parsed.args.values['message-queue-url']
-        ?? process.env.MESSAGE_QUEUE_URL
-        ?? 'http://localhost:3004';
+    for (const warning of resolved.warnings)
+        console.warn(`${BIN}: ${warning}`);
+    const { port, redisUrl, messageQueueUrl } = resolved.config;
     console.log('╔══════════════════════════════════════╗');
     console.log('║         event-catalog server         ║');
     console.log('╚══════════════════════════════════════╝');
+    for (const line of (0, config_js_1.describeConfig)(resolved.config))
+        console.log(`  ${line}`);
     const { shutdown } = await (0, index_js_1.startServer)({ port, redisUrl, messageQueueUrl });
     process.on('SIGINT', () => { void shutdown().then(() => process.exit(0)); });
     process.on('SIGTERM', () => { void shutdown().then(() => process.exit(0)); });

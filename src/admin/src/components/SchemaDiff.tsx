@@ -6,7 +6,7 @@
 // classic LCS line diff. Output: rows tagged 'add' / 'remove' /
 // 'context' for the renderer to color.
 
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 
 interface SchemaDiffProps {
   before: Record<string, unknown>;
@@ -84,10 +84,13 @@ export function SchemaDiff({ before, after }: SchemaDiffProps) {
 
   return (
     <div className="schema-diff">
+      {/* "+4 / −2 lines" is colour plus a sign; the sign is the cue that
+          survives greyscale, and the sr-only words are the one that survives
+          a screen reader reading "+" as nothing at all. */}
       <div className="schema-diff-summary">
-        <span className="diff-adds">+{adds}</span>
+        <span className="diff-adds">+{adds}<span className="sr-only"> added</span></span>
         {' / '}
-        <span className="diff-removes">−{removes}</span>
+        <span className="diff-removes">−{removes}<span className="sr-only"> removed</span></span>
         {' lines'}
       </div>
       <div className="schema-diff-body">
@@ -104,16 +107,23 @@ export function SchemaDiff({ before, after }: SchemaDiffProps) {
 
 export function SchemaDiffToggle({ before, after }: SchemaDiffProps) {
   const [open, setOpen] = useState(false);
+  const panelId = useId();
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls={panelId}
         className={`btn-diff-toggle${open ? ' open' : ''}`}
       >
         {open ? 'hide diff' : 'diff'}
       </button>
-      {open ? <SchemaDiff before={before} after={after} /> : null}
+      {open ? (
+        <div id={panelId}>
+          <SchemaDiff before={before} after={after} />
+        </div>
+      ) : null}
     </>
   );
 }

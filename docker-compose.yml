@@ -1,44 +1,80 @@
+# Local stack: redis + message-queue + event-catalog.
+#
+#   docker compose up --build
+#
+# Both images install private `github:` npm pins over SSH, so the build needs
+# an agent with a GitHub key loaded (`ssh-add -l` should list one). The
+# `ssh: [default]` blocks forward it; without them the builds fail with
+# `npm error syscall spawn git`.
+#
+# Note the event-catalog build context is `..` — the admin UI takes
+# ../ui-components as a `file:` dependency. event-catalog/Dockerfile.dockerignore
+# is what stops that from uploading every sibling repo.
+
 services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 3
+      start_period: 5s
+    restart: unless-stopped
 
   message-queue:
     build:
       context: ../message-queue
       dockerfile: Dockerfile
+      ssh:
+        - default
     ports:
-      - "3004:3004"
+      - "${MQ_PORT:-3004}:3004"
     environment:
-      - PORT=3004
-      - REDIS_URL=redis://redis:6379
+      # message-queue's own default is 3000; 3004 is what event-catalog's
+      # MESSAGE_QUEUE_URL below points at, so it has to be set explicitly.
+      PORT: "3004"
+      REDIS_URL: "redis://redis:6379"
     depends_on:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3004/health"]
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:3004/health"]
       interval: 5s
       timeout: 3s
       retries: 3
+      start_period: 15s
+    restart: unless-stopped
 
   event-catalog:
     build:
       context: ..
       dockerfile: event-catalog/Dockerfile
+      ssh:
+        - default
     ports:
-      - "3010:3010"
+      - "${EVENT_CATALOG_PORT:-3010}:3010"
     environment:
-      - PORT=3010
-      - REDIS_URL=redis://redis:6379
-      - MESSAGE_QUEUE_URL=http://message-queue:3004
+      PORT: "3010"
+      HOST: "0.0.0.0"
+      # Required — the service refuses to start without it rather than
+      # silently dialling localhost from inside the container.
+      REDIS_URL: "redis://redis:6379"
+      MESSAGE_QUEUE_URL: "http://message-queue:3004"
+      # The DLQ store talks to DynamoDB. Nothing in this stack provides one,
+      # so DLQ reads/writes fail (loudly, in the logs) and the rest of the
+      # service works. Point this at LocalStack to exercise it:
+      #   DYNAMODB_ENDPOINT: "http://localstack:4566"
+      #   AWS_REGION: "us-east-1"
     depends_on:
       redis:
         condition: service_healthy
       message-queue:
         condition: service_healthy
+    # No healthcheck override: the image ships a liveness probe that passes on
+    # any HTTP response. /health itself returns 503 whenever message-queue or
+    # Redis is unreachable, so treating it as the container's healthcheck
+    # would have message-queue's outage restart the registry as well.
+    restart: unless-stopped

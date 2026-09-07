@@ -9,11 +9,11 @@
 // namespace is "expanded" — namespace counts rarely top a few dozen
 // so re-fetching on each click would be wasteful.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Chip from '@ui/components/shared/Chip';
-import Banner from '@ui/components/shared/Banner';
 import EmptyState from '@ui/components/shared/EmptyState';
+import ErrorState from '@ui/components/shared/ErrorState';
 import { Button } from '@ui/components/ui/Button';
 import { api } from '../api';
 
@@ -37,6 +37,8 @@ export function NamespacesView() {
   const [bulkNs, setBulkNs] = useState<string | null>(null);
   const [bulkReason, setBulkReason] = useState('');
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const searchId = useId();
+  const bulkReasonId = useId();
 
   const load = useCallback(() => {
     api.getNamespacesSummary('full')
@@ -55,14 +57,16 @@ export function NamespacesView() {
     return rows.filter(r => r.namespace.toLowerCase().includes(q));
   }, [rows, search]);
 
-  if (error) return <Banner variant="error" title="Error">{error}</Banner>;
-
   return (
     <div className="namespaces-view view-column">
+      {/* The heading stays put in every state — bailing out to a bare banner
+          used to leave the view with no <h2> at all. */}
       <div className="view-toolbar">
         <h2>Namespaces</h2>
         <Chip tone="info">{rows.length} total</Chip>
+        <label className="sr-only" htmlFor={searchId}>Filter by namespace</label>
         <input
+          id={searchId}
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Filter by namespace…"
@@ -71,7 +75,13 @@ export function NamespacesView() {
         <Button variant="ghost" size="sm" onClick={load}>Refresh</Button>
       </div>
 
-      {filtered.length === 0 ? (
+      {error ? (
+        <ErrorState
+          title="Error loading namespaces"
+          description={error}
+          action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
+        />
+      ) : filtered.length === 0 ? (
         <EmptyState
           icon="📂"
           title="No namespaces"
@@ -85,12 +95,15 @@ export function NamespacesView() {
               return (
                 <div key={row.namespace} className="ns-card">
                   <button
+                    type="button"
                     className="ns-card-toggle"
+                    aria-expanded={isExpanded}
+                    aria-controls={`ns-body-${row.namespace}`}
                     onClick={() => setExpanded(isExpanded ? null : row.namespace)}
                   >
                     <div className="ns-card-title">
                       <strong className="ns-card-name">{row.namespace}</strong>
-                      <span className="ns-card-caret">
+                      <span className="ns-card-caret" aria-hidden="true">
                         {isExpanded ? '▾' : '▸'}
                       </span>
                     </div>
@@ -106,36 +119,43 @@ export function NamespacesView() {
                   </button>
 
                   {isExpanded && row.events && (
-                    <div className="ns-card-body">
+                    <div className="ns-card-body" id={`ns-body-${row.namespace}`}>
                       {/* wave26-f — namespace-level bulk actions */}
-                      <div className="ns-bulk-actions">
-                        <button
-                          className="btn-mini danger"
+                      <div className="ns-bulk-actions" role="group" aria-label={`Bulk actions for the ${row.namespace} namespace`}>
+                        <Button
+                          variant="danger"
+                          size="sm"
                           onClick={() => { setBulkNs(row.namespace); setBulkMsg(null); }}
                         >
                           Deprecate namespace
-                        </button>
-                        <button
-                          className="btn-mini info"
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
                           onClick={() => {
                             const names = row.events!.map(e => e.name);
                             window.open(api.bulkExportUrl(names), '_blank');
                           }}
                         >
                           Export namespace JSON
-                        </button>
+                        </Button>
                       </div>
                       {bulkNs === row.namespace && (
                         <div className="ns-bulk-confirm">
+                          <label className="sr-only" htmlFor={bulkReasonId}>
+                            Reason for deprecating the whole namespace
+                          </label>
                           <input
+                            id={bulkReasonId}
                             type="text"
                             placeholder="Reason for deprecating entire namespace"
                             value={bulkReason}
                             onChange={e => setBulkReason(e.target.value)}
                             className="ns-bulk-input"
                           />
-                          <button
-                            className="btn-solid danger sm"
+                          <Button
+                            variant="danger"
+                            size="sm"
                             onClick={async () => {
                               const names = row.events!.map(e => e.name);
                               try {
@@ -149,16 +169,13 @@ export function NamespacesView() {
                             }}
                           >
                             Confirm
-                          </button>
-                          <button
-                            className="btn-outline-muted"
-                            onClick={() => setBulkNs(null)}
-                          >
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => setBulkNs(null)}>
                             Cancel
-                          </button>
+                          </Button>
                         </div>
                       )}
-                      {bulkMsg && <div className="bulk-msg">{bulkMsg}</div>}
+                      {bulkMsg && <div role="status" className="bulk-msg">{bulkMsg}</div>}
                       <ul className="ns-event-list">
                         {row.events.map(ev => (
                           <li key={ev.name} className="ns-event-row">

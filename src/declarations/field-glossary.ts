@@ -85,10 +85,10 @@ export const COMMON_FIELDS: FieldGlossary = {
   // --- time --------------------------------------------------------------
   at: 'ISO-8601 timestamp at which the producer emitted this event.',
   timestamp: 'ISO-8601 timestamp at which the producer emitted this event.',
-  emittedAt: 'ISO-8601 timestamp at which the originating producer emitted the underlying event.',
+  emittedAt: 'Epoch milliseconds at which the originating producer emitted the underlying event.',
   joinedAt: 'ISO-8601 timestamp at which the participant joined.',
   lastSeen: 'ISO-8601 timestamp at which this client was last observed.',
-  lastHeartbeat: 'ISO-8601 timestamp of the most recent heartbeat from this client.',
+  lastHeartbeat: 'Epoch milliseconds of the most recent heartbeat from this client.',
   lastEventAt: 'ISO-8601 timestamp of the most recently applied event.',
   durationMs: 'Wall-clock duration in milliseconds.',
   latencyMs: 'Wall-clock latency of the underlying model call in milliseconds.',
@@ -196,9 +196,36 @@ export const COMMON_FIELDS: FieldGlossary = {
 // Only names whose every occurrence is already documented as ISO-8601 or as a
 // URL are listed. Deliberately excluded:
 //   - `requestedAt` / `decidedAt` / `resolvedAt` — epoch milliseconds, `number`.
-//   - `emittedAt` / `lastHeartbeat` — typed `number` but described as ISO-8601.
-//     That contradiction is a real defect, but resolving it means changing a
-//     `type`, which IS breaking. Recorded in the hygiene test's known-gaps list.
+//   - `emittedAt` / `lastHeartbeat` — RESOLVED 2026-09-07 in favour of `number`.
+//     Both were typed `number` but described as ISO-8601. Producer ground truth
+//     settles it as epoch milliseconds, so the DESCRIPTIONS were the defect and
+//     have been corrected; the `type` is right and was left alone (changing it
+//     would have been the breaking half). Evidence:
+//       `emittedAt`     — realtime-examples/src/services/pipeline-service.ts:492,
+//                         694, 741, 1033 all assign `Date.now()`; pipeline-bridge.ts:171
+//                         maps it from `busEvent.timestamp`; the consumer type
+//                         frontend/src/types/gateway.ts:63 is `emittedAt?: number`.
+//                         Decisive: the gateway's own mirror declaration at
+//                         realtime-examples/src/observability/gateway-event-declarations.ts:295-301
+//                         carries the comment "Epoch milliseconds. The bridge sends
+//                         Date.now() — declaring this as string made outbound
+//                         validation warn on EVERY pipeline:event frame." They already
+//                         tried the string reading and reverted it.
+//       `lastHeartbeat` — the entry is built in realtime-modules
+//                         src/presence/PresenceService.ts:222 (handleSetPresence) and
+//                         refreshed at :328 (handleHeartbeat); BOTH assign `Date.now()`,
+//                         and the same object goes on the wire unmodified. The split is
+//                         deliberate — `timestamp`/`lastSeen` are `new Date().toISOString()`
+//                         on the adjacent lines, `lastHeartbeat` is the epoch-ms sibling
+//                         used for TTL arithmetic (`now - lastHeartbeat` at :437, and at
+//                         realtime-examples/src/realtime-fanout/presence-service.ts:818).
+//                         src/presence/types.ts:28 types it `number` with the comment
+//                         "epoch ms — fast TTL comparison source".
+//     Do not confuse either with `lastHeartbeatAt` on `pipeline:run:stuck`, which really
+//     IS an ISO string (distributed-core StuckRunDetector.ts:127 `.toISOString()`) and is
+//     correctly declared `type: 'string'` + `format: 'date-time'`.
+//     Neither name is a `date-time` format candidate, so both stay out of
+//     COMMON_FORMATS below.
 // Stamping is guarded on the property actually being a string, so a name that
 // later appears as a number is skipped rather than mislabelled.
 

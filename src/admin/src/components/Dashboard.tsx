@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Chip from '@ui/components/shared/Chip';
 import Banner from '@ui/components/shared/Banner';
+import ErrorState from '@ui/components/shared/ErrorState';
 import SkeletonCard from '@ui/components/shared/SkeletonCard';
-import { api, type EventEntry, type HealthStatus } from '../api';
+import LiveRegion from '@ui/components/shared/LiveRegion';
+import { Button } from '@ui/components/ui/Button';
+import { api, isTransportUp, transportTone, type EventEntry, type HealthStatus } from '../api';
 
 type RegistryHealth = Awaited<ReturnType<typeof api.getRegistryHealth>>;
 type PoisonItem = Awaited<ReturnType<typeof api.getPoisonedEvents>>['items'][number];
@@ -16,7 +19,8 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
     Promise.all([
       api.getEvents(),
       api.getHealth(),
@@ -27,20 +31,38 @@ export function Dashboard() {
       setHealth(healthRes);
       setRegistryHealth(regHealth);
       setPoisonedEvents(poisonRes.items);
+      setError(null);
     }).catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
 
-  if (error) return <Banner variant="error" title="Error">{error}</Banner>;
+  useEffect(() => { load(); }, [load]);
+
+  // Loading / failed / loaded are three states, and the heading belongs to all
+  // three: bailing out to a bare banner used to take the <h2> with it, so a
+  // failed dashboard had no landmark heading to orient a screen reader.
   if (loading) {
     return (
       <div className="dashboard">
         <h2>Dashboard</h2>
-        <div className="stats-grid">
+        <div className="stats-grid" aria-busy="true">
           {Array.from({ length: 6 }).map((_, i) => (
             <SkeletonCard key={i} height={90} />
           ))}
         </div>
+        <LiveRegion role="none" message="Loading dashboard…" />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="dashboard">
+        <h2>Dashboard</h2>
+        <ErrorState
+          title="Error loading the dashboard"
+          description={`The catalog API did not answer: ${error}`}
+          action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
+        />
       </div>
     );
   }
@@ -123,8 +145,11 @@ export function Dashboard() {
                   <Link to={`/events/${encodeURIComponent(p.eventName)}`}>{p.eventName}</Link>
                   {' — '}{p.failuresInWindow} failures in {Math.round(p.windowMs / 60000)}m
                   {' (threshold: '}{p.threshold}{')'}
-                  <button
+                  <Button
+                    variant="danger"
+                    size="sm"
                     className="btn-dismiss"
+                    aria-label={`Dismiss poison alert for ${p.eventName}`}
                     onClick={() => {
                       api.clearPoison(p.eventName).then(() => {
                         setPoisonedEvents(prev => prev.filter(x => x.eventName !== p.eventName));
@@ -132,7 +157,7 @@ export function Dashboard() {
                     }}
                   >
                     dismiss
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -141,32 +166,32 @@ export function Dashboard() {
       )}
 
       {health && (
-        <div className="transport-status">
-          <h3>Transport Status</h3>
+        <section className="transport-status" aria-labelledby="dash-transport-status">
+          <h3 id="dash-transport-status">Transport Status</h3>
           <div className="status-row">
-            <span className={`status-dot ${health.redis.status === 'healthy' ? 'green' : 'red'}`} />
+            <span aria-hidden="true" className={`status-dot ${isTransportUp(health.redis.status) ? 'green' : 'red'}`} />
             <span>Redis (Signal): </span>
-            <Chip tone={health.redis.status === 'healthy' ? 'success' : 'danger'} size="xs">
+            <Chip tone={transportTone(health.redis.status)} size="xs">
               {health.redis.status}
             </Chip>
           </div>
           <div className="status-row">
-            <span className={`status-dot ${health.messageQueue.status === 'healthy' ? 'green' : 'red'}`} />
+            <span aria-hidden="true" className={`status-dot ${isTransportUp(health.messageQueue.status) ? 'green' : 'red'}`} />
             <span>Message Queue (Durable): </span>
-            <Chip tone={health.messageQueue.status === 'healthy' ? 'success' : 'danger'} size="xs">
+            <Chip tone={transportTone(health.messageQueue.status)} size="xs">
               {health.messageQueue.status}
             </Chip>
           </div>
           <div className="status-row">
             <span>Uptime: {formatUptime(health.uptime)}</span>
           </div>
-        </div>
+        </section>
       )}
 
       {/* wave26-b — registry health summary card */}
       {registryHealth && (
-        <div className="transport-status registry-health">
-          <h3>Registry Health</h3>
+        <section className="transport-status registry-health" aria-labelledby="dash-registry-health">
+          <h3 id="dash-registry-health">Registry Health</h3>
           <div className="stats-grid nested">
             <div className="stat-card">
               <div className="stat-value">{registryHealth.registrySize}</div>
@@ -191,19 +216,19 @@ export function Dashboard() {
               </div>
             )}
           </div>
-        </div>
+        </section>
       )}
 
       {deprecated.length > 0 && (
-        <div className="recent-events deprecated-events">
-          <h3>Deprecated Events</h3>
+        <section className="recent-events deprecated-events" aria-labelledby="dash-deprecated">
+          <h3 id="dash-deprecated">Deprecated Events</h3>
           <table>
             <thead>
               <tr>
-                <th>Event</th>
-                <th>Reason</th>
-                <th>Subscribers</th>
-                <th>Deprecated</th>
+                <th scope="col">Event</th>
+                <th scope="col">Reason</th>
+                <th scope="col">Subscribers</th>
+                <th scope="col">Deprecated</th>
               </tr>
             </thead>
             <tbody>
@@ -224,19 +249,19 @@ export function Dashboard() {
                 ))}
             </tbody>
           </table>
-        </div>
+        </section>
       )}
 
-      <div className="recent-events">
-        <h3>Recently Active Events</h3>
+      <section className="recent-events" aria-labelledby="dash-recent">
+        <h3 id="dash-recent">Recently Active Events</h3>
         <table>
           <thead>
             <tr>
-              <th>Event</th>
-              <th>Transport</th>
-              <th>Producer</th>
-              <th>Rate</th>
-              <th>Last Seen</th>
+              <th scope="col">Event</th>
+              <th scope="col">Transport</th>
+              <th scope="col">Producer</th>
+              <th scope="col">Rate</th>
+              <th scope="col">Last Seen</th>
             </tr>
           </thead>
           <tbody>
@@ -253,13 +278,13 @@ export function Dashboard() {
                     </Chip>
                   </td>
                   <td>{e.producer}</td>
-                  <td className="mono">{e.stats?.publishRate.toFixed(1)}/s</td>
+                  <td className="mono">{e.stats ? `${e.stats.publishRate.toFixed(1)}/s` : '—'}</td>
                   <td>{e.stats?.lastPublishedAt ? timeAgo(e.stats.lastPublishedAt) : '—'}</td>
                 </tr>
               ))}
           </tbody>
         </table>
-      </div>
+      </section>
     </div>
   );
 }

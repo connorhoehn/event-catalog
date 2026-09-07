@@ -8,8 +8,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Chip from '@ui/components/shared/Chip';
-import Banner from '@ui/components/shared/Banner';
 import EmptyState from '@ui/components/shared/EmptyState';
+import ErrorState from '@ui/components/shared/ErrorState';
 import { Button } from '@ui/components/ui/Button';
 import { api } from '../api';
 
@@ -36,6 +36,9 @@ function formatAge(seconds: number): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
+/** Heartbeat freshness. The word is the cue — the tone only reinforces it,
+ *  so the column still reads correctly in greyscale or with a colour-vision
+ *  deficiency. */
 function statusChip(ageSeconds: number) {
   if (ageSeconds <= FRESH_THRESHOLD_S) return <Chip tone="success">fresh</Chip>;
   if (ageSeconds <= STALE_THRESHOLD_S) return <Chip tone="warning">aging</Chip>;
@@ -84,8 +87,6 @@ export function SubscribersView() {
     return { fresh, aging, stale };
   }, [liveRows]);
 
-  if (error) return <Banner variant="error" title="Error">{error}</Banner>;
-
   return (
     <div className="subscribers-view view-column">
       <div className="view-toolbar">
@@ -94,15 +95,24 @@ export function SubscribersView() {
         <Chip tone="warning">{counts.aging} aging</Chip>
         <Chip tone="danger">{counts.stale} stale</Chip>
 
-        <div className="view-toolbar-right">
-          <Button variant={filter === 'all' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('all')}>all</Button>
-          <Button variant={filter === 'fresh' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('fresh')}>fresh</Button>
-          <Button variant={filter === 'stale' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('stale')}>stale</Button>
+        {/* A toggle group: `aria-pressed` is what tells a screen reader which
+            filter is currently on. Before, the only signal was the button's
+            fill colour. */}
+        <div className="view-toolbar-right" role="group" aria-label="Freshness filter">
+          <Button aria-pressed={filter === 'all'} variant={filter === 'all' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('all')}>all</Button>
+          <Button aria-pressed={filter === 'fresh'} variant={filter === 'fresh' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('fresh')}>fresh</Button>
+          <Button aria-pressed={filter === 'stale'} variant={filter === 'stale' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('stale')}>stale</Button>
           <Button variant="ghost" size="sm" onClick={load}>Refresh</Button>
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {error ? (
+        <ErrorState
+          title="Error loading subscribers"
+          description={error}
+          action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
+        />
+      ) : filtered.length === 0 ? (
         <EmptyState
           icon="👥"
           title="No subscribers in this view"
@@ -117,11 +127,11 @@ export function SubscribersView() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Status</th>
-                <th>Event</th>
-                <th>Service</th>
-                <th>Last seen</th>
-                <th>Age</th>
+                <th scope="col">Status</th>
+                <th scope="col">Event</th>
+                <th scope="col">Service</th>
+                <th scope="col">Last seen</th>
+                <th scope="col">Age</th>
               </tr>
             </thead>
             <tbody>

@@ -13,6 +13,10 @@ mkdir -p "$LOG_DIR"
 REDIS_CONTAINER="event-catalog-dev-redis"
 MQ_PORT="${MQ_PORT:-3004}"
 EC_PORT="${EC_PORT:-3010}"
+# REDIS_URL is required by the server (it refuses to boot without one rather
+# than silently dialling localhost from inside a container). This script
+# starts redis itself, so supply the matching URL.
+REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 
 pids=()
 cleanup() {
@@ -49,7 +53,8 @@ pids+=($!)
 
 # 4. event-catalog
 echo "[dev] starting event-catalog on :$EC_PORT  (logs: $LOG_DIR/event-catalog.log)"
-(cd "$EC_DIR" && PORT="$EC_PORT" MESSAGE_QUEUE_URL="http://localhost:$MQ_PORT" npm run dev) \
+(cd "$EC_DIR" && PORT="$EC_PORT" REDIS_URL="$REDIS_URL" \
+  MESSAGE_QUEUE_URL="http://localhost:$MQ_PORT" npm run dev) \
   > "$LOG_DIR/event-catalog.log" 2>&1 &
 pids+=($!)
 

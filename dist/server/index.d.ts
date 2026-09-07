@@ -30,6 +30,45 @@ export declare const BODY_READ_TIMEOUT_MS = 30000;
  */
 export declare const REQUEST_BODY_LIMITS: BodyLimitsConfig;
 /**
+ * How long `shutdown()` waits for in-flight requests to finish before it
+ * forcibly closes the remaining sockets. Override with
+ * `EVENT_CATALOG_SHUTDOWN_DRAIN_MS`.
+ *
+ * `AdmissionHttpServer.stop()` is `http.Server.close()`, which resolves
+ * only once EVERY connection has ended — including idle keep-alive
+ * sockets and open SSE streams, which by construction never end on
+ * their own. Awaiting it unconditionally is what made SIGTERM hang.
+ */
+export declare const SHUTDOWN_DRAIN_MS = 10000;
+/**
+ * Resolve the CORS policy for the admin API.
+ *
+ * The default is now "emit no CORS headers", not "reflect whatever
+ * Origin the caller sent". Reflection is what turns this API's complete
+ * lack of authentication (see `authMiddleware` below) from "reachable by
+ * anything on the network" into "reachable by any web page the operator
+ * happens to have open": the browser sends the cross-site POST, the
+ * reflected `Access-Control-Allow-Origin` makes the preflight succeed,
+ * and a schema the whole platform validates against has been rewritten.
+ *
+ * Nothing in this repo needs the headers — the admin UI is served from
+ * this same origin in production (`serveStatic`) and proxied through
+ * Vite's dev server at :3011 in development — and non-browser callers
+ * (CI, `syncToRemoteRegistry`, curl) are unaffected by CORS entirely.
+ *
+ * Operators who really do serve a browser client from another origin set
+ * `EVENT_CATALOG_CORS_ORIGIN` to that origin (or to `*` to restore the
+ * old reflect-everything behavior).
+ */
+export declare function resolveCorsOrigin(raw: string | undefined): string | boolean;
+/**
+ * Strip credentials from a connection URL before it is logged.
+ * `redis://default:hunter2@cache:6379` is the documented node-redis
+ * form, and this server printed it verbatim at boot — into container
+ * logs, into whatever ships them, forever.
+ */
+export declare function redactUrl(raw: string): string;
+/**
  * Phase 20-d — DLQ handler context. Built once per dead-letter event by
  * looking the envelope's eventName up in the local Registry, so operator
  * handlers get the canonical RegistryEntry + namespace without a second
@@ -71,6 +110,12 @@ export interface ServerConfig {
     port?: number;
     redisUrl?: string;
     messageQueueUrl?: string;
+    /**
+     * CORS policy for the admin API. `false` (the default — see
+     * {@link resolveCorsOrigin}) emits no CORS headers at all; a string
+     * pins `Access-Control-Allow-Origin` to that origin; `true` restores
+     * the historical behavior of reflecting the caller's Origin.
+     */
     corsOrigin?: string | boolean;
     /**
      * Phase 20-d — additional DLQ handlers run alongside the built-in
@@ -88,6 +133,12 @@ export interface ServerConfig {
      * request; respond on `res` without calling next to reject it.
      */
     authMiddleware?: Middleware;
+    /**
+     * How long `shutdown()` waits for in-flight requests before closing
+     * the remaining sockets. Defaults to
+     * `EVENT_CATALOG_SHUTDOWN_DRAIN_MS`, else {@link SHUTDOWN_DRAIN_MS}.
+     */
+    shutdownDrainMs?: number;
 }
 export declare function startServer(config?: ServerConfig): Promise<{
     /** Bound address (distributed-core AdmissionHttpServer.address()). */

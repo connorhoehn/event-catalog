@@ -75,8 +75,32 @@ export interface TopologyGraph {
 }
 
 export interface ComponentHealth {
-  status: 'healthy' | 'degraded' | 'unhealthy' | 'disconnected';
+  /**
+   * What GET /api/health actually reports per component. It is the transport's
+   * own vocabulary ('connected'), NOT the service-runtime vocabulary
+   * ('healthy') used by the root /health endpoint — this type claimed the
+   * latter, so every `status === 'healthy'` comparison in the admin was
+   * permanently false and both transports rendered as down on a healthy
+   * system.
+   */
+  status: 'connected' | 'degraded' | 'disconnected' | 'healthy' | 'unhealthy';
   latencyMs?: number;
+}
+
+/** Component states that mean "this transport is working". */
+export function isTransportUp(status: ComponentHealth['status']): boolean {
+  return status === 'connected' || status === 'healthy';
+}
+
+/**
+ * Chip tone for a component state. Degraded is a warning, not a failure —
+ * collapsing it into the danger tone told an operator to page someone for a
+ * slow Redis.
+ */
+export function transportTone(status: ComponentHealth['status']): 'success' | 'warning' | 'danger' {
+  if (isTransportUp(status)) return 'success';
+  if (status === 'degraded') return 'warning';
+  return 'danger';
 }
 
 export interface HealthStatus {

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Chip from '@ui/components/shared/Chip';
-import Banner from '@ui/components/shared/Banner';
+import ErrorState from '@ui/components/shared/ErrorState';
 import SkeletonCard from '@ui/components/shared/SkeletonCard';
+import LiveRegion from '@ui/components/shared/LiveRegion';
 import { api, type EventEntry, type EventStats } from '../api';
 import { FingerprintChip } from './FingerprintChip';
 import { SchemaDiffToggle } from './SchemaDiff';
@@ -48,22 +49,36 @@ export function EventDetail() {
     return () => clearInterval(interval);
   }, [name]);
 
-  if (error) return <Banner variant="error" title="Error">{error}</Banner>;
+  if (error) {
+    return (
+      <div className="event-detail">
+        <nav className="breadcrumb" aria-label="Breadcrumb">
+          <Link to="/events">Events</Link>
+        </nav>
+        <ErrorState
+          title="Error loading this event"
+          description={error}
+          action={<Link to="/events">Back to all events</Link>}
+        />
+      </div>
+    );
+  }
   if (!event) {
     return (
-      <div className="skeleton-stack">
+      <div className="skeleton-stack" aria-busy="true">
         <SkeletonCard height={40} />
         <SkeletonCard height={200} />
         <SkeletonCard height={200} />
+        <LiveRegion role="none" message="Loading event…" />
       </div>
     );
   }
 
   return (
     <div className="event-detail">
-      <div className="breadcrumb">
-        <Link to="/events">Events</Link> / {event.name}
-      </div>
+      <nav className="breadcrumb" aria-label="Breadcrumb">
+        <Link to="/events">Events</Link> / <span aria-current="page">{event.name}</span>
+      </nav>
 
       <div className="detail-header chips">
         <h2>{event.name}</h2>
@@ -99,22 +114,33 @@ export function EventDetail() {
       <div className="detail-grid">
         <section className="detail-section">
           <h3>Live Metrics</h3>
+          {/* Repolled every two seconds. Announcing each poll would make the
+              page unusable, so the numbers themselves are NOT a live region;
+              a coalesced summary is spoken at most once every 15s instead. */}
+          <LiveRegion
+            throttleMs={15_000}
+            message={
+              stats
+                ? `Metrics update: ${stats.publishRate.toFixed(2)} per second, ${stats.publishCount} total, ${stats.errorCount} errors.`
+                : ''
+            }
+          />
           <div className="metrics-grid">
             <div className="metric">
-              <div className="metric-value">{stats?.publishRate.toFixed(2)}/s</div>
+              <div className="metric-value">{stats ? `${stats.publishRate.toFixed(2)}/s` : '—'}</div>
               <div className="metric-label">Publish Rate</div>
             </div>
             <div className="metric">
-              <div className="metric-value">{stats?.publishCount.toLocaleString()}</div>
+              <div className="metric-value">{stats ? stats.publishCount.toLocaleString() : '—'}</div>
               <div className="metric-label">Total Published</div>
             </div>
             <div className="metric">
-              <div className="metric-value">{stats?.subscriberCount}</div>
+              <div className="metric-value">{stats ? stats.subscriberCount : '—'}</div>
               <div className="metric-label">Subscribers</div>
             </div>
             <div className="metric">
               <div className={`metric-value${(stats?.errorCount ?? 0) > 0 ? ' text-error' : ''}`}>
-                {stats?.errorCount}
+                {stats ? stats.errorCount : '—'}
               </div>
               <div className="metric-label">Errors</div>
             </div>

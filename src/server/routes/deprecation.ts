@@ -15,6 +15,7 @@
 import type { Request, Response } from '../http-router.js';
 import { auditEmitter } from '../audit-emitter.js';
 import { badRequest, type RoutesDeps } from './_shared.js';
+import { MAX_BULK_DEPRECATE_NAMES, withinArrayLimit } from './limits.js';
 
 export function createDeprecationHandlers(deps: RoutesDeps) {
   const { registry, coordinator } = deps;
@@ -79,6 +80,9 @@ export function createDeprecationHandlers(deps: RoutesDeps) {
       badRequest(res, 'names[] is required and must be non-empty');
       return;
     }
+    // Each name is a registry mutation + an audit emit + a Redis
+    // broadcast; bound how many one request can trigger.
+    if (!withinArrayLimit(res, names, MAX_BULK_DEPRECATE_NAMES, 'names')) return;
 
     const deprecated: string[] = [];
     const notFound: string[] = [];

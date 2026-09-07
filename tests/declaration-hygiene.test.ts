@@ -50,12 +50,14 @@
 //  2. CLOSED — folded into 1. The audit's list of 4 URLs missed the two
 //     `action.href` fields on ws.notification.new and
 //     ws.notification.bulk-update.
-//  2b. NOT CLOSED, and now enforced against regression: two fields are typed
-//     `number` while their description says "ISO-8601 timestamp" —
-//     ws.pipeline.event $.emittedAt and ws.presence.joined $.client
-//     .lastHeartbeat. One of the two is wrong and only the producer knows
-//     which, so neither the type nor the prose is touched. See
-//     TIMESTAMP_TYPE_CONTRADICTIONS below; the rule stops a third appearing.
+//  2b. CLOSED 2026-09-07. Two fields were typed `number` while their
+//     description said "ISO-8601 timestamp" — ws.pipeline.event $.emittedAt
+//     and ws.presence.joined $.client.lastHeartbeat. The producer settles it:
+//     both are epoch milliseconds (pipeline-service.ts assigns `Date.now()`;
+//     presence-service.ts does `now - lastHeartbeat` arithmetic), so the PROSE
+//     was the defect and was fixed, leaving the non-breaking `type` alone.
+//     TIMESTAMP_TYPE_CONTRADICTIONS is now empty and the rule below is fully
+//     enforcing, so a third contradiction fails rather than being recorded.
 //  3. OPEN, and breaking. 38 discrete counters are `number` where `integer` +
 //     `minimum: 0` is meant. `type: 'integer'` and `minimum` are both honoured
 //     by the fallback, so retyping rejects a producer sending 12.5 today —
@@ -197,16 +199,20 @@ const NUMERIC_COUNTER_EXCEPTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Known gap 2b — fields typed `number` whose description says "ISO-8601
- * timestamp". Exactly one of the two halves is wrong and only the producer
- * knows which, so neither is edited here.
+ * Known gap 2b — CLOSED 2026-09-07, list intentionally empty.
+ *
+ * The two entries that lived here (`ws.pipeline.event $.emittedAt` and
+ * `ws.presence.joined $.client.lastHeartbeat`) were typed `number` while their
+ * glossary description promised an ISO-8601 string. Producer ground truth in
+ * realtime-examples settled it as epoch milliseconds in BOTH cases, so the
+ * DESCRIPTIONS were corrected in src/declarations/field-glossary.ts and the
+ * `type: 'number'` — the half that would have been breaking to change — stands.
+ * See the SCOPE note in that file for the emit-site citations.
+ *
+ * Keep this empty. An entry here means a `number`/ISO-8601 contradiction was
+ * shipped rather than resolved, and the rule below is what forces the choice.
  */
-const TIMESTAMP_TYPE_CONTRADICTIONS: Record<string, string> = {
-  'ws.pipeline.event $.emittedAt':
-    'Typed number, described ISO-8601. Gateway pipeline-bridge owns the truth; unresolved.',
-  'ws.presence.joined $.client.lastHeartbeat':
-    'Typed number, described ISO-8601. Gateway PresenceService owns the truth; unresolved.',
-};
+const TIMESTAMP_TYPE_CONTRADICTIONS: Record<string, string> = {};
 
 // ---------------------------------------------------------------------------
 // Helpers

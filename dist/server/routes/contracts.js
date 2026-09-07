@@ -8,6 +8,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createContractHandlers = createContractHandlers;
 const asyncapi_js_1 = require("../asyncapi.js");
 const _shared_js_1 = require("./_shared.js");
+const limits_js_1 = require("./limits.js");
 function createContractHandlers(deps) {
     const { registry } = deps;
     // wave24-c — AsyncAPI 3.0 export. Generated from the registry on
@@ -27,7 +28,10 @@ function createContractHandlers(deps) {
     function fingerprints(req, res) {
         const namespace = (0, _shared_js_1.stringParam)(req, 'namespace');
         const entries = registry.list(namespace ? { namespace } : undefined);
-        const manifest = {};
+        // Null-prototype: an event named `__proto__` assigned into a plain
+        // `{}` hits the prototype setter, so the entry silently vanished
+        // from the manifest CI diffs against.
+        const manifest = (0, limits_js_1.keySafeRecord)();
         for (const e of entries) {
             manifest[e.name] = e.schemaFingerprint;
         }
@@ -55,6 +59,8 @@ function createContractHandlers(deps) {
             (0, _shared_js_1.badRequest)(res, 'body.events must be an array of { name, fingerprint }');
             return;
         }
+        if (!(0, limits_js_1.withinArrayLimit)(res, events, limits_js_1.MAX_FRESHNESS_EVENTS, 'body.events'))
+            return;
         const reports = events.map((evt) => {
             const name = typeof evt?.name === 'string' ? evt.name : null;
             const localFp = typeof evt?.fingerprint === 'string' ? evt.fingerprint : null;

@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.REQUEST_BODY_LIMITS = exports.BODY_READ_TIMEOUT_MS = exports.MAX_REQUEST_BODY_BYTES = void 0;
+exports.SHUTDOWN_DRAIN_MS = exports.REQUEST_BODY_LIMITS = exports.BODY_READ_TIMEOUT_MS = exports.MAX_REQUEST_BODY_BYTES = void 0;
+exports.resolveCorsOrigin = resolveCorsOrigin;
+exports.redactUrl = redactUrl;
 exports.buildDeadLetterCallback = buildDeadLetterCallback;
 exports.startServer = startServer;
 const server_1 = require("distributed-core/server");
@@ -9,6 +11,7 @@ const promises_1 = require("node:fs/promises");
 const node_path_1 = require("node:path");
 const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
+const config_js_1 = require("../cli/config.js");
 const index_js_1 = require("../registry/index.js");
 const signal_js_1 = require("../client/signal.js");
 const durable_js_1 = require("../client/durable.js");
@@ -28,6 +31,7 @@ const prom_metrics_js_1 = require("./prom-metrics.js");
 const producer_attribution_js_1 = require("./producer-attribution.js");
 const poison_detector_js_1 = require("./poison-detector.js");
 const registry_coordinator_js_1 = require("./registry-coordinator.js");
+const sse_js_1 = require("./sse.js");
 const node_fs_1 = require("node:fs");
 const redis_boot_strategy_js_1 = require("../utils/redis-boot-strategy.js");
 /**
@@ -60,6 +64,69 @@ exports.REQUEST_BODY_LIMITS = {
     maxBytes: exports.MAX_REQUEST_BODY_BYTES,
     readTimeoutMs: exports.BODY_READ_TIMEOUT_MS,
 };
+/**
+ * How long `shutdown()` waits for in-flight requests to finish before it
+ * forcibly closes the remaining sockets. Override with
+ * `EVENT_CATALOG_SHUTDOWN_DRAIN_MS`.
+ *
+ * `AdmissionHttpServer.stop()` is `http.Server.close()`, which resolves
+ * only once EVERY connection has ended — including idle keep-alive
+ * sockets and open SSE streams, which by construction never end on
+ * their own. Awaiting it unconditionally is what made SIGTERM hang.
+ */
+exports.SHUTDOWN_DRAIN_MS = 10_000;
+/**
+ * Resolve the CORS policy for the admin API.
+ *
+ * The default is now "emit no CORS headers", not "reflect whatever
+ * Origin the caller sent". Reflection is what turns this API's complete
+ * lack of authentication (see `authMiddleware` below) from "reachable by
+ * anything on the network" into "reachable by any web page the operator
+ * happens to have open": the browser sends the cross-site POST, the
+ * reflected `Access-Control-Allow-Origin` makes the preflight succeed,
+ * and a schema the whole platform validates against has been rewritten.
+ *
+ * Nothing in this repo needs the headers — the admin UI is served from
+ * this same origin in production (`serveStatic`) and proxied through
+ * Vite's dev server at :3011 in development — and non-browser callers
+ * (CI, `syncToRemoteRegistry`, curl) are unaffected by CORS entirely.
+ *
+ * Operators who really do serve a browser client from another origin set
+ * `EVENT_CATALOG_CORS_ORIGIN` to that origin (or to `*` to restore the
+ * old reflect-everything behavior).
+ */
+function resolveCorsOrigin(raw) {
+    if (raw === undefined)
+        return false;
+    const trimmed = raw.trim();
+    if (trimmed === '' || trimmed === 'false')
+        return false;
+    if (trimmed === '*' || trimmed === 'true')
+        return true;
+    return trimmed;
+}
+/**
+ * Strip credentials from a connection URL before it is logged.
+ * `redis://default:hunter2@cache:6379` is the documented node-redis
+ * form, and this server printed it verbatim at boot — into container
+ * logs, into whatever ships them, forever.
+ */
+function redactUrl(raw) {
+    try {
+        const url = new URL(raw);
+        if (url.username || url.password) {
+            url.username = url.username ? '***' : '';
+            url.password = url.password ? '***' : '';
+            return url.toString();
+        }
+        return raw;
+    }
+    catch {
+        // Not a parseable URL — it may still be a DSN with a secret in it,
+        // so say nothing about its contents.
+        return '<unparseable url>';
+    }
+}
 // This module compiles to CommonJS (package.json declares no "type", and
 // tsconfig targets module: node16), so `import.meta` is unavailable — every
 // path below is resolved from `__dirname` instead. Under Vitest the module
@@ -112,7 +179,22 @@ function buildDeadLetterCallback(deps) {
     };
 }
 async function startServer(config = {}) {
-    const { port = parseInt(process.env.PORT ?? '3010'), redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379', messageQueueUrl = process.env.MESSAGE_QUEUE_URL ?? 'http://localhost:3004', corsOrigin = true, onDeadLetter = [], authMiddleware, } = config;
+    // Resolve the environment through the same validated path the CLI uses, so
+    // a malformed $PORT fails loudly here instead of binding NaN, and the
+    // documented $EVENT_CATALOG_PORT is actually honored. Caller overrides are
+    // passed as flags so an explicit argument satisfies a requirement the
+    // environment does not.
+    const resolved = (0, config_js_1.resolveServerConfig)(process.env, {
+        port: config.port !== undefined ? String(config.port) : undefined,
+        'redis-url': config.redisUrl,
+        'message-queue-url': config.messageQueueUrl,
+    });
+    if (!resolved.ok) {
+        throw new Error(`event-catalog: invalid configuration\n  - ${resolved.errors.join('\n  - ')}`);
+    }
+    const { port = resolved.config.port, redisUrl = resolved.config.redisUrl, messageQueueUrl = resolved.config.messageQueueUrl, corsOrigin = resolveCorsOrigin(process.env.EVENT_CATALOG_CORS_ORIGIN), onDeadLetter = [], authMiddleware, shutdownDrainMs, } = config;
+    const drainMs = shutdownDrainMs
+        ?? (Number(process.env.EVENT_CATALOG_SHUTDOWN_DRAIN_MS) || exports.SHUTDOWN_DRAIN_MS);
     // Boot-bounded reconnect: without this, a down Redis makes connect() retry
     // forever, the catch below never fires, and boot never reaches app.listen().
     const registryBootStrategy = (0, redis_boot_strategy_js_1.createBootBoundedReconnectStrategy)({ label: 'registry' });
@@ -427,8 +509,10 @@ async function startServer(config = {}) {
     });
     await admission.start();
     console.log(`[event-catalog] server listening on :${port}`);
-    console.log(`[event-catalog] redis: ${redisUrl}`);
-    console.log(`[event-catalog] message-queue: ${messageQueueUrl}`);
+    // Redacted — these URLs carry credentials in every deployment that
+    // uses an authenticated Redis.
+    console.log(`[event-catalog] redis: ${redactUrl(redisUrl)}`);
+    console.log(`[event-catalog] message-queue: ${redactUrl(messageQueueUrl)}`);
     console.log(`[event-catalog] admin UI: http://localhost:${port}`);
     const shutdown = async () => {
         console.log('[event-catalog] shutting down...');
@@ -437,8 +521,33 @@ async function startServer(config = {}) {
         if (subscriberSweepInterval)
             clearInterval(subscriberSweepInterval);
         auditLog.stop();
+        // End every SSE stream first. `admission.stop()` below is
+        // `http.Server.close()`, which resolves only once every connection
+        // has ended — an open /api/flow or /api/audit stream never ends on
+        // its own, so awaiting the close with one attached used to hang the
+        // whole shutdown (verified: stop() had not resolved 1.5s after a
+        // single SSE client connected, and resolved immediately once the
+        // connection was closed). Redis was therefore never disconnected
+        // and the process died to the orchestrator's SIGKILL.
+        const closedStreams = sse_js_1.sseRegistry.closeAll();
+        if (closedStreams > 0) {
+            console.log(`[event-catalog] closed ${closedStreams} open event stream(s)`);
+        }
         await metrics.snapshotToRedis(redisClient).catch(() => { });
-        await admission.stop().catch(() => { });
+        // Drain: stop accepting, release idle keep-alive sockets right away,
+        // and give anything still in flight a bounded window to finish
+        // before the remaining sockets are closed out from under it.
+        const stopped = admission.stop().catch(() => { });
+        admission.nodeServer.closeIdleConnections?.();
+        const drainTimer = new Promise(resolve => {
+            const t = setTimeout(() => resolve('timeout'), drainMs);
+            t.unref?.();
+        });
+        if (await Promise.race([stopped.then(() => 'closed'), drainTimer]) === 'timeout') {
+            console.warn(`[event-catalog] requests still in flight after ${drainMs}ms — closing connections`);
+            admission.nodeServer.closeAllConnections?.();
+            await stopped;
+        }
         await metricsObserver.stop();
         await coordinator.stop();
         await signal.disconnect();

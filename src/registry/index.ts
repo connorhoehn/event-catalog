@@ -422,7 +422,15 @@ export class Registry implements IRegistry {
       nodes.push({
         id: entry.name,
         type: 'event',
-        metadata: { transport: entry.transport, description: entry.description },
+        // Phase E7/E8.4 — `namespace` is what the admin TopologyView and
+        // FlowView build their namespace <select> from, and what
+        // NamespaceClusters uses to draw the cluster overlay. Omitting it
+        // left the dropdown stuck on "all" and the overlay never drawn.
+        metadata: {
+          transport: entry.transport,
+          description: entry.description,
+          namespace: entry.namespace,
+        },
       });
 
       for (const producer of producerList(entry.producer)) {

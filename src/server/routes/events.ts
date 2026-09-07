@@ -19,6 +19,11 @@ import {
   type ParamResult,
   type RoutesDeps,
 } from './_shared.js';
+import {
+  MAX_BULK_EVENTS,
+  validateEventName,
+  withinArrayLimit,
+} from './limits.js';
 
 /** The transport values `?transport=` accepts, mirroring TransportType. */
 const TRANSPORTS: readonly TransportType[] = ['signal', 'durable', 'both'];
@@ -270,6 +275,14 @@ export function createEventHandlers(deps: RoutesDeps) {
       return;
     }
 
+    // Reject names that can't survive being used as an object key or a
+    // log/SSE line before anything is written to the registry.
+    const nameError = validateEventName(name);
+    if (nameError) {
+      badRequest(res, nameError);
+      return;
+    }
+
     // EC-7 — resolve enforcement BEFORE mutating the registry, then run
     // the same compat check the library uses against the prior version.
     // If strict and breaking, return 409 without applying the update so
@@ -468,11 +481,21 @@ export function createEventHandlers(deps: RoutesDeps) {
       badRequest(res, 'serviceName and events[] are required');
       return;
     }
+    // The 1 MiB body cap bounds the bytes, not the number of registry
+    // entries + metric handles + Redis writes one request creates.
+    if (!withinArrayLimit(res, events, MAX_BULK_EVENTS, 'events')) return;
 
     const declared: string[] = [];
+    const rejected: Array<{ name: string; error: string }> = [];
 
     for (const event of events) {
       if (!event.name || !event.transport) continue;
+
+      const nameError = validateEventName(event.name);
+      if (nameError) {
+        rejected.push({ name: event.name.slice(0, 128), error: nameError });
+        continue;
+      }
 
       // Snapshot the prior version BEFORE declare mutates `before` in
       // place (same gotcha as the singleton route above).
@@ -517,7 +540,13 @@ export function createEventHandlers(deps: RoutesDeps) {
       if (after) coordinator?.broadcast('declare', after).catch(() => {});
     }
 
-    res.status(201).json({ declared, count: declared.length });
+    // `rejected` is omitted entirely on a clean bulk so the response
+    // shape existing callers parse is unchanged.
+    res.status(201).json({
+      declared,
+      count: declared.length,
+      ...(rejected.length > 0 ? { rejected } : {}),
+    });
   }
 
   // wave26-c — observed vs declared producer attribution

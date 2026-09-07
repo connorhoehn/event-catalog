@@ -1,6 +1,7 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Chip from '@ui/components/shared/Chip';
 import EmptyState from '@ui/components/shared/EmptyState';
+import ErrorState from '@ui/components/shared/ErrorState';
 import { Button } from '@ui/components/ui/Button';
 import { api, type EventEntry, type EventStats } from '../api';
 
@@ -19,12 +20,19 @@ export function LiveInspector() {
   const [liveStats, setLiveStats] = useState<Record<string, EventStats>>({});
   const [paused, setPaused] = useState(false);
   const [maxMessages, setMaxMessages] = useState(100);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const capId = useId();
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
 
+  // This used to be `.catch(() => {})`: when the registry was down the two
+  // event pickers simply rendered empty, which is indistinguishable from a
+  // catalog with nothing in it.
   useEffect(() => {
-    api.getEvents().then(res => setEvents(res.events)).catch(() => {});
+    api.getEvents()
+      .then(res => { setEvents(res.events); setLoadError(null); })
+      .catch(err => setLoadError((err as Error).message));
   }, []);
 
   useEffect(() => {
@@ -93,7 +101,8 @@ export function LiveInspector() {
           <Button variant="danger" size="sm" onClick={() => setMessages([])}>
             Clear
           </Button>
-          <select value={maxMessages} onChange={e => setMaxMessages(parseInt(e.target.value))}>
+          <label className="sr-only" htmlFor={capId}>Message buffer size</label>
+          <select id={capId} value={maxMessages} onChange={e => setMaxMessages(parseInt(e.target.value))}>
             <option value={50}>50 messages</option>
             <option value={100}>100 messages</option>
             <option value={500}>500 messages</option>
@@ -101,10 +110,15 @@ export function LiveInspector() {
         </div>
       </div>
 
+      {loadError && (
+        <ErrorState title="Error loading the event list" description={loadError} />
+      )}
+
       <div className="inspector-layout">
+        {/* Two checkbox groups, each named by its own heading. */}
         <div className="event-selector">
-          <h3>Signal Events (Ephemeral)</h3>
-          <div className="event-checkboxes">
+          <h3 id="li-signal">Signal Events (Ephemeral)</h3>
+          <div className="event-checkboxes" role="group" aria-labelledby="li-signal">
             {signalEvents.map(e => (
               <label key={e.name} className="event-checkbox">
                 <input
@@ -123,8 +137,8 @@ export function LiveInspector() {
             {signalEvents.length === 0 && <div className="empty-state">No signal events registered</div>}
           </div>
 
-          <h3>Durable Events</h3>
-          <div className="event-checkboxes">
+          <h3 id="li-durable">Durable Events</h3>
+          <div className="event-checkboxes" role="group" aria-labelledby="li-durable">
             {durableEvents.map(e => (
               <label key={e.name} className="event-checkbox">
                 <input
@@ -154,10 +168,13 @@ export function LiveInspector() {
           ) : (
             <>
               <div className="stream-header">
-                <span>Watching: {[...selectedEvents].join(', ')}</span>
+                <span role="status">Watching: {[...selectedEvents].join(', ')}</span>
                 <Chip tone="neutral" size="xs" mono>{messages.length} messages</Chip>
               </div>
-              <div className="stream-messages">
+              {/* Same reasoning as the flow ticker: this pane can take a
+                  message a second per selected event, so it is explicitly not
+                  a live region. The "N messages" chip above is the summary. */}
+              <div className="stream-messages" aria-live="off">
                 {messages.map(msg => (
                   <div key={msg.id} className={`stream-message ${msg.transport}`}>
                     <div className="message-header">
