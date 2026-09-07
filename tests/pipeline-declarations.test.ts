@@ -167,16 +167,18 @@ describe('pipeline declarations — catalog.publish() validation (wave1-ec-1)', 
     await catalog.disconnect();
   });
 
-  it('rejects pipeline.approval.requested when approverIds is missing', async () => {
+  it('rejects pipeline.approval.requested when runId is missing', async () => {
+    // Was: "rejects when approverIds is missing". Nothing emits `approverIds`
+    // — PipelineExecutor sends `approvers` — so requiring it meant this
+    // event could never be published on either transport.
     const catalog = new EventCatalog(makeConfig());
     await catalog.connect();
     catalog.declare(pipelineApprovalRequested);
     await expect(
       catalog.publish('pipeline.approval.requested', {
-        runId: 'r-1',
         stepId: 's-approval-1',
-        // approverIds missing
-        requestedAt: 1_700_000_000_000,
+        approvers: [{ type: 'role', value: 'reviewer' }],
+        at: '2026-09-07T10:00:00.000Z',
       } as unknown as Record<string, unknown>),
     ).rejects.toThrow(/payload validation failed/);
     await catalog.disconnect();

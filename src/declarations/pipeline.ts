@@ -24,13 +24,17 @@ import { annotateDeclarations, type FieldGlossary } from './field-glossary';
  * else (runId, stepId, at, context …) comes from the common glossary.
  */
 const FIELDS: FieldGlossary = {
-  approverIds: 'User ids of every approver eligible to act on this gate. At least one.',
-  approver: 'User id of the approver who recorded this decision.',
+  approvers: 'Approver descriptors eligible to act on this gate — `{type: user|role, value}`, NOT bare user ids. At least one. This is the field PipelineExecutor actually sends.',
+  'approvers.type': 'Whether this approver is an individual user or a role/team.',
+  'approvers.value': 'The user id or role name this approver resolves to.',
+  'approvers.userId': 'Convenience alias for `value` when type is `user`; populated by UI surfaces that filter approval queues by user identity.',
+  approverIds: 'User ids of every approver eligible to act on this gate. At least one. NEVER EMITTED — PipelineExecutor sends `approvers`.',
+  approver: 'User id of the approver who recorded this decision. NEVER EMITTED — PipelineExecutor sends `userId`; kept declared because removal is breaking.',
   approvalId: 'Identifier of the approval gate that was resolved.',
   decision: 'The recorded outcome of the approval.',
   comment: 'Optional free-text reviewer note attached to the decision.',
-  requestedAt: 'Epoch milliseconds at which the approval was requested.',
-  decidedAt: 'Epoch milliseconds at which the approver recorded the decision.',
+  requestedAt: 'Epoch milliseconds at which the approval was requested. NEVER EMITTED — PipelineExecutor sends an ISO `at`.',
+  decidedAt: 'Epoch milliseconds at which the approver recorded the decision. NEVER EMITTED — PipelineExecutor sends an ISO `at`.',
   resolvedAt: 'Epoch milliseconds at which the gate reached its final decision.',
   currentStepIds: 'Step ids on the run frontier — the steps in flight when the checkpoint was taken.',
 };
@@ -62,6 +66,26 @@ export const pipelineApprovalRequested: EventDeclaration = {
     properties: {
       runId: { type: 'string' },
       stepId: { type: 'string' },
+      // What PipelineExecutor actually emits (:3088): `approvers` and an ISO
+      // `at`. `approverIds`/`requestedAt` were declared and required, and are
+      // sent by nothing — so this schema rejected the only payload that
+      // exists, on both transports. They stay declared-but-optional because
+      // removing a property is breaking under this repo's own compat gate.
+      approvers: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', enum: ['user', 'role'] },
+            value: { type: 'string' },
+            userId: { type: 'string' },
+          },
+          required: ['type', 'value'],
+          additionalProperties: true,
+        },
+        minItems: 1,
+      },
+      at: { type: 'string', format: 'date-time' },
       approverIds: {
         type: 'array',
         items: { type: 'string' },
@@ -69,7 +93,7 @@ export const pipelineApprovalRequested: EventDeclaration = {
       },
       requestedAt: { type: 'number' },
     },
-    required: ['runId', 'stepId', 'approverIds', 'requestedAt'],
+    required: ['runId', 'stepId'],
     additionalProperties: true,
   },
   aliases: [
@@ -102,12 +126,22 @@ export const pipelineApprovalRecorded: EventDeclaration = {
     properties: {
       runId: { type: 'string' },
       stepId: { type: 'string' },
+      // What PipelineExecutor actually emits (:1033, :1056): `userId` and an
+      // ISO `at`, plus an optional `reason`. `approver`/`decidedAt` were
+      // declared and REQUIRED and are sent by nothing, so this schema
+      // rejected the only payload that exists — and being transport:'both'
+      // meant the durable path could never publish it at all. The unused
+      // pair stays declared-but-optional: removing a property is breaking
+      // under this repo's own compat gate.
+      userId: { type: 'string' },
+      at: { type: 'string', format: 'date-time' },
+      reason: { type: 'string' },
       approver: { type: 'string' },
       decision: { type: 'string', enum: ['approve', 'reject'] },
       comment: { type: 'string' },
       decidedAt: { type: 'number' },
     },
-    required: ['runId', 'stepId', 'approver', 'decision', 'decidedAt'],
+    required: ['runId', 'stepId', 'decision'],
     additionalProperties: true,
   },
   aliases: [

@@ -127,6 +127,20 @@ function makeRouteResponse(nodeRes, compression) {
      * clients, so it is computed here and nowhere else.
      */
     const finish = (body) => {
+        // The peer is gone. Everything below — the brotli/gzip pass most of
+        // all — would produce bytes with nowhere to go.
+        //
+        // Compression here is whole-buffer and synchronous, so it is event-loop
+        // time, not background time: `GET /api/events` is ~326 KiB of JSON, and
+        // a client that sends `Accept-Encoding: br` and then resets still paid
+        // for a full brotli pass over all of it. That is the cheapest possible
+        // request to issue and one of the more expensive ones to serve, which
+        // makes it the shape an abusive client would pick deliberately. Gating
+        // on `headersSent` alone never caught it: a reset destroys the socket
+        // without sending any headers, so `headersSent` is still false and the
+        // work went ahead exactly as if someone were waiting for it.
+        if (nodeRes.destroyed)
+            return;
         if (bodyForbidden(statusCode)) {
             nodeRes.writeHead(statusCode);
             nodeRes.end();
@@ -166,13 +180,18 @@ function makeRouteResponse(nodeRes, compression) {
             return res;
         },
         json(body) {
-            if (nodeRes.headersSent)
+            // `destroyed` is checked here as well as in finish() because
+            // JSON.stringify runs *before* the call: for the bulk export
+            // archive that is a multi-hundred-KiB serialization of the whole
+            // registry, and doing it for a peer that has already gone is the
+            // same wasted synchronous work as the compression pass.
+            if (nodeRes.headersSent || nodeRes.destroyed)
                 return;
             nodeRes.setHeader('Content-Type', 'application/json');
             finish(JSON.stringify(body));
         },
         send(body) {
-            if (nodeRes.headersSent)
+            if (nodeRes.headersSent || nodeRes.destroyed)
                 return;
             finish(body);
         },
@@ -202,6 +221,9 @@ function makeRouteResponse(nodeRes, compression) {
         },
         get headersSent() {
             return nodeRes.headersSent;
+        },
+        get destroyed() {
+            return nodeRes.destroyed;
         },
         raw: nodeRes,
     };

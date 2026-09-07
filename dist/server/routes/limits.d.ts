@@ -34,6 +34,14 @@ export declare const MAX_EVENT_NAME_LENGTH = 512;
  */
 export declare const MAX_CONSUMER_NAME_LENGTH = 256;
 /**
+ * Subscriber caps. Defined in `src/registry/limits.ts` and re-exported
+ * here so every HTTP-visible ceiling stays discoverable in one file.
+ * They live next to the registry because the subscriber list is also
+ * mutated off the HTTP path — by replication and by the library client —
+ * so a guard written only in a handler would not bound the state.
+ */
+export { MAX_SUBSCRIBERS_PER_EVENT, MAX_SERVICE_NAME_LENGTH, validateServiceName, } from '../../registry/limits.js';
+/**
  * Object keys that JavaScript treats specially on assignment. An event
  * name is used as a key in the plain-object responses built by
  * `GET /api/fingerprints` and `GET /api/metrics/history`; `__proto__`

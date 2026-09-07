@@ -18,6 +18,7 @@ import {
   createRequestListener,
   type Mount,
 } from '../src/server/http-router.js';
+import { DEFAULT_COMPRESSION } from '../src/server/compression.js';
 
 describe('parseQuery()', () => {
   it('returns {} for a bare path', () => {
@@ -261,5 +262,94 @@ describe('makeRouteResponse()', () => {
     res.flushHeaders();
     res.flushHeaders();
     expect(node.calls.filter(([k]) => k === 'writeHead')).toEqual([['writeHead', 200]]);
+  });
+});
+
+// ─── Work done after the peer has gone ───────────────────────────────────
+//
+// `finish()` used to gate on `headersSent` alone. A client that resets the
+// connection destroys the socket WITHOUT any headers having been sent, so
+// `headersSent` was still false and the whole response path ran anyway:
+// JSON.stringify over the body, then a whole-buffer, synchronous brotli or
+// gzip pass over the result, then a writeHead/end onto a dead socket.
+//
+// On `GET /api/events` that is ~326 KiB of JSON and ~2.1 ms of blocked
+// event loop per request — the cheapest possible request for a client to
+// issue, and one of the most expensive for the server to serve, which is
+// what makes it worth issuing deliberately.
+
+describe('a response whose peer has already disconnected', () => {
+  /** A node response over a socket the peer reset before any reply. */
+  function destroyedNodeRes(): { calls: Array<[string, unknown]> } & Record<string, unknown> {
+    const calls: Array<[string, unknown]> = [];
+    // A real header map, because `chooseCompression` consults the
+    // Content-Type the handler set and `appendVary` reads Vary back.
+    const headers = new Map<string, string>();
+    return {
+      calls,
+      destroyed: true,
+      headersSent: false,
+      setHeader: (k: string, v: string) => {
+        headers.set(k.toLowerCase(), v);
+        calls.push(['setHeader', [k, v]]);
+      },
+      getHeader: (k: string) => headers.get(k.toLowerCase()),
+      writeHead: (code: number) => calls.push(['writeHead', code]),
+      write: (chunk: string) => { calls.push(['write', chunk]); return true; },
+      end: (body?: unknown) => calls.push(['end', body]),
+      flushHeaders: () => calls.push(['flushHeaders', null]),
+      on: () => {},
+    } as never;
+  }
+
+  const brotliOn = {
+    config: DEFAULT_COMPRESSION,
+    encoding: 'br' as const,
+  };
+
+  it('exposes the disconnect so handlers can bail before doing the work', () => {
+    const live = makeRouteResponse({ ...destroyedNodeRes(), destroyed: false } as never);
+    const gone = makeRouteResponse(destroyedNodeRes() as never);
+    expect(live.destroyed).toBe(false);
+    expect(gone.destroyed).toBe(true);
+  });
+
+  it('does not serialize the body — JSON.stringify is never reached', () => {
+    const node = destroyedNodeRes();
+    const res = makeRouteResponse(node as never, brotliOn);
+
+    // toJSON is what JSON.stringify calls; if it never runs, the
+    // serialization never started.
+    const serialize = vi.fn(() => ({ big: 'x'.repeat(64 * 1024) }));
+    res.json({ toJSON: serialize });
+
+    expect(serialize).not.toHaveBeenCalled();
+    expect(node.calls).toEqual([]);
+  });
+
+  it('does not compress, frame or write for a destroyed socket', () => {
+    const node = destroyedNodeRes();
+    const res = makeRouteResponse(node as never, brotliOn);
+
+    res.setHeader('Content-Type', 'application/json');
+    res.send('x'.repeat(64 * 1024));
+
+    // The setHeader above is the handler's, not the response path's: no
+    // Content-Encoding, no Content-Length, no writeHead and no end.
+    expect(node.calls).toEqual([['setHeader', ['Content-Type', 'application/json']]]);
+  });
+
+  it('still does all of it for a peer that is still connected', () => {
+    // The guard has to be about the peer being gone, not a short-circuit
+    // that happens to fire on the aborted case.
+    const node = { ...destroyedNodeRes(), destroyed: false };
+    const res = makeRouteResponse(node as never, brotliOn);
+
+    res.setHeader('Content-Type', 'application/json');
+    res.send('x'.repeat(64 * 1024));
+
+    const headers = node.calls.filter(([k]) => k === 'setHeader').map(([, v]) => v);
+    expect(headers).toContainEqual(['Content-Encoding', 'br']);
+    expect(node.calls.some(([k]) => k === 'end')).toBe(true);
   });
 });

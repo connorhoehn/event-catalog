@@ -361,3 +361,51 @@ describe('compat directional asymmetry (Phase E4.D)', () => {
     expect(combined.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Enum comparison cost
+// ---------------------------------------------------------------------------
+
+describe('enum narrowing is linear in the enum size', () => {
+  // The check used to be `from.filter(v => !to.some(w => deepEqual(v, w)))`:
+  // O(|from| x |to|) deep comparisons over two arrays that come straight out
+  // of a declared schema, so a 1 MiB body carrying a large enum turned a
+  // single `declare` into ~10^10 comparisons and hung the process. It is now
+  // a membership test against a canonicalized set.
+  const N = 50_000;
+  const wide = Array.from({ length: N }, (_, i) => `v${i}`);
+
+  it('detects a dropped member without a pairwise scan', () => {
+    const from = { type: 'object', properties: { k: { type: 'string', enum: wide } } };
+    const to = { type: 'object', properties: { k: { type: 'string', enum: wide.slice(0, N - 1) } } };
+
+    const started = Date.now();
+    const result = checkBackwardCompat(from, to);
+    const elapsed = Date.now() - started;
+
+    expect(result.compatible).toBe(false);
+    expect(result.violations.join(' ')).toMatch(/enum narrowed/);
+    expect(elapsed).toBeLessThan(2_000);
+  });
+
+  it('reports no violation when nothing was dropped', () => {
+    const from = { type: 'object', properties: { k: { type: 'string', enum: wide } } };
+    const to = { type: 'object', properties: { k: { type: 'string', enum: [...wide, 'extra'] } } };
+
+    const started = Date.now();
+    expect(checkBackwardCompat(from, to).compatible).toBe(true);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('still compares object members by value, not identity', () => {
+    // Key order must not matter (deepEqual was order-insensitive on objects).
+    const from = { type: 'object', properties: { k: { enum: [{ a: 1, b: 2 }] } } };
+    const to = { type: 'object', properties: { k: { enum: [{ b: 2, a: 1 }] } } };
+    expect(checkBackwardCompat(from, to).compatible).toBe(true);
+
+    // …but array order still does.
+    const ordered = { type: 'object', properties: { k: { enum: [[1, 2]] } } };
+    const reversed = { type: 'object', properties: { k: { enum: [[2, 1]] } } };
+    expect(checkBackwardCompat(ordered, reversed).compatible).toBe(false);
+  });
+});

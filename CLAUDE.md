@@ -22,7 +22,12 @@ consumes X?", gate schema evolution, surface deterministic sha256
 fingerprints (Phase E6), group events by namespace (Phase E7), and stream
 the live event flow over SSE at `GET /api/flow` (Phase E8) so the admin UI
 can pulse the topology graph as events fire. Library publish never blocks
-on the server.
+on the server. Multiple server replicas share the registry over a Redis hash
+plus pub/sub; `src/server/registry-coordinator.ts` orders mutations with a
+Lamport clock and runs the same compat gate the HTTP route runs, so a schema
+refused on one replica cannot be installed on another by broadcast. The 19
+`FeatureBundle`s in `src/declarations/bundles/` are the pinnable unit an
+adopter names in a CRD, served at `/api/feature-bundles`.
 
 ## Workflow conventions
 
@@ -38,8 +43,14 @@ npm run dev               # tsx watch on src/cli/index.ts
 docker compose up         # redis + message-queue + event-catalog server
 ```
 
-Service listens on `EVENT_CATALOG_PORT` (default `3010`). Requires
-`REDIS_URL` and `MESSAGE_QUEUE_URL` (default `http://localhost:3004`).
+Service listens on `$PORT`, falling back to `$EVENT_CATALOG_PORT` (default
+`3010`); `$PORT` wins if both are set. **`REDIS_URL` is required** — unset or
+malformed is a boot error and exit `2`, not a fall back to localhost.
+`MESSAGE_QUEUE_URL` is optional (default `http://localhost:3004`); unset only
+warns. All 11 runtime variables — including the three
+`EVENT_CATALOG_COMPRESSION*` knobs, response compression being on by default —
+are resolved and validated in `src/cli/config.ts` before any socket is opened.
+See README's Configuration table.
 
 ## Cross-repo position
 
@@ -58,7 +69,7 @@ assume cross-service events are declared and validated here.
 
 ## Dependencies
 
-- **`distributed-core`** — SHA-pinned (v0.41.0 as of 2026-08-16; check
+- **`distributed-core`** — SHA-pinned (v0.42.1 as of 2026-09-07; check
   package.json for current). Uses `RetryManager`, `CircuitBreaker`,
   `JsonSchemaValidator`, `MetricsRegistry`, and — since v0.4.0 — the HTTP
   transport (`AdmissionHttpServer` + `serveStatic` from

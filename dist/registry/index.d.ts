@@ -6,8 +6,27 @@ export declare class Registry implements IRegistry {
     private events;
     private readonly schemaValidator;
     private readonly redis;
-    /** wave24-b — map keyed by `${eventName}\x00${serviceName}` → epoch ms. */
+    /**
+     * wave24-b — map keyed by `${eventName}\x00${serviceName}` → epoch ms.
+     *
+     * Invariant: every key in here corresponds to a (event, service) pair
+     * that is currently in some entry's `subscribers` list. Nothing else
+     * can reach an entry — `pruneStaleSubscribers` and
+     * `listSubscriberHeartbeats` both iterate live events — so a key that
+     * falls out of that set is unreclaimable. Every path on which an
+     * event or a subscriber can disappear (`remove`, `removeSubscriber`,
+     * `clear`, `load`, `reload`, the sweeper) is responsible for keeping
+     * the invariant.
+     */
     private subscriberHeartbeats;
+    /**
+     * Subscriber registrations refused, by reason. The cap and the name
+     * guard are both silent from the registry's side — replication has no
+     * response to write a 4xx into — so a counter is what keeps a capped
+     * event from looking like a quiet one. Surfaced on
+     * `GET /api/subscribers`.
+     */
+    private subscriberRefusals;
     /**
      * alias name → canonical event name. Built lazily on the first alias
      * lookup and dropped whenever the event map changes. `resolve()` sits on
@@ -27,6 +46,13 @@ export declare class Registry implements IRegistry {
      * mode), so the caller can tell "resynced" from "cannot resync".
      */
     reload(): Promise<boolean>;
+    /**
+     * Drop every heartbeat that no longer names a live (event, service)
+     * pair. One pass over the live subscriber edges — the same order of
+     * work the caller (`load` / `reload`) is already doing — rather than a
+     * scan of the heartbeat map, which is the collection that grows.
+     */
+    private reconcileHeartbeats;
     /**
      * Phase E6.5 — backfill `fingerprint` on `schemaHistory` entries that
      * lack it (entries persisted before wave19-h, when the field was
@@ -55,7 +81,36 @@ export declare class Registry implements IRegistry {
      */
     private getAliasIndex;
     list(filter?: RegistryFilter): RegistryEntry[];
-    addSubscriber(eventName: string, serviceName: string): void;
+    /**
+     * Register `serviceName` as a consumer of `eventName`.
+     *
+     * Returns false when the registration was refused: the event does not
+     * exist, the name is unusable, or the event is already at
+     * `MAX_SUBSCRIBERS_PER_EVENT` distinct subscribers. The guard lives
+     * here rather than only in the HTTP handler because replication
+     * (`RegistryCoordinator` applying a peer's `subscriber.add`) and the
+     * library client both call this directly.
+     *
+     * Refusing a *new* name at the cap is a deliberate choice over
+     * evicting an old one: the subscriber list is the answer to "who
+     * consumes X?", so silently dropping a live consumer would corrupt
+     * that answer, while refusing an addition merely fails to record one
+     * — and loudly, via the 429 the route returns and the counters below.
+     * A consumer legitimately scaling out is unaffected: subscribers are
+     * service identities, so every replica of it de-dupes onto the one
+     * name it already holds.
+     */
+    addSubscriber(eventName: string, serviceName: string): boolean;
+    /**
+     * Registrations refused, by reason, plus the ceiling in force. A cap
+     * that is never reported is indistinguishable from a consumer that
+     * never called.
+     */
+    getSubscriberRefusalStats(): {
+        atCapacity: number;
+        invalidName: number;
+        capacity: number;
+    };
     removeSubscriber(eventName: string, serviceName: string): void;
     /**
      * wave24-b — refresh a subscriber's lastSeenAt for one event or all

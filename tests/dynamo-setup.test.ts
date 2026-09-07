@@ -40,10 +40,15 @@ import { ensureTable } from '../src/server/dynamo-setup.js';
 
 describe('ensureTable()', () => {
   let mockSend: ReturnType<typeof vi.fn>;
+  let mockDestroy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     mockSend = vi.fn();
-    vi.mocked(DynamoDBClient).mockImplementation(() => ({ send: mockSend }) as unknown as InstanceType<typeof DynamoDBClient>);
+    mockDestroy = vi.fn();
+    vi.mocked(DynamoDBClient).mockImplementation(() => ({
+      send: mockSend,
+      destroy: mockDestroy,
+    }) as unknown as InstanceType<typeof DynamoDBClient>);
   });
 
   afterEach(() => {
@@ -132,4 +137,34 @@ describe('ensureTable()', () => {
     await vi.advanceTimersByTimeAsync(30_001);
     await expectation;
   }, 5_000);
+
+  // ─── Client lifecycle ──────────────────────────────────────────────────
+  //
+  // `ensureTable` builds its own DynamoDBClient, uses it once at boot and
+  // then goes out of scope — no caller ever gets a reference to it. The AWS
+  // SDK's default request handler pools keep-alive sockets, and a pooled
+  // socket is a `ref`'d libuv handle, so an undestroyed client keeps the
+  // event loop alive by itself. Since `startServer`'s `shutdown()` cannot
+  // reach a client it was never handed, releasing it here is the only
+  // opportunity there is.
+
+  it('destroys its boot-scoped client on the success path', async () => {
+    mockSend
+      .mockResolvedValueOnce({ Table: { TableStatus: 'ACTIVE' } })
+      .mockResolvedValueOnce({ TimeToLiveDescription: { TimeToLiveStatus: 'ENABLED' } });
+
+    await ensureTable();
+    expect(mockDestroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('destroys its boot-scoped client even when provisioning throws', async () => {
+    // The failure path is the one that matters: `startServer` calls
+    // ensureTable() inside a `.catch()` and boots anyway, so a client
+    // leaked here would survive for the whole life of a server that is
+    // otherwise running perfectly well.
+    mockSend.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+
+    await expect(ensureTable()).rejects.toThrow('ECONNREFUSED');
+    expect(mockDestroy).toHaveBeenCalledTimes(1);
+  });
 });

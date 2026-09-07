@@ -15,18 +15,28 @@ export interface EventPayloadMap {
     'pipeline.approval.requested': {
         runId: string;
         stepId: string;
-        approverIds: string[];
-        requestedAt: number;
+        approvers?: ({
+            type: 'user' | 'role';
+            value: string;
+            userId?: string;
+            [key: string]: unknown;
+        })[];
+        at?: string;
+        approverIds?: string[];
+        requestedAt?: number;
         [key: string]: unknown;
     };
     /** An approver has recorded a decision against a pending pipeline approval. `decision` is the recorded outcome; `comment` carries an optional reviewer note. Dual-emitted on signal + durable so audit and worker consumers both see the decision. */
     'pipeline.approval.recorded': {
         runId: string;
         stepId: string;
-        approver: string;
+        userId?: string;
+        at?: string;
+        reason?: string;
+        approver?: string;
         decision: 'approve' | 'reject';
         comment?: string;
-        decidedAt: number;
+        decidedAt?: number;
         [key: string]: unknown;
     };
     /** An approval gate has reached a final decision (all required approvers have acted). `decision` is the aggregate outcome; `by` is the deciding approver ID for single-approver gates or the last to vote for multi-approver gates. */
@@ -1739,7 +1749,11 @@ export interface EventPayloadMap {
         timestamp?: string;
         channel: string;
         id: string;
-        progress: number;
+        transferId?: string;
+        actor?: string;
+        transferred?: number;
+        size?: number;
+        progress?: number;
         [key: string]: unknown;
     };
     /** Antivirus scan is IN PROGRESS for an uploaded file — distinct from the existing ws.upload.scanned declaration, which reports the scan OUTCOME (clean/infected). The scanning-vs-scanned naming tension is documented per Wave A2, not renamed. */

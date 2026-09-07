@@ -8,8 +8,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createSubscriberHandlers = createSubscriberHandlers;
 const audit_emitter_js_1 = require("../audit-emitter.js");
 const _shared_js_1 = require("./_shared.js");
+const limits_js_1 = require("./limits.js");
 function createSubscriberHandlers(deps) {
     const { registry, coordinator, metrics } = deps;
+    const log = new _shared_js_1.RouteLog(deps.logger);
     // The `subscriber_count` gauge is push-only and was previously written
     // exactly once, when `MetricsObserver` first subscribed to the event's
     // channel. It therefore did not move when a consumer registered or
@@ -24,28 +26,58 @@ function createSubscriberHandlers(deps) {
         metrics.setSubscriberCount(eventName, registry.get(eventName)?.subscribers.length ?? 0);
     }
     // Register a subscriber for an event
+    //
+    // `serviceName` comes off the POST body, so both its shape and the
+    // number of distinct values one event can accumulate are chosen by the
+    // caller. The name is validated here; the count is bounded by
+    // `Registry.addSubscriber`, which is where the rule has to live because
+    // replication reaches the same list without passing through this
+    // handler. A refusal is a 429 rather than a silent no-op — the caller
+    // is a consumer that will otherwise believe it is registered.
     function add(req, res) {
         const { serviceName } = req.body;
-        if (!serviceName) {
-            (0, _shared_js_1.badRequest)(res, 'serviceName is required');
+        const nameError = (0, limits_js_1.validateServiceName)(serviceName);
+        if (nameError) {
+            (0, _shared_js_1.badRequest)(res, nameError);
             return;
         }
+        const name = serviceName;
         const entry = registry.get(req.params.name);
         if (!entry) {
             (0, _shared_js_1.eventNotFound)(res, req.params.name);
             return;
         }
-        registry.addSubscriber(req.params.name, serviceName);
+        if (!registry.addSubscriber(req.params.name, name)) {
+            // The name is already validated and the event exists, so capacity
+            // is the only refusal left.
+            log.warn(`subscriber-cap:${req.params.name}`, '[event-catalog] refused subscriber — event is at its subscriber cap:', {
+                component: 'routes/subscribers',
+                action: 'subscriber.add',
+                status: 'refused',
+                eventName: req.params.name,
+                serviceName: name,
+                limit: limits_js_1.MAX_SUBSCRIBERS_PER_EVENT,
+            }, req.params.name);
+            res.status(429).json({
+                error: `Event "${req.params.name}" already has the maximum of `
+                    + `${limits_js_1.MAX_SUBSCRIBERS_PER_EVENT} distinct subscribers`,
+                event: req.params.name,
+                subscriber: name,
+                limit: limits_js_1.MAX_SUBSCRIBERS_PER_EVENT,
+                current: entry.subscribers.length,
+            });
+            return;
+        }
         syncCount(req.params.name);
         audit_emitter_js_1.auditEmitter.publish({
             kind: 'subscriber.added',
             timestamp: new Date().toISOString(),
             eventName: req.params.name,
             namespace: entry.namespace,
-            serviceName,
+            serviceName: name,
         });
-        coordinator?.broadcast('subscriber.add', { eventName: req.params.name, serviceName }).catch(() => { });
-        res.status(201).json({ event: req.params.name, subscriber: serviceName });
+        coordinator?.broadcast('subscriber.add', { eventName: req.params.name, serviceName: name }).catch(() => { });
+        res.status(201).json({ event: req.params.name, subscriber: name });
     }
     // Remove a subscriber from an event
     function remove(req, res) {
@@ -76,15 +108,17 @@ function createSubscriberHandlers(deps) {
     // refreshed (a service may have been pruned in the meantime).
     function heartbeat(req, res) {
         const { serviceName, events } = req.body;
-        if (typeof serviceName !== 'string' || serviceName.length === 0) {
-            (0, _shared_js_1.badRequest)(res, 'serviceName is required');
+        const nameError = (0, limits_js_1.validateServiceName)(serviceName);
+        if (nameError) {
+            (0, _shared_js_1.badRequest)(res, nameError);
             return;
         }
+        const name = serviceName;
         const eventNames = Array.isArray(events) && events.every((e) => typeof e === 'string')
             ? events
             : undefined;
-        const refreshed = registry.heartbeat(serviceName, eventNames);
-        res.json({ serviceName, refreshed, count: refreshed.length });
+        const refreshed = registry.heartbeat(name, eventNames);
+        res.json({ serviceName: name, refreshed, count: refreshed.length });
     }
     // wave24-b — list every subscriber + its lastSeenAt. Optional
     // `?staleAfter=<seconds>` filter returns only subscribers older
@@ -95,10 +129,23 @@ function createSubscriberHandlers(deps) {
         if (Number.isFinite(staleAfter) && staleAfter > 0) {
             const cutoff = Date.now() - staleAfter * 1000;
             const stale = all.filter((s) => Date.parse(s.lastSeenAt) < cutoff);
-            res.json({ subscribers: stale, total: stale.length, filter: { staleAfter } });
+            res.json({
+                subscribers: stale,
+                total: stale.length,
+                filter: { staleAfter },
+                refusals: registry.getSubscriberRefusalStats(),
+            });
             return;
         }
-        res.json({ subscribers: all, total: all.length });
+        // The cap and the name guard both refuse from inside the registry,
+        // where replication has no response to write into. Reporting the
+        // counters on the listing is what keeps a capped event from looking
+        // like an event nobody subscribed to.
+        res.json({
+            subscribers: all,
+            total: all.length,
+            refusals: registry.getSubscriberRefusalStats(),
+        });
     }
     return { add, remove, heartbeat, list };
 }

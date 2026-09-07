@@ -6,6 +6,7 @@ const schema_compat_1 = require("./schema-compat");
 const fingerprint_1 = require("./fingerprint");
 const namespace_1 = require("./namespace");
 const schema_shape_1 = require("./schema-shape");
+const limits_1 = require("./limits");
 const REDIS_KEY = 'event-catalog:registry';
 /** Normalize EventDeclaration.producer to an always-array form. */
 function producerList(producer) {
@@ -47,8 +48,27 @@ class Registry {
     events = new Map();
     schemaValidator;
     redis;
-    /** wave24-b — map keyed by `${eventName}\x00${serviceName}` → epoch ms. */
+    /**
+     * wave24-b — map keyed by `${eventName}\x00${serviceName}` → epoch ms.
+     *
+     * Invariant: every key in here corresponds to a (event, service) pair
+     * that is currently in some entry's `subscribers` list. Nothing else
+     * can reach an entry — `pruneStaleSubscribers` and
+     * `listSubscriberHeartbeats` both iterate live events — so a key that
+     * falls out of that set is unreclaimable. Every path on which an
+     * event or a subscriber can disappear (`remove`, `removeSubscriber`,
+     * `clear`, `load`, `reload`, the sweeper) is responsible for keeping
+     * the invariant.
+     */
     subscriberHeartbeats = new Map();
+    /**
+     * Subscriber registrations refused, by reason. The cap and the name
+     * guard are both silent from the registry's side — replication has no
+     * response to write a 4xx into — so a counter is what keeps a capped
+     * event from looking like a quiet one. Surfaced on
+     * `GET /api/subscribers`.
+     */
+    subscriberRefusals = { atCapacity: 0, invalidName: 0 };
     /**
      * alias name → canonical event name. Built lazily on the first alias
      * lookup and dropped whenever the event map changes. `resolve()` sits on
@@ -68,6 +88,10 @@ class Registry {
             this.events.set(name, JSON.parse(json));
         }
         this.aliasIndex = null;
+        // An overlaid entry carries Redis's subscriber list, which may be
+        // shorter than the one it replaced — those heartbeats are now
+        // unreachable.
+        this.reconcileHeartbeats();
         this.migrateHistoryFingerprints();
     }
     /**
@@ -89,8 +113,33 @@ class Registry {
         }
         this.events = next;
         this.aliasIndex = null;
+        // `reload` is delete-aware, so it is also the widest way for a
+        // subscriber edge to vanish: every event the snapshot does not
+        // carry, and every subscriber trimmed off an event it does, would
+        // otherwise leave a heartbeat nothing can ever reach again.
+        this.reconcileHeartbeats();
         this.migrateHistoryFingerprints();
         return true;
+    }
+    /**
+     * Drop every heartbeat that no longer names a live (event, service)
+     * pair. One pass over the live subscriber edges — the same order of
+     * work the caller (`load` / `reload`) is already doing — rather than a
+     * scan of the heartbeat map, which is the collection that grows.
+     */
+    reconcileHeartbeats() {
+        if (this.subscriberHeartbeats.size === 0)
+            return;
+        const live = new Map();
+        for (const entry of this.events.values()) {
+            for (const s of entry.subscribers) {
+                const key = heartbeatKey(entry.name, s);
+                const ts = this.subscriberHeartbeats.get(key);
+                if (ts !== undefined)
+                    live.set(key, ts);
+            }
+        }
+        this.subscriberHeartbeats = live;
     }
     /**
      * Phase E6.5 — backfill `fingerprint` on `schemaHistory` entries that
@@ -276,11 +325,38 @@ class Registry {
         }
         return out;
     }
+    /**
+     * Register `serviceName` as a consumer of `eventName`.
+     *
+     * Returns false when the registration was refused: the event does not
+     * exist, the name is unusable, or the event is already at
+     * `MAX_SUBSCRIBERS_PER_EVENT` distinct subscribers. The guard lives
+     * here rather than only in the HTTP handler because replication
+     * (`RegistryCoordinator` applying a peer's `subscriber.add`) and the
+     * library client both call this directly.
+     *
+     * Refusing a *new* name at the cap is a deliberate choice over
+     * evicting an old one: the subscriber list is the answer to "who
+     * consumes X?", so silently dropping a live consumer would corrupt
+     * that answer, while refusing an addition merely fails to record one
+     * — and loudly, via the 429 the route returns and the counters below.
+     * A consumer legitimately scaling out is unaffected: subscribers are
+     * service identities, so every replica of it de-dupes onto the one
+     * name it already holds.
+     */
     addSubscriber(eventName, serviceName) {
         const entry = this.events.get(eventName);
         if (!entry)
-            return;
+            return false;
+        if ((0, limits_1.validateServiceName)(serviceName) !== null) {
+            this.subscriberRefusals.invalidName++;
+            return false;
+        }
         if (!entry.subscribers.includes(serviceName)) {
+            if (entry.subscribers.length >= limits_1.MAX_SUBSCRIBERS_PER_EVENT) {
+                this.subscriberRefusals.atCapacity++;
+                return false;
+            }
             entry.subscribers.push(serviceName);
         }
         // wave24-b — also stamp a heartbeat so the sweeper has a baseline
@@ -290,6 +366,15 @@ class Registry {
         // multi-replica resync, which reads this hash — silently lost
         // "who consumes X?", the question the registry exists to answer.
         this.persist(eventName, entry);
+        return true;
+    }
+    /**
+     * Registrations refused, by reason, plus the ceiling in force. A cap
+     * that is never reported is indistinguishable from a consumer that
+     * never called.
+     */
+    getSubscriberRefusalStats() {
+        return { ...this.subscriberRefusals, capacity: limits_1.MAX_SUBSCRIBERS_PER_EVENT };
     }
     removeSubscriber(eventName, serviceName) {
         const entry = this.events.get(eventName);
@@ -380,13 +465,26 @@ class Registry {
         Object.assign(entry.metadata, stats);
     }
     remove(eventName) {
+        const entry = this.events.get(eventName);
         const deleted = this.events.delete(eventName);
-        if (deleted)
-            this.aliasIndex = null;
-        if (deleted && this.redis) {
+        if (!deleted)
+            return false;
+        this.aliasIndex = null;
+        // Heartbeats are keyed `event\0service` and only ever visited by
+        // walking live events, so one left behind here is unreclaimable for
+        // the life of the process: a declare/subscribe/delete loop leaked
+        // one entry per subscriber edge forever. Delete them from the
+        // entry's own list — O(subscribers), and bounded by the cap — rather
+        // than scanning the heartbeat map, which is the thing that grows.
+        if (entry) {
+            for (const s of entry.subscribers) {
+                this.subscriberHeartbeats.delete(heartbeatKey(eventName, s));
+            }
+        }
+        if (this.redis) {
             this.redis.hDel(REDIS_KEY, eventName).catch(() => { });
         }
-        return deleted;
+        return true;
     }
     /**
      * wave25-a — mark an event as deprecated. Publish still works
@@ -487,6 +585,9 @@ class Registry {
     clear() {
         this.events.clear();
         this.aliasIndex = null;
+        // Every heartbeat key named one of the events just dropped, so all
+        // of them are now unreachable.
+        this.subscriberHeartbeats.clear();
     }
     checkSchemaCompat(eventName, proposedSchema) {
         const entry = this.events.get(eventName);

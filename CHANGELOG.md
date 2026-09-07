@@ -7,6 +7,398 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.6.0] - 2026-09-07
+
+Five sweeps that landed after the `0.5.0` entry was written and were never
+recorded (`0661e49`, `6495870`, `5ab22b1`, `fc15060`, `e0b2e23`). The theme
+is the same one `0.5.0` started — paths that reported success while losing
+the thing they were asked to carry — but three of these are consumer-visible
+breaks rather than internal repairs: the DLQ list changed shape, two read
+endpoints stopped answering `200 []` on a dependency failure, and replication
+now refuses schemas it used to install.
+
+### BREAKING (replication — `src/server/registry-coordinator.ts`)
+
+- **Replication no longer bypasses the schema-evolution gate.**
+  `applyMutation` called `registry.declare()` directly, and `Registry.declare`
+  computes compatibility but never refuses — so a schema the HTTP route turns
+  down with a `409 COMPAT_VIOLATION` on replica A was installed unconditionally
+  on replica B the moment the broadcast arrived. One stale replica accepting a
+  write pushed a rejected schema across the cluster. The replication path now
+  runs `passesCompatGate()`, which applies exactly the route's rule: it fires
+  only when the *existing* entry is in strict mode (`compatMode: 'strict'`, or
+  `EVENT_CATALOG_STRICT=true` with `compatMode` not `off`), an identical schema
+  is still a no-op, and a refusal is recorded as a `compat-violation` conflict
+  and logged. Nothing shipped in this package carries `compatMode`, so a
+  default deployment sees no change in what is accepted.
+- **Replicas converge instead of diverging.** Under a true concurrent
+  interleaving — A declares `x` with `S1`, B with `S2`, each applies the
+  other's broadcast — both replicas ended up holding the *other* one's schema.
+  Not last-writer-wins: a mirrored, permanent disagreement about what a
+  contract is. Mutations now carry a Lamport stamp and are ordered by
+  `(ts, replicaId)` per conflict key. Four adjacent bugs went with it:
+  `subscriber.add` and `deprecate` arriving before their `declare` were
+  dropped, `subscriber.remove` before its `add` resurrected the subscriber, a
+  first-sight replicated declare discarded the peer's subscriber list, and
+  missed broadcasts were undetectable — the file's comment claiming a later
+  declare re-syncs was false, so a partitioned replica served a truncated
+  registry while reporting healthy. Out-of-order mutations now wait in a
+  bounded TTL buffer and replay on their declare; a per-replica sequence gap
+  marks the replica stale and triggers a delete-aware `Registry.reload()`.
+- **`GET /health` reports the coordinator as `degraded` while a replica is
+  stale**, so a diverged replica is drained rather than serving quietly.
+- ~870 randomized 2–5-replica scenarios (`tests/fuzz-replica-convergence.test.ts`)
+  found four further bugs in that Lamport code, all fixed: `peerSeq` regressed
+  on redelivery so a delayed duplicate faked a gap and triggered a pointless
+  full reload; concurrent declares left two replicas serving the identical
+  contract under different version numbers; a parked `subscriber.add` survived
+  a delete and attached a consumer to a fresh event; and discarded mutations
+  left no stamp, so Redis redelivery re-applied them.
+- The tie-break still trusts wall clocks. A CAS on the Redis hash was
+  investigated and **declined** — reads never touch the hash, `addSubscriber`
+  and `deprecate` blind-`hSet` the same field so there is no per-field
+  granularity, Redis is optional on `Registry` so the Lamport path has to
+  stay regardless, and an old replica's blind `hSet` after `EXEC` is an
+  undetectable lost update during the rolling upgrade the scheme exists to
+  survive. Characterized weakness over half-built protocol.
+- **Subscribers are now persisted.** `addSubscriber`/`removeSubscriber` write
+  through to the Redis hash; they were memory-only, so a restart — or the new
+  resync, which reads that hash — silently lost "who consumes X?", the
+  question the registry exists to answer.
+- **`Registry.reload()` is new public API** — a delete-aware full-state resync
+  from Redis, returning `false` when the registry has no Redis backing so the
+  caller can tell "resynced" from "cannot resync". `load()` only ever
+  overlaid.
+
+### BREAKING (`GET /api/transports/durable/dlq` response shape)
+
+- The endpoint returned **two different shapes under one `200`**: raw DynamoDB
+  rows on the happy path, `DeadLetteredMessage` from the in-memory fallback.
+  Both now normalize to a single `DlqWireEntry`: `{ id, eventName, payload,
+  error, attempts, deadAt, expiresAt? }`.
+- `pk` and `sk` are **gone** (a DynamoDB composite key, never client
+  meaningful). `ttl` (epoch seconds) is replaced by **`expiresAt`** (ISO-8601,
+  optional — present only when the answering source expires entries).
+  **`source`** is populated on every entry rather than only on some.
+- Nothing read the dropped fields. The admin UI's own `DLQEntry` type declares
+  exactly the six that remain, which is how the bug surfaced: during a DynamoDB
+  outage it had been rendering `undefined` for every column.
+- The fallback also **ignored `?eventName=` and `?limit=`**, silently widening
+  a filtered query to the whole mirror mid-outage, and it sliced from the head
+  while the store returns newest-first — so `?limit=2` gave the two *oldest*
+  during an outage and the two *newest* normally. Same request, silently
+  inverted meaning. Both fixed; the mirror is sorted newest-first before
+  slicing.
+- **Raw AWS SDK and message-queue error text no longer reaches clients.** Table
+  names, endpoint hostnames, credential-resolution chains and queue URLs went
+  out in the `error` field. The detail goes to the (throttled) server log; the
+  client gets a stable, actionable sentence. `findById` also sat outside the
+  per-id `try`, so one throttled read aborted a whole batch replay with a bare
+  `500`, and `clear()` discarded its partial count when a later page threw.
+
+### BREAKING (`503` where `200 []` used to be)
+
+- **`audit-log.recent()` and `SignalTransport.getHistory()` now throw on a
+  Redis error instead of returning `[]`.** `GET /api/audit/recent` answered
+  `200 {events: []}` during a Redis outage — indistinguishable from "nothing
+  happened", which is the single worst answer to give someone reading an audit
+  trail. Both now propagate, and the routes answer `503` with a body saying so:
+  `GET /api/audit/recent` and `GET /api/events/:name/history`. An empty ring
+  buffer and an unreachable Redis are different facts and no longer share a
+  response shape. Same class already fixed for the DLQ list in `0.5.0`.
+
+### Changed (client — `src/client/index.ts`)
+
+- **A signal publish issued while Redis is disconnected is no longer counted as
+  a success.** `SignalTransport.publish` returned normally and
+  `EventCatalog.publish` then bumped `publishCount` and `lastPublishedAt`, so
+  during `platform-api`'s background-reconnect window all 14 `publishSignal`
+  route sites resolved, logged nothing, and the catalog reported rising
+  throughput for events that reached nobody. Drops are now counted per event
+  and per channel, counted as `errorCount` rather than `publishCount`, warned
+  once per channel, and reported to the new **`onPublishDropped(drop)`** option
+  (`DroppedPublish` carries the lost `envelope`, so a caller can buffer or
+  re-emit). Exceptions from the callback are caught and logged; they never fail
+  the publish.
+- **`strictTransport?: boolean`** (default `false`) makes `publish()` and
+  `publishSignal()` **reject** rather than drop when the signal transport is
+  disconnected, matching what the durable transport already does. Off by
+  default to preserve the v0.x contract — turning it on is a deliberate choice
+  for a service where a lost realtime event is worse than a rejected request.
+- **`getDroppedPublishCount()`** (overloaded: per-event `number`, or a `Map`)
+  and **`getDroppedPublishStats()`** expose the counters.
+  **`getInFlightPublishCount()`** exposes durable backpressure, which is
+  deliberately still unbounded — a limiter would be a behavior change.
+- **`logger?: CatalogLogger`** routes the library's own diagnostics into the
+  host's pipeline instead of `console`. Two methods, `warn`/`error`, each
+  `(message, fields?)`; `fields` carries the structured half (`eventName`,
+  `channel`, `queue`, `attempt`, `status`, `suppressed`) so a sink never has to
+  regex the message. Throttling stays *in front of* the sink — some lines sit
+  on the publish path and an adapter cannot know which — so forward every call
+  you receive. Omitting it leaves output byte-identical, asserted against full
+  console-mock call arrays (count, arity, every argument) across eight sites.
+  `CatalogLogger` and `LogFields` are re-exported from the root, alongside
+  `EventCatalogClientOptions` and `DroppedPublish`.
+- **`authToken?: string`** (defaulting to `process.env.EVENT_CATALOG_AUTH_TOKEN`)
+  presents `Authorization: Bearer` on the four mutating registry calls the
+  client makes. Documented in the `0.5.0` entry; repeated here because it is
+  the half that makes `EVENT_CATALOG_AUTH_TOKEN` usable at all.
+- `syncToRemoteRegistry` and the heartbeat POST **now check `res.ok`.** A
+  registry answering `500` left the service believing it had registered; a
+  rejected heartbeat ends with the server sweeping the subscriber at TTL.
+  `pinManifest`, sitting beside them, already checked — these were omissions.
+- The durable publish `fetch` **now has a timeout and an `AbortSignal`.** A
+  queue that accepted the socket and never answered left the promise pending
+  forever with nothing metered.
+- **Caller-keyed maps are bounded.** `publishSignal()` takes an undeclared
+  event name and a raw `channelId` straight from the caller — in
+  `websocket-gateway` that means straight from client frames. Four structures
+  were keyed off them and never pruned, and `warnedUndeclaredSignal` logged one
+  line per distinct name: one input, both a leak and a log amplifier.
+  Warn-once-per-key is not a bound when the key space is caller-controlled, so
+  `LogThrottle` adds a per-window ceiling on top of per-key dedupe and still
+  counts what it suppressed.
+- **Lifecycle leaks that kept a container alive after SIGTERM**:
+  `startHeartbeating`'s interval and the chained background-sync `setTimeout`
+  survived `disconnect()`; concurrent `connect()` raced the guard and orphaned
+  a re-sync interval; a rejected `connect()` left Redis clients reconnecting
+  forever; two subscriptions on one queue orphaned an unstoppable poll loop.
+
+### Changed (server)
+
+- **Response compression is ON by default** (`src/server/compression.ts`, new).
+  Real gzip/brotli/deflate with `Accept-Encoding` negotiation, `zlib` only, no
+  dependency. Brotli q5 measured both smaller *and* ~1.5x cheaper than gzip L6
+  on every payload, so the preference order is `br > gzip > deflate`.
+  `/api/events` 325.6 → 39.4 KiB; `/api/metrics/history` 199.0 → 1.9 KiB. It
+  engages only for a client that advertised the coding, so a caller that cannot
+  decode keeps getting `identity` — Node's global `fetch` (undici) advertises
+  and transparently decodes, `http.request` advertises nothing, browsers have
+  handled this since 1997. **SSE is excluded structurally** —
+  `flushHeaders()`/`write()` latch a flag — rather than by a path list, so a
+  future streaming endpoint cannot be accidentally buffered.
+- **Static admin assets are compressed too** (`src/server/static-compression.ts`,
+  new): 628,918 → 195,687 bytes, 68.9%. Applied by wrapping `serveStatic`'s
+  `writeHead`/`end` in a `Proxy` rather than reimplementing it, so its MIME
+  table, cache policy and traversal defence are untouched.
+- Three new boot-validated variables: **`EVENT_CATALOG_COMPRESSION`**
+  (default `true`; `=false` is the full revert),
+  **`EVENT_CATALOG_COMPRESSION_THRESHOLD`** (default `1024` bytes; `0`
+  compresses everything, and a value under 128 warns because below ~200 bytes
+  gzip makes a JSON body larger) and **`EVENT_CATALOG_COMPRESSION_LEVEL`**
+  (`1`–`9`, default `6`).
+- **`logger?: CatalogLogger` on `startServer`** — the same injectable sink the
+  client got, threaded through every server component, with per-request and
+  per-scrape paths throttled (a bulk declare went from 200 log lines per
+  request to 1). Default output byte-identical, proven across 12 sites.
+- **`/api/feature-bundles` was returning `{bundles: [], total: 0}` in
+  production.** `src/server/index.ts` built a fresh empty `FeatureBundleRegistry`
+  and never populated it, while 19 bundles sat declared in the source. It
+  failed silently because `ec-lint-crd` reads bundles from the package rather
+  than from the server, so nothing pointed at the HTTP surface. Now wired
+  through an exported **`buildBundleRegistry()`**, which the e2e harness calls
+  so the specs exercise production's wiring instead of a faithful copy.
+- **`ProducerAttributionStore` was unbounded in both dimensions** and keyed by
+  `envelope.metadata.producer` — a string any Redis publisher picks per
+  message. No cap, no TTL, no removal on event delete, and
+  `/api/events/attribution` re-serialized all of it per call. Now capped
+  oldest-first with eviction counters, plus `forget()`.
+- `recordSseRejected()` had **zero callers**, so `sse_streams_rejected_total`
+  was never registered or rendered and SSE saturation was invisible. Wired.
+- **A single non-2xx from the alert webhook lost the incident permanently.**
+  `fire()` skips the cooldown so it can retry immediately, but `observeHealth`
+  had already advanced `previousHealthState`, so every later probe
+  short-circuited at `status === previous` — Redis down plus one webhook blip
+  meant zero alerts, ever. State now advances only once a transition is
+  actually reported, and a failed recovery leaves the incident open rather than
+  going falsely green.
+- `subscriberCount` counted the observer's own Redis connection, was written
+  once at first subscribe, and never ran for durable-only events (so their
+  count read `0` forever). Now derived from the registry and reconciled each
+  poll tick. `DELETE /api/events/:name` leaked the observer's Redis
+  subscription, so the server kept recording publishes for deleted events.
+  `MetricsCollector` moved to the `event_catalog_stats` namespace — both
+  registries had registered `publish_total` with different label sets, which is
+  invalid exposition the moment anything renders them together.
+- Admin UI: bundle list, bundle detail and a coverage view showing which events
+  no operator can pin (84 of 229 across 7 namespaces), plus roughly twenty
+  fixes to error handling, filtering and large-registry rendering.
+
+### Added (HTTP)
+
+- **`POST /api/events/bulk/export`**, body `{ names?: string[] }`. `?names=` on
+  the `GET` is already a 5.8 KB URL at 225 events and grows with the registry,
+  and a request line's length is not this process's to guarantee. The `GET` is
+  kept: with no `?names=` it is the browser-download surface the admin UI uses,
+  which a `POST` cannot be. Omitted or `null` `names` means "export everything",
+  matching the `GET`; anything that is not an array of strings is a `400`
+  rather than a silent 261 KB "successful narrow export".
+- Both forms cap `names` at **1000** (`MAX_BULK_EXPORT_NAMES`) — it was the one
+  bulk surface with no bound. The `POST` caps *before* trimming and filtering,
+  so the limit describes what the caller sent.
+- Pagination and a `fields=` projection were both measured and declined: the
+  302 KB body gzips to 42 KB while a schema-less projection only reaches 53 KB,
+  and the admin UI filters the whole registry client-side from one fetch.
+
+### Changed (contracts — published artifacts)
+
+- **`contracts/asyncapi.registry.yaml` is a new published artifact.** The single
+  `asyncapi.yaml` covered 110 of 229 events. It is split by transport on a
+  structural fact rather than a name prefix: not one of the 110 gateway frames
+  declares a channel or queue (they are multiplexed over one socket), while all
+  119 others are broker-addressed. `asyncapi.yaml` keeps the gateway
+  `client.*`/`ws.*` frames and now **states that scope in-file**;
+  `asyncapi.registry.yaml` carries the broker-addressed remainder. Both ship in
+  the tarball (`files` already includes `contracts`).
+- Fixed a spec bug where durable addresses used the raw event name while
+  `publish()` uses the derived queue name, and surfaced 25 previously-silent
+  deprecated aliases. Meta-schema conformance is unverified — no validator is
+  available offline.
+- `contracts/registry.snapshot.json` regenerated: **194 → 229 events.** The
+  additions are `activity.recorded`, `call:reaction.recorded`, all 20 `sfu.*`
+  events, 9 undeclared control-plane and `recording.compose` bus events,
+  `ws.session.connected` (the gateway welcome frame that gates all outbound
+  traffic — a deployment missing it does not degrade, it silently sends
+  nothing), the multiplexer's subscribe/unsubscribe acks, and
+  `sfu.participant.left`. `{type:'pong'}` and `participant.joined` are
+  deliberately left undeclared: the first is protocol plumbing, the second is
+  Socket.IO room-scoped and never crosses a process boundary.
+- **Seven new bundles** — `notifications`, `ag-ui-stream`, `call-captions`,
+  `sfu-webhooks`, `sfu-control-plane`, `sfu-chat`, `gateway-session` — taking
+  orphaned events from 148 to 83.
+- `MQ_QUEUE_NAMES.ACTIVITY_RECORDED` corrected from `'activity.recorded'` to
+  **`'activity-recorded'`**. Both publish and subscribe route through
+  `DurableTransport.eventNameToQueueName`, which replaces `[:.]` with `-`, so
+  the dotted value named a queue nothing ever created — anything configuring
+  message-queue from this constant would have listened on an empty queue. No
+  repo consumed it, so this closes a latent trap rather than changing live
+  behaviour.
+
+### Fixed (bundle tooling)
+
+- `agentic-pipeline-durable@1.0.0` **shipped invalid against its own registry**:
+  its approval events are `transport: 'both'` and `validateBundle` demanded the
+  declared transport *equal* the inferred aggregate, when narrowing to one bus
+  is the entire point of the signal/durable split. It is a satisfiability check
+  now. The existing test file never called `validateBundle` on that bundle; it
+  does now.
+- `validateBundle` had two vacuous-truth holes — an empty `events[]` and an
+  all-optional-unregistered member list both left `registeredMembers` empty, so
+  the transport check never ran and any claim passed. `bundle.transport` was
+  never runtime-checked either, so `"kafka"` validated as if it were `'both'`.
+- `ec-bundle-diff` was missing transport, deprecation and member-pin changes
+  entirely: a transport-only change printed `No changes.` and `bump: major`
+  together and exited `0`. It also gained **`--exit-code`** (`3` differs, `1`
+  failed) so "differs" is distinguishable from "failed to run" in CI.
+- `ec-bundle-create` rejects undeclared events instead of scaffolding over a
+  typo.
+- **Both shipped CI templates were unusable.** They looped per file taking the
+  *numeric max* of exit codes, so a deprecated bundle in one file masked a hard
+  lint error in another — a bad CRD went through the old pre-commit hook and
+  produced a green workflow step. Now one invocation over all files. Strict
+  mode keyed on `2` and therefore did nothing. The GitHub workflow pinned
+  `0.3.47` with no registry or auth, so the install 404'd. And `templates/` was
+  **in no tarball** — `package.json#files` was `["dist", "contracts"]` while the
+  README told operators to copy from it, which is why none of this was ever
+  caught. `templates` is in `files` now.
+- **`ec-lint-crd` warnings exit `3`, not `2`.** `2` is a usage error across
+  every bin in this package, so the documented `|| [ $? -eq 2 ]` recipe was
+  swallowing a typo'd path as clean-with-warnings. Recorded in the `0.5.0`
+  migration notes; restated here because it shipped in that release and the
+  README recipe changed with it.
+
+### Migration from `v0.5.0`
+
+Most of this needs nothing from a consumer. Taking the breaks in order:
+
+1. **Replication gate — no action, and no behaviour change for anyone today.**
+   The gate only refuses when the *existing* registry entry is in strict mode.
+   No declaration this package ships sets `compatMode`, and no consumer sets
+   `EVENT_CATALOG_STRICT`. If you do run strict multi-replica, the change is
+   that a breaking schema is now refused on every replica instead of only the
+   one that got the HTTP request — which is what you were already asking for.
+2. **Replica convergence and subscriber persistence — no action.** Both are
+   repairs to behaviour that was wrong; there is no API to adopt. One operator
+   note: `/health` can now report the coordinator `degraded`. If you alert on
+   `/health` being non-`healthy`, expect that state to appear during a partition
+   and to clear on its own after the resync.
+3. **DLQ list shape — action only if you parse the response yourself.** If you
+   read `pk`, `sk` or `ttl` off `GET /api/transports/durable/dlq`, switch to
+   `id` and `expiresAt` (ISO-8601, and optional). Nothing in the platform does:
+   the admin UI already typed exactly the six surviving fields, and no consumer
+   repo calls the endpoint. If you relied on the `error` string containing AWS
+   detail, that detail is now in the server log instead.
+4. **`503` from `/api/audit/recent` and `/api/events/:name/history` — action
+   only if you treated `200 []` as "healthy and empty".** A dashboard that
+   rendered an empty list will now need to render an error state. No consumer
+   repo calls either endpoint.
+5. **Compression — no action.** Content negotiation means a client that did not
+   advertise an encoding still gets `identity`, so nothing that worked stops
+   working. Set `EVENT_CATALOG_COMPRESSION=false` to revert wholesale if you
+   have a proxy that already compresses and you would rather not pay twice.
+6. **Signal-publish drops — no action, and the default is unchanged.** A
+   publish issued while disconnected still resolves; it is now booked as an
+   error rather than a success and reported to `onPublishDropped` if you supply
+   one. Adopt `strictTransport: true` only if you want those publishes to
+   reject — that *is* a behaviour change, which is why it is opt-in.
+7. **`logger` and `authToken` — no action.** Both default to exactly the
+   previous behaviour: `console` output byte-for-byte identical, and no
+   `Authorization` header unless `EVENT_CATALOG_AUTH_TOKEN` is set.
+8. **`MQ_QUEUE_NAMES.ACTIVITY_RECORDED` — no action.** No repo imports it. If
+   you had copied the old dotted value into a message-queue config, you were
+   listening on a queue that never existed; use `activity-recorded`.
+9. **The new declarations and bundles are additive.** The `0.5.0` caution still
+   stands: **do not adopt `sfuDeclarations`, `gatewayDurableDeclarations` or
+   `callCaptionDeclarations` without diffing them against what your service
+   already declares.** Registering both copies gets you a version bump and a
+   violation list, and on a shared server the last writer decides which schema
+   the message-queue workers validate against.
+10. **`asyncapi.yaml` readers: check which document you want.** The file still
+    exists at the same path with the same gateway frames in it, but it now says
+    in-file that it covers only `client.*`/`ws.*`. Everything broker-addressed
+    moved to `contracts/asyncapi.registry.yaml`. Codegen pointed at
+    `asyncapi.yaml` produces the same 110 frames it did before.
+11. **`ec-bundle-diff` callers: `--exit-code` is opt-in.** Without the flag the
+    exit codes are what they were.
+
+### Notes
+
+- **Bundle pins pin the event set, not the contracts.** Bundle fingerprints
+  hash `{name, version, events[]}` only, so they correctly do not move on an
+  annotation sweep — and correspondingly a member event's schema can change
+  breakingly without the pin noticing. Separately, `EventReference.version` pins
+  a member's schema *revision* by exact equality, so a purely additive optional
+  property breaks every pinned bundle. Both are now documented and pinned by
+  tests.
+- **Consumer contract drift, reported not fixed** (`tests/consumer-contract-drift.test.ts`,
+  mutation-checked so it cannot decay into a restatement of the declarations).
+  A systematic declared-vs-emitted-vs-read pass over the 36 high-risk
+  declarations found four live defects in repos this session cannot edit:
+  `ws.error.error` — the gateway emits a flat
+  `{type, code, message, timestamp}` and both consumers gate on a nested
+  envelope, so every gateway error frame is silently discarded (schema right,
+  consumers wrong); `call:reaction.recorded.orgId` is never emitted and the
+  consumer picks its DynamoDB tenant partition from it, so every row lands
+  tenantless; `sfu.recording.completed`'s `tracks[].userId` is never set, so a
+  departed user gets no fan-out row and never sees the recording; and
+  `sfu.recording.compose.completed` passes both of `lvsWebhooks`' substring
+  gates and would overwrite the recording row if ever sent as a webhook.
+  `composedUrl` is likewise declared but assigned nowhere — compose runs after
+  the webhook and writes `composedSegment` — recorded in the description rather
+  than removed, since removing a property is breaking under this repo's own
+  gate.
+- **Reported, not fixed** in the coordinator: the parked-mutation TTL only runs
+  on an incoming declare, `MAX_PENDING` bounds entries not bytes (32 MiB from
+  one peer), `peerSeq` grows per pod restart forever, every sequence gap
+  triggers an uncoalesced full registry reload, `Registry.remove()` orphans
+  subscriber heartbeats, and `shutdown()` never destroys the DynamoDB client.
+- Tests 1950 → 2807, admin 0 → 394 (`src/admin`, its own vitest config), e2e
+  32 → 49. The declaration files were reorganized —
+  `gateway-signal.ts` 1351 → a 334-line barrel plus 11 files, `client-frames.ts`
+  1122 → 346 plus 7, `sfu.ts` 787 → 254, `ag-ui.ts` 682 → 206 — with
+  fingerprints proven unmoved by a byte-identical JSON dump before any
+  additions.
+
 ## [0.5.0] - 2026-09-07
 
 Three hardening sweeps over the server, the CLI, the publish hot path and the

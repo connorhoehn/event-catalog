@@ -18,11 +18,20 @@ exports.wsFileuploadProgress = {
     producer: _shared_1.GATEWAY_PRODUCER,
     description: 'Server-side upload progress (0-100) for an in-flight file upload. Part of the fileupload:* hook contract (useFileUpload); the gateway\'s own upload lifecycle is declared as ws.upload.* with type:"upload" frames — naming tension documented per Wave A2, not renamed.',
     tags: [..._shared_1.GATEWAY_BASE_TAGS, 'fileupload', 'client-contract'],
+    // FileUploadService.publishProgress sends BYTES (`transferred` + `size`),
+    // never a percentage. `progress` was declared AND required, so no real
+    // frame validated, and useFileUpload's own `progress?: number` guard can
+    // never fire. `progress` stays declared-but-optional: removing a property
+    // is breaking under this repo's own compat gate.
     schema: (0, _shared_1.inboundSchema)('fileupload:progress', {
         channel: { type: 'string' },
         id: { type: 'string', description: 'client-generated upload id' },
-        progress: { type: 'number', description: 'Upload progress as a percentage, 0-100.' },
-    }, ['channel', 'id', 'progress']),
+        transferId: { type: 'string', description: 'Server-side transfer id for this upload; distinct from the client-generated `id`.' },
+        actor: { type: 'string', description: 'Identity attributed with the upload, as recorded when the transfer began.' },
+        transferred: { type: 'integer', minimum: 0, description: 'Bytes transferred so far. This is what the producer actually sends — divide by `size` for a percentage.' },
+        size: { type: 'integer', minimum: 0, description: 'Total size of the upload in bytes.' },
+        progress: { type: 'number', description: 'Upload progress as a percentage, 0-100. NEVER EMITTED — FileUploadService sends `transferred`/`size` instead.' },
+    }, ['channel', 'id']),
 };
 /** Consumed by useFileUpload: antivirus scan in progress. */
 exports.wsFileuploadScanning = {

@@ -38,6 +38,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.checkBackwardCompat = checkBackwardCompat;
 exports.checkForwardCompat = checkForwardCompat;
+const fingerprint_1 = require("./fingerprint");
 /** Guard against pathological / self-referential schema documents. */
 const MAX_DEPTH = 16;
 // ─── small helpers ────────────────────────────────────────────────────────
@@ -83,30 +84,6 @@ function typeSubsumes(wider, narrower) {
 }
 function renderTypes(t) {
     return t.join(',');
-}
-function deepEqual(a, b) {
-    if (a === b)
-        return true;
-    if (typeof a !== typeof b)
-        return false;
-    if (a === null || b === null)
-        return a === b;
-    if (typeof a !== 'object')
-        return false;
-    if (Array.isArray(a) !== Array.isArray(b))
-        return false;
-    if (Array.isArray(a) && Array.isArray(b)) {
-        if (a.length !== b.length)
-            return false;
-        return a.every((v, i) => deepEqual(v, b[i]));
-    }
-    const ao = a;
-    const bo = b;
-    const ka = Object.keys(ao);
-    const kb = Object.keys(bo);
-    if (ka.length !== kb.length)
-        return false;
-    return ka.every((k) => Object.prototype.hasOwnProperty.call(bo, k) && deepEqual(ao[k], bo[k]));
 }
 function joinPath(parent, key) {
     return parent === '' ? key : `${parent}.${key}`;
@@ -168,8 +145,17 @@ function collectNarrowings(from, to, path, depth, out) {
             });
         }
         else {
-            const dropped = fromEnum.filter((v) => !toEnum.some((w) => deepEqual(v, w)));
-            if (dropped.length > 0) {
+            // Membership, not a pairwise scan. This was
+            // `fromEnum.filter(v => !toEnum.some(w => deepEqual(v, w)))` —
+            // O(|from| × |to|) deep comparisons over two arrays that come
+            // straight out of a declared schema, so a 1 MiB body carrying a
+            // ~250k-member enum turned one `declare` into ~10¹⁰ comparisons.
+            // `stableStringify` sorts object keys, which is exactly the
+            // equality `deepEqual` implements (order-insensitive on objects,
+            // order-sensitive on arrays), so the answer is unchanged.
+            const toMembers = new Set(toEnum.map((w) => (0, fingerprint_1.stableStringify)(w)));
+            const dropped = fromEnum.some((v) => !toMembers.has((0, fingerprint_1.stableStringify)(v)));
+            if (dropped) {
                 out.push({
                     kind: 'enum',
                     path,

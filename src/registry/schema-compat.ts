@@ -35,6 +35,8 @@
 // evolution and every registry in the industry treats it as such; flagging
 // it would make the gate unusable.
 
+import { stableStringify } from './fingerprint';
+
 export interface CompatResult {
   compatible: boolean;
   violations: string[];
@@ -123,26 +125,6 @@ function renderTypes(t: string[]): string {
   return t.join(',');
 }
 
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a !== typeof b) return false;
-  if (a === null || b === null) return a === b;
-  if (typeof a !== 'object') return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    return a.every((v, i) => deepEqual(v, b[i]));
-  }
-  const ao = a as Record<string, unknown>;
-  const bo = b as Record<string, unknown>;
-  const ka = Object.keys(ao);
-  const kb = Object.keys(bo);
-  if (ka.length !== kb.length) return false;
-  return ka.every(
-    (k) => Object.prototype.hasOwnProperty.call(bo, k) && deepEqual(ao[k], bo[k]),
-  );
-}
-
 function joinPath(parent: string, key: string): string {
   return parent === '' ? key : `${parent}.${key}`;
 }
@@ -212,8 +194,17 @@ function collectNarrowings(
         to: `[${toEnum.map((v) => JSON.stringify(v)).join(', ')}]`,
       });
     } else {
-      const dropped = fromEnum.filter((v) => !toEnum.some((w) => deepEqual(v, w)));
-      if (dropped.length > 0) {
+      // Membership, not a pairwise scan. This was
+      // `fromEnum.filter(v => !toEnum.some(w => deepEqual(v, w)))` —
+      // O(|from| × |to|) deep comparisons over two arrays that come
+      // straight out of a declared schema, so a 1 MiB body carrying a
+      // ~250k-member enum turned one `declare` into ~10¹⁰ comparisons.
+      // `stableStringify` sorts object keys, which is exactly the
+      // equality `deepEqual` implements (order-insensitive on objects,
+      // order-sensitive on arrays), so the answer is unchanged.
+      const toMembers = new Set(toEnum.map((w) => stableStringify(w)));
+      const dropped = fromEnum.some((v) => !toMembers.has(stableStringify(v)));
+      if (dropped) {
         out.push({
           kind: 'enum',
           path,

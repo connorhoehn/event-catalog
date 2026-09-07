@@ -366,6 +366,61 @@ function deliverOne(r: Rng, net: NetOpts, stats: NetStats): boolean {
   return true;
 }
 
+// ---------------------------------------------------------------
+// hostile traffic injection
+//
+// The scheduler above only carries messages the coordinators actually
+// published. The channel is not that private: anything able to reach the
+// same Redis publishes onto it, choosing every field — `replicaId`,
+// `seq`, `payload`, and the size of the whole string. These helpers put
+// that traffic on the wire alongside the real broadcasts, delivered to
+// every inbox at once so a replica's *state* is untouched and only the
+// coordinator's own bookkeeping is under test.
+// ---------------------------------------------------------------
+
+/**
+ * One message from a replicaId nobody has ever seen, carrying a payload
+ * with no `name` field.
+ *
+ * `conflictKey` returns null for it, so `receive` discards it before
+ * anything is applied — but `trackSequence` has already run by then, so
+ * it lands in the peer table. That is precisely the vector: an entry per
+ * message, from a message that changes nothing.
+ */
+function injectUnknownPeer(n: number, ts: number): void {
+  const msg = JSON.stringify({
+    replicaId: `noise-${n}`,
+    kind: 'declare',
+    payload: { notAName: n },
+    seq: 1,
+    ts,
+  });
+  for (const ib of inboxes) ib.handler(msg);
+}
+
+/** A broadcast past `MAX_MUTATION_BYTES`, which no replica should parse. */
+function injectOversized(name: string, ts: number): void {
+  const msg = JSON.stringify({
+    replicaId: 'flooder',
+    kind: 'declare',
+    payload: {
+      name,
+      transport: 'signal',
+      producer: 'flooder',
+      schema: {},
+      junk: 'x'.repeat(1_200_000),
+    },
+    seq: 1,
+    ts,
+  });
+  for (const ib of inboxes) ib.handler(msg);
+}
+
+/** Reach the bookkeeping the public stats only summarize. */
+function peerTable(coord: RegistryCoordinator): Map<string, unknown> {
+  return (coord as unknown as { peerSeq: Map<string, unknown> }).peerSeq;
+}
+
 async function quiesce(): Promise<void> {
   const idle: Rng = rng(1);
   const net: NetOpts = { pDrop: 0, pDup: 0 };
@@ -505,6 +560,13 @@ async function runScenario(opts: {
    * operation's *effect* — not just its ordering — depends on delivery.
    */
   bootstrap?: boolean;
+  /**
+   * Total one-shot unknown-peer messages to interleave with the script.
+   * They change no state; they exist only to grow the peer table.
+   */
+  noisePeers?: number;
+  /** Oversized broadcasts to interleave, spread across the script. */
+  oversized?: number;
   /** Delivery-schedule randomness, separated from operation generation. */
   scheduleSeed: number;
 }): Promise<ScenarioResult> {
@@ -564,7 +626,24 @@ async function runScenario(opts: {
   }
 
   auditCompat();
-  for (const op of opts.ops) {
+  // Hostile traffic is spread evenly through the script rather than
+  // front-loaded, so it interleaves with real broadcasts instead of
+  // arriving as one burst before anything else has happened.
+  const noiseTotal = opts.noisePeers ?? 0;
+  const noisePerOp = Math.ceil(noiseTotal / Math.max(1, opts.ops.length));
+  const oversizedEvery = opts.oversized
+    ? Math.max(1, Math.floor(opts.ops.length / opts.oversized))
+    : 0;
+  let noiseSent = 0;
+  let oversizedSent = 0;
+  for (let oi = 0; oi < opts.ops.length; oi++) {
+    const op = opts.ops[oi];
+    for (let n = 0; n < noisePerOp && noiseSent < noiseTotal; n++) {
+      injectUnknownPeer(noiseSent++, virtualNow);
+    }
+    if (oversizedEvery > 0 && oi % oversizedEvery === 0 && oversizedSent < (opts.oversized ?? 0)) {
+      injectOversized(`oversized.${oversizedSent++}`, virtualNow);
+    }
     // Deliver a random slice of the backlog before the next operation.
     const before = sched.int(4);
     for (let d = 0; d < before; d++) {
@@ -809,6 +888,189 @@ describe('fuzz — replica convergence', () => {
       }
       await stopAll(reps);
       expect(undetected, `seed=${seed}: replicas missed a broadcast without noticing: ${undetected}`).toEqual([]);
+    }
+  });
+
+  // ---------------------------------------------------------------
+  // bounds under hostile traffic
+  // ---------------------------------------------------------------
+
+  it('bounding the peer table never silently disables gap detection', async () => {
+    // Two requirements pull against each other. The table must be
+    // bounded, or one entry per message from a chosen `replicaId` is a
+    // leak. But forgetting a peer's high-water mark *resets gap
+    // detection for that peer*, and gap detection is the mechanism that
+    // repairs divergence — so the bound must not quietly switch off the
+    // repair path.
+    //
+    // Least-recently-seen eviction does most of the work: the flood's
+    // ids are seen exactly once and evict each other, while a replica
+    // that is publishing is refreshed on every broadcast. It is not
+    // enough on its own, and this suite is what showed that — a real
+    // peer that goes quiet while ~1500 one-shot ids stream past does get
+    // evicted. So eviction of a recently-seen peer also latches
+    // `forgotLivePeer`, which turns off the "first contact at seq > 1 is
+    // benign" assumption until the next successful reload.
+    //
+    // The property below is the one that actually holds, and it is the
+    // one that matters: however the table was trimmed, a peer's return
+    // is never accepted as benign. Either its mark survived and the jump
+    // reads as a gap, or it was forgotten and the latch makes the
+    // unexplained first contact read as a gap.
+    for (let seed = 1; seed <= 40; seed++) {
+      const r = rng(seed);
+      const replicaCount = 2 + r.int(4);
+      const ops = genOps(r, 25 + r.int(20), replicaCount, {
+        strict: false, allowRemove: false, allowConditional: true,
+      });
+      const { reps } = await runScenario({
+        seed, replicaCount, ops, strict: false, clockStep: 1,
+        net: { pDrop: 0, pDup: 0.15 }, scheduleSeed: seed * 2153 + 17,
+        noisePeers: 900 + r.int(600),
+      });
+
+      // Snapshot the sizes now: `stop()` clears the table, and these are
+      // live Map references.
+      const tableSizes = reps.map((rep) => peerTable(rep.coord).size);
+      const stats = reps.map((rep) => rep.coord.getStats());
+      const diff = divergence(reps, project);
+      // Staleness here is allowed — evicting a live peer is exactly the
+      // case the latch is meant to surface — but it must be *explained*
+      // by the bound having bitten, never spontaneous. And it must not
+      // have cost an unbounded number of reloads on the way.
+      const unexplained = stats
+        .map((s, i) => ({ i, stale: s.stale, peersForgotten: s.peersForgotten }))
+        .filter((s) => s.stale && s.peersForgotten === 0);
+
+      // Now a peer that was publishing during the run speaks again at a
+      // sequence far beyond anything it used. Whether or not its mark
+      // survived the flood, that must not be waved through. Replicas the
+      // flood already flagged are skipped — for them the assertion would
+      // be trivially true and prove nothing.
+      const speaker = reps[0].coord.replicaId;
+      const candidates = reps
+        .map((rep, i) => ({ rep, i }))
+        .slice(1)
+        .filter(({ rep }) => !rep.coord.isStale());
+      const msg = JSON.stringify({
+        replicaId: speaker,
+        kind: 'declare',
+        payload: { notAName: 1 },
+        seq: 500_000,
+        ts: virtualNow + 1,
+      });
+      for (const ib of inboxes) ib.handler(msg);
+      await settle();
+      const noticed = candidates.map(({ rep, i }) => ({ i, stale: rep.coord.isStale() }));
+      await stopAll(reps);
+
+      for (let i = 0; i < reps.length; i++) {
+        expect(
+          tableSizes[i],
+          `seed=${seed}: replica ${i} peer table unbounded (${tableSizes[i]})`,
+        ).toBeLessThanOrEqual(512);
+        // Whatever the bound dropped is counted rather than silent.
+        expect(stats[i].peers, `seed=${seed}: replica ${i} stats disagree with the table`)
+          .toBe(tableSizes[i]);
+      }
+      expect(diff, `seed=${seed}: noise traffic diverged the registries\n${diff}`).toBeNull();
+      expect(unexplained, `seed=${seed}: a replica went stale with nothing to explain it`)
+        .toEqual([]);
+      // A flood that trips the latch must not also become a reload
+      // storm; `resyncs` counts the boot read, so 1 is the floor.
+      for (let i = 0; i < stats.length; i++) {
+        expect(stats[i].resyncs, `seed=${seed}: replica ${i} reloaded ${stats[i].resyncs}x under a peer flood`)
+          .toBeLessThanOrEqual(2);
+      }
+      for (const n of noticed) {
+        expect(
+          n.stale,
+          `seed=${seed}: replica ${n.i} accepted a 500000-message jump from `
+          + `${speaker.slice(0, 8)} as benign — the flood disabled gap detection`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('oversized broadcasts are refused, recorded, and never applied', async () => {
+    // A message past MAX_MUTATION_BYTES is refused before the parse, so
+    // the event it names must not exist anywhere afterwards — and the
+    // refusal has to appear in the conflict log, because a mutation
+    // thrown away silently is the same divergence as one never received.
+    for (let seed = 1; seed <= 40; seed++) {
+      const r = rng(seed);
+      const replicaCount = 2 + r.int(4);
+      const ops = genOps(r, 20 + r.int(20), replicaCount, {
+        strict: false, allowRemove: false, allowConditional: true,
+      });
+      const { reps } = await runScenario({
+        seed, replicaCount, ops, strict: false, clockStep: 1,
+        net: { pDrop: 0, pDup: 0.15 }, scheduleSeed: seed * 3571 + 29,
+        oversized: 1 + r.int(4),
+      });
+
+      const applied = reps.flatMap((rep, i) =>
+        rep.registry.list().filter((e) => e.name.startsWith('oversized.')).map((e) => `${i}:${e.name}`),
+      );
+      const refusals = reps.map((rep) =>
+        rep.coord.getConflicts().filter((c) => c.reason === 'oversized').length,
+      );
+      const diff = divergence(reps, project);
+      await stopAll(reps);
+
+      expect(applied, `seed=${seed}: an oversized broadcast was applied: ${applied.join(', ')}`).toEqual([]);
+      for (let i = 0; i < refusals.length; i++) {
+        expect(refusals[i], `seed=${seed}: replica ${i} refused an oversized broadcast silently`)
+          .toBeGreaterThan(0);
+      }
+      expect(diff, `seed=${seed}: an oversized broadcast diverged the registries\n${diff}`).toBeNull();
+    }
+  });
+
+  it('reload count stays bounded no matter how many gaps occur', async () => {
+    // The repair path is a full HGETALL plus a rebuild, and it clears
+    // every stamp and every parked mutation on the way through — so
+    // while reloads are happening, conflict resolution has no history to
+    // resolve against. One per missed broadcast turns a flaky peer into
+    // a self-inflicted outage. Under a 30% drop rate a replica sees many
+    // gaps; the reloads it performs must not track that count.
+    //
+    // The virtual clock only advances on a local operation, so the
+    // deferred repairs a backoff schedules do not fire inside the run —
+    // which is the point: the replica stays flagged stale for the whole
+    // deferral rather than reloading, and the assertion below pairs the
+    // bound with that guarantee.
+    for (let seed = 1; seed <= 60; seed++) {
+      const r = rng(seed);
+      const replicaCount = 2 + r.int(4);
+      const ops = genOps(r, 40 + r.int(30), replicaCount, {
+        strict: false, allowRemove: true, allowConditional: true,
+      });
+      const { reps, net } = await runScenario({
+        seed, replicaCount, ops, strict: false, clockStep: 1,
+        net: { pDrop: 0.3, pDup: 0 }, scheduleSeed: seed * 8191 + 3,
+        shared: true,
+      });
+
+      const gapped = receiversWithObservableGap(net);
+      const stats = reps.map((rep) => rep.coord.getStats());
+      // Same guarantee the drop suite makes: a replica that could have
+      // noticed a gap is either repaired or still flagged.
+      const undetected = [...gapped].filter((i) => !stats[i].stale && stats[i].resyncs <= 1);
+      await stopAll(reps);
+
+      expect(undetected, `seed=${seed}: gaps went unnoticed: ${undetected}`).toEqual([]);
+      for (let i = 0; i < stats.length; i++) {
+        // `resyncs` counts the boot read too, hence the +1.
+        expect(
+          stats[i].resyncs,
+          `seed=${seed}: replica ${i} reloaded ${stats[i].resyncs}x for `
+          + `${stats[i].resyncsCoalesced} coalesced request(s) — the storm is back`,
+        ).toBeLessThanOrEqual(4);
+      }
+      // Vacuity guard: at least one replica really did see gaps.
+      expect(gapped.size, `seed=${seed}: no gaps were produced, the bound proves nothing`)
+        .toBeGreaterThan(0);
     }
   });
 });

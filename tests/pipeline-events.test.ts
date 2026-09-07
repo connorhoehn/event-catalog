@@ -126,15 +126,31 @@ describe('P0 approval declarations — schema validation', () => {
         }).valid).toBe(true);
     });
 
-    it('rejects pipeline.approval.requested when approverIds is missing', () => {
+    it('rejects pipeline.approval.requested when runId is missing', () => {
+        // Was: "rejects when approverIds is missing". `approverIds` is emitted
+        // by nothing — PipelineExecutor sends `approvers` — so requiring it
+        // made the only real payload invalid on both transports. runId/stepId
+        // are what the producer unconditionally sets, and what is required now.
+        const registry = new Registry();
+        registry.declare(pipelineApprovalRequested);
+
+        expect(registry.validate('pipeline.approval.requested', {
+            stepId: 'step_approval',
+            approvers: [{ type: 'role', value: 'reviewer' }],
+            at: '2026-09-07T10:00:00.000Z',
+        }).valid).toBe(false);
+    });
+
+    it('accepts the payload PipelineExecutor actually emits', () => {
         const registry = new Registry();
         registry.declare(pipelineApprovalRequested);
 
         expect(registry.validate('pipeline.approval.requested', {
             runId: 'run_01',
             stepId: 'step_approval',
-            requestedAt: 1_700_000_000_000,
-        }).valid).toBe(false);
+            approvers: [{ type: 'role', value: 'reviewer' }],
+            at: '2026-09-07T10:00:00.000Z',
+        }).valid).toBe(true);
     });
 
     it('validates pipeline.approval.recorded with approve decision', () => {

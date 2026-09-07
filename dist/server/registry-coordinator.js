@@ -42,6 +42,20 @@
  *     instead of the replica serving a truncated registry as healthy.
  *     What is tracked is a *high-water mark*, not the last seq seen: a
  *     redelivery carries a lower number and must not look like a gap.
+ *     Repair is coalesced and backed off (`requestResync`) — one reload
+ *     at a time, spacing that doubles under repeated gaps — because the
+ *     reload clears every stamp and every parked mutation, so doing it
+ *     per missed message degrades convergence to last-write-wins.
+ *
+ *  5. **Bounded on hostile input.** Every field of a broadcast is chosen
+ *     by the publisher, and anything that can reach the same Redis can
+ *     publish. So each structure keyed off that input has a ceiling: the
+ *     message itself (`MAX_MUTATION_BYTES`, matching the HTTP body
+ *     limit), the stamp map (`MAX_STAMPS`), the parked buffer (bounded
+ *     in *both* entries and bytes, and swept on a timer rather than only
+ *     when a declare happens to arrive), and the peer sequence table
+ *     (`MAX_PEERS`, aged out least-recently-seen first). Every one of
+ *     them reports what it dropped rather than dropping it silently.
  *
  * Fire-and-forget: broadcast failures are logged but never propagate.
  *
@@ -66,6 +80,10 @@
  *    joined. Once the boot read of the shared hash has succeeded the
  *    benign reading is assumed, because the alternative is every new
  *    replica reloading the registry the instant it hears a busy peer.
+ *    The one exception is when the peer table has evicted a peer that
+ *    was still talking: that is the case where "first contact" might be
+ *    our own forgetting, so `forgotLivePeer` turns the assumption off
+ *    until the next successful reload.
  *
  *  - **Timestamps are per-replica.** `metadata.createdAt`,
  *    `deprecation.deprecatedAt` and `schemaHistory[].updatedAt` are
@@ -75,7 +93,7 @@
  *    not.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RegistryCoordinator = exports.MUTATIONS_CHANNEL = void 0;
+exports.RegistryCoordinator = exports.MAX_MUTATION_BYTES = exports.MUTATIONS_CHANNEL = void 0;
 const redis_1 = require("redis");
 const redis_boot_strategy_js_1 = require("../utils/redis-boot-strategy.js");
 const bounded_js_1 = require("../utils/bounded.js");
@@ -85,10 +103,70 @@ exports.MUTATIONS_CHANNEL = 'event-catalog:mutations';
 const MAX_STAMPS = 20_000;
 /** Cap on mutations parked waiting for their declare. */
 const MAX_PENDING = 500;
+/**
+ * Byte ceiling on the parked buffer.
+ *
+ * `MAX_PENDING` bounds *slots*, and a slot retains the peer's payload
+ * verbatim — a `deprecate.reason`, a schema, a service name — none of
+ * which the replication path length-checks. 500 slots is a memory bound
+ * only if the payload is bounded, so the buffer is bounded twice: by
+ * entries and by the bytes those entries actually hold.
+ */
+const MAX_PENDING_BYTES = 2 * 1024 * 1024;
+/**
+ * Largest single broadcast this replica will parse.
+ *
+ * The HTTP path reads bodies under `MAX_REQUEST_BODY_BYTES` (1 MiB); the
+ * broadcast path had no equivalent, so a peer — or anything else able to
+ * reach the same Redis — could hand every replica an arbitrarily large
+ * string to parse and retain. Same number, same reason.
+ */
+exports.MAX_MUTATION_BYTES = 1_048_576;
 /** How long a parked mutation waits for its declare before being dropped. */
 const PENDING_TTL_MS = 60_000;
+/**
+ * How often the parked buffer is swept while it holds anything. The TTL
+ * has to be enforced by something that runs on its own — see
+ * `ensurePendingSweep`.
+ */
+const PENDING_SWEEP_MS = 10_000;
 /** Ring size for the operator-visible conflict log. */
 const MAX_CONFLICTS = 50;
+/**
+ * Cap on the per-peer sequence table. A real cluster has one entry per
+ * live pod; anything approaching this is a peer minting a fresh
+ * `replicaId` per message.
+ */
+const MAX_PEERS = 512;
+/**
+ * How long a peer's high-water mark is kept after its last message.
+ * Pub/sub delivery is milliseconds, so a sequence number this old cannot
+ * be used to detect a gap in anything still in flight — forgetting it
+ * loses nothing.
+ */
+const PEER_IDLE_TTL_MS = 15 * 60_000;
+/** Floor on the interval between self-repair reloads, and its ceiling. */
+const RESYNC_MIN_INTERVAL_MS = 1_000;
+const RESYNC_MAX_INTERVAL_MS = 60_000;
+/** Quiet period after which the resync backoff decays back to immediate. */
+const RESYNC_BACKOFF_RESET_MS = 5 * 60_000;
+/**
+ * Retained size of a parked payload, in JSON characters.
+ *
+ * Only ever called on the park path, which is rare, so the extra
+ * `stringify` costs nothing on the hot path. A throw (a payload with a
+ * cycle cannot come off `JSON.parse`, but the type says `unknown`) is
+ * charged the whole budget so the entry is dropped rather than retained
+ * unmeasured.
+ */
+function payloadBytes(payload) {
+    try {
+        return JSON.stringify(payload)?.length ?? 0;
+    }
+    catch {
+        return MAX_PENDING_BYTES;
+    }
+}
 /**
  * Total order over stamps: later `ts` wins, ties break on `replicaId`.
  * Identical on every replica, which is what makes concurrent writes
@@ -152,6 +230,42 @@ function targetEvent(kind, payload) {
  */
 const COORDINATOR_LOG_WINDOW_MS = 60_000;
 const COORDINATOR_LOGS_PER_WINDOW = 8;
+/**
+ * Close a Redis client without being able to hang.
+ *
+ * `quit()` is graceful: it waits for the connection to be usable so it can
+ * send QUIT. `start()` is fire-and-forget, so when Redis was never reachable
+ * the client is still mid-connect and `quit()` never resolves — which hung
+ * `stop()`, and through it the whole server `shutdown()`, at roughly one boot
+ * in two. `disconnect()` tears the socket down immediately and is the correct
+ * call for a connection that never came up; we try the graceful path first and
+ * fall back on timeout or error.
+ */
+async function closeRedis(client) {
+    if (!client)
+        return;
+    let timer;
+    try {
+        await Promise.race([
+            client.quit(),
+            new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error('quit timed out')), REDIS_QUIT_TIMEOUT_MS);
+                timer.unref?.();
+            }),
+        ]);
+    }
+    catch {
+        // Graceful close was impossible — force it. Already-closed throws here too,
+        // which is fine: the goal is "no live handle", not "closed politely".
+        await client.disconnect().catch(() => { });
+    }
+    finally {
+        if (timer)
+            clearTimeout(timer);
+    }
+}
+/** Ceiling on the graceful half of {@link closeRedis}. */
+const REDIS_QUIT_TIMEOUT_MS = 2_000;
 class RegistryCoordinator {
     replicaId = crypto.randomUUID();
     log;
@@ -193,15 +307,41 @@ class RegistryCoordinator {
     seq = 0;
     /** Strictly-increasing stamp clock — never repeats within a replica. */
     lastTs = 0;
-    /** Last seq observed per peer replica; a jump means messages were lost. */
+    /**
+     * Last seq observed per peer replica; a jump means messages were lost.
+     * Bounded by `MAX_PEERS` and aged out at `PEER_IDLE_TTL_MS`, in
+     * least-recently-seen order — see `rememberPeer`.
+     */
     peerSeq = new Map();
+    /** Peers dropped under capacity pressure, not because they went idle. */
+    _peersForgotten = 0;
+    /**
+     * Set when a *live* peer was evicted for capacity. While it is set, a
+     * first-contact message at seq > 1 is no longer assumed benign — the
+     * peer may be one we forgot. Cleared by the resync that repairs it.
+     */
+    forgotLivePeer = false;
     /** Last applied stamp per conflict key. */
     stamps = new Map();
     /** Mutations waiting for the declare of an event we haven't seen yet. */
     pending = [];
+    /** Running sum of `pending[].bytes`, kept in step by `setPending`/`park`. */
+    pendingBytes = 0;
+    /** Sweeps the parked buffer's TTL; only alive while something is parked. */
+    pendingSweep = null;
     conflicts = [];
     _stale = false;
     _resyncs = 0;
+    /** Repair requests folded into a reload that was already happening. */
+    _resyncsCoalesced = 0;
+    /** The reload currently running, if any — a second one never starts. */
+    resyncInFlight = null;
+    /** Cause of the one follow-up reload queued behind the in-flight one. */
+    resyncQueued = null;
+    resyncTimer = null;
+    /** Current minimum spacing between reloads; doubles, decays when quiet. */
+    resyncBackoffMs = 0;
+    lastResyncAt = 0;
     /** True once a full-state read from shared storage has succeeded. */
     bootSynced = false;
     registry = null;
@@ -215,12 +355,22 @@ class RegistryCoordinator {
     isStale() { return this._stale; }
     /** Recent replication conflicts, newest last. For health/admin surfaces. */
     getConflicts() { return [...this.conflicts]; }
+    /**
+     * `pendingBytes`, `peers` and `peersForgotten` exist so the two bounds
+     * that can silently degrade behaviour are visible rather than
+     * inferred: a parked buffer trimmed for memory, and a peer whose
+     * high-water mark was dropped (which resets gap detection for it).
+     */
     getStats() {
         return {
             replicaId: this.replicaId,
             stale: this._stale,
             resyncs: this._resyncs,
+            resyncsCoalesced: this._resyncsCoalesced,
             pending: this.pending.length,
+            pendingBytes: this.pendingBytes,
+            peers: this.peerSeq.size,
+            peersForgotten: this._peersForgotten,
             conflicts: this.conflicts.length,
         };
     }
@@ -257,6 +407,25 @@ class RegistryCoordinator {
             this.subClient.connect().then(() => subBootStrategy.markConnected()),
         ]);
         await this.subClient.subscribe(exports.MUTATIONS_CHANNEL, (message) => {
+            // Size gate *before* the parse. The HTTP path refuses an oversized
+            // body without reading it; this is the same refusal for the one
+            // input that never goes through HTTP. Deliberately not tracked as a
+            // sequence: the message is unread, so we do not know its seq — and
+            // that is the honest outcome, because the peer's next in-order
+            // message will show the hole and trigger a (coalesced, backed-off)
+            // repair, which is exactly what a mutation we could not apply
+            // should do.
+            if (message.length > exports.MAX_MUTATION_BYTES) {
+                this.recordConflict({
+                    reason: 'oversized',
+                    kind: 'declare',
+                    key: '?',
+                    fromReplica: 'unknown',
+                    detail: `broadcast of ${message.length} chars exceeds the ${exports.MAX_MUTATION_BYTES}-byte limit`,
+                });
+                this.warn('oversized', '[registry-coordinator] refused an oversized broadcast:', { action: 'receive', status: 'refused', size: message.length, limit: exports.MAX_MUTATION_BYTES }, `${message.length} chars`);
+                return;
+            }
             let mutation;
             try {
                 mutation = JSON.parse(message);
@@ -301,14 +470,33 @@ class RegistryCoordinator {
             suppressed,
         }, detail);
     }
+    /**
+     * Release everything this replica holds on behalf of the cluster.
+     *
+     * Both timers are cleared here and nulled, not merely cancelled: an
+     * interval that outlives `stop()` keeps the event loop alive, so
+     * SIGTERM stops shutting the container down and the orchestrator falls
+     * back to SIGKILL. The maps are dropped for the same reason a restart
+     * should not inherit them — a coordinator restarted in-process would
+     * otherwise carry a stale peer table and parked mutations whose
+     * declares were addressed to a previous life.
+     */
     async stop() {
+        this.stopPendingSweep();
+        if (this.resyncTimer) {
+            clearTimeout(this.resyncTimer);
+            this.resyncTimer = null;
+        }
+        this.resyncQueued = null;
         await Promise.allSettled([
-            this.subClient?.quit(),
-            this.pubClient?.quit(),
+            closeRedis(this.subClient),
+            closeRedis(this.pubClient),
         ]);
         this.pubClient = null;
         this.subClient = null;
         this.registry = null;
+        this.peerSeq.clear();
+        this.setPending([]);
         this._started = false;
     }
     /** Publish a mutation to all peer replicas. Never throws. */
@@ -362,10 +550,14 @@ class RegistryCoordinator {
             this.bootSynced = true;
             this._resyncs++;
             this._stale = false;
+            // The snapshot is authoritative for everything a forgotten peer's
+            // messages could have carried, so it also repairs whatever
+            // dropping that peer's high-water mark cost us.
+            this.forgotLivePeer = false;
             // Applied state came wholesale from shared storage; the stamps we
             // were holding describe a history that snapshot supersedes.
             this.stamps.clear();
-            this.pending = [];
+            this.setPending([]);
             if (cause !== 'boot') {
                 this.warn('resynced', `[registry-coordinator] resynced from shared registry (${cause})`, { action: 'resync', status: 'recovered', cause, resyncs: this._resyncs });
             }
@@ -375,6 +567,88 @@ class RegistryCoordinator {
             this.warn('resync-failed', '[registry-coordinator] resync failed:', { action: 'resync', status: 'failed', cause, error: (0, logger_js_1.errorMessage)(err) }, err.message);
             return false;
         }
+    }
+    // ---------------------------------------------------------------
+    // self-repair scheduling
+    // ---------------------------------------------------------------
+    /**
+     * Ask for a repair reload, at most one at a time and no faster than
+     * the current backoff allows.
+     *
+     * A reload is an `HGETALL` of the entire registry hash plus a wholesale
+     * rebuild of the event map, and it clears every stamp and every parked
+     * mutation on the way through — which means that while reloads are
+     * happening, conflict resolution has no history to resolve against and
+     * degrades to last-write-wins. Firing one per missed broadcast turns a
+     * flaky peer into a self-inflicted outage: the audit's 500 gapped
+     * messages produced 500 full reloads.
+     *
+     * Two mechanisms, doing different jobs:
+     *
+     *  - **Coalescing.** A reload already in flight absorbs any request
+     *    that arrives while it runs. At most one follow-up is queued behind
+     *    it — one is enough, because the follow-up reads the *current*
+     *    snapshot, which already reflects every mutation the coalesced
+     *    requests were complaining about.
+     *  - **Backoff.** The first gap after a quiet period repairs
+     *    immediately, because that is the common case and delaying it just
+     *    serves a truncated registry for longer. Each further reload
+     *    doubles the minimum spacing to `RESYNC_MAX_INTERVAL_MS`, and the
+     *    spacing decays back to zero once `RESYNC_BACKOFF_RESET_MS` passes
+     *    without one.
+     *
+     * The replica stays flagged stale for the whole deferral, so a health
+     * check never reads "fine" while a repair is still pending.
+     */
+    requestResync(cause) {
+        if (!this.registry)
+            return;
+        const now = Date.now();
+        // Quiet for long enough that whatever caused the last storm is over.
+        if (this.resyncBackoffMs > 0 && now - this.lastResyncAt >= RESYNC_BACKOFF_RESET_MS) {
+            this.resyncBackoffMs = 0;
+        }
+        if (this.resyncInFlight) {
+            this._resyncsCoalesced++;
+            this.resyncQueued ??= cause;
+            return;
+        }
+        if (this.resyncTimer) {
+            this._resyncsCoalesced++;
+            return;
+        }
+        const wait = Math.max(0, this.lastResyncAt + this.resyncBackoffMs - now);
+        if (wait === 0) {
+            void this.runResync(cause);
+            return;
+        }
+        this._resyncsCoalesced++;
+        this.resyncTimer = setTimeout(() => {
+            this.resyncTimer = null;
+            void this.runResync(cause);
+        }, wait);
+        this.resyncTimer.unref?.();
+    }
+    /** One reload, with the in-flight latch and the backoff bookkeeping. */
+    async runResync(cause) {
+        const running = this.resync(cause);
+        this.resyncInFlight = running;
+        try {
+            await running;
+        }
+        finally {
+            this.resyncInFlight = null;
+            this.lastResyncAt = Date.now();
+            this.resyncBackoffMs = this.resyncBackoffMs === 0
+                ? RESYNC_MIN_INTERVAL_MS
+                : Math.min(this.resyncBackoffMs * 2, RESYNC_MAX_INTERVAL_MS);
+        }
+        const queued = this.resyncQueued;
+        this.resyncQueued = null;
+        // Re-enters the scheduler rather than running directly, so the
+        // follow-up is spaced by the backoff like any other request.
+        if (queued !== null && this._started)
+            this.requestResync(queued);
     }
     // ---------------------------------------------------------------
     // receive path
@@ -415,16 +689,22 @@ class RegistryCoordinator {
     trackSequence(mutation) {
         if (typeof mutation.seq !== 'number')
             return;
+        const now = Date.now();
+        this.prunePeers(now);
         const prev = this.peerSeq.get(mutation.replicaId);
         if (prev === undefined) {
-            this.peerSeq.set(mutation.replicaId, mutation.seq);
+            this.rememberPeer(mutation.replicaId, mutation.seq, now);
             // First contact with this peer. seq is 1-based, so anything above
             // 1 means the peer published before we started listening. That is
             // only benign if our boot read of the shared registry covered it —
-            // without shared storage there is nothing that could have.
-            if (mutation.seq > 1 && !this.bootSynced) {
+            // without shared storage there is nothing that could have. It is
+            // also only benign if we have not *forgotten* a live peer, because
+            // then "first contact" may just be us having dropped its mark.
+            if (mutation.seq > 1 && (!this.bootSynced || this.forgotLivePeer)) {
                 this.markStale(`first message from replica ${mutation.replicaId.slice(0, 8)} is seq ${mutation.seq}`
-                    + ' — earlier broadcasts were never received and there is no shared state to read');
+                    + (this.bootSynced
+                        ? ' — and a live peer was evicted from the sequence table, so this may be a resumed stream'
+                        : ' — earlier broadcasts were never received and there is no shared state to read'));
             }
             return;
         }
@@ -432,13 +712,77 @@ class RegistryCoordinator {
         // redelivery or a message that overtook a newer one carries a seq at
         // or below it and must leave it alone: writing the lower value back
         // would make the next in-order message look like a gap and send a
-        // perfectly healthy replica through a full registry reload.
-        if (mutation.seq <= prev)
+        // perfectly healthy replica through a full registry reload. It still
+        // counts as contact, so the LRU position is refreshed either way.
+        if (mutation.seq <= prev.seq) {
+            this.rememberPeer(mutation.replicaId, prev.seq, now);
             return; // duplicate/reorder — stamps handle it
-        this.peerSeq.set(mutation.replicaId, mutation.seq);
-        if (mutation.seq === prev + 1)
+        }
+        this.rememberPeer(mutation.replicaId, mutation.seq, now);
+        if (mutation.seq === prev.seq + 1)
             return; // in order
-        this.markStale(`missed ${mutation.seq - prev - 1} broadcast(s) from replica ${mutation.replicaId.slice(0, 8)}`);
+        this.markStale(`missed ${mutation.seq - prev.seq - 1} broadcast(s) from replica ${mutation.replicaId.slice(0, 8)}`);
+    }
+    /**
+     * Drop peers we have not heard from in `PEER_IDLE_TTL_MS`.
+     *
+     * The map is kept in least-recently-seen order, so the expired entries
+     * are a prefix and the scan stops at the first live one — this is O(1)
+     * on every message that evicts nothing, which is every message in a
+     * healthy cluster.
+     *
+     * Aging out costs no gap detection. A high-water mark is only useful
+     * against a message still in flight, and pub/sub latency is
+     * milliseconds; nothing arriving fifteen minutes later could have been
+     * ordered against it anyway. Only the capacity path in `rememberPeer`
+     * can forget a peer that is still talking, and that path says so.
+     */
+    prunePeers(now) {
+        for (const [id, peer] of this.peerSeq) {
+            if (now - peer.seenAt <= PEER_IDLE_TTL_MS)
+                break;
+            this.peerSeq.delete(id);
+        }
+    }
+    /**
+     * Record a peer's high-water mark, keeping the table bounded and in
+     * least-recently-seen order (delete-then-set moves a key to the end).
+     *
+     * Eviction under capacity pressure is the one case that can forget a
+     * peer still publishing, and it is the case that must not be silent —
+     * forgetting a mark resets gap detection for that peer, which is the
+     * mechanism that repairs divergence in the first place. So it is
+     * counted in `getStats().peersForgotten`, warned about, and latched in
+     * `forgotLivePeer` so the next unexplained first-contact is treated as
+     * a possible gap rather than assumed benign.
+     *
+     * In practice the LRU order means a real cluster never reaches this:
+     * `MAX_PEERS` is far above any pod count, idle pods age out first, and
+     * the ids that a flood mints are seen exactly once, so they sit at the
+     * head of the LRU and evict each other rather than the live peers.
+     */
+    rememberPeer(id, seq, now) {
+        if (!this.peerSeq.has(id) && this.peerSeq.size >= MAX_PEERS) {
+            const oldest = this.peerSeq.entries().next();
+            if (!oldest.done) {
+                const [victimId, victim] = oldest.value;
+                this.peerSeq.delete(victimId);
+                this._peersForgotten++;
+                // Only a peer we heard from recently is a real loss; an entry
+                // that survived `prunePeers` but is still old carries nothing.
+                if (now - victim.seenAt <= PEER_IDLE_TTL_MS)
+                    this.forgotLivePeer = true;
+                this.warn('peer-evicted', '[registry-coordinator] sequence table full — forgot a peer:', {
+                    action: 'track-sequence',
+                    status: 'evicted',
+                    peer: victimId.slice(0, 8),
+                    peers: this.peerSeq.size,
+                    peersForgotten: this._peersForgotten,
+                }, victimId.slice(0, 8));
+            }
+        }
+        this.peerSeq.delete(id);
+        this.peerSeq.set(id, { seq, seenAt: now });
     }
     markStale(detail) {
         // Guarded on the stale latch, so this is one line per healthy→stale
@@ -452,8 +796,10 @@ class RegistryCoordinator {
             });
         }
         this._stale = true;
-        // Best-effort self-repair from the shared registry hash.
-        void this.resync(detail);
+        // Best-effort self-repair from the shared registry hash — coalesced
+        // and rate-limited, so a peer that keeps skipping sequence numbers
+        // cannot turn every gap into a full reload.
+        this.requestResync(detail);
     }
     recordConflict(c) {
         this.conflicts.push({ at: new Date().toISOString(), ...c });
@@ -551,6 +897,21 @@ class RegistryCoordinator {
      * event that never had it — and only on the replicas that happened to
      * have parked it, which is a divergence.
      */
+    /**
+     * The only place `pending` is replaced wholesale. It keeps the byte
+     * total in step and retires the sweep timer once nothing is parked —
+     * the alternative is a timer that ticks for the life of the process
+     * over an empty array.
+     */
+    setPending(next) {
+        this.pending = next;
+        let bytes = 0;
+        for (const p of next)
+            bytes += p.bytes;
+        this.pendingBytes = bytes;
+        if (next.length === 0)
+            this.stopPendingSweep();
+    }
     purgePending(name) {
         if (!name || this.pending.length === 0)
             return;
@@ -575,22 +936,91 @@ class RegistryCoordinator {
                 this.setStamp(key, { ts: p.mutation.ts, replicaId: p.mutation.replicaId });
             }
         }
-        this.pending = keep;
+        this.setPending(keep);
     }
+    /**
+     * Park a mutation whose declare has not arrived, under two bounds.
+     *
+     * `MAX_PENDING` bounds how many mutations can be waiting; the byte
+     * budget bounds what those slots are allowed to *hold*, because the
+     * payload is the peer's and nothing on this path checks its field
+     * lengths. Both trim oldest-first, and both record what they dropped —
+     * a mutation thrown away silently is the same divergence as one never
+     * received.
+     */
     park(mutation) {
-        this.pending.push({ mutation, parkedAt: Date.now() });
-        if (this.pending.length > MAX_PENDING) {
+        const bytes = payloadBytes(mutation.payload);
+        this.pending.push({ mutation, parkedAt: Date.now(), bytes });
+        this.pendingBytes += bytes;
+        while (this.pending.length > 0
+            && (this.pending.length > MAX_PENDING || this.pendingBytes > MAX_PENDING_BYTES)) {
             const dropped = this.pending.shift();
-            if (dropped) {
-                this.recordConflict({
-                    reason: 'pending-expired',
-                    kind: dropped.mutation.kind,
-                    key: conflictKey(dropped.mutation.kind, dropped.mutation.payload) ?? '?',
-                    fromReplica: dropped.mutation.replicaId,
-                    detail: 'parked-mutation buffer overflowed before the declare arrived',
-                });
-            }
+            if (!dropped)
+                break;
+            this.pendingBytes -= dropped.bytes;
+            this.recordConflict({
+                reason: 'pending-expired',
+                kind: dropped.mutation.kind,
+                key: conflictKey(dropped.mutation.kind, dropped.mutation.payload) ?? '?',
+                fromReplica: dropped.mutation.replicaId,
+                detail: this.pending.length >= MAX_PENDING
+                    ? 'parked-mutation buffer overflowed before the declare arrived'
+                    : 'parked-mutation buffer exceeded its byte budget before the declare arrived',
+            });
         }
+        if (this.pending.length === 0)
+            this.pendingBytes = 0;
+        this.ensurePendingSweep();
+    }
+    /**
+     * Enforce the parking TTL without waiting for a message.
+     *
+     * `drainPending` also applies the TTL, but it only runs when a
+     * `declare` broadcast arrives — so on a cluster that goes quiet,
+     * parked mutations were held indefinitely and `PENDING_TTL_MS` meant
+     * nothing. The interval exists only while something is parked, is
+     * unref'd so it never holds the process open on its own, and is
+     * cleared by `stop()`.
+     */
+    ensurePendingSweep() {
+        if (this.pendingSweep !== null || this.pending.length === 0)
+            return;
+        this.pendingSweep = setInterval(() => this.sweepPending(), PENDING_SWEEP_MS);
+        this.pendingSweep.unref?.();
+    }
+    stopPendingSweep() {
+        if (this.pendingSweep === null)
+            return;
+        clearInterval(this.pendingSweep);
+        this.pendingSweep = null;
+    }
+    /** Drop every parked mutation whose declare never turned up in time. */
+    sweepPending() {
+        if (this.pending.length === 0) {
+            this.stopPendingSweep();
+            return;
+        }
+        const now = Date.now();
+        const keep = [];
+        for (const p of this.pending) {
+            if (this.expired(p, now))
+                continue;
+            keep.push(p);
+        }
+        this.setPending(keep);
+    }
+    /** TTL check plus the conflict record, shared by the sweep and the drain. */
+    expired(p, now) {
+        if (now - p.parkedAt <= PENDING_TTL_MS)
+            return false;
+        this.recordConflict({
+            reason: 'pending-expired',
+            kind: p.mutation.kind,
+            key: conflictKey(p.mutation.kind, p.mutation.payload) ?? '?',
+            fromReplica: p.mutation.replicaId,
+            detail: 'declare never arrived within the parking window',
+        });
+        return true;
     }
     /** Replay parked mutations whose event just showed up, in arrival order. */
     drainPending(name, registry) {
@@ -600,22 +1030,14 @@ class RegistryCoordinator {
         const keep = [];
         const ready = [];
         for (const p of this.pending) {
-            if (now - p.parkedAt > PENDING_TTL_MS) {
-                this.recordConflict({
-                    reason: 'pending-expired',
-                    kind: p.mutation.kind,
-                    key: conflictKey(p.mutation.kind, p.mutation.payload) ?? '?',
-                    fromReplica: p.mutation.replicaId,
-                    detail: 'declare never arrived within the parking window',
-                });
+            if (this.expired(p, now))
                 continue;
-            }
             if (targetEvent(p.mutation.kind, p.mutation.payload) === name)
                 ready.push(p.mutation);
             else
                 keep.push(p);
         }
-        this.pending = keep;
+        this.setPending(keep);
         for (const m of ready)
             this.receive(m, registry);
     }

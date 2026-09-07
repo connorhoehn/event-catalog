@@ -6,10 +6,12 @@
 
 import type { Request, Response } from '../http-router.js';
 import { auditEmitter } from '../audit-emitter.js';
-import { badRequest, eventNotFound, stringParam, type RoutesDeps } from './_shared.js';
+import { badRequest, eventNotFound, stringParam, RouteLog, type RoutesDeps } from './_shared.js';
+import { MAX_SUBSCRIBERS_PER_EVENT, validateServiceName } from './limits.js';
 
 export function createSubscriberHandlers(deps: RoutesDeps) {
   const { registry, coordinator, metrics } = deps;
+  const log = new RouteLog(deps.logger);
 
   // The `subscriber_count` gauge is push-only and was previously written
   // exactly once, when `MetricsObserver` first subscribed to the event's
@@ -26,13 +28,23 @@ export function createSubscriberHandlers(deps: RoutesDeps) {
   }
 
   // Register a subscriber for an event
+  //
+  // `serviceName` comes off the POST body, so both its shape and the
+  // number of distinct values one event can accumulate are chosen by the
+  // caller. The name is validated here; the count is bounded by
+  // `Registry.addSubscriber`, which is where the rule has to live because
+  // replication reaches the same list without passing through this
+  // handler. A refusal is a 429 rather than a silent no-op — the caller
+  // is a consumer that will otherwise believe it is registered.
   function add(req: Request, res: Response): void {
-    const { serviceName } = req.body as { serviceName?: string };
+    const { serviceName } = req.body as { serviceName?: unknown };
 
-    if (!serviceName) {
-      badRequest(res, 'serviceName is required');
+    const nameError = validateServiceName(serviceName);
+    if (nameError) {
+      badRequest(res, nameError);
       return;
     }
+    const name = serviceName as string;
 
     const entry = registry.get(req.params.name);
     if (!entry) {
@@ -40,17 +52,42 @@ export function createSubscriberHandlers(deps: RoutesDeps) {
       return;
     }
 
-    registry.addSubscriber(req.params.name, serviceName);
+    if (!registry.addSubscriber(req.params.name, name)) {
+      // The name is already validated and the event exists, so capacity
+      // is the only refusal left.
+      log.warn(
+        `subscriber-cap:${req.params.name}`,
+        '[event-catalog] refused subscriber — event is at its subscriber cap:',
+        {
+          component: 'routes/subscribers',
+          action: 'subscriber.add',
+          status: 'refused',
+          eventName: req.params.name,
+          serviceName: name,
+          limit: MAX_SUBSCRIBERS_PER_EVENT,
+        },
+        req.params.name,
+      );
+      res.status(429).json({
+        error: `Event "${req.params.name}" already has the maximum of `
+          + `${MAX_SUBSCRIBERS_PER_EVENT} distinct subscribers`,
+        event: req.params.name,
+        subscriber: name,
+        limit: MAX_SUBSCRIBERS_PER_EVENT,
+        current: entry.subscribers.length,
+      });
+      return;
+    }
     syncCount(req.params.name);
     auditEmitter.publish({
       kind: 'subscriber.added',
       timestamp: new Date().toISOString(),
       eventName: req.params.name,
       namespace: entry.namespace,
-      serviceName,
+      serviceName: name,
     });
-    coordinator?.broadcast('subscriber.add', { eventName: req.params.name, serviceName }).catch(() => {});
-    res.status(201).json({ event: req.params.name, subscriber: serviceName });
+    coordinator?.broadcast('subscriber.add', { eventName: req.params.name, serviceName: name }).catch(() => {});
+    res.status(201).json({ event: req.params.name, subscriber: name });
   }
 
   // Remove a subscriber from an event
@@ -84,15 +121,17 @@ export function createSubscriberHandlers(deps: RoutesDeps) {
   // refreshed (a service may have been pruned in the meantime).
   function heartbeat(req: Request, res: Response): void {
     const { serviceName, events } = req.body as { serviceName?: unknown; events?: unknown };
-    if (typeof serviceName !== 'string' || serviceName.length === 0) {
-      badRequest(res, 'serviceName is required');
+    const nameError = validateServiceName(serviceName);
+    if (nameError) {
+      badRequest(res, nameError);
       return;
     }
+    const name = serviceName as string;
     const eventNames = Array.isArray(events) && events.every((e) => typeof e === 'string')
       ? (events as string[])
       : undefined;
-    const refreshed = registry.heartbeat(serviceName, eventNames);
-    res.json({ serviceName, refreshed, count: refreshed.length });
+    const refreshed = registry.heartbeat(name, eventNames);
+    res.json({ serviceName: name, refreshed, count: refreshed.length });
   }
 
   // wave24-b — list every subscriber + its lastSeenAt. Optional
@@ -104,10 +143,23 @@ export function createSubscriberHandlers(deps: RoutesDeps) {
     if (Number.isFinite(staleAfter) && staleAfter > 0) {
       const cutoff = Date.now() - staleAfter * 1000;
       const stale = all.filter((s) => Date.parse(s.lastSeenAt) < cutoff);
-      res.json({ subscribers: stale, total: stale.length, filter: { staleAfter } });
+      res.json({
+        subscribers: stale,
+        total: stale.length,
+        filter: { staleAfter },
+        refusals: registry.getSubscriberRefusalStats(),
+      });
       return;
     }
-    res.json({ subscribers: all, total: all.length });
+    // The cap and the name guard both refuse from inside the registry,
+    // where replication has no response to write into. Reporting the
+    // counters on the listing is what keeps a capped event from looking
+    // like an event nobody subscribed to.
+    res.json({
+      subscribers: all,
+      total: all.length,
+      refusals: registry.getSubscriberRefusalStats(),
+    });
   }
 
   return { add, remove, heartbeat, list };

@@ -22,6 +22,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Registry } from '../src/registry/index.js';
+import { MAX_SUBSCRIBERS_PER_EVENT } from '../src/registry/limits.js';
 import { MetricsCollector, DEFAULT_MAX_TRACKED_EVENTS } from '../src/server/metrics.js';
 import { PromMetrics, DEFAULT_MAX_EVENT_LABELS } from '../src/server/prom-metrics.js';
 import {
@@ -165,27 +166,34 @@ describe('server state that grows without a ceiling', () => {
     expect(store.getObserved('one.event')).toEqual([]);
   });
 
-  it('DEFECT: an event has no ceiling on distinct subscribers', () => {
-    // src/registry/index.ts:287 — `addSubscriber` push-and-dedupe with no
-    // cap. `serviceName` comes off the POST body at
-    // src/server/routes/subscribers.ts:30 with no length or count guard
-    // (`MAX_CONSUMER_NAME_LENGTH` guards manifests only), and every add
-    // re-serializes the whole entry to Redis, so N adds cost O(N^2) bytes.
+  it('an event has a ceiling on distinct subscribers', () => {
+    // Regression: `addSubscriber` was push-and-dedupe with no cap, and every
+    // add re-serializes the whole entry to Redis, so N adds cost O(N^2) bytes.
+    // A subscriber is a service IDENTITY, not a process — every replica of a
+    // consumer de-dupes onto one name — so the cap is refusal, not eviction:
+    // dropping a live consumer would corrupt the answer to "who consumes X?",
+    // which is the question the list exists to answer.
     const registry = new Registry();
     registry.declare({ name: 'load.subs', transport: 'signal', producer: 'p', schema: {} } as never);
 
     for (let i = 0; i < 5_000; i++) registry.addSubscriber('load.subs', `svc-${i}`);
 
-    expect(registry.get('load.subs')!.subscribers).toHaveLength(5_000);
-    expect(registry.listSubscriberHeartbeats()).toHaveLength(5_000);
+    expect(registry.get('load.subs')!.subscribers).toHaveLength(MAX_SUBSCRIBERS_PER_EVENT);
+    expect(registry.listSubscriberHeartbeats()).toHaveLength(MAX_SUBSCRIBERS_PER_EVENT);
+    // Refusals are counted rather than silent — replication has no response
+    // to write a 429 into, so the counter is the only signal there.
+    expect(registry.getSubscriberRefusalStats().atCapacity).toBeGreaterThan(0);
+    // The EARLIEST subscribers survive: the newcomer is refused, so an
+    // established consumer is never displaced by a flood of new names.
+    expect(registry.get('load.subs')!.subscribers).toContain('svc-0');
   });
 
-  it('DEFECT: removing an event orphans its subscriber heartbeats', () => {
-    // src/registry/index.ts:392 — `remove()` drops the entry and the Redis
-    // hash field but never touches `subscriberHeartbeats`, which is keyed
-    // `${eventName}\x00${serviceName}`. `pruneStaleSubscribers` only walks
-    // events that still exist, so nothing can ever reach these again:
-    // declare/subscribe/delete in a loop leaks one entry per edge forever.
+  it('removing an event reclaims its subscriber heartbeats', () => {
+    // Regression: `remove()` dropped the entry and the Redis hash field but
+    // never touched `subscriberHeartbeats`, keyed `${eventName}\x00${service}`.
+    // `pruneStaleSubscribers` only walks events that still exist, so nothing
+    // could ever reach the orphans again — declare/subscribe/delete in a loop
+    // leaked one unreclaimable entry per edge, forever.
     const registry = new Registry();
     const heartbeats = (registry as unknown as {
       subscriberHeartbeats: Map<string, number>;
@@ -199,19 +207,23 @@ describe('server state that grows without a ceiling', () => {
 
     expect(registry.size()).toBe(0);
     expect(registry.listSubscriberHeartbeats()).toHaveLength(0);
-    // …and yet:
-    expect(heartbeats.size).toBe(2_000);
-    // The sweeper cannot reclaim them either — it iterates live events.
+    // Reclaimed at removal time, not left for a sweeper that cannot see them.
+    expect(heartbeats.size).toBe(0);
     expect(registry.pruneStaleSubscribers(0)).toHaveLength(0);
-    expect(heartbeats.size).toBe(2_000);
+    expect(heartbeats.size).toBe(0);
   });
 });
 
 // ─── Compression ─────────────────────────────────────────────────────────
 
 describe('per-request compression state', () => {
-  /** A response over a socket the peer has already reset. */
-  function abortedResponse(): {
+  /**
+   * A response whose socket is either live or already reset by the peer.
+   *
+   * `destroyed` is the only difference between the two, and it is now
+   * load-bearing rather than incidental colour: see the two tests below.
+   */
+  function makeResponse(destroyed: boolean): {
     res: ReturnType<typeof makeRouteResponse>;
     headers: Map<string, string>;
     writes: number;
@@ -220,7 +232,7 @@ describe('per-request compression state', () => {
     const state = { writes: 0 };
     const nodeRes = {
       headersSent: false,
-      destroyed: true,
+      destroyed,
       writableEnded: false,
       setHeader(name: string, value: string) { headers.set(name, value); },
       getHeader(name: string) { return headers.get(name); },
@@ -245,7 +257,9 @@ describe('per-request compression state', () => {
     vi.useFakeTimers();
     const before = vi.getTimerCount();
     for (let i = 0; i < 2_000; i++) {
-      const { res, headers } = abortedResponse();
+      // A LIVE socket — the point here is that 2000 real compressions
+      // leave nothing behind, so the responses have to actually compress.
+      const { res, headers } = makeResponse(false);
       res.setHeader('Content-Type', 'application/json');
       res.json({ blob: 'x'.repeat(4_096), i });
       expect(headers.get('Content-Encoding')).toBe('br');
@@ -253,18 +267,36 @@ describe('per-request compression state', () => {
     expect(vi.getTimerCount()).toBe(before);
   });
 
-  it('DEFECT: compresses a body for a peer that has already gone away', () => {
-    // src/server/http-router.ts:206 — `finish()` gates only on
-    // `headersSent`; nothing consults `nodeRes.destroyed` or
-    // `writableEnded`. A client that opens `GET /api/events` with
-    // `Accept-Encoding: br` and resets the socket still costs the server a
-    // full brotli pass over ~326 KiB (~2.1 ms of event-loop time, measured
-    // in the table at the top of compression.ts) for bytes nobody reads.
-    const { res, headers } = abortedResponse();
+  it('does no compression work for a peer that has already gone away', () => {
+    // Was `DEFECT:` — `finish()` in src/server/http-router.ts gated only on
+    // `headersSent`, and a socket reset destroys the socket without any
+    // headers having been sent, so `headersSent` was still false and the
+    // work went ahead. A client that opened `GET /api/events` with
+    // `Accept-Encoding: br` and reset therefore still cost a full brotli
+    // pass over ~326 KiB (~2.1 ms of event-loop time, per the table at the
+    // top of compression.ts) for bytes nobody would read — the cheapest
+    // possible request to issue, and one of the most expensive to serve.
+    //
+    // `finish()` now returns early on `nodeRes.destroyed`, and `json()`
+    // checks it before `JSON.stringify` so the serialization is skipped
+    // too.
+    const aborted = makeResponse(true);
+    aborted.res.setHeader('Content-Type', 'application/json');
+    aborted.res.json({ blob: 'x'.repeat(64 * 1024) });
+
+    // Nothing was compressed, nothing was framed, nothing was written.
+    expect(aborted.headers.get('Content-Encoding')).toBeUndefined();
+    expect(aborted.headers.get('Content-Length')).toBeUndefined();
+    expect(aborted.writes).toBe(0);
+  });
+
+  it('still compresses normally for a peer that is still connected', () => {
+    // The guard must be about the peer being gone, not a blanket
+    // short-circuit: the live path has to be untouched.
+    const { res, headers } = makeResponse(false);
     res.setHeader('Content-Type', 'application/json');
     res.json({ blob: 'x'.repeat(64 * 1024) });
 
-    // The work was done and the framing written to a dead socket.
     expect(headers.get('Content-Encoding')).toBe('br');
     expect(Number(headers.get('Content-Length'))).toBeGreaterThan(0);
   });

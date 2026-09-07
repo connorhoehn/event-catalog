@@ -4,7 +4,7 @@
 asyncapi: 3.0.0
 info:
   title: event-catalog backbone events
-  version: 0.5.0
+  version: 0.6.0
   description: |-
     Machine-readable contract for the cross-service events that move over the
     platform's brokers: Redis pub/sub (ephemeral `signal`) and the
@@ -4835,20 +4835,45 @@ components:
         stepId:
           type: string
           description: Identifier of the pipeline step this event belongs to (node id within the pipeline graph).
+        approvers:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum:
+                  - user
+                  - role
+                description: Whether this approver is an individual user or a role/team.
+              value:
+                type: string
+                description: The user id or role name this approver resolves to.
+              userId:
+                type: string
+                description: Convenience alias for `value` when type is `user`; populated by UI surfaces that filter approval queues by user identity.
+            required:
+              - type
+              - value
+            additionalProperties: true
+          minItems: 1
+          description: "Approver descriptors eligible to act on this gate — `{type: user|role, value}`, NOT bare user ids. At least one. This is the field PipelineExecutor actually sends."
+        at:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp at which the producer emitted this event.
         approverIds:
           type: array
           items:
             type: string
           minItems: 1
-          description: User ids of every approver eligible to act on this gate. At least one.
+          description: User ids of every approver eligible to act on this gate. At least one. NEVER EMITTED — PipelineExecutor sends `approvers`.
         requestedAt:
           type: number
-          description: Epoch milliseconds at which the approval was requested.
+          description: Epoch milliseconds at which the approval was requested. NEVER EMITTED — PipelineExecutor sends an ISO `at`.
       required:
         - runId
         - stepId
-        - approverIds
-        - requestedAt
       additionalProperties: true
     pipeline_approval_recorded__schema:
       type: object
@@ -4859,9 +4884,19 @@ components:
         stepId:
           type: string
           description: Identifier of the pipeline step this event belongs to (node id within the pipeline graph).
+        userId:
+          type: string
+          description: Platform user id of the acting or referenced user.
+        at:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp at which the producer emitted this event.
+        reason:
+          type: string
+          description: Why the reported outcome happened.
         approver:
           type: string
-          description: User id of the approver who recorded this decision.
+          description: User id of the approver who recorded this decision. NEVER EMITTED — PipelineExecutor sends `userId`; kept declared because removal is breaking.
         decision:
           type: string
           enum:
@@ -4873,13 +4908,11 @@ components:
           description: Optional free-text reviewer note attached to the decision.
         decidedAt:
           type: number
-          description: Epoch milliseconds at which the approver recorded the decision.
+          description: Epoch milliseconds at which the approver recorded the decision. NEVER EMITTED — PipelineExecutor sends an ISO `at`.
       required:
         - runId
         - stepId
-        - approver
         - decision
-        - decidedAt
       additionalProperties: true
     pipeline_approval_resolved__schema:
       type: object

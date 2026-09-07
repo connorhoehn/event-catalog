@@ -520,3 +520,63 @@ describe('the negotiation itself is the API path\'s, not a second implementation
     expect(isCompressibleType('font/woff2')).toBe(false);
   });
 });
+
+// ─── Work done after the peer has gone ───────────────────────────────────
+//
+// The same gate `finish()` in http-router.ts needed, for the same reason,
+// on the path that handles the biggest bodies in the service. The measured
+// cost at the top of static-compression.ts is 4.4 ms of blocked event loop
+// for one uncached brotli pass over the 272 KiB graph vendor chunk — spent
+// on a socket nobody is reading, for a client that only had to open a
+// connection with `Accept-Encoding: br` and reset it.
+
+describe('sendStaticBuffer() with a peer that has already disconnected', () => {
+  function recordingRes(destroyed: boolean): {
+    calls: Array<[string, unknown]>;
+    res: http.ServerResponse;
+  } {
+    const calls: Array<[string, unknown]> = [];
+    const headers = new Map<string, string>();
+    const res = {
+      destroyed,
+      headersSent: false,
+      setHeader: (k: string, v: string) => {
+        headers.set(k.toLowerCase(), String(v));
+        calls.push(['setHeader', [k, v]]);
+      },
+      getHeader: (k: string) => headers.get(k.toLowerCase()),
+      writeHead: (code: number) => calls.push(['writeHead', code]),
+      end: (body?: unknown) => calls.push(['end', body]),
+      write: () => true,
+    } as unknown as http.ServerResponse;
+    return { calls, res };
+  }
+
+  const brotliReq = {
+    url: '/assets/vendor-graph.js',
+    headers: { 'accept-encoding': 'br' },
+  } as unknown as http.IncomingMessage;
+
+  /** Big enough to be worth compressing and to make the cost visible. */
+  const asset = Buffer.from('a'.repeat(256 * 1024), 'utf8');
+  const assetHeaders = new Map<string, string>([['content-type', 'application/javascript']]);
+
+  it('writes nothing at all for a destroyed socket', () => {
+    const { calls, res } = recordingRes(true);
+
+    sendStaticBuffer(brotliReq, res, 200, asset, assetHeaders, DEFAULT_COMPRESSION);
+
+    // Not even the asset's own headers: the whole call is a no-op.
+    expect(calls).toEqual([]);
+  });
+
+  it('still compresses and writes for a peer that is still connected', () => {
+    const { calls, res } = recordingRes(false);
+
+    sendStaticBuffer(brotliReq, res, 200, asset, assetHeaders, DEFAULT_COMPRESSION);
+
+    const set = calls.filter(([k]) => k === 'setHeader').map(([, v]) => v as [string, string]);
+    expect(set.some(([k, v]) => k.toLowerCase() === 'content-encoding' && v === 'br')).toBe(true);
+    expect(calls.some(([k]) => k === 'end')).toBe(true);
+  });
+});

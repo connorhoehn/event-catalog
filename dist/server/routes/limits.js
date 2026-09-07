@@ -18,7 +18,7 @@
 // committed registry snapshot holds 194 events across every service —
 // so they bound abuse without constraining legitimate callers.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RESERVED_EVENT_NAMES = exports.MAX_CONSUMER_NAME_LENGTH = exports.MAX_EVENT_NAME_LENGTH = exports.MAX_AUDIT_QUERY_LIMIT = exports.MAX_MANIFEST_EVENTS = exports.MAX_FRESHNESS_EVENTS = exports.MAX_DLQ_REPLAY_IDS = exports.MAX_BULK_EXPORT_NAMES = exports.MAX_BULK_DEPRECATE_NAMES = exports.MAX_BULK_EVENTS = void 0;
+exports.RESERVED_EVENT_NAMES = exports.validateServiceName = exports.MAX_SERVICE_NAME_LENGTH = exports.MAX_SUBSCRIBERS_PER_EVENT = exports.MAX_CONSUMER_NAME_LENGTH = exports.MAX_EVENT_NAME_LENGTH = exports.MAX_AUDIT_QUERY_LIMIT = exports.MAX_MANIFEST_EVENTS = exports.MAX_FRESHNESS_EVENTS = exports.MAX_DLQ_REPLAY_IDS = exports.MAX_BULK_EXPORT_NAMES = exports.MAX_BULK_DEPRECATE_NAMES = exports.MAX_BULK_EVENTS = void 0;
 exports.validateEventName = validateEventName;
 exports.withinArrayLimit = withinArrayLimit;
 exports.keySafeRecord = keySafeRecord;
@@ -57,6 +57,17 @@ exports.MAX_EVENT_NAME_LENGTH = 512;
  * `event-catalog:manifests` and comes straight off the URL path.
  */
 exports.MAX_CONSUMER_NAME_LENGTH = 256;
+/**
+ * Subscriber caps. Defined in `src/registry/limits.ts` and re-exported
+ * here so every HTTP-visible ceiling stays discoverable in one file.
+ * They live next to the registry because the subscriber list is also
+ * mutated off the HTTP path — by replication and by the library client —
+ * so a guard written only in a handler would not bound the state.
+ */
+var limits_js_1 = require("../../registry/limits.js");
+Object.defineProperty(exports, "MAX_SUBSCRIBERS_PER_EVENT", { enumerable: true, get: function () { return limits_js_1.MAX_SUBSCRIBERS_PER_EVENT; } });
+Object.defineProperty(exports, "MAX_SERVICE_NAME_LENGTH", { enumerable: true, get: function () { return limits_js_1.MAX_SERVICE_NAME_LENGTH; } });
+Object.defineProperty(exports, "validateServiceName", { enumerable: true, get: function () { return limits_js_1.validateServiceName; } });
 /**
  * Object keys that JavaScript treats specially on assignment. An event
  * name is used as a key in the plain-object responses built by

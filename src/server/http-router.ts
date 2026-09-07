@@ -69,6 +69,14 @@ export interface RouteResponse {
   /** Flush headers without a body — used by the SSE routes. */
   flushHeaders(): void;
   readonly headersSent: boolean;
+  /**
+   * True once the peer is gone — the socket was destroyed by a client
+   * reset, an abort, or the shutdown path. Handlers that are about to do
+   * real work for the response (a large serialization, a store scan)
+   * should check this first; the response layer checks it too, but only
+   * once the handler has already produced the body.
+   */
+  readonly destroyed: boolean;
   /** Underlying Node response. Use sparingly. */
   raw: http.ServerResponse;
 }
@@ -204,6 +212,19 @@ export function makeRouteResponse(
    * clients, so it is computed here and nowhere else.
    */
   const finish = (body: string | Buffer | undefined): void => {
+    // The peer is gone. Everything below — the brotli/gzip pass most of
+    // all — would produce bytes with nowhere to go.
+    //
+    // Compression here is whole-buffer and synchronous, so it is event-loop
+    // time, not background time: `GET /api/events` is ~326 KiB of JSON, and
+    // a client that sends `Accept-Encoding: br` and then resets still paid
+    // for a full brotli pass over all of it. That is the cheapest possible
+    // request to issue and one of the more expensive ones to serve, which
+    // makes it the shape an abusive client would pick deliberately. Gating
+    // on `headersSent` alone never caught it: a reset destroys the socket
+    // without sending any headers, so `headersSent` is still false and the
+    // work went ahead exactly as if someone were waiting for it.
+    if (nodeRes.destroyed) return;
     if (bodyForbidden(statusCode)) {
       nodeRes.writeHead(statusCode);
       nodeRes.end();
@@ -251,12 +272,17 @@ export function makeRouteResponse(
       return res;
     },
     json(body: unknown): void {
-      if (nodeRes.headersSent) return;
+      // `destroyed` is checked here as well as in finish() because
+      // JSON.stringify runs *before* the call: for the bulk export
+      // archive that is a multi-hundred-KiB serialization of the whole
+      // registry, and doing it for a peer that has already gone is the
+      // same wasted synchronous work as the compression pass.
+      if (nodeRes.headersSent || nodeRes.destroyed) return;
       nodeRes.setHeader('Content-Type', 'application/json');
       finish(JSON.stringify(body));
     },
     send(body: string): void {
-      if (nodeRes.headersSent) return;
+      if (nodeRes.headersSent || nodeRes.destroyed) return;
       finish(body);
     },
     setHeader(name: string, value: string): void {
@@ -283,6 +309,9 @@ export function makeRouteResponse(
     },
     get headersSent(): boolean {
       return nodeRes.headersSent;
+    },
+    get destroyed(): boolean {
+      return nodeRes.destroyed;
     },
     raw: nodeRes,
   };

@@ -66,7 +66,19 @@ async function ensureTTL(
 export async function ensureTable(logger?: CatalogLogger): Promise<void> {
   const client = makeDynamoClient();
   const log = new LogWriter(logger);
+  try {
+    await provision(client, log);
+  } finally {
+    // This client is boot-scoped and nothing else ever uses it, but the
+    // AWS SDK's default request handler pools keep-alive sockets, and a
+    // pooled socket is a `ref`'d handle. Left undestroyed it kept the
+    // event loop alive on its own — with no variable still pointing at it,
+    // the shutdown path could not have released it even in principle.
+    client.destroy();
+  }
+}
 
+async function provision(client: DynamoDBClient, log: LogWriter): Promise<void> {
   try {
     await client.send(new DescribeTableCommand({ TableName: DLQ_TABLE_NAME }));
     await ensureTTL(client, DLQ_TABLE_NAME, log);

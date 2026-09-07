@@ -181,6 +181,16 @@ function collectHeaders(target, headers) {
  * remaining uncompressed path.
  */
 function sendStaticBuffer(req, res, status, body, headers, compression, cache) {
+    // Same gate as `finish()` in http-router.ts, and it matters more here:
+    // the largest single body this server sends is the 272 KiB graph vendor
+    // chunk, whose uncached brotli pass measures 4.4 ms of blocked event
+    // loop. A client that requests it with `Accept-Encoding: br` and resets
+    // buys that stall for free. (Only the *uncached* pass, since the variant
+    // cache absorbs repeats of the same asset — but a cold cache, or a
+    // rotation across enough distinct assets to evict, is the same 4.4 ms
+    // every time.)
+    if (res.destroyed)
+        return;
     for (const [name, value] of headers) {
         res.setHeader(name, value);
     }

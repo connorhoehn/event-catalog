@@ -44,6 +44,9 @@ problem naming the variable; the service never boots half-configured.
 | `REDIS_BOOT_CONNECT_ATTEMPTS` | `3` | Connect attempts before boot gives up on Redis and continues degraded. |
 | `EVENT_CATALOG_STRICT` | `false` | Reject publishes of undeclared events instead of warning. |
 | `EVENT_CATALOG_AUTH_TOKEN` | — (**auth off**) | Shared secret gating mutating admin-API requests. See below. |
+| `EVENT_CATALOG_COMPRESSION` | `true` | Response compression. `false` is the full revert. See below. |
+| `EVENT_CATALOG_COMPRESSION_THRESHOLD` | `1024` | Bytes below which a body is sent uncompressed. `0` compresses everything; under 128 warns, because below ~200 bytes gzip makes JSON larger. |
+| `EVENT_CATALOG_COMPRESSION_LEVEL` | `6` | zlib level, `1`–`9`. |
 | `ALERT_WEBHOOK_URL` | — | Optional; health transitions are POSTed here. |
 | `DYNAMODB_ENDPOINT` / `LOCALSTACK_ENDPOINT` | — | Optional DynamoDB override. Without one (and without AWS credentials) DLQ reads and writes fail; nothing else does. |
 
@@ -81,6 +84,25 @@ new EventCatalog({
 Rate limiting stays inside the library: some of these lines sit on the publish
 path, and an adapter has no way to know which. Forward every call you receive.
 Omitting `logger` leaves output byte-identical to before.
+
+## Response compression
+
+**On by default.** API responses and the admin UI's static assets are
+compressed with brotli, gzip or deflate, negotiated from `Accept-Encoding` in
+that preference order (brotli q5 measured both smaller and ~1.5x cheaper than
+gzip L6 on every payload here). `/api/events` goes 325.6 → 39.4 KiB,
+`/api/metrics/history` 199.0 → 1.9 KiB, the admin bundle 68.9% smaller.
+
+Nothing that worked stops working: a body is only ever compressed for a client
+that advertised the coding, so a caller that cannot decode still gets
+`identity`. Node's global `fetch` advertises and decodes transparently;
+`http.request` advertises nothing. SSE (`/api/flow`, `/api/audit/stream`) is
+excluded structurally — the first `flushHeaders()`/`write()` latches a flag —
+rather than by a path list, so a future streaming endpoint cannot be
+accidentally buffered.
+
+Set `EVENT_CATALOG_COMPRESSION=false` to turn the whole thing off, e.g. behind
+a proxy that already compresses.
 
 ## Admin API authentication
 
@@ -159,7 +181,7 @@ docker build --ssh default -f event-catalog/Dockerfile -t event-catalog ..
 | Command | Description |
 |---------|-------------|
 | `ec-lint-crd <path>` | Validate CRD YAML files against the bundle catalog |
-| `ec-bundle-diff <name@v1> <name@v2>` | Compare two bundle versions; suggests semver bump |
+| `ec-bundle-diff <name@v1> <name@v2>` | Compare two bundle versions; suggests semver bump. `--exit-code` makes "differs" exit `3` so CI can tell it from "failed to run" (`1`). |
 | `ec-bundle-create <name>` | Scaffold a new FeatureBundle file |
 
 Each CLI prints usage with `--help`.
@@ -197,12 +219,12 @@ npx ec-lint-crd crds/
 ## Subpath exports
 
 ```typescript
-import { catalog }              from '@connorhoehn/event-catalog';           // main library
+import { EventCatalog }         from '@connorhoehn/event-catalog';           // main library
 import { pipelineDeclarations } from '@connorhoehn/event-catalog/pipeline';  // pipeline event decls
-import { publishSignal }        from '@connorhoehn/event-catalog/signal';    // signal transport
-import { publishDurable }       from '@connorhoehn/event-catalog/durable';   // durable transport
-import { EventRegistry }        from '@connorhoehn/event-catalog/registry';  // local registry
-import { DLQClient }            from '@connorhoehn/event-catalog/dlq';       // DLQ browser
+import { SignalTransport }      from '@connorhoehn/event-catalog/signal';    // signal transport
+import { DurableTransport }     from '@connorhoehn/event-catalog/durable';   // durable transport
+import { Registry }             from '@connorhoehn/event-catalog/registry';  // local registry
+import { DLQManager }           from '@connorhoehn/event-catalog/dlq';       // DLQ browser
 
 import type { EventPayloadMap }    from '@connorhoehn/event-catalog/types';         // generated payload types
 import type { ClientFramePayload } from '@connorhoehn/event-catalog/client-frames'; // generated WS frame types

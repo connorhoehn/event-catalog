@@ -510,7 +510,15 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     );
   });
 
-  const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+  // The base client is held separately on purpose. `DynamoDBDocumentClient`
+  // is a thin translating wrapper that shares the base client's config and
+  // middleware stack, and its own `destroy()` is an empty method — the AWS
+  // SDK documents the *caller* of `.from()` as the owner of the wrapped
+  // client's lifecycle. Destroying only the document client would therefore
+  // release nothing, and the base client's keep-alive HTTPS agent keeps
+  // sockets (and their timers) referenced on the event loop after SIGTERM.
+  const dynamoBaseClient = new DynamoDBClient({});
+  const dynamoClient = DynamoDBDocumentClient.from(dynamoBaseClient);
   const dlqTableName = process.env.DLQ_TABLE_NAME ?? 'event-catalog-dlq';
   const dlqStore = new DLQStore(dynamoClient, dlqTableName);
 
@@ -617,6 +625,12 @@ export async function startServer(config: ServerConfig = {}): Promise<{
 
   // Prometheus-formatted /metrics endpoint at root
   rootRouter.get('/metrics', async (_req, res) => {
+    // Unauthenticated, and the most expensive GET on the surface that is
+    // not a static asset: a DynamoDB query for up to 1000 DLQ rows,
+    // followed by a full render of every registered series. The DDB call
+    // costs real money as well as latency, so it is worth not making for
+    // a scraper that has already timed out and hung up.
+    if (res.destroyed) return;
     try {
       // Refresh DLQ gauges by scanning the DLQ store. Best-effort —
       // if DDB is down we still want /metrics to respond.
@@ -635,6 +649,10 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     } catch {
       // swallow; gauges may be stale but text rendering still works
     }
+    // Re-checked: the DLQ query above is an await, so the peer may have
+    // gone during it. renderProm() walks every series and builds the whole
+    // exposition text as one string before send() ever sees it.
+    if (res.destroyed) return;
     res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
     res.send(promMetrics.renderProm());
   });
@@ -934,7 +952,82 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     component: 'server', action: 'config', adminUrl: `http://localhost:${port}`,
   });
 
-  const shutdown = async () => {
+  /**
+   * Release one client/observer, never letting it strand the ones behind
+   * it — whether it fails or simply does not come back.
+   *
+   * These used to be a bare `await a(); await b(); …` chain, and it had
+   * both failure modes.
+   *
+   * A rejection anywhere in it — `redisClient.quit()` on a client already
+   * closed by degraded mode raises "The client is closed" — propagated out
+   * of `shutdown()` and left every later release unrun, which is the same
+   * leak as never having written the call. The CLI's handler is
+   * `void shutdown().then(() => process.exit(0))`, so it also meant the
+   * process never exited.
+   *
+   * A hang is worse, because there is no error to see. `coordinator.stop()`
+   * does not always return when its Redis was never reachable: with the
+   * dependency down, `coordinator.start()` is left in flight (it is called
+   * fire-and-forget at boot) and a `stop()` racing it can wait forever.
+   * Reproduced at roughly one boot in two against a refused Redis, and it
+   * hangs `shutdown()` itself — the exact SIGTERM-never-completes symptom
+   * the SSE close was added to fix, arriving from a different direction.
+   * The fix for the coordinator's own race belongs in
+   * registry-coordinator.ts; the fix for "shutdown must terminate" belongs
+   * here, because no single component should be able to decide that the
+   * process never exits.
+   *
+   * Each release therefore gets the same bounded window the socket drain
+   * gets. A release that overruns it is abandoned and logged, and the next
+   * one runs. Abandoning may leak that one component's handles — but the
+   * alternative is leaking every handle behind it plus the process itself,
+   * and the operator gets a line naming exactly which component did it.
+   */
+  const release = async (what: string, fn: () => Promise<unknown> | unknown): Promise<void> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = new Promise<'timeout'>(resolve => {
+      timer = setTimeout(() => resolve('timeout'), drainMs);
+      timer.unref?.();
+    });
+    try {
+      const outcome = await Promise.race([
+        (async () => { await fn(); return 'released' as const; })(),
+        expiry,
+      ]);
+      if (outcome === 'timeout') {
+        log.warn(
+          `[event-catalog] shutdown: releasing ${what} did not finish in ${drainMs}ms — abandoning it`,
+          {
+            component: 'server', action: 'shutdown', phase: 'release-timeout',
+            resource: what, drainMs,
+          },
+        );
+      }
+    } catch (err) {
+      log.warn(
+        `[event-catalog] shutdown: releasing ${what} failed:`,
+        {
+          component: 'server', action: 'shutdown', phase: 'release-failed',
+          resource: what, error: errorMessage(err),
+        },
+        errorMessage(err),
+      );
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  };
+
+  /**
+   * SIGINT and SIGTERM both land on the CLI's handler, and a container
+   * runtime commonly sends the second while the first is still draining.
+   * Without this latch the second pass re-enters the drain, calls
+   * `admission.stop()` on an already-closing server, and destroys clients
+   * out from under the first pass's in-flight awaits.
+   */
+  let shutdownPromise: Promise<void> | null = null;
+
+  const runShutdown = async (): Promise<void> => {
     log.info('[event-catalog] shutting down...', {
       component: 'server', action: 'shutdown', phase: 'begin',
     });
@@ -958,35 +1051,93 @@ export async function startServer(config: ServerConfig = {}): Promise<{
       });
     }
 
-    await metrics.snapshotToRedis(redisClient).catch(() => {});
+    // Best-effort save of the metrics window, through `release` for the
+    // bound rather than a bare `.catch(() => {})`: this is a Redis round
+    // trip on a connection that shutdown has every reason to believe is
+    // unhealthy, and it sits AHEAD of the drain — so a hang here does not
+    // just lose a snapshot, it stops the listener from ever closing.
+    await release('metrics snapshot', () => metrics.snapshotToRedis(redisClient));
+
+    /**
+     * Wait for `stopped`, but never longer than `drainMs`.
+     *
+     * The timer is CLEARED once the race settles rather than merely
+     * `unref`'d. Unref keeps a pending timer from holding the process
+     * open, which is why it was there — but it does not remove the timer,
+     * so a shutdown that closed cleanly in 2ms still left a 10-second
+     * handle sitting in the timer heap, and anything auditing what the
+     * process is holding (this repo's own test does exactly that) saw it.
+     * Clearing is what makes "shutdown left nothing behind" literally
+     * true instead of true-in-effect.
+     */
+    const raceDrain = async (): Promise<'closed' | 'timeout'> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const expiry = new Promise<'timeout'>(resolve => {
+        timer = setTimeout(() => resolve('timeout'), drainMs);
+        timer.unref?.();
+      });
+      try {
+        return await Promise.race([stopped.then(() => 'closed' as const), expiry]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    };
 
     // Drain: stop accepting, release idle keep-alive sockets right away,
     // and give anything still in flight a bounded window to finish
     // before the remaining sockets are closed out from under it.
     const stopped = admission.stop().catch(() => {});
     admission.nodeServer.closeIdleConnections?.();
-    const drainTimer = new Promise<'timeout'>(resolve => {
-      const t = setTimeout(() => resolve('timeout'), drainMs);
-      t.unref?.();
-    });
-    if (await Promise.race([stopped.then(() => 'closed' as const), drainTimer]) === 'timeout') {
+    if (await raceDrain() === 'timeout') {
       log.warn(
         `[event-catalog] requests still in flight after ${drainMs}ms — closing connections`,
         { component: 'server', action: 'shutdown', phase: 'drain-timeout', drainMs },
       );
+      // Optional-chained because the method is version-gated, which means
+      // the branch below has to assume it might have done nothing. The
+      // second bounded wait is what keeps that assumption from turning
+      // "we could not force the sockets" into "shutdown never returns" —
+      // an unbounded `await stopped` here would reintroduce, one layer
+      // down, exactly the hang the drain window exists to prevent.
       admission.nodeServer.closeAllConnections?.();
-      await stopped;
+      if (await raceDrain() === 'timeout') {
+        log.warn(
+          '[event-catalog] connections survived the forced close — abandoning the listener',
+          { component: 'server', action: 'shutdown', phase: 'force-timeout', drainMs },
+        );
+      }
     }
 
-    await metricsObserver.stop();
-    await coordinator.stop();
-    await signal.disconnect();
-    await durable.disconnect();
-    await redisClient.quit().catch(() => {});
+    // Everything below is a client, a subscription or a socket pool held
+    // open independently of the HTTP listener, so each one is released
+    // even if an earlier one fails.
+    await release('metrics observer', () => metricsObserver.stop());
+    await release('registry coordinator', () => coordinator.stop());
+    await release('signal transport', () => signal.disconnect());
+    await release('durable transport', () => durable.disconnect());
+    await release('registry redis client', () => redisClient.quit());
+    // The AWS SDK's default request handler holds a keep-alive agent whose
+    // pooled sockets are `ref`'d handles: with the DLQ store still holding
+    // one, the event loop stays alive after every other client is closed
+    // and the process outlives SIGTERM until the orchestrator escalates.
+    // Destroying the BASE client, not the document wrapper — see where it
+    // is constructed for why the wrapper's own destroy() releases nothing.
+    await release('dynamodb client', () => dynamoBaseClient.destroy());
+    // sseRegistry is a module singleton that outlives this server, so the
+    // hooks installed at boot would otherwise pin this server's PromMetrics
+    // and logger for the lifetime of the process — the leak that shows up
+    // when a host starts and stops several servers in one process.
+    sseRegistry.useRejectionHook(undefined);
+    sseRegistry.useLogger(undefined);
     log.info('[event-catalog] shutdown complete', {
       component: 'server', action: 'shutdown', phase: 'complete',
     });
   };
+
+  // Not `async`: an async wrapper would hand every caller a fresh promise
+  // over the same run, which reads as idempotent but makes the latch
+  // invisible to anyone checking it.
+  const shutdown = (): Promise<void> => (shutdownPromise ??= runShutdown());
 
   return { address: () => admission.address(), shutdown };
 }

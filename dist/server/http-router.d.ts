@@ -37,6 +37,14 @@ export interface RouteResponse {
     /** Flush headers without a body — used by the SSE routes. */
     flushHeaders(): void;
     readonly headersSent: boolean;
+    /**
+     * True once the peer is gone — the socket was destroyed by a client
+     * reset, an abort, or the shutdown path. Handlers that are about to do
+     * real work for the response (a large serialization, a store scan)
+     * should check this first; the response layer checks it too, but only
+     * once the handler has already produced the body.
+     */
+    readonly destroyed: boolean;
     /** Underlying Node response. Use sparingly. */
     raw: http.ServerResponse;
 }

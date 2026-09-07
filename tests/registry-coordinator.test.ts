@@ -341,3 +341,42 @@ describe('RegistryCoordinator', () => {
     await coord.stop();
   });
 });
+
+// ---------------------------------------------------------------------------
+// stop() must not be able to hang.
+//
+// start() is fire-and-forget, so when Redis was never reachable the clients
+// are still mid-connect. node-redis `quit()` waits for a usable connection
+// before sending QUIT, so it never resolved — hanging stop(), and through it
+// the server's whole shutdown(), at roughly one boot in two.
+// ---------------------------------------------------------------------------
+
+describe('RegistryCoordinator.stop() is bounded', () => {
+  it('falls back to disconnect() when quit() never resolves', async () => {
+    const coordinator = new RegistryCoordinator();
+
+    let disconnected = 0;
+    const hung = () => ({
+      // Never settles — a client that never finished connecting.
+      quit: () => new Promise(() => {}),
+      disconnect: async () => { disconnected++; },
+    });
+
+    // Inject clients directly: start() would need a live Redis.
+    Object.assign(coordinator as unknown as Record<string, unknown>, {
+      pubClient: hung(),
+      subClient: hung(),
+      _started: true,
+    });
+
+    await coordinator.stop();
+
+    // Both were forced closed rather than left dangling.
+    expect(disconnected).toBe(2);
+  }, 10_000);
+
+  it('stop() is safe when no clients were ever created', async () => {
+    const coordinator = new RegistryCoordinator();
+    await expect(coordinator.stop()).resolves.toBeUndefined();
+  });
+});

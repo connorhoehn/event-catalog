@@ -3517,14 +3517,27 @@ components:
           id:
             type: string
             description: client-generated upload id
+          transferId:
+            type: string
+            description: Server-side transfer id for this upload; distinct from the client-generated `id`.
+          actor:
+            type: string
+            description: Identity attributed with the upload, as recorded when the transfer began.
+          transferred:
+            type: integer
+            minimum: 0
+            description: Bytes transferred so far. This is what the producer actually sends — divide by `size` for a percentage.
+          size:
+            type: integer
+            minimum: 0
+            description: Total size of the upload in bytes.
           progress:
             type: number
-            description: Upload progress as a percentage, 0-100.
+            description: Upload progress as a percentage, 0-100. NEVER EMITTED — FileUploadService sends `transferred`/`size` instead.
         required:
           - type
           - channel
           - id
-          - progress
         additionalProperties: true
     ws_fileupload_scanning:
       messageId: ws.fileupload.scanning
