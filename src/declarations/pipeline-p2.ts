@@ -45,9 +45,26 @@
 //     ResourceRouter (still part of DC), not the PipelineExecutor itself.
 
 import type { EventDeclaration } from '../types/index';
+import { annotateDeclarations, type FieldGlossary } from './field-glossary';
 
 const PRODUCER = 'distributed-core';
 const TAGS_BASE = ['pipeline', 'producer:distributed-core'];
+
+/**
+ * P2-specific field meanings. Shared names (runId, stepId, at, error,
+ * durationMs, attempt …) resolve from the common glossary.
+ */
+const FIELDS: FieldGlossary = {
+    triggeredBy: 'What caused the run to start (manual, schedule, webhook, …) plus the trigger\'s own metadata.',
+    from: 'Cluster node id the run was reassigned away from.',
+    to: 'Cluster node id the run was reassigned to.',
+    previousOwner: 'Cluster node id that owned the run before it was orphaned.',
+    fromNodeId: 'Pipeline node id the run is being restarted from.',
+    originalFailedStepId: 'Step id that failed on the original run, when the resume was triggered by a failure.',
+    received: 'Number of join inputs received so far.',
+    required: 'Number of join inputs required before the join fires.',
+    inputs: 'Ordered step ids that contributed the inputs this join fired on.',
+};
 
 /** Common envelope-shape builder for events whose payload follows the
  *  `{ runId, ...fields, at }` pattern emitted by PipelineExecutor. */
@@ -333,3 +350,7 @@ export const pipelineP2Declarations: EventDeclaration[] = [
     pipelineJoinWaiting,
     pipelineJoinFired,
 ];
+
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+annotateDeclarations(pipelineP2Declarations, FIELDS);

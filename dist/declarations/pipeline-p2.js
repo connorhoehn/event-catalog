@@ -46,8 +46,24 @@
 //     ResourceRouter (still part of DC), not the PipelineExecutor itself.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumeFromStep = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = void 0;
+const field_glossary_1 = require("./field-glossary");
 const PRODUCER = 'distributed-core';
 const TAGS_BASE = ['pipeline', 'producer:distributed-core'];
+/**
+ * P2-specific field meanings. Shared names (runId, stepId, at, error,
+ * durationMs, attempt …) resolve from the common glossary.
+ */
+const FIELDS = {
+    triggeredBy: 'What caused the run to start (manual, schedule, webhook, …) plus the trigger\'s own metadata.',
+    from: 'Cluster node id the run was reassigned away from.',
+    to: 'Cluster node id the run was reassigned to.',
+    previousOwner: 'Cluster node id that owned the run before it was orphaned.',
+    fromNodeId: 'Pipeline node id the run is being restarted from.',
+    originalFailedStepId: 'Step id that failed on the original run, when the resume was triggered by a failure.',
+    received: 'Number of join inputs received so far.',
+    required: 'Number of join inputs required before the join fires.',
+    inputs: 'Ordered step ids that contributed the inputs this join fired on.',
+};
 /** Common envelope-shape builder for events whose payload follows the
  *  `{ runId, ...fields, at }` pattern emitted by PipelineExecutor. */
 function pipelineSchema(extra, required) {
@@ -274,4 +290,7 @@ exports.pipelineP2Declarations = [
     exports.pipelineJoinWaiting,
     exports.pipelineJoinFired,
 ];
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+(0, field_glossary_1.annotateDeclarations)(exports.pipelineP2Declarations, FIELDS);
 //# sourceMappingURL=pipeline-p2.js.map

@@ -1,4 +1,4 @@
-import type { Request, Response } from 'express';
+import type { Request, Response } from './http-router.js';
 /**
  * Tri-state health handler matching the `@connorhoehn/service-runtime`
  * shape (with `id`/`status`/`details` per check), inlined here because

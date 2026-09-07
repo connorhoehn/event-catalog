@@ -299,6 +299,7 @@ export interface EventPayloadMap {
             checkpoint?: Record<string, unknown>;
             [key: string]: unknown;
         };
+        [key: string]: unknown;
     };
     /** Emitted by PipelineRaftStateMachine when a run-updated command transitions an existing run's status. Payload is the full Raft slot record after mutation. */
     'pipeline:raft:run:updated': {
@@ -311,6 +312,7 @@ export interface EventPayloadMap {
             lastAppliedIndex: number;
             [key: string]: unknown;
         };
+        [key: string]: unknown;
     };
     /** Emitted by PipelineRaftStateMachine when a run-updated command arrives for a runId with no existing slot (proposer's view of its own run-started commit lagged). A placeholder slot is synthesized rather than dropping the command. Operators should surface this as a warning. */
     'pipeline:raft:run:synthesized': {
@@ -323,6 +325,7 @@ export interface EventPayloadMap {
             lastAppliedIndex: number;
             [key: string]: unknown;
         };
+        [key: string]: unknown;
     };
     /** Emitted by PipelineRaftStateMachine when a run-checkpointed command lands. Payload is the full Raft slot record with the new checkpoint blob. */
     'pipeline:raft:run:checkpointed': {
@@ -336,6 +339,7 @@ export interface EventPayloadMap {
             checkpoint: Record<string, unknown>;
             [key: string]: unknown;
         };
+        [key: string]: unknown;
     };
     /** Emitted by PipelineRaftStateMachine when a run-terminated command lands (completed | failed | cancelled). Terminal status is sticky — subsequent terminations on the same runId are no-ops and DO NOT re-emit. */
     'pipeline:raft:run:terminated': {
@@ -349,6 +353,7 @@ export interface EventPayloadMap {
             checkpoint?: Record<string, unknown>;
             [key: string]: unknown;
         };
+        [key: string]: unknown;
     };
     /** JudgeStepHandler entered the LLM-as-judge call after resolving inputs and passing the budget gate. */
     'pipeline:judge:started': {
@@ -460,6 +465,57 @@ export interface EventPayloadMap {
         tokensOut?: number;
         costUsd?: number;
         latencyMs?: number;
+        [key: string]: unknown;
+    };
+    /** A transcribed utterance from one call participant, produced by the live-ASR sidecar and relayed to captions:<channelArn> WS subscribers. `id` is stable per line so interim→final updates replace in place. */
+    'call:caption:line': {
+        channelArn: string;
+        participantId: string;
+        id: string;
+        seq: number;
+        text: string;
+        interim: boolean;
+        at?: string;
+    };
+    /** A completed recording with transcribe=true was queued for the transcription worker. Payload carries per-leg track URLs; the worker unwraps the event-catalog envelope. */
+    'transcription:job.queued': {
+        recordingId: string;
+        callId?: string;
+        channelArn: string;
+        tracks: unknown[];
+        durationMs?: number;
+        recordingProfile?: string;
+        [key: string]: unknown;
+    };
+    /** transcript.json is written to recording storage; platform-api fetches it, generates the LLM summary, and flips transcriptStatus to ready. */
+    'transcription:transcript.ready': {
+        recordingId: string;
+        callId?: string;
+        transcriptKey: string;
+        transcriptUrl?: string;
+        durationMs?: number;
+        speakerCount?: number;
+        languages?: unknown[];
+        [key: string]: unknown;
+    };
+    /** A meeting-summary markdown has been generated and persisted for a recording; projectors and summary-bound pipelines should run. */
+    'transcription:summary.ready': {
+        recordingId: string;
+        callId: string;
+        channelArn?: string;
+        lobbyName?: string;
+        summaryChars?: number;
+        [key: string]: unknown;
+    };
+    /** A tool call inside an agent step started or ended. Streamed live to the run view; payloads stay off the event and live in the persisted AgentStepOutput. */
+    'pipeline:step:agent:tool': {
+        runId: string;
+        stepId: string;
+        callIndex: number;
+        name: string;
+        phase: 'start' | 'end';
+        ok?: boolean;
+        at: string;
         [key: string]: unknown;
     };
     /** Confirmation sent to a client when they successfully join a chat channel. */
@@ -1664,6 +1720,7 @@ export interface EventPayloadMap {
             path: string;
             value?: unknown;
             from?: string;
+            [key: string]: unknown;
         })[];
         [key: string]: unknown;
     };

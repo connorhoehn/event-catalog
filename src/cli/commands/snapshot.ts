@@ -29,46 +29,91 @@ import { pathToFileURL } from 'node:url';
 import { resolve as resolveFs, isAbsolute } from 'node:path';
 import { computeSchemaFingerprint } from '../../registry/fingerprint.js';
 import type { EventDeclaration } from '../../types/index.js';
+import { formatError, parseFlags, readJsonResponse, usageError } from '../_args.js';
+
+const BIN = 'event-catalog snapshot';
+const USAGE_LIVE = 'event-catalog snapshot --catalog-url=<url> [--namespace=X]';
+const USAGE_SOURCE = 'event-catalog snapshot --from-source --declarations=<path> [--export=<name>] [--namespace=X]';
+
+export const SNAPSHOT_HELP = `
+event-catalog snapshot — emit a {event: fingerprint} manifest on stdout
+
+USAGE
+  ${USAGE_LIVE}
+  ${USAGE_SOURCE}
+
+OPTIONS
+  --catalog-url=<url>     Live mode: GET <url>/api/fingerprints
+  --from-source           Offline mode: fingerprint a local declarations module
+  --declarations=<path>   Offline mode: path to the declarations module (required)
+  --export=<name>         Offline mode: named export holding EventDeclaration[]
+                          (default: probes declarations, default, eventDeclarations)
+  --namespace=<ns>        Only include events in this namespace
+  --help, -h              Show this help
+
+EXIT CODES
+  0   Manifest written to stdout
+  1   Catalog unreachable or returned a non-2xx / non-JSON response
+  2   Usage error, unloadable declarations module, or malformed declaration
+
+EXAMPLES
+  event-catalog snapshot --catalog-url=https://catalog > snapshot.json
+  event-catalog snapshot --from-source --declarations=src/event-declarations.js
+`.trim();
+
+const SPEC = {
+  value: ['catalog-url', 'namespace', 'declarations', 'export'],
+  boolean: ['from-source'],
+} as const;
 
 export async function snapshot(args: string[]): Promise<number> {
-  const fromSource = args.includes('--from-source');
-
-  if (fromSource) {
-    return runFromSource(args);
+  const parsed = parseFlags(args, SPEC);
+  if (!parsed.ok) return usageError(BIN, parsed.error, USAGE_LIVE);
+  if (parsed.args.help) {
+    console.log(SNAPSHOT_HELP);
+    return 0;
+  }
+  const { positional, values, flags } = parsed.args;
+  if (positional.length > 0) {
+    return usageError(BIN, `unexpected argument "${positional[0]}" — snapshot takes flags only`, USAGE_LIVE);
   }
 
-  return runFromCatalog(args);
+  return flags.has('from-source') ? runFromSource(values) : runFromCatalog(values);
 }
 
-async function runFromCatalog(args: string[]): Promise<number> {
-  const url = getArg(args, 'catalog-url');
+type Values = Readonly<Record<string, string>>;
+
+async function runFromCatalog(values: Values): Promise<number> {
+  const url = values['catalog-url'];
   if (!url) {
-    console.error('usage: event-catalog snapshot --catalog-url=<url> [--namespace=X]');
-    return 2;
+    return usageError(BIN, '--catalog-url is required (or use --from-source)', USAGE_LIVE);
   }
-  const namespace = getArg(args, 'namespace');
+  const namespace = values['namespace'];
   const ep = `${url.replace(/\/$/, '')}/api/fingerprints${namespace ? `?namespace=${encodeURIComponent(namespace)}` : ''}`;
   let res: Response;
   try {
     res = await fetch(ep);
   } catch (err) {
-    console.error(`event-catalog snapshot: fetch failed: ${(err as Error).message}`);
+    console.error(`${BIN}: fetch failed: ${formatError(err)}`);
     return 1;
   }
   if (!res.ok) {
-    console.error(`event-catalog snapshot: HTTP ${res.status}`);
+    console.error(`${BIN}: HTTP ${res.status} from ${ep}`);
     return 1;
   }
-  const manifest = await res.json();
-  process.stdout.write(JSON.stringify(manifest, null, 2) + '\n');
+  const body = await readJsonResponse(res, ep);
+  if (!body.ok) {
+    console.error(`${BIN}: ${body.error}`);
+    return 1;
+  }
+  process.stdout.write(JSON.stringify(body.value, null, 2) + '\n');
   return 0;
 }
 
-async function runFromSource(args: string[]): Promise<number> {
-  const declarationsPath = getArg(args, 'declarations');
+async function runFromSource(values: Values): Promise<number> {
+  const declarationsPath = values['declarations'];
   if (!declarationsPath) {
-    console.error('usage: event-catalog snapshot --from-source --declarations=<path> [--export=<name>] [--namespace=X]');
-    return 2;
+    return usageError(BIN, '--declarations=<path> is required with --from-source', USAGE_SOURCE);
   }
 
   const absPath = isAbsolute(declarationsPath)
@@ -79,26 +124,26 @@ async function runFromSource(args: string[]): Promise<number> {
   try {
     mod = (await import(pathToFileURL(absPath).href)) as Record<string, unknown>;
   } catch (err) {
-    console.error(`event-catalog snapshot: cannot load "${declarationsPath}": ${(err as Error).message}`);
+    console.error(`${BIN}: cannot load "${declarationsPath}": ${formatError(err)}`);
     return 2;
   }
 
-  const exportName = getArg(args, 'export');
+  const exportName = values['export'];
   const declarations = extractDeclarations(mod, exportName);
   if (!declarations) {
     console.error(
-      `event-catalog snapshot: could not find an EventDeclaration[] export in "${declarationsPath}". `
+      `${BIN}: could not find an EventDeclaration[] export in "${declarationsPath}". `
       + 'Expected `export const declarations = [...]`, `export default [...]`, '
       + 'or pass --export=<name> to select a named export.',
     );
     return 2;
   }
 
-  const namespaceFilter = getArg(args, 'namespace');
+  const namespaceFilter = values['namespace'];
   const manifest: Record<string, string> = {};
   for (const decl of declarations) {
     if (!decl || typeof decl !== 'object' || typeof decl.name !== 'string' || !decl.schema) {
-      console.error(`event-catalog snapshot: skipping malformed declaration: ${JSON.stringify(decl).slice(0, 120)}`);
+      console.error(`${BIN}: skipping malformed declaration: ${JSON.stringify(decl).slice(0, 120)}`);
       return 2;
     }
     if (namespaceFilter && decl.namespace && decl.namespace !== namespaceFilter) continue;
@@ -132,13 +177,3 @@ function isDeclarationArray(value: unknown): boolean {
   return Array.isArray(value)
     && value.every((v) => v && typeof v === 'object' && typeof (v as { name?: unknown }).name === 'string');
 }
-
-function getArg(args: string[], name: string): string | undefined {
-  for (const arg of args) {
-    if (arg.startsWith(`--${name}=`)) return arg.slice(name.length + 3);
-  }
-  const idx = args.indexOf(`--${name}`);
-  if (idx !== -1 && args[idx + 1]) return args[idx + 1];
-  return undefined;
-}
-

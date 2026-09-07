@@ -137,17 +137,17 @@ export function TopologyView() {
   if (!topology) return <div className="loading">Loading topology...</div>;
 
   return (
-    <div className="topology-view" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div className="page-header" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid #e2e8f0' }}>
-        <h2 style={{ margin: 0 }}>Event Topology</h2>
+    <div className="topology-view view-column">
+      <div className="page-header view-toolbar">
+        <h2>Event Topology</h2>
         <Chip tone="neutral">{topology.nodes.filter((n) => n.type === 'event').length} events</Chip>
         <Chip tone="neutral">{topology.nodes.filter((n) => n.type === 'service').length} services</Chip>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-          <label style={{ fontSize: 12, color: '#475569' }}>namespace</label>
+        <div className="view-toolbar-right">
+          <label className="view-toolbar-label">namespace</label>
           <select
             value={filter.namespace}
             onChange={(e) => setFilter({ namespace: e.target.value })}
-            style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #cbd5e1' }}
+            className="view-select"
           >
             <option value="">all</option>
             {namespaces.map((ns) => (
@@ -166,7 +166,7 @@ export function TopologyView() {
           body="Services register their events at startup. The topology graph will show producers, events, and subscribers as connected nodes."
         />
       ) : (
-        <div style={{ flex: 1, minHeight: 500 }}>
+        <div className="view-canvas">
           <ReactFlowProvider>
             <ReactFlow
               nodes={rfNodes}

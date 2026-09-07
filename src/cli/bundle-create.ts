@@ -14,13 +14,17 @@
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { formatError, parseFlags, runCli, usageError } from './_args.js';
+
 // ---------------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------------
 
-const args = process.argv.slice(2);
+const BIN = 'ec-bundle-create';
+const USAGE = 'ec-bundle-create <name> [--version 1.0.0] [--transport signal|durable|both] [--events e1,e2]';
+const SPEC = { value: ['version', 'transport', 'events'] } as const;
 
-const HELP = `
+export const HELP = `
 ec-bundle-create — scaffold a new FeatureBundle file from a template
 
 USAGE
@@ -46,33 +50,56 @@ EXAMPLES
   ec-bundle-create screenshare --events ws.screen.started,ws.screen.stopped
 `.trim();
 
-export function parseArgs(argv: string[]): {
+export interface CreateArgs {
   name: string;
   version: string;
   transport: string;
   events: string[];
-} | null {
-  if (argv.includes('--help') || argv.includes('-h')) {
-    console.log(HELP);
-    process.exit(0);
-  }
-
-  const name = argv[0];
-  if (!name || name.startsWith('--')) {
-    return null;
-  }
-
-  const version = getArg(argv, '--version') ?? '1.0.0';
-  const transport = getArg(argv, '--transport') ?? 'signal';
-  const eventsArg = getArg(argv, '--events');
-  const events = eventsArg ? eventsArg.split(',').map((e) => e.trim()).filter(Boolean) : [];
-
-  return { name, version, transport, events };
 }
 
-function getArg(argv: string[], flag: string): string | undefined {
-  const idx = argv.indexOf(flag);
-  return idx >= 0 ? argv[idx + 1] : undefined;
+export type CreateArgsResult =
+  | { ok: true; value: CreateArgs }
+  | { ok: true; help: true }
+  | { ok: false; error: string };
+
+/**
+ * Full argv parse: rejects unknown flags and value-less value flags, and
+ * reports `--help` as a result instead of calling `process.exit` (which
+ * made this function untestable and surprising to import).
+ */
+export function parseCreateArgs(argv: string[]): CreateArgsResult {
+  const parsed = parseFlags(argv, SPEC);
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+  if (parsed.args.help) return { ok: true, help: true };
+
+  const { positional, values } = parsed.args;
+  const name = positional[0];
+  if (!name) {
+    return { ok: false, error: 'bundle name is required' };
+  }
+  if (positional.length > 1) {
+    return { ok: false, error: `unexpected extra argument "${positional[1]}" — create takes one bundle name` };
+  }
+
+  const eventsArg = values['events'];
+  return {
+    ok: true,
+    value: {
+      name,
+      version: values['version'] ?? '1.0.0',
+      transport: values['transport'] ?? 'signal',
+      events: eventsArg ? eventsArg.split(',').map((e) => e.trim()).filter(Boolean) : [],
+    },
+  };
+}
+
+/**
+ * Back-compat shim: returns the parsed args, or null when argv can't be
+ * parsed into a bundle name + options.
+ */
+export function parseArgs(argv: string[]): CreateArgs | null {
+  const r = parseCreateArgs(argv);
+  return r.ok && 'value' in r ? r.value : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,22 +297,19 @@ export function bundleCreate(
   if (fileExists(filepath)) {
     return {
       code: 1,
-      message: `ec-bundle-create: bundle file already exists: ${filepath}`,
+      message: `${BIN}: bundle file already exists: ${filepath}`,
     };
   }
 
-  // Write the bundle file
-  const template = generateBundleTemplate(name, version, transport, events);
-  writeFile(filepath, template);
-
-  // Update index.ts
+  // Read + rewrite index.ts BEFORE writing the bundle file, so a failure
+  // here doesn't leave an orphaned, unreferenced bundle on disk.
   let indexContent: string;
   try {
     indexContent = readFile(indexPath);
-  } catch {
+  } catch (err) {
     return {
       code: 1,
-      message: `ec-bundle-create: could not read index file: ${indexPath}`,
+      message: `${BIN}: could not read index file ${indexPath}: ${formatError(err, false)}`,
     };
   }
 
@@ -294,12 +318,29 @@ export function bundleCreate(
     return {
       code: 1,
       message:
-        `ec-bundle-create: could not update ${indexPath} — unexpected file structure. ` +
+        `${BIN}: could not update ${indexPath} — unexpected file structure. ` +
         `Add the export, import, and allBundles entry manually.`,
     };
   }
 
-  writeFile(indexPath, updatedIndex);
+  const template = generateBundleTemplate(name, version, transport, events);
+  try {
+    writeFile(filepath, template);
+  } catch (err) {
+    return {
+      code: 1,
+      message: `${BIN}: could not write ${filepath}: ${formatError(err, false)}`,
+    };
+  }
+
+  try {
+    writeFile(indexPath, updatedIndex);
+  } catch (err) {
+    return {
+      code: 1,
+      message: `${BIN}: wrote ${filepath} but could not update ${indexPath}: ${formatError(err, false)}`,
+    };
+  }
 
   const camelName = toCamelCase(name);
   const exportName = `${camelName}Bundle`;
@@ -320,6 +361,32 @@ export function bundleCreate(
 }
 
 // ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+/** Parse argv, run the create, print the outcome, and return an exit code. */
+export function main(argv: string[]): number {
+  const parsed = parseCreateArgs(argv);
+  if (!parsed.ok) {
+    return usageError(BIN, parsed.error, USAGE);
+  }
+  if ('help' in parsed) {
+    console.log(HELP);
+    return 0;
+  }
+
+  const { name, version, transport, events } = parsed.value;
+  const result = bundleCreate(name, version, transport, events);
+  if (result.code === 0) {
+    console.log(result.message);
+  } else {
+    console.error(result.message);
+    if (result.code === 2) console.error(`run \`${BIN} --help\` for usage`);
+  }
+  return result.code;
+}
+
+// ---------------------------------------------------------------------------
 // Standalone entry point
 // ---------------------------------------------------------------------------
 
@@ -329,20 +396,5 @@ if (
   _argv1.endsWith('bundle-create.ts') ||
   _argv1.endsWith('ec-bundle-create')
 ) {
-  const parsed = parseArgs(args);
-  if (!parsed) {
-    console.error(
-      'ec-bundle-create: bundle name is required\n' +
-        'usage: ec-bundle-create <name> [--version 1.0.0] [--transport signal|durable|both] [--events e1,e2]',
-    );
-    process.exit(2);
-  }
-
-  const result = bundleCreate(parsed.name, parsed.version, parsed.transport, parsed.events);
-  if (result.code === 0) {
-    console.log(result.message);
-  } else {
-    console.error(result.message);
-  }
-  process.exit(result.code);
+  runCli(BIN, async () => main(process.argv.slice(2)));
 }

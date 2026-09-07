@@ -60,17 +60,7 @@ export function NamespaceClusters({ nodeNamespaces }: NamespaceClustersProps) {
   if (groups.size === 0) return null;
 
   return (
-    <svg
-      style={{
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 0,
-      }}
-    >
+    <svg className="namespace-cluster-overlay">
       {[...groups.entries()].map(([ns, box]) => {
         const colors = NAMESPACE_COLORS[ns] ?? NAMESPACE_COLORS.default!;
         const x = box.x1 - PADDING;
@@ -99,7 +89,7 @@ export function NamespaceClusters({ nodeNamespaces }: NamespaceClustersProps) {
               fontFamily="ui-sans-serif, system-ui, sans-serif"
               fontWeight={600}
               fill={colors.text}
-              style={{ textTransform: 'uppercase', letterSpacing: 0.6 }}
+              className="namespace-cluster-label"
             >
               {ns} · {box.count}
             </text>

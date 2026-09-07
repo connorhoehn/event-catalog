@@ -1,13 +1,11 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildDeadLetterCallback = buildDeadLetterCallback;
 exports.startServer = startServer;
-const express_1 = __importDefault(require("express"));
-const cors_1 = __importDefault(require("cors"));
+const server_1 = require("distributed-core/server");
 const redis_1 = require("redis");
+const promises_1 = require("node:fs/promises");
+const node_path_1 = require("node:path");
 const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
 const index_js_1 = require("../registry/index.js");
@@ -22,6 +20,7 @@ const audit_log_js_1 = require("./audit-log.js");
 const manifest_store_js_1 = require("./manifest-store.js");
 const routes_js_1 = require("./routes.js");
 const bundle_routes_js_1 = require("./bundle-routes.js");
+const http_router_js_1 = require("./http-router.js");
 const FeatureBundle_js_1 = require("../bundles/FeatureBundle.js");
 const health_js_1 = require("./health.js");
 const prom_metrics_js_1 = require("./prom-metrics.js");
@@ -142,12 +141,10 @@ async function startServer(config = {}) {
     durable.onDeadLetter((message) => {
         promMetrics.recordFailure(message.envelope.eventName, 'transport');
     });
-    // Build Express app
-    const app = (0, express_1.default)();
-    app.use((0, cors_1.default)({ origin: corsOrigin }));
-    app.use(express_1.default.json({ limit: '1mb' }));
+    // Root-level routes (health + prom metrics), served alongside /api.
+    const rootRouter = (0, http_router_js_1.Router)();
     // Tri-state /health endpoint at root (service-runtime shape)
-    app.get('/health', (0, health_js_1.makeHealthHandler)({
+    rootRouter.get('/health', (0, health_js_1.makeHealthHandler)({
         service: 'event-catalog',
         version: serviceVersion,
         checks: [
@@ -184,7 +181,7 @@ async function startServer(config = {}) {
         ],
     }));
     // Prometheus-formatted /metrics endpoint at root
-    app.get('/metrics', async (_req, res) => {
+    rootRouter.get('/metrics', async (_req, res) => {
         try {
             // Refresh DLQ gauges by scanning the DLQ store. Best-effort —
             // if DDB is down we still want /metrics to respond.
@@ -200,7 +197,7 @@ async function startServer(config = {}) {
         catch {
             // swallow; gauges may be stale but text rendering still works
         }
-        res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+        res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
         res.send(promMetrics.renderProm());
     });
     // wave23-a — persistent audit log. Capped Redis list keyed at
@@ -214,24 +211,96 @@ async function startServer(config = {}) {
     const manifestStore = new manifest_store_js_1.RedisManifestStore(redisClient);
     // Admin API
     const routes = (0, routes_js_1.createRoutes)({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution, poisonDetector, coordinator });
-    // Phase 20-d — auth middleware injection (optional). Mounted before
-    // the /api router so it gates every admin endpoint. The catalog
-    // itself ships with no auth on purpose (local dev / in-cluster
-    // private surface) but operators deploying outside that envelope
-    // pass their JWT / API-key middleware here.
-    if (authMiddleware) {
-        app.use('/api', authMiddleware);
-    }
-    app.use('/api', routes);
     // FeatureBundle admin surface — CRD query endpoints for dc-k8s-operator.
     const bundleRegistry = new FeatureBundle_js_1.FeatureBundleRegistry();
-    app.use('/api/feature-bundles', (0, bundle_routes_js_1.createBundleRoutes)({ bundleRegistry, registry }));
-    // Static admin UI (production)
-    app.use(express_1.default.static(new URL('../admin/dist', import.meta.url).pathname));
-    // SPA fallback for admin UI routes
-    app.get('*', (_req, res) => {
-        res.sendFile('index.html', { root: new URL('../admin/dist', import.meta.url).pathname });
-    });
+    const bundleRoutes = (0, bundle_routes_js_1.createBundleRoutes)({ bundleRegistry, registry });
+    // Longest prefix first so /api/feature-bundles/* reaches its router
+    // before the general /api router gets a shot.
+    const apiMounts = [
+        ['/api/feature-bundles', bundleRoutes],
+        ['/api', routes],
+    ];
+    // Static admin UI (production build) via distributed-core's serveStatic;
+    // unmatched GETs fall through to the SPA's index.html.
+    const adminDistDir = new URL('../admin/dist', import.meta.url).pathname;
+    const staticHandler = (0, server_1.serveStatic)({ staticDir: adminDistDir });
+    const spaIndexPath = (0, node_path_1.join)(adminDistDir, 'index.html');
+    /**
+     * The single request entrypoint handed to AdmissionHttpServer.
+     * Request order mirrors the old Express middleware stack:
+     * CORS → auth (on /api) → API routers → root routes → static → SPA.
+     */
+    const onRequest = async (areq, ares) => {
+        const nodeReq = areq.raw;
+        const nodeRes = ares.nodeRes;
+        // CORS (previously the `cors` package). corsOrigin: true reflects
+        // the request origin; a string pins it; false disables.
+        if (corsOrigin !== false) {
+            const requestOrigin = Array.isArray(nodeReq.headers.origin)
+                ? nodeReq.headers.origin[0]
+                : nodeReq.headers.origin;
+            const allowOrigin = typeof corsOrigin === 'string' ? corsOrigin : (requestOrigin ?? '*');
+            nodeRes.setHeader('Access-Control-Allow-Origin', allowOrigin);
+            if (allowOrigin !== '*')
+                nodeRes.setHeader('Vary', 'Origin');
+            nodeRes.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+            nodeRes.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Event-Catalog-Strict');
+        }
+        if (areq.method === 'OPTIONS') {
+            ares.raw(204, '');
+            return;
+        }
+        // JSON body parse (AdmissionHttpServer already buffered + capped it).
+        let body;
+        const contentType = areq.headers['content-type'] ?? '';
+        if (areq.body.length > 0 && contentType.includes('application/json')) {
+            try {
+                body = JSON.parse(areq.body);
+            }
+            catch {
+                ares.json(400, { error: 'InvalidJson' });
+                return;
+            }
+        }
+        const req = (0, http_router_js_1.makeRouteRequest)(nodeReq, body);
+        const res = (0, http_router_js_1.makeRouteResponse)(nodeRes);
+        if (req.path === '/api' || req.path.startsWith('/api/')) {
+            // Phase 20-d — auth middleware injection (optional). Runs before
+            // the /api routers so it gates every admin endpoint. The catalog
+            // itself ships with no auth on purpose (local dev / in-cluster
+            // private surface) but operators deploying outside that envelope
+            // pass their JWT / API-key middleware here.
+            if (authMiddleware) {
+                const admitted = await runMiddleware(authMiddleware, req, res);
+                if (!admitted) {
+                    if (!res.headersSent)
+                        res.status(401).json({ error: 'Unauthorized' });
+                    return;
+                }
+            }
+            const handled = await (0, http_router_js_1.dispatchMounts)(req, res, apiMounts);
+            if (!handled && !res.headersSent) {
+                res.status(404).json({ error: 'NotFound', path: req.path });
+            }
+            return;
+        }
+        if (await rootRouter.handle(req, res, req.path))
+            return;
+        if (req.method === 'GET' || req.method === 'HEAD') {
+            if (staticHandler(nodeReq, nodeRes))
+                return;
+            // SPA fallback for admin UI routes.
+            try {
+                const html = await (0, promises_1.readFile)(spaIndexPath);
+                ares.raw(200, html, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
+            }
+            catch {
+                ares.json(404, { error: 'NotFound', detail: 'admin UI not built (src/admin: npm run build)' });
+            }
+            return;
+        }
+        ares.json(404, { error: 'NotFound', path: req.path });
+    };
     const metricsSnapshotInterval = setInterval(() => {
         metrics.snapshotToRedis(redisClient).catch(err => {
             console.warn('[server] metrics snapshot failed:', err.message);
@@ -303,13 +372,25 @@ async function startServer(config = {}) {
         // wave26-a — snapshot rate history for sparklines on each health tick.
         metrics.tickRateHistory();
     }, 15_000);
-    // Start listening
-    const server = app.listen(port, () => {
-        console.log(`[event-catalog] server listening on :${port}`);
-        console.log(`[event-catalog] redis: ${redisUrl}`);
-        console.log(`[event-catalog] message-queue: ${messageQueueUrl}`);
-        console.log(`[event-catalog] admin UI: http://localhost:${port}`);
+    // Start listening — distributed-core's AdmissionHttpServer is the HTTP
+    // transport: bounded body reads (1 MiB, matching the old express.json
+    // limit), slow-loris read timeouts, and in-flight admission control.
+    const admission = new server_1.AdmissionHttpServer({
+        port,
+        // Bind all interfaces (AdmissionHttpServer defaults to 127.0.0.1,
+        // which would break the Docker deployment).
+        hostname: process.env.HOST ?? '0.0.0.0',
+        bodyLimits: { maxBodyBytes: 1_048_576 },
+        onRequest,
+        onError: err => {
+            console.warn('[server] unhandled request error:', err.message);
+        },
     });
+    await admission.start();
+    console.log(`[event-catalog] server listening on :${port}`);
+    console.log(`[event-catalog] redis: ${redisUrl}`);
+    console.log(`[event-catalog] message-queue: ${messageQueueUrl}`);
+    console.log(`[event-catalog] admin UI: http://localhost:${port}`);
     const shutdown = async () => {
         console.log('[event-catalog] shutting down...');
         clearInterval(healthInterval);
@@ -318,7 +399,7 @@ async function startServer(config = {}) {
             clearInterval(subscriberSweepInterval);
         auditLog.stop();
         await metrics.snapshotToRedis(redisClient).catch(() => { });
-        server.close();
+        await admission.stop().catch(() => { });
         await metricsObserver.stop();
         await coordinator.stop();
         await signal.disconnect();
@@ -326,6 +407,31 @@ async function startServer(config = {}) {
         await redisClient.quit().catch(() => { });
         console.log('[event-catalog] shutdown complete');
     };
-    return { app, shutdown };
+    return { address: () => admission.address(), shutdown };
+}
+/**
+ * Run a connect-style middleware and resolve whether the request may
+ * continue: true iff the middleware called `next()` with no error.
+ * Also resolves false if the middleware responded and closed the
+ * response without calling next (the reject-by-responding pattern).
+ */
+function runMiddleware(middleware, req, res) {
+    return new Promise(resolve => {
+        let settled = false;
+        const settle = (ok) => {
+            if (settled)
+                return;
+            settled = true;
+            resolve(ok);
+        };
+        res.raw.on('finish', () => settle(false));
+        res.raw.on('close', () => settle(false));
+        try {
+            middleware(req, res, (err) => settle(err === undefined || err === null));
+        }
+        catch {
+            settle(false);
+        }
+    });
 }
 //# sourceMappingURL=index.js.map

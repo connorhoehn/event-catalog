@@ -32,6 +32,7 @@ exports.formatDiff = formatDiff;
 exports.bundleDiff = bundleDiff;
 const FeatureBundle_js_1 = require("../bundles/FeatureBundle.js");
 require("../declarations/bundles/index.js"); // registers all bundles as side-effect
+const _args_js_1 = require("./_args.js");
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
@@ -219,8 +220,9 @@ function formatDiff(diff) {
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
+const BIN = 'ec-bundle-diff';
+const USAGE = 'ec-bundle-diff <name>@<v1> <name>@<v2>';
 async function bundleDiff(args) {
-    const helpMode = args.includes('--help') || args.includes('-h');
     const HELP = `
 ec-bundle-diff — compare two versions of a FeatureBundle and report event set changes
 
@@ -242,42 +244,41 @@ EXAMPLES
   ec-bundle-diff chat@1.0.0 chat@2.0.0
   ec-bundle-diff presence@1.0.0 presence@1.1.0
 `.trim();
-    if (helpMode) {
+    const parsed = (0, _args_js_1.parseFlags)(args, {});
+    if (!parsed.ok)
+        return (0, _args_js_1.usageError)(BIN, parsed.error, USAGE);
+    if (parsed.args.help) {
         console.log(HELP);
         return 0;
     }
-    const positional = args.filter((a) => !a.startsWith('--'));
+    const positional = parsed.args.positional;
     if (positional.length < 2) {
-        console.error('ec-bundle-diff: two bundle references required');
-        console.error('usage: ec-bundle-diff <name>@<v1> <name>@<v2>');
-        return 2;
+        return (0, _args_js_1.usageError)(BIN, 'two bundle references required', USAGE);
+    }
+    if (positional.length > 2) {
+        return (0, _args_js_1.usageError)(BIN, `unexpected extra argument "${positional[2]}" — diff compares exactly two references`, USAGE);
     }
     const ref1 = parseBundleRef(positional[0]);
     const ref2 = parseBundleRef(positional[1]);
     if (!ref1) {
-        console.error(`ec-bundle-diff: invalid bundle reference "${positional[0]}" — expected <name>@<version>`);
-        return 2;
+        return (0, _args_js_1.usageError)(BIN, `invalid bundle reference "${positional[0]}" — expected <name>@<version>`, USAGE);
     }
     if (!ref2) {
-        console.error(`ec-bundle-diff: invalid bundle reference "${positional[1]}" — expected <name>@<version>`);
-        return 2;
+        return (0, _args_js_1.usageError)(BIN, `invalid bundle reference "${positional[1]}" — expected <name>@<version>`, USAGE);
     }
     if (ref1.name !== ref2.name) {
-        console.error(`ec-bundle-diff: bundle names must match ("${ref1.name}" vs "${ref2.name}") — use the same bundle name for both arguments`);
-        return 2;
+        return (0, _args_js_1.usageError)(BIN, `bundle names must match ("${ref1.name}" vs "${ref2.name}") — use the same bundle name for both arguments`, USAGE);
     }
     const diff = diffBundles(ref1.name, ref1.version, ref2.version);
     if (!diff) {
         // Determine which side is missing for a better error message
-        const { getFeatureBundle: gfb } = await import('../bundles/FeatureBundle.js');
-        const b1 = gfb(ref1.name, ref1.version);
-        const b2 = gfb(ref2.name, ref2.version);
-        if (!b1) {
-            console.error(`ec-bundle-diff: bundle not found: ${ref1.name}@${ref1.version}`);
+        if (!(0, FeatureBundle_js_1.getFeatureBundle)(ref1.name, ref1.version)) {
+            console.error(`${BIN}: bundle not found: ${ref1.name}@${ref1.version}`);
         }
-        if (!b2) {
-            console.error(`ec-bundle-diff: bundle not found: ${ref2.name}@${ref2.version}`);
+        if (!(0, FeatureBundle_js_1.getFeatureBundle)(ref2.name, ref2.version)) {
+            console.error(`${BIN}: bundle not found: ${ref2.name}@${ref2.version}`);
         }
+        console.error(`run \`${BIN} --help\` for usage`);
         return 1;
     }
     console.log(formatDiff(diff));
@@ -290,7 +291,6 @@ const _argv1 = process.argv[1] ?? '';
 if (_argv1.endsWith('bundle-diff.js') ||
     _argv1.endsWith('bundle-diff.ts') ||
     _argv1.endsWith('ec-bundle-diff')) {
-    const args = process.argv.slice(2);
-    void bundleDiff(args).then((code) => process.exit(code));
+    (0, _args_js_1.runCli)(BIN, () => bundleDiff(process.argv.slice(2)));
 }
 //# sourceMappingURL=bundle-diff.js.map

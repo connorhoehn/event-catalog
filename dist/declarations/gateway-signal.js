@@ -26,8 +26,50 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallRecordingCompleted = exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionList = exports.wsReactionRemoved = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtAwarenessBatch = exports.wsCrdtSnapshotStored = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorBatch = exports.wsCursorClear = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
 exports.gatewaySignalDeclarations = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = void 0;
+const field_glossary_1 = require("./field-glossary");
 const PRODUCER = 'websocket-gateway';
 const BASE_TAGS = ['gateway', 'signal', `producer:${PRODUCER}`];
+/**
+ * Meanings for the WS-frame envelope plus the fan-out-service fields that
+ * only exist on gateway push frames. Dotted keys pin down a name whose
+ * meaning changes with position (`action` on the frame vs `payload.action`
+ * on a notification body).
+ */
+const FIELDS = {
+    type: 'WebSocket frame type — names the gateway fan-out service that produced this frame.',
+    action: 'Which action of the frame\'s service this frame reports.',
+    // cursor / crdt
+    cursor: 'Cursor position and styling for one client.',
+    modes: 'Per-client cursor display modes currently in force for the channel.',
+    awareness: 'Yjs awareness state for one client (selection, cursor, user colour).',
+    'updates.awareness': 'Yjs awareness state for the client named by this entry.',
+    update: 'Base64-encoded Yjs update payload.',
+    'updates.update': 'Base64-encoded Yjs update payload for the client named by this entry.',
+    // presence
+    presence: 'Presence record(s) for the channel — who is here and what state they are in.',
+    client: 'Presence record of the client that triggered this frame.',
+    // reactions
+    'data.effect': 'Optional visual effect to play alongside the reaction (confetti, burst, …).',
+    'data.reactionId': 'Identifier of the reaction that was recorded.',
+    'data.availableReactions': 'Emoji names the channel accepts as reactions.',
+    // calls
+    'data.targetUserIds': 'User ids the call invitation is addressed to.',
+    participant: 'Participant record describing one member of the hangout.',
+    // notifications — `action` here is a UI affordance, not a service verb
+    'payload.action': 'Optional call-to-action rendered with the notification.',
+    'payload.action.onClickEvent': 'Event name the frontend dispatches when the action is clicked.',
+    'payload.notifications.action': 'Optional call-to-action rendered with the notification.',
+    'payload.notifications.action.onClickEvent': 'Event name the frontend dispatches when the action is clicked.',
+    'payload.payload': 'Application-defined body of the notification.',
+    'payload.notifications.payload': 'Application-defined body of the notification.',
+    'payload.name': 'Identifier of the capability or feature flag whose state changed.',
+    // errors
+    'error.service': 'Gateway fan-out service whose handler produced the error.',
+    // pipeline fan-out
+    run: 'Current run state, or null when the run id is unknown to the gateway.',
+    fromVersion: 'Run version the history was requested from; events before it are omitted.',
+    sourceNodeId: 'Cluster node id of the gateway that originated the fan-out.',
+};
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -37,7 +79,7 @@ function wsSchema(typeLiteral, extra = {}, required = []) {
         type: 'object',
         properties: {
             type: { type: 'string', const: typeLiteral },
-            timestamp: { type: 'string', description: 'ISO-8601' },
+            timestamp: { type: 'string', description: 'ISO-8601 timestamp at which the producer emitted this frame.' },
             ...extra,
         },
         required: ['type', ...required],
@@ -671,7 +713,7 @@ exports.wsReactionSent = {
                 reactionId: { type: 'string' },
                 emoji: { type: 'string' },
                 channel: { type: 'string' },
-                timestamp: { type: 'string', description: 'ISO-8601' },
+                timestamp: { type: 'string', description: 'ISO-8601 timestamp at which the producer emitted this frame.' },
             },
             required: ['reactionId', 'emoji', 'channel'],
             additionalProperties: true,
@@ -979,7 +1021,7 @@ exports.wsUploadUrlIssued = {
             properties: {
                 uploadId: { type: 'string' },
                 presignedUrl: { type: 'string' },
-                expiresAt: { type: 'string', description: 'ISO-8601' },
+                expiresAt: { type: 'string', description: 'ISO-8601 timestamp after which the presigned URL stops working.' },
             },
             required: ['uploadId', 'presignedUrl', 'expiresAt'],
             additionalProperties: true,
@@ -1135,7 +1177,7 @@ exports.wsError = {
                 message: { type: 'string' },
                 service: { type: 'string' },
                 clientId: { type: 'string' },
-                timestamp: { type: 'string', description: 'ISO-8601' },
+                timestamp: { type: 'string', description: 'ISO-8601 timestamp at which the producer emitted this frame.' },
             },
             required: ['code', 'message'],
             additionalProperties: true,
@@ -1223,4 +1265,7 @@ exports.gatewaySignalDeclarations = [
     // error
     exports.wsError,
 ];
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+(0, field_glossary_1.annotateDeclarations)(exports.gatewaySignalDeclarations, FIELDS);
 //# sourceMappingURL=gateway-signal.js.map

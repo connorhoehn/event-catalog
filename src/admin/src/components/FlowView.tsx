@@ -192,21 +192,18 @@ export function FlowView() {
   if (!topology) return <div className="loading">Loading flow…</div>;
 
   return (
-    <div className="flow-view" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div
-        className="page-header"
-        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid #e2e8f0' }}
-      >
-        <h2 style={{ margin: 0 }}>Live Flow</h2>
+    <div className="flow-view view-column">
+      <div className="page-header view-toolbar">
+        <h2>Live Flow</h2>
         <Chip tone={tap.isLive ? 'success' : 'neutral'}>{tap.isLive ? 'live' : 'paused'}</Chip>
         <Chip tone="neutral">{tap.events.length} events in buffer</Chip>
         {tap.error && <Chip tone="warning">{tap.error}</Chip>}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-          <label style={{ fontSize: 12, color: '#475569' }}>namespace</label>
+        <div className="view-toolbar-right">
+          <label className="view-toolbar-label">namespace</label>
           <select
             value={namespace}
             onChange={(e) => setNamespace(e.target.value)}
-            style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #cbd5e1' }}
+            className="view-select"
           >
             <option value="">all</option>
             {namespaces.map((ns) => (
@@ -216,14 +213,14 @@ export function FlowView() {
             ))}
           </select>
 
-          <label style={{ fontSize: 12, color: '#475569', marginLeft: 8 }}>sample 1/N</label>
+          <label className="view-toolbar-label spaced">sample 1/N</label>
           <input
             type="number"
             min={1}
             max={1000}
             value={sample}
             onChange={(e) => setSample(Math.max(1, parseInt(e.target.value, 10) || 1))}
-            style={{ width: 64, padding: '4px 8px', borderRadius: 4, border: '1px solid #cbd5e1' }}
+            className="view-number-input"
           />
 
           {tap.isLive ? (
@@ -241,7 +238,7 @@ export function FlowView() {
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 500 }}>
+      <div className="view-canvas">
         <ReactFlowProvider>
           <ReactFlow
             nodes={rfNodes}
@@ -269,16 +266,16 @@ export function FlowView() {
 function FlowTicker({ events }: { events: TapEvent[] }) {
   const last10 = events.slice(-10).reverse();
   return (
-    <div style={{ borderTop: '1px solid #e2e8f0', padding: '8px 16px', maxHeight: 160, overflowY: 'auto', fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>
+    <div className="flow-ticker">
       {last10.length === 0 ? (
-        <div style={{ color: '#94a3b8' }}>Waiting for events…</div>
+        <div className="flow-ticker-empty">Waiting for events…</div>
       ) : (
         last10.map((e, i) => (
-          <div key={`${e.timestamp}-${i}`} style={{ color: '#334155' }}>
-            <span style={{ color: '#94a3b8' }}>{e.timestamp.slice(11, 23)}</span>{' '}
-            <span style={{ color: '#0ea5e9' }}>{e.transport}</span>{' '}
-            <span style={{ fontWeight: 600 }}>{e.eventName}</span>{' '}
-            <span style={{ color: '#64748b' }}>← {e.producer}</span>
+          <div key={`${e.timestamp}-${i}`} className="flow-ticker-row">
+            <span className="flow-ticker-time">{e.timestamp.slice(11, 23)}</span>{' '}
+            <span className="flow-ticker-transport">{e.transport}</span>{' '}
+            <span className="flow-ticker-name">{e.eventName}</span>{' '}
+            <span className="flow-ticker-producer">← {e.producer}</span>
           </div>
         ))
       )}

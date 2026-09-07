@@ -28,8 +28,14 @@
 // Cross-reference: portal/src/pages/newsroom/*.tsx, portal/src/pages/*.tsx
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.orgiqSignalDeclarations = exports.orgiqArticlesReactions = exports.orgiqInvokePresence = exports.orgiqSearchPresence = exports.orgiqBriefsPresence = exports.orgiqResearcherActivity = exports.orgiqResearcherPresence = void 0;
+const field_glossary_1 = require("./field-glossary");
 const PRODUCER = 'orgiq-middleware';
 const TAGS_BASE = ['orgiq', 'signal', `producer:${PRODUCER}`];
+/** Frame-envelope meanings for OrgIQ's channel-scoped signal frames. */
+const FIELDS = {
+    type: 'Signal frame type discriminator — which gateway fan-out service produced this frame.',
+    action: 'Which action of the frame\'s service this frame reports.',
+};
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -40,7 +46,7 @@ function orgiqSchema(typeLiteral, extra = {}, required = []) {
         properties: {
             type: { type: 'string', const: typeLiteral },
             channel: { type: 'string', description: 'Gateway channel name' },
-            timestamp: { type: 'string', description: 'ISO-8601' },
+            timestamp: { type: 'string', description: 'ISO-8601 timestamp at which the producer emitted this frame.' },
             ...extra,
         },
         required: ['type', 'channel', ...required],
@@ -175,4 +181,7 @@ exports.orgiqSignalDeclarations = [
     exports.orgiqInvokePresence,
     exports.orgiqArticlesReactions,
 ];
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+(0, field_glossary_1.annotateDeclarations)(exports.orgiqSignalDeclarations, FIELDS);
 //# sourceMappingURL=orgiq-signal.js.map

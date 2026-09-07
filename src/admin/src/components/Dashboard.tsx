@@ -91,22 +91,22 @@ export function Dashboard() {
       {/* wave25-d — lifecycle rollups. Only render when there's anything to
          flag, so a healthy catalog doesn't get a row of zero-value cards. */}
       {(deprecated.length > 0 || orphans.length > 0 || neverPublished.length > 0) && (
-        <div className="stats-grid" style={{ marginTop: 12 }}>
+        <div className="stats-grid secondary">
           {deprecated.length > 0 && (
-            <Link to="/events" className="stat-card" style={{ textDecoration: 'none', color: 'inherit', borderLeft: '3px solid #b91c1c' }}>
-              <div className="stat-value" style={{ color: '#b91c1c' }}>{deprecated.length}</div>
+            <Link to="/events" className="stat-card deprecated">
+              <div className="stat-value">{deprecated.length}</div>
               <div className="stat-label">Deprecated{deprecatedActive.length > 0 ? ` (${deprecatedActive.length} still active)` : ''}</div>
             </Link>
           )}
           {orphans.length > 0 && (
-            <div className="stat-card" style={{ borderLeft: '3px solid #d97706' }}>
-              <div className="stat-value" style={{ color: '#d97706' }}>{orphans.length}</div>
+            <div className="stat-card orphans">
+              <div className="stat-value">{orphans.length}</div>
               <div className="stat-label">Orphans (no subscribers)</div>
             </div>
           )}
           {neverPublished.length > 0 && (
-            <div className="stat-card" style={{ borderLeft: '3px solid #64748b' }}>
-              <div className="stat-value" style={{ color: '#64748b' }}>{neverPublished.length}</div>
+            <div className="stat-card never-published">
+              <div className="stat-value">{neverPublished.length}</div>
               <div className="stat-label">Never published</div>
             </div>
           )}
@@ -115,16 +115,16 @@ export function Dashboard() {
 
       {/* wave26-e — poisoned events alert. Only render when events are actively poisoned. */}
       {poisonedEvents.length > 0 && (
-        <div style={{ margin: '12px 0' }}>
+        <div className="poison-alert">
           <Banner variant="error" title={`${poisonedEvents.length} Poisoned Event${poisonedEvents.length > 1 ? 's' : ''} — Failures Exceeding Threshold`}>
-            <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 13 }}>
+            <ul className="poison-list">
               {poisonedEvents.map(p => (
-                <li key={p.eventName} style={{ marginBottom: 4 }}>
-                  <Link to={`/events/${encodeURIComponent(p.eventName)}`} style={{ fontWeight: 600 }}>{p.eventName}</Link>
+                <li key={p.eventName}>
+                  <Link to={`/events/${encodeURIComponent(p.eventName)}`}>{p.eventName}</Link>
                   {' — '}{p.failuresInWindow} failures in {Math.round(p.windowMs / 60000)}m
                   {' (threshold: '}{p.threshold}{')'}
                   <button
-                    style={{ marginLeft: 8, fontSize: 11, cursor: 'pointer', padding: '1px 6px', borderRadius: 4, border: '1px solid #b91c1c', background: 'transparent', color: '#b91c1c' }}
+                    className="btn-dismiss"
                     onClick={() => {
                       api.clearPoison(p.eventName).then(() => {
                         setPoisonedEvents(prev => prev.filter(x => x.eventName !== p.eventName));
@@ -165,9 +165,9 @@ export function Dashboard() {
 
       {/* wave26-b — registry health summary card */}
       {registryHealth && (
-        <div className="transport-status" style={{ marginTop: 12 }}>
+        <div className="transport-status registry-health">
           <h3>Registry Health</h3>
-          <div className="stats-grid" style={{ marginTop: 8 }}>
+          <div className="stats-grid nested">
             <div className="stat-card">
               <div className="stat-value">{registryHealth.registrySize}</div>
               <div className="stat-label">Registry Size</div>
@@ -195,7 +195,7 @@ export function Dashboard() {
       )}
 
       {deprecated.length > 0 && (
-        <div className="recent-events" style={{ marginTop: 16 }}>
+        <div className="recent-events deprecated-events">
           <h3>Deprecated Events</h3>
           <table>
             <thead>
@@ -217,7 +217,7 @@ export function Dashboard() {
                       <Link to={`/events/${encodeURIComponent(e.name)}`}>{e.name}</Link>{' '}
                       <Chip tone="danger" size="xs">deprecated</Chip>
                     </td>
-                    <td style={{ color: '#64748b' }}>{e.deprecation?.reason ?? '—'}</td>
+                    <td className="reason">{e.deprecation?.reason ?? '—'}</td>
                     <td>{e.subscribers.length}</td>
                     <td>{e.deprecation?.deprecatedAt ? timeAgo(e.deprecation.deprecatedAt) : '—'}</td>
                   </tr>

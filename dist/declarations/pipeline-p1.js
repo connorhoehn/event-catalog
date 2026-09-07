@@ -22,8 +22,21 @@
 // This file deliberately does NOT touch any of those.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineP1Declarations = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineLlmStreamOpened = exports.pipelineLlmResponse = exports.pipelineLlmToken = exports.pipelineLlmPrompt = exports.pipelineStepAttemptFailed = exports.pipelineStepAttemptStarted = exports.pipelineStepHeartbeat = exports.pipelineStepCancelled = exports.pipelineStepSkipped = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunResumed = exports.pipelineRunPaused = exports.pipelineRunCancelled = void 0;
+const field_glossary_1 = require("./field-glossary");
 const PRODUCER = 'distributed-core';
 const TAGS_BASE = ['pipeline', 'producer:distributed-core'];
+/**
+ * P1-specific field meanings. Shared names (runId, stepId, at, error,
+ * durationMs, model, prompt …) resolve from the common glossary.
+ */
+const FIELDS = {
+    atStepIds: 'Step ids the run was paused at — the frontier frozen by the pause.',
+    nodeType: 'Pipeline node type of the step (llm, agent, join, approval, …).',
+    startedAt: 'ISO-8601 timestamp at which the attempt began.',
+    openedAt: 'ISO-8601 timestamp at which the provider stream was opened.',
+    patchId: 'Identifier of the context patch this event refers to.',
+    mode: 'How the patch was applied — merge or replace semantics for the target context path.',
+};
 /** Common envelope-shape builder for events whose payload follows the
  *  `{ runId, ...fields, at }` pattern emitted by PipelineExecutor. */
 function pipelineSchema(extra, required) {
@@ -325,4 +338,7 @@ exports.pipelineP1Declarations = [
     exports.pipelineContextPatchedUnvalidated,
     exports.pipelineContextPatchReverted,
 ];
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+(0, field_glossary_1.annotateDeclarations)(exports.pipelineP1Declarations, FIELDS);
 //# sourceMappingURL=pipeline-p1.js.map

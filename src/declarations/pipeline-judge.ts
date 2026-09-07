@@ -17,9 +17,19 @@
 // explicitly points to "wave 3 / event-catalog" for this work).
 
 import type { EventDeclaration } from '../types/index';
+import { annotateDeclarations, type FieldGlossary } from './field-glossary';
 
 const PRODUCER = 'platform-api';
 const TAGS_BASE = ['pipeline', 'judge', 'producer:platform-api'];
+
+/** Judge-specific field meanings; the rest come from the common glossary. */
+const FIELDS: FieldGlossary = {
+    rubricId: 'Identifier of the rubric the judge scored against.',
+    rubricVersion: 'Version of the rubric definition used for this judgement.',
+    judgeModel: 'Anthropic model id used for the judge call.',
+    judgmentId: 'Identifier of the persisted JudgmentResult (DDB primary key).',
+    mode: 'Scoring mode — absolute scores a single output, comparison ranks two.',
+};
 
 /**
  * Common envelope for `pipeline:judge:*` events. All four carry
@@ -187,3 +197,7 @@ export const pipelineJudgeDeclarations: EventDeclaration[] = [
     pipelineJudgeFailed,
     pipelineJudgeBudgetExceeded,
 ];
+
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+annotateDeclarations(pipelineJudgeDeclarations, FIELDS);

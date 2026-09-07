@@ -65,10 +65,11 @@ function diffLines(beforeLines: string[], afterLines: string[]): DiffLine[] {
   return rows;
 }
 
-const colorFor: Record<DiffOp, { bg: string; fg: string; gutter: string }> = {
-  add:     { bg: '#dcfce7', fg: '#14532d', gutter: '+' },
-  remove:  { bg: '#fee2e2', fg: '#7f1d1d', gutter: '-' },
-  context: { bg: 'transparent', fg: '#475569', gutter: ' ' },
+/** Gutter marker per op. Colours live in styles.css (`.diff-line.<op>`). */
+const GUTTER: Record<DiffOp, string> = {
+  add: '+',
+  remove: '-',
+  context: ' ',
 };
 
 export function SchemaDiff({ before, after }: SchemaDiffProps) {
@@ -82,23 +83,20 @@ export function SchemaDiff({ before, after }: SchemaDiffProps) {
   const removes = lines.filter((l) => l.op === 'remove').length;
 
   return (
-    <div style={{ marginTop: 8, fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
-      <div style={{ marginBottom: 4, color: '#64748b' }}>
-        <span style={{ color: '#15803d' }}>+{adds}</span>
+    <div className="schema-diff">
+      <div className="schema-diff-summary">
+        <span className="diff-adds">+{adds}</span>
         {' / '}
-        <span style={{ color: '#b91c1c' }}>−{removes}</span>
+        <span className="diff-removes">−{removes}</span>
         {' lines'}
       </div>
-      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 4, padding: 8, maxHeight: 400, overflowY: 'auto' }}>
-        {lines.map((l, idx) => {
-          const c = colorFor[l.op];
-          return (
-            <div key={idx} style={{ background: c.bg, color: c.fg, whiteSpace: 'pre', padding: '0 6px' }}>
-              <span style={{ color: '#94a3b8', userSelect: 'none', marginRight: 6 }}>{c.gutter}</span>
-              {l.text}
-            </div>
-          );
-        })}
+      <div className="schema-diff-body">
+        {lines.map((l, idx) => (
+          <div key={idx} className={`diff-line ${l.op}`}>
+            <span className="diff-gutter">{GUTTER[l.op]}</span>
+            {l.text}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -111,15 +109,7 @@ export function SchemaDiffToggle({ before, after }: SchemaDiffProps) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        style={{
-          fontSize: 11,
-          padding: '2px 8px',
-          background: open ? '#cbd5e1' : '#e2e8f0',
-          color: '#334155',
-          border: 'none',
-          borderRadius: 3,
-          cursor: 'pointer',
-        }}
+        className={`btn-diff-toggle${open ? ' open' : ''}`}
       >
         {open ? 'hide diff' : 'diff'}
       </button>

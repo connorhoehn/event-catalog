@@ -20,6 +20,7 @@
 // mirrors `pipeline-image-vision.ts`.
 
 import type { EventDeclaration } from '../types/index';
+import { annotateDeclarations } from './field-glossary';
 
 const PRODUCER = 'platform-api';
 const TAGS_BASE = ['pipeline', 'agent', 'producer:platform-api'];
@@ -69,3 +70,7 @@ export const pipelineStepAgentTool: EventDeclaration = {
 export const pipelineAgentDeclarations: EventDeclaration[] = [
     pipelineStepAgentTool,
 ];
+
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+annotateDeclarations(pipelineAgentDeclarations);

@@ -20,9 +20,17 @@
 // is out of scope per the v1 design.
 
 import type { EventDeclaration } from '../types/index';
+import { annotateDeclarations, type FieldGlossary } from './field-glossary';
 
 const PRODUCER = 'platform-api';
 const TAGS_BASE = ['pipeline', 'image', 'vision', 'producer:platform-api'];
+
+/** Vision-specific field meanings; the rest come from the common glossary. */
+const FIELDS: FieldGlossary = {
+    imageId: 'Identifier of the image being analysed.',
+    visionModel: 'Anthropic model id used for the vision call.',
+    delta: 'Incremental slice of the streamed vision output since the previous token event.',
+};
 
 /**
  * Common envelope for `pipeline:image:vision:*` events. All three carry
@@ -227,3 +235,7 @@ export const pipelineImageVisionDeclarations: EventDeclaration[] = [
     pipelineImageVisionAnalyzed,
     pipelineImageVisionFailed,
 ];
+
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+annotateDeclarations(pipelineImageVisionDeclarations, FIELDS);

@@ -1,5 +1,5 @@
-import express from 'express';
 import { type DeadLetteredMessage } from '../client/durable.js';
+import { type Middleware } from './http-router.js';
 import type { RegistryEntry } from '../types/index.js';
 /**
  * Phase 20-d — DLQ handler context. Built once per dead-letter event by
@@ -53,15 +53,20 @@ export interface ServerConfig {
      */
     onDeadLetter?: DeadLetterHandler[];
     /**
-     * Phase 20-d — optional Express middleware mounted before `/api`
-     * routes. The admin server is unauthenticated by default
+     * Phase 20-d — optional connect-style middleware gating every `/api`
+     * route. The admin server is unauthenticated by default
      * (deliberately, for local dev); operators can inject a JWT / API-key
-     * check here without forking startServer.
+     * check here without forking startServer. Call `next()` to admit the
+     * request; respond on `res` without calling next to reject it.
      */
-    authMiddleware?: express.RequestHandler;
+    authMiddleware?: Middleware;
 }
 export declare function startServer(config?: ServerConfig): Promise<{
-    app: ReturnType<typeof express>;
+    /** Bound address (distributed-core AdmissionHttpServer.address()). */
+    address: () => {
+        port: number;
+        hostname: string;
+    } | null;
     shutdown: () => Promise<void>;
 }>;
 //# sourceMappingURL=index.d.ts.map

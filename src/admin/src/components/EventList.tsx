@@ -4,22 +4,14 @@ import Chip from '@ui/components/shared/Chip';
 import EmptyState from '@ui/components/shared/EmptyState';
 import SkeletonCard from '@ui/components/shared/SkeletonCard';
 import Banner from '@ui/components/shared/Banner';
+import Sparkline from '@ui/components/shared/Sparkline';
 import { api, type EventEntry } from '../api';
 
-function Sparkline({ data }: { data: number[] }) {
-  if (data.length < 2) return <span style={{ color: '#94a3b8', fontSize: 10 }}>—</span>;
-  const W = 52, H = 16;
-  const max = Math.max(...data, 0.001);
-  const pts = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * W;
-    const y = H - (v / max) * H;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', overflow: 'visible' }}>
-      <polyline points={pts} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  );
+/** 60s publish-rate trend. Delegates the SVG to the shared Sparkline; the
+ *  only local concern is the "not enough samples yet" dash. */
+function RateSparkline({ data }: { data: number[] }) {
+  if (data.length < 2) return <span className="sparkline-empty">—</span>;
+  return <Sparkline data={data} width={52} height={16} color="var(--blue-500)" />;
 }
 
 export function EventList() {
@@ -121,46 +113,36 @@ export function EventList() {
 
       {/* wave26-f — bulk actions toolbar (only visible when events are selected) */}
       {selected.size > 0 && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 12px',
-          background: '#eff6ff',
-          border: '1px solid #bfdbfe',
-          borderRadius: 6,
-          marginBottom: 8,
-          flexWrap: 'wrap',
-        }}>
+        <div className="bulk-bar">
           <Chip tone="info" size="xs">{selected.size} selected</Chip>
           <input
             type="text"
             placeholder="Deprecation reason (required for deprecate)"
             value={bulkReason}
             onChange={e => setBulkReason(e.target.value)}
-            style={{ flex: 1, minWidth: 200, padding: '4px 8px', fontSize: 13, border: '1px solid #93c5fd', borderRadius: 4 }}
+            className="bulk-bar-input"
           />
           <button
             onClick={handleBulkDeprecate}
             disabled={bulkPending}
-            style={{ padding: '4px 12px', fontSize: 13, background: '#b91c1c', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', opacity: bulkPending ? 0.6 : 1 }}
+            className="btn-solid danger"
           >
             Deprecate
           </button>
           <button
             onClick={handleBulkExport}
-            style={{ padding: '4px 12px', fontSize: 13, background: '#1d4ed8', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+            className="btn-solid info"
           >
             Export JSON
           </button>
           <button
             onClick={() => setSelected(new Set())}
-            style={{ padding: '4px 8px', fontSize: 12, background: 'transparent', color: '#64748b', border: '1px solid #cbd5e1', borderRadius: 4, cursor: 'pointer' }}
+            className="btn-outline-muted"
           >
             Clear
           </button>
           {bulkResult && (
-            <span style={{ fontSize: 12, color: bulkResult.startsWith('Error') ? '#b91c1c' : '#16a34a' }}>
+            <span className={`bulk-result${bulkResult.startsWith('Error') ? ' error' : ''}`}>
               {bulkResult}
             </span>
           )}
@@ -169,7 +151,7 @@ export function EventList() {
 
       {error && <Banner variant="error">{error}</Banner>}
       {loading && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="skeleton-stack tight">
           {Array.from({ length: 5 }).map((_, i) => (
             <SkeletonCard key={i} height={48} />
           ))}
@@ -180,7 +162,7 @@ export function EventList() {
         <table className="events-table">
           <thead>
             <tr>
-              <th style={{ width: 32 }}>
+              <th className="col-select">
                 <input type="checkbox" checked={allSelected} onChange={toggleAll} title="Select all" />
               </th>
               <th>Name</th>
@@ -217,7 +199,7 @@ export function EventList() {
                 </td>
                 <td>{Array.isArray(event.producer) ? event.producer.join(', ') : event.producer}</td>
                 <td>{event.subscribers.length}</td>
-                <td><Sparkline data={rateHistory[event.name] ?? []} /></td>
+                <td><RateSparkline data={rateHistory[event.name] ?? []} /></td>
                 <td className="mono">{event.stats?.publishRate.toFixed(2)}/s</td>
                 <td className="mono">{event.stats?.publishCount.toLocaleString() ?? '0'}</td>
                 <td className={`mono ${(event.stats?.errorCount ?? 0) > 0 ? 'text-error' : ''}`}>

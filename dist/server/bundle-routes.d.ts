@@ -1,4 +1,3 @@
-import { Router } from 'express';
 import type { FeatureBundleRegistry } from '../bundles/FeatureBundle.js';
 import type { IRegistry } from '../registry/types.js';
 export interface BundleRoutesDeps {

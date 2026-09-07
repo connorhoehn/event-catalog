@@ -51,7 +51,7 @@ export function EventDetail() {
   if (error) return <Banner variant="error" title="Error">{error}</Banner>;
   if (!event) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="skeleton-stack">
         <SkeletonCard height={40} />
         <SkeletonCard height={200} />
         <SkeletonCard height={200} />
@@ -65,8 +65,8 @@ export function EventDetail() {
         <Link to="/events">Events</Link> / {event.name}
       </div>
 
-      <div className="detail-header" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <h2 style={{ margin: 0 }}>{event.name}</h2>
+      <div className="detail-header chips">
+        <h2>{event.name}</h2>
         <Chip tone={event.transport === 'signal' ? 'info' : 'warning'}>
           {event.transport}
         </Chip>
@@ -84,23 +84,14 @@ export function EventDetail() {
       {event.description && <p className="description">{event.description}</p>}
 
       {event.deprecation && (
-        <div
-          style={{
-            margin: '8px 0 16px',
-            padding: '10px 14px',
-            border: '1px solid #fecaca',
-            background: '#fef2f2',
-            borderRadius: 6,
-            fontSize: 13,
-          }}
-        >
-          <strong style={{ color: '#b91c1c' }}>Deprecated</strong>
-          <span style={{ color: '#7f1d1d', marginLeft: 8 }}>
+        <div className="deprecation-notice">
+          <strong>Deprecated</strong>
+          <span className="deprecation-meta">
             on {new Date(event.deprecation.deprecatedAt).toLocaleString()}
             {event.deprecation.by ? ` by ${event.deprecation.by}` : ''}
           </span>
           {event.deprecation.reason && (
-            <div style={{ marginTop: 4, color: '#7f1d1d' }}>{event.deprecation.reason}</div>
+            <div className="deprecation-reason">{event.deprecation.reason}</div>
           )}
         </div>
       )}
@@ -122,7 +113,7 @@ export function EventDetail() {
               <div className="metric-label">Subscribers</div>
             </div>
             <div className="metric">
-              <div className="metric-value" style={(stats?.errorCount ?? 0) > 0 ? { color: 'var(--error)' } : undefined}>
+              <div className={`metric-value${(stats?.errorCount ?? 0) > 0 ? ' text-error' : ''}`}>
                 {stats?.errorCount}
               </div>
               <div className="metric-label">Errors</div>
@@ -146,13 +137,13 @@ export function EventDetail() {
         {event.schemaHistory && event.schemaHistory.length > 0 ? (
           <section className="detail-section">
             <h3>Schema History ({event.schemaHistory.length})</h3>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <ul className="schema-history">
               {event.schemaHistory.map((h) => (
-                <li key={h.version} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <li key={h.version}>
+                  <div className="schema-history-row">
                     <Chip tone="neutral">v{h.version}</Chip>
                     <FingerprintChip fingerprint={h.fingerprint} label="" />
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                    <span className="schema-history-time">
                       {new Date(h.updatedAt).toLocaleString()}
                     </span>
                     <SchemaDiffToggle before={h.schema} after={event.schema} />
@@ -171,7 +162,7 @@ export function EventDetail() {
             {observedProducers && observedProducers.observed.length > 0 ? (
               <>
                 <dt>Observed Producers</dt>
-                <dd style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                <dd className="chip-row">
                   {observedProducers.observed.map(p => (
                     <Chip
                       key={p}
@@ -188,7 +179,7 @@ export function EventDetail() {
             {observedProducers && observedProducers.deadDeclaredProducers.length > 0 ? (
               <>
                 <dt>Dead Declared</dt>
-                <dd style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                <dd className="chip-row">
                   {observedProducers.deadDeclaredProducers.map(p => (
                     <Chip key={p} tone="neutral" size="xs" title="Declared but never published">
                       {p}
@@ -208,7 +199,7 @@ export function EventDetail() {
                 <dt>Tags</dt>
                 <dd>
                   {event.tags.map(t => (
-                    <Chip key={t} tone="purple" size="xs" style={{ marginRight: 4 }}>{t}</Chip>
+                    <Chip key={t} tone="purple" size="xs" className="tag-chip">{t}</Chip>
                   ))}
                 </dd>
               </>

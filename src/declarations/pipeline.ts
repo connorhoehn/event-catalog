@@ -17,6 +17,23 @@
 // will declare the remaining ~27 colon-form pipeline events.
 
 import type { EventDeclaration } from '../types/index';
+import { annotateDeclarations, type FieldGlossary } from './field-glossary';
+
+/**
+ * Field meanings specific to the approval/checkpoint surface. Everything
+ * else (runId, stepId, at, context …) comes from the common glossary.
+ */
+const FIELDS: FieldGlossary = {
+  approverIds: 'User ids of every approver eligible to act on this gate. At least one.',
+  approver: 'User id of the approver who recorded this decision.',
+  approvalId: 'Identifier of the approval gate that was resolved.',
+  decision: 'The recorded outcome of the approval.',
+  comment: 'Optional free-text reviewer note attached to the decision.',
+  requestedAt: 'Epoch milliseconds at which the approval was requested.',
+  decidedAt: 'Epoch milliseconds at which the approver recorded the decision.',
+  resolvedAt: 'Epoch milliseconds at which the gate reached its final decision.',
+  currentStepIds: 'Step ids on the run frontier — the steps in flight when the checkpoint was taken.',
+};
 
 /**
  * `pipeline.approval.requested` — emitted by `PipelineExecutor` when an
@@ -191,3 +208,7 @@ export const pipelineDeclarations: EventDeclaration[] = [
   pipelineApprovalResolved,
   pipelineRunCheckpoint,
 ];
+
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+annotateDeclarations(pipelineDeclarations, FIELDS);

@@ -13,9 +13,9 @@ import { drift } from './commands/drift.js';
 import { manifest } from './commands/manifest.js';
 import { deprecate, undeprecate } from './commands/deprecate.js';
 import { asyncapi } from './commands/asyncapi.js';
+import { parseFlags, runCli, usageError } from './_args.js';
 
-const args = process.argv.slice(2);
-const subcommand = args[0];
+const BIN = 'event-catalog';
 
 const HELP = `
 event-catalog — schema registry + observability for cross-service events
@@ -38,6 +38,14 @@ USAGE
                           [--title=T] [--version=V]
   event-catalog --help
 
+SERVER OPTIONS
+  --port=<n>                 Listen port (default: $PORT or 3010)
+  --redis-url=<url>          Redis for signal transport (default: $REDIS_URL)
+  --message-queue-url=<url>  message-queue base URL (default: $MESSAGE_QUEUE_URL)
+
+Every subcommand accepts \`--help\` for its own flags, e.g.
+\`event-catalog drift --help\`.
+
 EXAMPLES
   # live mode (requires running catalog server)
   event-catalog snapshot --catalog-url=https://catalog > snapshot.json
@@ -58,63 +66,83 @@ EXAMPLES
 The default subcommand (\`server\`) is the long-running HTTP service.
 All other subcommands are short-lived CI / ops utilities and exit
 non-zero when they detect a problem (lint shape errors, drift, etc.).
-`;
+`.trim();
 
-function getArg(name: string, defaultValue: string): string {
-  const idx = args.indexOf(`--${name}`);
-  if (idx !== -1 && args[idx + 1]) return args[idx + 1];
-  for (const arg of args) {
-    if (arg.startsWith(`--${name}=`)) return arg.slice(name.length + 3);
+const SERVER_USAGE = 'event-catalog [server] [--port=N] [--redis-url=URL] [--message-queue-url=URL]';
+const SERVER_SPEC = { value: ['port', 'redis-url', 'message-queue-url'] } as const;
+
+/**
+ * Start the long-running HTTP service. Resolves only on a fatal startup
+ * error; on success the process stays alive until a signal arrives, so
+ * this returns a promise that never settles in the happy path.
+ */
+async function runServer(args: string[]): Promise<number> {
+  const parsed = parseFlags(args, SERVER_SPEC);
+  if (!parsed.ok) return usageError(BIN, parsed.error, SERVER_USAGE);
+  if (parsed.args.help) {
+    console.log(HELP);
+    return 0;
   }
-  return defaultValue;
-}
+  if (parsed.args.positional.length > 0) {
+    return usageError(BIN, `unknown subcommand "${parsed.args.positional[0]}"`, SERVER_USAGE);
+  }
 
-async function runServer(): Promise<void> {
-  const port = parseInt(getArg('port', process.env.PORT ?? '3010'));
-  const redisUrl = getArg('redis-url', process.env.REDIS_URL ?? 'redis://localhost:6379');
-  const messageQueueUrl = getArg('message-queue-url', process.env.MESSAGE_QUEUE_URL ?? 'http://localhost:3004');
+  const rawPort = parsed.args.values['port'] ?? process.env.PORT ?? '3010';
+  const port = Number(rawPort);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    return usageError(BIN, `invalid --port "${rawPort}" — expected an integer between 0 and 65535`, SERVER_USAGE);
+  }
+  const redisUrl = parsed.args.values['redis-url'] ?? process.env.REDIS_URL ?? 'redis://localhost:6379';
+  const messageQueueUrl = parsed.args.values['message-queue-url']
+    ?? process.env.MESSAGE_QUEUE_URL
+    ?? 'http://localhost:3004';
 
   console.log('╔══════════════════════════════════════╗');
   console.log('║         event-catalog server         ║');
   console.log('╚══════════════════════════════════════╝');
 
   const { shutdown } = await startServer({ port, redisUrl, messageQueueUrl });
-  process.on('SIGINT', async () => { await shutdown(); process.exit(0); });
-  process.on('SIGTERM', async () => { await shutdown(); process.exit(0); });
+  process.on('SIGINT', () => { void shutdown().then(() => process.exit(0)); });
+  process.on('SIGTERM', () => { void shutdown().then(() => process.exit(0)); });
+
+  // Server mode never resolves — the process lives until a signal.
+  return new Promise<number>(() => { /* intentionally pending */ });
 }
 
-void (async () => {
+/**
+ * Dispatch one argv to a subcommand and resolve with its exit code.
+ *
+ * NOTE: importing this module runs the CLI (see the `runCli` call at the
+ * bottom), so tests exercise the dispatcher by spawning the bin rather
+ * than importing `main`.
+ */
+export async function main(argv: string[]): Promise<number> {
+  const subcommand = argv[0];
+
   if (subcommand === '--help' || subcommand === '-h' || subcommand === 'help') {
-    console.log(HELP.trim());
-    return;
+    console.log(HELP);
+    return 0;
   }
-  if (!subcommand || subcommand === 'server' || subcommand.startsWith('--')) {
-    // No subcommand or first arg is a flag → run the server (default).
-    await runServer();
-    return;
+
+  // No subcommand, an explicit `server`, or a leading flag → server mode.
+  if (subcommand === undefined || subcommand === 'server' || subcommand.startsWith('-')) {
+    return runServer(subcommand === 'server' ? argv.slice(1) : argv);
   }
-  if (subcommand === 'lint') {
-    process.exit(await lint(args.slice(1)));
+
+  const rest = argv.slice(1);
+  switch (subcommand) {
+    case 'lint': return lint(rest);
+    case 'snapshot': return snapshot(rest);
+    case 'drift': return drift(rest);
+    case 'manifest': return manifest(rest);
+    case 'deprecate': return deprecate(rest);
+    case 'undeprecate': return undeprecate(rest);
+    case 'asyncapi': return asyncapi(rest);
+    default:
+      console.error(`${BIN}: unknown subcommand "${subcommand}"`);
+      console.error('run `event-catalog --help` for usage');
+      return 2;
   }
-  if (subcommand === 'snapshot') {
-    process.exit(await snapshot(args.slice(1)));
-  }
-  if (subcommand === 'drift') {
-    process.exit(await drift(args.slice(1)));
-  }
-  if (subcommand === 'manifest') {
-    process.exit(await manifest(args.slice(1)));
-  }
-  if (subcommand === 'deprecate') {
-    process.exit(await deprecate(args.slice(1)));
-  }
-  if (subcommand === 'undeprecate') {
-    process.exit(await undeprecate(args.slice(1)));
-  }
-  if (subcommand === 'asyncapi') {
-    process.exit(await asyncapi(args.slice(1)));
-  }
-  console.error(`event-catalog: unknown subcommand "${subcommand}"`);
-  console.error('run `event-catalog --help` for usage');
-  process.exit(2);
-})();
+}
+
+runCli(BIN, () => main(process.argv.slice(2)));

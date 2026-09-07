@@ -21,6 +21,7 @@
 // mirrors `pipeline-image-vision.ts`.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineAgentDeclarations = exports.pipelineStepAgentTool = void 0;
+const field_glossary_1 = require("./field-glossary");
 const PRODUCER = 'platform-api';
 const TAGS_BASE = ['pipeline', 'agent', 'producer:platform-api'];
 exports.pipelineStepAgentTool = {
@@ -64,4 +65,7 @@ exports.pipelineStepAgentTool = {
 exports.pipelineAgentDeclarations = [
     exports.pipelineStepAgentTool,
 ];
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+(0, field_glossary_1.annotateDeclarations)(exports.pipelineAgentDeclarations);
 //# sourceMappingURL=pipeline-agent.js.map

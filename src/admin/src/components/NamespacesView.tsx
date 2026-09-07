@@ -58,22 +58,15 @@ export function NamespacesView() {
   if (error) return <Banner variant="error" title="Error">{error}</Banner>;
 
   return (
-    <div className="namespaces-view" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid #e2e8f0' }}>
-        <h2 style={{ margin: 0 }}>Namespaces</h2>
+    <div className="namespaces-view view-column">
+      <div className="view-toolbar">
+        <h2>Namespaces</h2>
         <Chip tone="info">{rows.length} total</Chip>
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Filter by namespace…"
-          style={{
-            marginLeft: 'auto',
-            padding: '4px 10px',
-            border: '1px solid #cbd5e1',
-            borderRadius: 4,
-            fontSize: 13,
-            width: 220,
-          }}
+          className="ns-filter-input"
         />
         <Button variant="ghost" size="sm" onClick={load}>Refresh</Button>
       </div>
@@ -85,63 +78,45 @@ export function NamespacesView() {
           body={search ? `No namespace matches "${search}".` : 'Declare an event to populate the catalog.'}
         />
       ) : (
-        <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+        <div className="view-scroll">
+          <div className="ns-grid">
             {filtered.map(row => {
               const isExpanded = expanded === row.namespace;
               return (
-                <div
-                  key={row.namespace}
-                  style={{
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 6,
-                    background: 'white',
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-                  }}
-                >
+                <div key={row.namespace} className="ns-card">
                   <button
+                    className="ns-card-toggle"
                     onClick={() => setExpanded(isExpanded ? null : row.namespace)}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      background: 'none',
-                      border: 'none',
-                      padding: '12px 14px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8,
-                    }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <strong style={{ fontSize: 15 }}>{row.namespace}</strong>
-                      <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: 11 }}>
+                    <div className="ns-card-title">
+                      <strong className="ns-card-name">{row.namespace}</strong>
+                      <span className="ns-card-caret">
                         {isExpanded ? '▾' : '▸'}
                       </span>
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    <div className="ns-card-chips">
                       <Chip tone="neutral">{row.eventCount} events</Chip>
                       {row.signalCount > 0 ? <Chip tone="info">{row.signalCount} signal</Chip> : null}
                       {row.durableCount > 0 ? <Chip tone="warning">{row.durableCount} durable</Chip> : null}
                       {row.deprecatedCount > 0 ? <Chip tone="danger">{row.deprecatedCount} deprecated</Chip> : null}
                     </div>
-                    <div style={{ fontSize: 11, color: '#64748b' }}>
+                    <div className="ns-card-meta">
                       {row.producerCount} producer{row.producerCount === 1 ? '' : 's'} · {row.subscriberCount} subscriber{row.subscriberCount === 1 ? '' : 's'}
                     </div>
                   </button>
 
                   {isExpanded && row.events && (
-                    <div style={{ padding: '0 14px 12px', borderTop: '1px solid #f1f5f9' }}>
+                    <div className="ns-card-body">
                       {/* wave26-f — namespace-level bulk actions */}
-                      <div style={{ display: 'flex', gap: 6, padding: '8px 0', flexWrap: 'wrap' }}>
+                      <div className="ns-bulk-actions">
                         <button
-                          style={{ fontSize: 11, padding: '2px 8px', border: '1px solid #b91c1c', background: 'transparent', color: '#b91c1c', borderRadius: 4, cursor: 'pointer' }}
+                          className="btn-mini danger"
                           onClick={() => { setBulkNs(row.namespace); setBulkMsg(null); }}
                         >
                           Deprecate namespace
                         </button>
                         <button
-                          style={{ fontSize: 11, padding: '2px 8px', border: '1px solid #1d4ed8', background: 'transparent', color: '#1d4ed8', borderRadius: 4, cursor: 'pointer' }}
+                          className="btn-mini info"
                           onClick={() => {
                             const names = row.events!.map(e => e.name);
                             window.open(api.bulkExportUrl(names), '_blank');
@@ -151,16 +126,16 @@ export function NamespacesView() {
                         </button>
                       </div>
                       {bulkNs === row.namespace && (
-                        <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+                        <div className="ns-bulk-confirm">
                           <input
                             type="text"
                             placeholder="Reason for deprecating entire namespace"
                             value={bulkReason}
                             onChange={e => setBulkReason(e.target.value)}
-                            style={{ flex: 1, padding: '4px 8px', fontSize: 12, border: '1px solid #fca5a5', borderRadius: 4 }}
+                            className="ns-bulk-input"
                           />
                           <button
-                            style={{ fontSize: 12, padding: '4px 10px', background: '#b91c1c', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                            className="btn-solid danger sm"
                             onClick={async () => {
                               const names = row.events!.map(e => e.name);
                               try {
@@ -176,28 +151,18 @@ export function NamespacesView() {
                             Confirm
                           </button>
                           <button
-                            style={{ fontSize: 12, padding: '4px 8px', background: 'transparent', color: '#64748b', border: '1px solid #cbd5e1', borderRadius: 4, cursor: 'pointer' }}
+                            className="btn-outline-muted"
                             onClick={() => setBulkNs(null)}
                           >
                             Cancel
                           </button>
                         </div>
                       )}
-                      {bulkMsg && <div style={{ fontSize: 12, color: '#16a34a', marginBottom: 6 }}>{bulkMsg}</div>}
-                      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                      {bulkMsg && <div className="bulk-msg">{bulkMsg}</div>}
+                      <ul className="ns-event-list">
                         {row.events.map(ev => (
-                          <li
-                            key={ev.name}
-                            style={{
-                              padding: '6px 0',
-                              borderBottom: '1px solid #f8fafc',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              fontSize: 13,
-                            }}
-                          >
-                            <Link to={`/events/${encodeURIComponent(ev.name)}`} style={{ color: '#0f172a' }}>
+                          <li key={ev.name} className="ns-event-row">
+                            <Link to={`/events/${encodeURIComponent(ev.name)}`} className="link-plain">
                               {ev.name}
                             </Link>
                             <Chip tone={ev.transport === 'signal' ? 'info' : 'warning'} size="xs">

@@ -25,8 +25,22 @@
 // ship to all consumers automatically without local re-declaration.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineRaftStateMachineDeclarations = exports.pipelineRaftDeclarations = exports.pipelineRaftRunTerminated = exports.pipelineRaftRunCheckpointed = exports.pipelineRaftRunSynthesized = exports.pipelineRaftRunUpdated = exports.pipelineRaftRunStarted = void 0;
+const field_glossary_1 = require("./field-glossary");
 const PRODUCER = 'platform-api';
 const TAGS_BASE = ['producer:platform-api', 'pipeline', 'raft'];
+/**
+ * Raft-slot field meanings. Keys are dotted paths where the name only makes
+ * sense inside the slot record; bare names (runId, status …) fall through to
+ * the common glossary.
+ */
+const FIELDS = {
+    slot: 'The Raft slot record for this run as it exists after the command was applied.',
+    'slot.status': 'Run status recorded in the slot after the command applied.',
+    'slot.lastEvent': 'Name of the most recent state-machine command applied to this slot.',
+    'slot.lastAppliedIndex': 'Raft log index of the most recent command applied to this slot.',
+    'slot.ownerNodeId': 'Cluster node id that owns execution of this run.',
+    'slot.checkpoint': 'Opaque checkpoint blob written by the last run-checkpointed command.',
+};
 // Common slot sub-schema (base fields present on every Raft slot record).
 const slotBase = {
     type: 'object',
@@ -68,6 +82,9 @@ exports.pipelineRaftRunStarted = {
             },
         },
         required: ['runId', 'slot'],
+        // Explicit — mirrors the implicit JSON Schema default. DC adds slot
+        // fields ahead of this declaration, so the envelope stays open.
+        additionalProperties: true,
     },
 };
 // ---------------------------------------------------------------------------
@@ -89,6 +106,9 @@ exports.pipelineRaftRunUpdated = {
             slot: slotBase,
         },
         required: ['runId', 'slot'],
+        // Explicit — mirrors the implicit JSON Schema default. DC adds slot
+        // fields ahead of this declaration, so the envelope stays open.
+        additionalProperties: true,
     },
 };
 // ---------------------------------------------------------------------------
@@ -111,6 +131,9 @@ exports.pipelineRaftRunSynthesized = {
             slot: slotBase,
         },
         required: ['runId', 'slot'],
+        // Explicit — mirrors the implicit JSON Schema default. DC adds slot
+        // fields ahead of this declaration, so the envelope stays open.
+        additionalProperties: true,
     },
 };
 // ---------------------------------------------------------------------------
@@ -138,6 +161,9 @@ exports.pipelineRaftRunCheckpointed = {
             },
         },
         required: ['runId', 'slot'],
+        // Explicit — mirrors the implicit JSON Schema default. DC adds slot
+        // fields ahead of this declaration, so the envelope stays open.
+        additionalProperties: true,
     },
 };
 // ---------------------------------------------------------------------------
@@ -166,6 +192,9 @@ exports.pipelineRaftRunTerminated = {
             },
         },
         required: ['runId', 'slot'],
+        // Explicit — mirrors the implicit JSON Schema default. DC adds slot
+        // fields ahead of this declaration, so the envelope stays open.
+        additionalProperties: true,
     },
 };
 // ---------------------------------------------------------------------------
@@ -185,6 +214,11 @@ exports.pipelineRaftDeclarations = [
     exports.pipelineRaftRunCheckpointed,
     exports.pipelineRaftRunTerminated,
 ];
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+// `slotBase`'s property objects are shared by reference across all five
+// declarations, so a single pass annotates every view of them.
+(0, field_glossary_1.annotateDeclarations)(exports.pipelineRaftDeclarations, FIELDS);
 /**
  * The four state-machine transition events emitted by PipelineRaftStateMachine
  * (wave20-a). Excludes `pipeline:raft:run:started` which is a slot-creation

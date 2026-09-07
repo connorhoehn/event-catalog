@@ -27,9 +27,16 @@
 // Cross-reference: portal/src/pages/newsroom/*.tsx, portal/src/pages/*.tsx
 
 import type { EventDeclaration } from '../types/index';
+import { annotateDeclarations, type FieldGlossary } from './field-glossary';
 
 const PRODUCER = 'orgiq-middleware';
 const TAGS_BASE = ['orgiq', 'signal', `producer:${PRODUCER}`];
+
+/** Frame-envelope meanings for OrgIQ's channel-scoped signal frames. */
+const FIELDS: FieldGlossary = {
+    type: 'Signal frame type discriminator — which gateway fan-out service produced this frame.',
+    action: 'Which action of the frame\'s service this frame reports.',
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,7 +53,7 @@ function orgiqSchema(
         properties: {
             type:      { type: 'string', const: typeLiteral },
             channel:   { type: 'string', description: 'Gateway channel name' },
-            timestamp: { type: 'string', description: 'ISO-8601' },
+            timestamp: { type: 'string', description: 'ISO-8601 timestamp at which the producer emitted this frame.' },
             ...extra,
         },
         required: ['type', 'channel', ...required],
@@ -194,3 +201,7 @@ export const orgiqSignalDeclarations: readonly EventDeclaration[] = [
     orgiqInvokePresence,
     orgiqArticlesReactions,
 ];
+
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+annotateDeclarations(orgiqSignalDeclarations, FIELDS);

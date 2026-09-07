@@ -13,52 +13,98 @@
 //
 // Exits non-zero when any drift is detected.
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.DRIFT_HELP = void 0;
 exports.drift = drift;
-const node_fs_1 = require("node:fs");
+const _args_js_1 = require("../_args.js");
+const BIN = 'event-catalog drift';
+const USAGE = 'event-catalog drift --against=<snapshot.json> (--catalog-url=<url> | --registry-snapshot=<file>)';
+exports.DRIFT_HELP = `
+event-catalog drift — compare a fingerprint snapshot against the live registry
+
+USAGE
+  ${USAGE}
+
+OPTIONS
+  --against=<file>            Snapshot to check (required)
+  --catalog-url=<url>         Compare against a live catalog's /api/fingerprints
+  --registry-snapshot=<file>  Compare against a committed registry snapshot
+                              (exactly one of the two sources is required)
+  --help, -h                  Show this help
+
+EXIT CODES
+  0   No drift
+  1   Drift detected, or the catalog was unreachable / returned non-2xx
+  2   Usage error or an unreadable / malformed snapshot file
+
+EXAMPLES
+  event-catalog drift --catalog-url=https://catalog --against=snapshot.json
+  event-catalog drift --against=contracts/produced.snapshot.json \\
+      --registry-snapshot=node_modules/@connorhoehn/event-catalog/contracts/registry.snapshot.json
+`.trim();
+const SPEC = { value: ['catalog-url', 'registry-snapshot', 'against'] };
 async function drift(args) {
-    const url = getArg(args, 'catalog-url');
-    const registrySnapshotFile = getArg(args, 'registry-snapshot');
-    const against = getArg(args, 'against');
-    if (!against || (!url && !registrySnapshotFile)) {
-        console.error('usage: event-catalog drift --against=<snapshot.json> '
-            + '(--catalog-url=<url> | --registry-snapshot=<file>)');
-        return 2;
+    const parsed = (0, _args_js_1.parseFlags)(args, SPEC);
+    if (!parsed.ok)
+        return (0, _args_js_1.usageError)(BIN, parsed.error, USAGE);
+    if (parsed.args.help) {
+        console.log(exports.DRIFT_HELP);
+        return 0;
+    }
+    const { positional, values } = parsed.args;
+    if (positional.length > 0) {
+        return (0, _args_js_1.usageError)(BIN, `unexpected argument "${positional[0]}" — drift takes flags only`, USAGE);
+    }
+    const url = values['catalog-url'];
+    const registrySnapshotFile = values['registry-snapshot'];
+    const against = values['against'];
+    if (!against) {
+        return (0, _args_js_1.usageError)(BIN, '--against=<snapshot.json> is required', USAGE);
+    }
+    if (!url && !registrySnapshotFile) {
+        return (0, _args_js_1.usageError)(BIN, 'one of --catalog-url or --registry-snapshot is required', USAGE);
     }
     if (url && registrySnapshotFile) {
-        console.error('event-catalog drift: pass only one of --catalog-url / --registry-snapshot');
+        return (0, _args_js_1.usageError)(BIN, 'pass only one of --catalog-url / --registry-snapshot', USAGE);
+    }
+    const loadedSnapshot = (0, _args_js_1.readFingerprintMap)(against, 'snapshot');
+    if (!loadedSnapshot.ok) {
+        console.error(`${BIN}: ${loadedSnapshot.error}`);
         return 2;
     }
-    let snapshot;
-    try {
-        snapshot = JSON.parse((0, node_fs_1.readFileSync)(against, 'utf8'));
-    }
-    catch (err) {
-        console.error(`event-catalog drift: cannot read snapshot "${against}": ${err.message}`);
-        return 2;
-    }
+    const snapshot = loadedSnapshot.value;
     let live;
     if (url) {
+        const ep = `${url.replace(/\/$/, '')}/api/fingerprints`;
+        let res;
         try {
-            const res = await fetch(`${url.replace(/\/$/, '')}/api/fingerprints`);
-            if (!res.ok) {
-                console.error(`event-catalog drift: HTTP ${res.status}`);
-                return 1;
-            }
-            live = (await res.json());
+            res = await fetch(ep);
         }
         catch (err) {
-            console.error(`event-catalog drift: fetch failed: ${err.message}`);
+            console.error(`${BIN}: fetch failed: ${(0, _args_js_1.formatError)(err)}`);
             return 1;
         }
+        if (!res.ok) {
+            console.error(`${BIN}: HTTP ${res.status} from ${ep}`);
+            return 1;
+        }
+        const body = await (0, _args_js_1.readJsonResponse)(res, ep);
+        if (!body.ok) {
+            console.error(`${BIN}: ${body.error}`);
+            return 1;
+        }
+        if (!body.value || typeof body.value !== 'object' || Array.isArray(body.value)) {
+            console.error(`${BIN}: ${ep} returned ${Array.isArray(body.value) ? 'an array' : 'a scalar'}, expected a fingerprint object`);
+            return 1;
+        }
+        live = body.value;
     }
     else {
-        try {
-            live = JSON.parse((0, node_fs_1.readFileSync)(registrySnapshotFile, 'utf8'));
-        }
-        catch (err) {
-            console.error(`event-catalog drift: cannot read registry snapshot "${registrySnapshotFile}": ${err.message}`);
+        const loadedRegistry = (0, _args_js_1.readFingerprintMap)(registrySnapshotFile, 'registry snapshot');
+        if (!loadedRegistry.ok) {
+            console.error(`${BIN}: ${loadedRegistry.error}`);
             return 2;
         }
+        live = loadedRegistry.value;
     }
     const added = [];
     const removed = [];
@@ -80,20 +126,10 @@ async function drift(args) {
     for (const n of removed.sort())
         console.log(`- ${n}`);
     for (const c of changed.sort((a, b) => a.name.localeCompare(b.name))) {
-        console.log(`~ ${c.name}  ${c.before.slice(0, 12)}… → ${c.after.slice(0, 12)}…`);
+        console.log(`~ ${c.name}  ${String(c.before).slice(0, 12)}… → ${String(c.after).slice(0, 12)}…`);
     }
     console.log('');
     console.log(`${added.length} added, ${removed.length} removed, ${changed.length} changed`);
     return added.length + removed.length + changed.length === 0 ? 0 : 1;
-}
-function getArg(args, name) {
-    for (const arg of args) {
-        if (arg.startsWith(`--${name}=`))
-            return arg.slice(name.length + 3);
-    }
-    const idx = args.indexOf(`--${name}`);
-    if (idx !== -1 && args[idx + 1])
-        return args[idx + 1];
-    return undefined;
 }
 //# sourceMappingURL=drift.js.map

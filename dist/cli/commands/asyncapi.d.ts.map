@@ -1,1 +1,1 @@
-{"version":3,"file":"asyncapi.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/asyncapi.ts"],"names":[],"mappings":"AAgBA,wBAAsB,QAAQ,CAAC,IAAI,EAAE,MAAM,EAAE,GAAG,OAAO,CAAC,MAAM,CAAC,CA0C9D"}
+{"version":3,"file":"asyncapi.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/asyncapi.ts"],"names":[],"mappings":"AAoBA,eAAO,MAAM,aAAa,QAkBlB,CAAC;AAIT,wBAAsB,QAAQ,CAAC,IAAI,EAAE,MAAM,EAAE,GAAG,OAAO,CAAC,MAAM,CAAC,CA0D9D"}

@@ -18,6 +18,22 @@
 // will declare the remaining ~27 colon-form pipeline events.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineDeclarations = exports.pipelineRunCheckpoint = exports.pipelineApprovalResolved = exports.pipelineApprovalRecorded = exports.pipelineApprovalRequested = void 0;
+const field_glossary_1 = require("./field-glossary");
+/**
+ * Field meanings specific to the approval/checkpoint surface. Everything
+ * else (runId, stepId, at, context …) comes from the common glossary.
+ */
+const FIELDS = {
+    approverIds: 'User ids of every approver eligible to act on this gate. At least one.',
+    approver: 'User id of the approver who recorded this decision.',
+    approvalId: 'Identifier of the approval gate that was resolved.',
+    decision: 'The recorded outcome of the approval.',
+    comment: 'Optional free-text reviewer note attached to the decision.',
+    requestedAt: 'Epoch milliseconds at which the approval was requested.',
+    decidedAt: 'Epoch milliseconds at which the approver recorded the decision.',
+    resolvedAt: 'Epoch milliseconds at which the gate reached its final decision.',
+    currentStepIds: 'Step ids on the run frontier — the steps in flight when the checkpoint was taken.',
+};
 /**
  * `pipeline.approval.requested` — emitted by `PipelineExecutor` when an
  * approval node is entered. Dual-transport: signal (in-process bus →
@@ -183,4 +199,7 @@ exports.pipelineDeclarations = [
     exports.pipelineApprovalResolved,
     exports.pipelineRunCheckpoint,
 ];
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+(0, field_glossary_1.annotateDeclarations)(exports.pipelineDeclarations, FIELDS);
 //# sourceMappingURL=pipeline.js.map

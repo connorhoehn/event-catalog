@@ -14,6 +14,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.lintCrd = lintCrd;
 const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
+const _args_js_1 = require("./_args.js");
 // ---------------------------------------------------------------------------
 // Bundle registry bootstrap (module-singleton via side-effect import)
 // ---------------------------------------------------------------------------
@@ -172,7 +173,14 @@ function collectYamlFiles(input) {
     }
     if (st.isDirectory()) {
         const files = [];
-        for (const entry of (0, node_fs_1.readdirSync)(input, { withFileTypes: true })) {
+        let entries;
+        try {
+            entries = (0, node_fs_1.readdirSync)(input, { withFileTypes: true });
+        }
+        catch (err) {
+            throw new Error(`cannot list directory "${input}": ${(0, _args_js_1.formatError)(err, false)}`);
+        }
+        for (const entry of entries) {
             const full = (0, node_path_1.join)(input, entry.name);
             if (entry.isDirectory()) {
                 files.push(...collectYamlFiles(full));
@@ -193,7 +201,8 @@ function extractCrds(file) {
     try {
         content = (0, node_fs_1.readFileSync)(file, 'utf8');
     }
-    catch {
+    catch (err) {
+        console.error(`ec-lint-crd: skipping "${file}": ${(0, _args_js_1.formatError)(err, false)}`);
         return [];
     }
     const docs = splitDocuments(content);
@@ -272,8 +281,8 @@ function fixFingerprints(file, crds) {
     try {
         content = (0, node_fs_1.readFileSync)(file, 'utf8');
     }
-    catch {
-        return false;
+    catch (err) {
+        throw new Error(`cannot read "${file}" to fix fingerprints: ${(0, _args_js_1.formatError)(err, false)}`);
     }
     let modified = false;
     for (const crd of crds) {
@@ -294,17 +303,22 @@ function fixFingerprints(file, crds) {
         modified = true;
     }
     if (modified) {
-        (0, node_fs_1.writeFileSync)(file, content, 'utf8');
+        try {
+            (0, node_fs_1.writeFileSync)(file, content, 'utf8');
+        }
+        catch (err) {
+            throw new Error(`cannot rewrite "${file}": ${(0, _args_js_1.formatError)(err, false)}`);
+        }
     }
     return modified;
 }
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
+const BIN = 'ec-lint-crd';
+const USAGE = 'ec-lint-crd <path> [--fix-fingerprints]';
+const SPEC = { boolean: ['fix-fingerprints', 'list-deprecated'] };
 async function lintCrd(args) {
-    const fixMode = args.includes('--fix-fingerprints');
-    const helpMode = args.includes('--help') || args.includes('-h');
-    const listDeprecatedMode = args.includes('--list-deprecated');
     const HELP = `
 ec-lint-crd — validate Kubernetes CRD YAML files against the event-catalog bundle registry
 
@@ -334,12 +348,20 @@ CI INTEGRATION (GitHub Actions)
   - name: Validate CRD bundles
     run: npx ec-lint-crd crds/
 `.trim();
-    if (helpMode) {
+    const parsed = (0, _args_js_1.parseFlags)(args, SPEC);
+    if (!parsed.ok)
+        return (0, _args_js_1.usageError)(BIN, parsed.error, USAGE);
+    if (parsed.args.help) {
         console.log(HELP);
         return 0;
     }
+    const fixMode = parsed.args.flags.has('fix-fingerprints');
+    const listDeprecatedMode = parsed.args.flags.has('list-deprecated');
     // --list-deprecated: print all deprecated bundles and exit 0
     if (listDeprecatedMode) {
+        if (parsed.args.positional.length > 0) {
+            return (0, _args_js_1.usageError)(BIN, '--list-deprecated takes no path argument', USAGE);
+        }
         const all = (0, FeatureBundle_js_1.listFeatureBundles)();
         const deprecated = all.filter((b) => b.deprecated !== undefined);
         if (deprecated.length === 0) {
@@ -357,15 +379,20 @@ CI INTEGRATION (GitHub Actions)
         console.log(`Total: ${deprecated.length} deprecated bundle(s)`);
         return 0;
     }
-    const paths = args.filter((a) => !a.startsWith('--'));
+    const paths = parsed.args.positional;
     if (paths.length === 0) {
-        console.error('ec-lint-crd: no path provided');
-        console.error('usage: ec-lint-crd <path> [--fix-fingerprints]');
-        return 2;
+        return (0, _args_js_1.usageError)(BIN, 'no path provided', USAGE);
     }
     const allFiles = [];
     for (const p of paths) {
-        const found = collectYamlFiles(p);
+        let found;
+        try {
+            found = collectYamlFiles(p);
+        }
+        catch (err) {
+            console.error(`${BIN}: ${(0, _args_js_1.formatError)(err)}`);
+            return 2;
+        }
         if (found.length === 0) {
             // If path was a specific file but not yaml, warn
             let st;
@@ -374,14 +401,18 @@ CI INTEGRATION (GitHub Actions)
             }
             catch { /* file not found */ }
             if (!st) {
-                console.error(`ec-lint-crd: path not found: ${p}`);
+                console.error(`${BIN}: path not found: ${p}`);
+                return 2;
+            }
+            if (st.isFile()) {
+                console.error(`${BIN}: "${p}" is not a YAML file (expected .yaml or .yml)`);
                 return 2;
             }
         }
         allFiles.push(...found);
     }
     if (allFiles.length === 0) {
-        console.error('ec-lint-crd: no YAML files found in the given path(s)');
+        console.error(`${BIN}: no YAML files found in ${paths.map((p) => `"${p}"`).join(', ')}`);
         return 2;
     }
     let totalCrds = 0;
@@ -396,7 +427,14 @@ CI INTEGRATION (GitHub Actions)
             continue;
         }
         if (fixMode) {
-            const fixed = fixFingerprints(file, crds);
+            let fixed;
+            try {
+                fixed = fixFingerprints(file, crds);
+            }
+            catch (err) {
+                console.error(`${BIN}: ${(0, _args_js_1.formatError)(err)}`);
+                return 1;
+            }
             if (fixed) {
                 console.log(`[fixed] ${file}`);
             }
@@ -459,7 +497,6 @@ CI INTEGRATION (GitHub Actions)
 // Detect if run directly (not imported as a module). Works in both CJS and ESM.
 const _argv1 = process.argv[1] ?? '';
 if (_argv1.endsWith('lint-crd.js') || _argv1.endsWith('lint-crd.ts') || _argv1.endsWith('ec-lint-crd')) {
-    const args = process.argv.slice(2);
-    void lintCrd(args).then((code) => process.exit(code));
+    (0, _args_js_1.runCli)(BIN, () => lintCrd(process.argv.slice(2)));
 }
 //# sourceMappingURL=lint-crd.js.map

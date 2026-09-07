@@ -1,0 +1,1 @@
+{"version":3,"file":"flow.d.ts","sourceRoot":"","sources":["../../../src/server/routes/flow.ts"],"names":[],"mappings":"AAOA,OAAO,KAAK,EAAE,OAAO,EAAE,QAAQ,EAAE,MAAM,mBAAmB,CAAC;AAE3D,OAAO,EAAiD,KAAK,UAAU,EAAE,MAAM,cAAc,CAAC;AAE9F,wBAAgB,kBAAkB,CAAC,KAAK,EAAE,UAAU;kBAC7B,OAAO,OAAO,QAAQ,KAAG,IAAI;EAsCnD"}

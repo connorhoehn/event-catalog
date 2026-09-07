@@ -32,23 +32,11 @@ export function FingerprintChip({ fingerprint, label = 'fingerprint' }: Fingerpr
 
   return (
     <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        padding: '2px 8px',
-        background: '#f1f5f9',
-        border: '1px solid #cbd5e1',
-        borderRadius: 4,
-        fontFamily: 'ui-monospace, monospace',
-        fontSize: 11,
-        color: '#475569',
-        cursor: 'pointer',
-      }}
+      className="fingerprint-chip"
       onClick={() => setExpanded((v) => !v)}
       title={`Click to ${expanded ? 'collapse' : 'expand'} full fingerprint`}
     >
-      <span style={{ color: '#94a3b8', textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.4 }}>
+      <span className="fingerprint-label">
         {label}
       </span>
       <span>{expanded ? fingerprint : short + (fingerprint.length > 12 ? '…' : '')}</span>
@@ -59,16 +47,7 @@ export function FingerprintChip({ fingerprint, label = 'fingerprint' }: Fingerpr
             e.stopPropagation();
             onCopy();
           }}
-          style={{
-            marginLeft: 4,
-            padding: '0 6px',
-            fontSize: 10,
-            background: copied ? '#10b981' : '#e2e8f0',
-            color: copied ? 'white' : '#475569',
-            border: 'none',
-            borderRadius: 3,
-            cursor: 'pointer',
-          }}
+          className={`fingerprint-copy${copied ? ' copied' : ''}`}
         >
           {copied ? 'copied' : 'copy'}
         </button>

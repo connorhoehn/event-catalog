@@ -14,8 +14,19 @@
 // hot-path tags, cheap-subscriber contract.
 
 import type { EventDeclaration } from '../types';
+import { annotateDeclarations, type FieldGlossary } from './field-glossary';
 
 const TAGS = ['call', 'captions'];
+
+/** Caption/transcription field meanings; the rest come from the common glossary. */
+const FIELDS: FieldGlossary = {
+    text: 'Transcribed text of the utterance window.',
+    recordingProfile: 'Recording profile id the source recording was made under (see recording-profiles.ts).',
+    transcriptKey: 'Storage key of the written transcript.json, relative to the recording bucket.',
+    transcriptUrl: 'Fetchable URL for the written transcript.json.',
+    speakerCount: 'Number of distinct speakers the ASR pass identified.',
+    summaryChars: 'Character length of the generated summary markdown — a cheap size signal for consumers that do not re-read the row.',
+};
 
 /**
  * One transcribed utterance window from one speaker. High volume during
@@ -146,3 +157,7 @@ export const callCaptionDeclarations: EventDeclaration[] = [
     transcriptionTranscriptReady,
     transcriptionSummaryReady,
 ];
+
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+annotateDeclarations(callCaptionDeclarations, FIELDS);

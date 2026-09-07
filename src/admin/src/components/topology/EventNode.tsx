@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 
 export interface EventNodeData extends Record<string, unknown> {
@@ -17,26 +18,19 @@ export default function EventNode({ data, selected }: NodeProps) {
   const d = data as EventNodeData;
   const tone = transportTone[d.transport] ?? '#64748b';
 
+  // The transport accent is data-driven, so it's handed to the stylesheet as
+  // custom properties; everything else lives in `.rf-event-node`.
+  const toneVars = { '--tone': tone, '--tone-ring': `${tone}33` } as CSSProperties;
+
   return (
-    <div
-      style={{
-        background: '#ffffff',
-        border: `2px solid ${selected ? tone : '#cbd5e1'}`,
-        borderLeft: `5px solid ${tone}`,
-        borderRadius: 8,
-        padding: '8px 12px',
-        minWidth: 180,
-        boxShadow: selected ? `0 0 0 3px ${tone}33` : '0 1px 2px rgba(15,23,42,.05)',
-        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-      }}
-    >
-      <Handle type="target" position={Position.Left} style={{ background: tone }} />
-      <div style={{ fontSize: 10, color: tone, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+    <div className={`rf-event-node${selected ? ' selected' : ''}`} style={toneVars}>
+      <Handle type="target" position={Position.Left} />
+      <div className="rf-node-kind">
         {d.transport}
         {d.namespace ? ` · ${d.namespace}` : null}
       </div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', marginTop: 2 }}>{d.label}</div>
-      <Handle type="source" position={Position.Right} style={{ background: tone }} />
+      <div className="rf-node-label">{d.label}</div>
+      <Handle type="source" position={Position.Right} />
     </div>
   );
 }

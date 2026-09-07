@@ -1,1 +1,1 @@
-{"version":3,"file":"manifest.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/manifest.ts"],"names":[],"mappings":"AAkBA,wBAAsB,QAAQ,CAAC,IAAI,EAAE,MAAM,EAAE,GAAG,OAAO,CAAC,MAAM,CAAC,CAqF9D"}
+{"version":3,"file":"manifest.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/manifest.ts"],"names":[],"mappings":"AA8BA,eAAO,MAAM,aAAa,QAuBlB,CAAC;AAKT,wBAAsB,QAAQ,CAAC,IAAI,EAAE,MAAM,EAAE,GAAG,OAAO,CAAC,MAAM,CAAC,CAqB9D"}

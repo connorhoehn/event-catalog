@@ -1,10 +1,32 @@
 #!/usr/bin/env node
-export declare function parseArgs(argv: string[]): {
+export declare const HELP: string;
+export interface CreateArgs {
     name: string;
     version: string;
     transport: string;
     events: string[];
-} | null;
+}
+export type CreateArgsResult = {
+    ok: true;
+    value: CreateArgs;
+} | {
+    ok: true;
+    help: true;
+} | {
+    ok: false;
+    error: string;
+};
+/**
+ * Full argv parse: rejects unknown flags and value-less value flags, and
+ * reports `--help` as a result instead of calling `process.exit` (which
+ * made this function untestable and surprising to import).
+ */
+export declare function parseCreateArgs(argv: string[]): CreateArgsResult;
+/**
+ * Back-compat shim: returns the parsed args, or null when argv can't be
+ * parsed into a bundle name + options.
+ */
+export declare function parseArgs(argv: string[]): CreateArgs | null;
 export interface ValidationError {
     code: 2;
     message: string;
@@ -41,4 +63,6 @@ export declare function bundleCreate(name: string, version: string, transport: s
     writeFile?: (p: string, content: string) => void;
     fileExists?: (p: string) => boolean;
 }): CreateResult;
+/** Parse argv, run the create, print the outcome, and return an exit code. */
+export declare function main(argv: string[]): number;
 //# sourceMappingURL=bundle-create.d.ts.map

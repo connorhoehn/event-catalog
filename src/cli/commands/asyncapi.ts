@@ -13,21 +13,55 @@
 //   event-catalog asyncapi --catalog-url=https://catalog --namespace=auth
 
 import { writeFileSync } from 'node:fs';
+import { formatError, parseFlags, usageError } from '../_args.js';
+
+const BIN = 'event-catalog asyncapi';
+const USAGE = 'event-catalog asyncapi --catalog-url=<url> [--output=file] [--title=T] [--version=V] [--namespace=ns]';
+
+export const ASYNCAPI_HELP = `
+event-catalog asyncapi — fetch the catalog's AsyncAPI 3.0 spec
+
+USAGE
+  ${USAGE}
+
+OPTIONS
+  --catalog-url=<url>   Catalog base URL (required)
+  --output=<file>       Write the spec to a file instead of stdout
+  --title=<text>        Override the spec's info.title
+  --version=<semver>    Override the spec's info.version
+  --namespace=<ns>      Restrict the spec to one namespace
+  --help, -h            Show this help
+
+EXIT CODES
+  0   Spec written
+  1   Catalog unreachable, non-2xx response, or the output file is unwritable
+  2   Usage error
+`.trim();
+
+const SPEC = { value: ['catalog-url', 'output', 'title', 'version', 'namespace'] } as const;
 
 export async function asyncapi(args: string[]): Promise<number> {
-  const url = getArg(args, 'catalog-url');
-  const output = getArg(args, 'output');
-  const title = getArg(args, 'title');
-  const version = getArg(args, 'version');
-  const namespace = getArg(args, 'namespace');
-  if (!url) {
-    console.error('usage: event-catalog asyncapi --catalog-url=<url> [--output=file] [--title=T] [--version=V] [--namespace=ns]');
-    return 2;
+  const parsed = parseFlags(args, SPEC);
+  if (!parsed.ok) return usageError(BIN, parsed.error, USAGE);
+  if (parsed.args.help) {
+    console.log(ASYNCAPI_HELP);
+    return 0;
   }
+  const { positional, values } = parsed.args;
+  if (positional.length > 0) {
+    return usageError(BIN, `unexpected argument "${positional[0]}" — asyncapi takes flags only`, USAGE);
+  }
+
+  const url = values['catalog-url'];
+  if (!url) {
+    return usageError(BIN, '--catalog-url is required', USAGE);
+  }
+  const output = values['output'];
+
   const params = new URLSearchParams();
-  if (title) params.set('title', title);
-  if (version) params.set('version', version);
-  if (namespace) params.set('namespace', namespace);
+  if (values['title']) params.set('title', values['title']);
+  if (values['version']) params.set('version', values['version']);
+  if (values['namespace']) params.set('namespace', values['namespace']);
   const qs = params.toString();
   const ep = `${url.replace(/\/$/, '')}/api/asyncapi${qs ? `?${qs}` : ''}`;
 
@@ -35,34 +69,33 @@ export async function asyncapi(args: string[]): Promise<number> {
   try {
     res = await fetch(ep);
   } catch (err) {
-    console.error(`event-catalog asyncapi: fetch failed: ${(err as Error).message}`);
+    console.error(`${BIN}: fetch failed: ${formatError(err)}`);
     return 1;
   }
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.error(`event-catalog asyncapi: HTTP ${res.status}: ${body.slice(0, 200)}`);
+    console.error(`${BIN}: HTTP ${res.status}: ${body.slice(0, 200)}`);
     return 1;
   }
-  const spec = await res.text();
+
+  let spec: string;
+  try {
+    spec = await res.text();
+  } catch (err) {
+    console.error(`${BIN}: could not read response from ${ep}: ${formatError(err)}`);
+    return 1;
+  }
+
   if (output) {
     try {
       writeFileSync(output, spec);
-      console.error(`event-catalog asyncapi: wrote ${spec.length} bytes to ${output}`);
+      console.error(`${BIN}: wrote ${spec.length} bytes to ${output}`);
     } catch (err) {
-      console.error(`event-catalog asyncapi: write failed: ${(err as Error).message}`);
+      console.error(`${BIN}: write failed: ${formatError(err, false)}`);
       return 1;
     }
   } else {
     process.stdout.write(spec);
   }
   return 0;
-}
-
-function getArg(args: string[], name: string): string | undefined {
-  for (const arg of args) {
-    if (arg.startsWith(`--${name}=`)) return arg.slice(name.length + 3);
-  }
-  const idx = args.indexOf(`--${name}`);
-  if (idx !== -1 && args[idx + 1]) return args[idx + 1];
-  return undefined;
 }

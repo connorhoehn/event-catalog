@@ -77,6 +77,7 @@
 //   websocket-gateway/src/observability/gateway-event-declarations.js
 
 import type { EventDeclaration } from '../types/index';
+import { annotateDeclarations, type FieldGlossary } from './field-glossary';
 
 const CLIENT_PRODUCER = 'realtime-modules-client';
 const CLIENT_BASE_TAGS = ['gateway', 'signal', 'client-frame', `producer:${CLIENT_PRODUCER}`];
@@ -123,7 +124,7 @@ function inboundSchema(
         type: 'object',
         properties: {
             type: { type: 'string', const: typeLiteral },
-            timestamp: { type: 'string', description: 'ISO-8601' },
+            timestamp: { type: 'string', description: 'ISO-8601 timestamp at which the producer emitted this frame.' },
             ...extra,
         },
         required: ['type', ...required],
@@ -680,7 +681,7 @@ export const wsFileuploadProgress: EventDeclaration = {
     schema: inboundSchema('fileupload:progress', {
         channel: { type: 'string' },
         id: { type: 'string', description: 'client-generated upload id' },
-        progress: { type: 'number', description: '0-100' },
+        progress: { type: 'number', description: 'Upload progress as a percentage, 0-100.' },
     }, ['channel', 'id', 'progress']),
 };
 
@@ -765,7 +766,7 @@ const notificationPayloadSchema: Record<string, unknown> = {
         type: { type: 'string', description: 'NotificationType — semantic category' },
         title: { type: 'string' },
         body: { type: 'string' },
-        timestamp: { type: 'string', description: 'ISO-8601' },
+        timestamp: { type: 'string', description: 'ISO-8601 timestamp at which the producer emitted this frame.' },
         read: { type: 'boolean' },
         channel: { type: 'string', description: 'origin channel for click-to-navigate' },
         payload: { type: 'object', additionalProperties: true },
@@ -1079,3 +1080,43 @@ export const clientFrameDeclarations: EventDeclaration[] = [
     ...clientFrameOutboundDeclarations,
     ...clientContractInboundDeclarations,
 ];
+
+/**
+ * Field meanings for both halves of this module: the outbound
+ * `{ service, action, channel }` request envelope and the inbound
+ * colon-form `type` push envelope.
+ */
+const FIELDS: FieldGlossary = {
+    // Neutral wording on purpose: this module declares both directions, so
+    // `service` is a routing key on the way out and an origin label on the
+    // way back in.
+    service: 'Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway\'s routing key.',
+    action: 'Verb the addressed service should perform.',
+    type: 'WebSocket frame type — names the gateway fan-out service that produced this frame.',
+    // Root-level `id` on this module's frames is always an upload id; the
+    // notification ids are reached by path and described separately.
+    id: 'Client-generated upload id, echoed on every frame for that upload.',
+    'payload.id': 'Identifier of the notification.',
+    'payload.notifications.id': 'Identifier of the notification.',
+    limit: 'Maximum number of history entries to return.',
+    mode: 'Editing role the client is announcing for the collaborative document.',
+    update: 'Base64-encoded Yjs update payload.',
+    awareness: 'Yjs awareness state for one client (selection, cursor, user colour).',
+    'updates.awareness': 'Yjs awareness state for the client named by this entry.',
+    'updates.update': 'Base64-encoded Yjs update payload for the client named by this entry.',
+    position: 'Anchor coordinates for the reaction within the target surface.',
+    presence: 'Presence record(s) for the channel — who is here and what state they are in.',
+    client: 'Presence record of the client that triggered this frame.',
+    participant: 'Participant record describing one member of the hangout.',
+    'payload.action': 'Optional call-to-action rendered with the notification.',
+    'payload.action.onClickEvent': 'Event name the frontend dispatches when the action is clicked.',
+    'payload.notifications.action': 'Optional call-to-action rendered with the notification.',
+    'payload.notifications.action.onClickEvent': 'Event name the frontend dispatches when the action is clicked.',
+    'payload.payload': 'Application-defined body of the notification.',
+    'payload.notifications.payload': 'Application-defined body of the notification.',
+    'payload.name': 'Identifier of the capability or feature flag whose state changed.',
+};
+
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+annotateDeclarations(clientFrameDeclarations, FIELDS);

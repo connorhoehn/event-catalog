@@ -1,1 +1,1 @@
-{"version":3,"file":"drift.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/drift.ts"],"names":[],"mappings":"AAoBA,wBAAsB,KAAK,CAAC,IAAI,EAAE,MAAM,EAAE,GAAG,OAAO,CAAC,MAAM,CAAC,CAyE3D"}
+{"version":3,"file":"drift.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/drift.ts"],"names":[],"mappings":"AAuBA,eAAO,MAAM,UAAU,QAsBf,CAAC;AAIT,wBAAsB,KAAK,CAAC,IAAI,EAAE,MAAM,EAAE,GAAG,OAAO,CAAC,MAAM,CAAC,CA0F3D"}

@@ -18,8 +18,17 @@
 // explicitly points to "wave 3 / event-catalog" for this work).
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineJudgeDeclarations = exports.pipelineJudgeBudgetExceeded = exports.pipelineJudgeFailed = exports.pipelineJudgeScored = exports.pipelineJudgeStarted = void 0;
+const field_glossary_1 = require("./field-glossary");
 const PRODUCER = 'platform-api';
 const TAGS_BASE = ['pipeline', 'judge', 'producer:platform-api'];
+/** Judge-specific field meanings; the rest come from the common glossary. */
+const FIELDS = {
+    rubricId: 'Identifier of the rubric the judge scored against.',
+    rubricVersion: 'Version of the rubric definition used for this judgement.',
+    judgeModel: 'Anthropic model id used for the judge call.',
+    judgmentId: 'Identifier of the persisted JudgmentResult (DDB primary key).',
+    mode: 'Scoring mode — absolute scores a single output, comparison ranks two.',
+};
 /**
  * Common envelope for `pipeline:judge:*` events. All four carry
  * `{ runId, stepId, at }` at minimum; per-event extras add on top.
@@ -159,4 +168,7 @@ exports.pipelineJudgeDeclarations = [
     exports.pipelineJudgeFailed,
     exports.pipelineJudgeBudgetExceeded,
 ];
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+(0, field_glossary_1.annotateDeclarations)(exports.pipelineJudgeDeclarations, FIELDS);
 //# sourceMappingURL=pipeline-judge.js.map

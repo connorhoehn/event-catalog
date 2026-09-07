@@ -15,34 +15,95 @@
 // to break audit-worker's pinned fingerprints.
 
 import { readFileSync } from 'node:fs';
+import {
+  formatError,
+  parseFlags,
+  readFingerprintMap,
+  readJsonResponse,
+  usageError,
+} from '../_args.js';
+
+const BIN_PIN = 'event-catalog manifest pin';
+const BIN_VERIFY = 'event-catalog manifest verify';
+const USAGE_PIN = 'event-catalog manifest pin --catalog-url=<url> --consumer=<name> [--snapshot=<file> | --events=name=fp,...]';
+const USAGE_VERIFY = 'event-catalog manifest verify --against=<consumed.manifest.json> --registry-snapshot=<registry.snapshot.json>';
+
+export const MANIFEST_HELP = `
+event-catalog manifest — pin and verify a consumer's fingerprint manifest
+
+USAGE
+  ${USAGE_PIN}
+  ${USAGE_VERIFY}
+
+PIN OPTIONS
+  --catalog-url=<url>   Catalog to PUT the manifest to (required)
+  --consumer=<name>     Consumer identity to pin under (required)
+  --snapshot=<file>     Pin every event in a fingerprint manifest file
+  --events=<pairs>      Pin an inline comma-separated name=fingerprint list
+
+VERIFY OPTIONS
+  --against=<file>            The consumer's pinned manifest (required)
+  --registry-snapshot=<file>  The shipped registry snapshot (required)
+
+  --help, -h            Show this help
+
+EXIT CODES
+  0   Manifest pinned, or every pinned event is fresh
+  1   Catalog unreachable / non-2xx, or a stale or unknown pinned event
+  2   Usage error or an unreadable / malformed file
+`.trim();
+
+const PIN_SPEC = { value: ['catalog-url', 'consumer', 'snapshot', 'events'] } as const;
+const VERIFY_SPEC = { value: ['against', 'registry-snapshot'] } as const;
 
 export async function manifest(args: string[]): Promise<number> {
   const sub = args[0];
+
+  if (sub === undefined) {
+    return usageError('event-catalog manifest', 'a subcommand is required (pin or verify)', USAGE_PIN);
+  }
+  if (sub === '--help' || sub === '-h' || sub === 'help') {
+    console.log(MANIFEST_HELP);
+    return 0;
+  }
   if (sub === 'verify') {
     return verify(args.slice(1));
   }
   if (sub !== 'pin') {
-    console.error(
-      'usage: event-catalog manifest pin --catalog-url=<url> --consumer=<name> '
-      + '[--snapshot=<file> | --events=name=fp,...]\n'
-      + '       event-catalog manifest verify --against=<consumed.manifest.json> '
-      + '--registry-snapshot=<registry.snapshot.json>',
+    return usageError(
+      'event-catalog manifest',
+      `unknown subcommand "${sub}" — expected pin or verify`,
+      USAGE_PIN,
     );
-    return 2;
   }
-  const rest = args.slice(1);
-  const url = getArg(rest, 'catalog-url');
-  const consumer = getArg(rest, 'consumer');
-  const snapshotFile = getArg(rest, 'snapshot');
-  const eventsArg = getArg(rest, 'events');
+  return pin(args.slice(1));
+}
+
+async function pin(rest: string[]): Promise<number> {
+  const parsed = parseFlags(rest, PIN_SPEC);
+  if (!parsed.ok) return usageError(BIN_PIN, parsed.error, USAGE_PIN);
+  if (parsed.args.help) {
+    console.log(MANIFEST_HELP);
+    return 0;
+  }
+  const { positional, values } = parsed.args;
+  if (positional.length > 0) {
+    return usageError(BIN_PIN, `unexpected argument "${positional[0]}" — pin takes flags only`, USAGE_PIN);
+  }
+
+  const url = values['catalog-url'];
+  const consumer = values['consumer'];
+  const snapshotFile = values['snapshot'];
+  const eventsArg = values['events'];
 
   if (!url || !consumer) {
-    console.error('event-catalog manifest pin: --catalog-url and --consumer are required');
-    return 2;
+    return usageError(BIN_PIN, '--catalog-url and --consumer are required', USAGE_PIN);
   }
   if (!snapshotFile && !eventsArg) {
-    console.error('event-catalog manifest pin: provide either --snapshot=<file> or --events=name=fp,...');
-    return 2;
+    return usageError(BIN_PIN, 'provide either --snapshot=<file> or --events=name=fp,...', USAGE_PIN);
+  }
+  if (snapshotFile && eventsArg) {
+    return usageError(BIN_PIN, 'pass only one of --snapshot / --events', USAGE_PIN);
   }
 
   const events: Array<{ name: string; fingerprint: string }> = [];
@@ -51,24 +112,28 @@ export async function manifest(args: string[]): Promise<number> {
     try {
       raw = readFileSync(snapshotFile, 'utf8');
     } catch (err) {
-      console.error(`event-catalog manifest pin: cannot read "${snapshotFile}": ${(err as Error).message}`);
+      console.error(`${BIN_PIN}: cannot read "${snapshotFile}": ${formatError(err, false)}`);
       return 2;
     }
-    let map: Record<string, string>;
+    let map: unknown;
     try {
-      map = JSON.parse(raw);
+      map = JSON.parse(raw) as unknown;
     } catch (err) {
-      console.error(`event-catalog manifest pin: invalid JSON in snapshot: ${(err as Error).message}`);
+      console.error(`${BIN_PIN}: invalid JSON in snapshot "${snapshotFile}": ${(err as Error).message}`);
       return 2;
     }
-    for (const [name, fingerprint] of Object.entries(map)) {
+    if (!map || typeof map !== 'object' || Array.isArray(map)) {
+      console.error(`${BIN_PIN}: snapshot "${snapshotFile}" must be a JSON object of {"event.name": "fingerprint"}`);
+      return 2;
+    }
+    for (const [name, fingerprint] of Object.entries(map as Record<string, unknown>)) {
       if (typeof fingerprint === 'string') events.push({ name, fingerprint });
     }
   } else if (eventsArg) {
     for (const pair of eventsArg.split(',')) {
       const eq = pair.indexOf('=');
       if (eq < 0) {
-        console.error(`event-catalog manifest pin: malformed --events entry "${pair}" (expected name=fingerprint)`);
+        console.error(`${BIN_PIN}: malformed --events entry "${pair}" (expected name=fingerprint)`);
         return 2;
       }
       events.push({ name: pair.slice(0, eq).trim(), fingerprint: pair.slice(eq + 1).trim() });
@@ -76,7 +141,7 @@ export async function manifest(args: string[]): Promise<number> {
   }
 
   if (events.length === 0) {
-    console.error('event-catalog manifest pin: no events to pin');
+    console.error(`${BIN_PIN}: no events to pin`);
     return 2;
   }
 
@@ -89,17 +154,23 @@ export async function manifest(args: string[]): Promise<number> {
       body: JSON.stringify({ events }),
     });
   } catch (err) {
-    console.error(`event-catalog manifest pin: fetch failed: ${(err as Error).message}`);
+    console.error(`${BIN_PIN}: fetch failed: ${formatError(err)}`);
     return 1;
   }
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.error(`event-catalog manifest pin: HTTP ${res.status}: ${body.slice(0, 200)}`);
+    console.error(`${BIN_PIN}: HTTP ${res.status}: ${body.slice(0, 200)}`);
     return 1;
   }
 
-  const stored = await res.json();
-  console.log(`pinned ${events.length} event(s) for "${consumer}" (updatedAt=${stored.updatedAt})`);
+  const stored = await readJsonResponse(res, ep);
+  const updatedAt = stored.ok && stored.value && typeof stored.value === 'object'
+    ? (stored.value as { updatedAt?: unknown }).updatedAt
+    : undefined;
+  console.log(
+    `pinned ${events.length} event(s) for "${consumer}"`
+    + (typeof updatedAt === 'string' ? ` (updatedAt=${updatedAt})` : ''),
+  );
   return 0;
 }
 
@@ -124,33 +195,37 @@ export async function manifest(args: string[]): Promise<number> {
  * runs it without needing a live catalog server.
  */
 async function verify(args: string[]): Promise<number> {
-  const against = getArg(args, 'against');
-  const registrySnapshotFile = getArg(args, 'registry-snapshot');
+  const parsed = parseFlags(args, VERIFY_SPEC);
+  if (!parsed.ok) return usageError(BIN_VERIFY, parsed.error, USAGE_VERIFY);
+  if (parsed.args.help) {
+    console.log(MANIFEST_HELP);
+    return 0;
+  }
+  const { positional, values } = parsed.args;
+  if (positional.length > 0) {
+    return usageError(BIN_VERIFY, `unexpected argument "${positional[0]}" — verify takes flags only`, USAGE_VERIFY);
+  }
+
+  const against = values['against'];
+  const registrySnapshotFile = values['registry-snapshot'];
   if (!against || !registrySnapshotFile) {
-    console.error(
-      'usage: event-catalog manifest verify --against=<consumed.manifest.json> '
-      + '--registry-snapshot=<registry.snapshot.json>',
-    );
+    return usageError(BIN_VERIFY, '--against and --registry-snapshot are both required', USAGE_VERIFY);
+  }
+
+  const loadedPinned = readFingerprintMap(against, 'manifest');
+  if (!loadedPinned.ok) {
+    console.error(`${BIN_VERIFY}: ${loadedPinned.error}`);
     return 2;
   }
 
-  let pinned: Record<string, string>;
-  try {
-    pinned = JSON.parse(readFileSync(against, 'utf8'));
-  } catch (err) {
-    console.error(`event-catalog manifest verify: cannot read "${against}": ${(err as Error).message}`);
+  const loadedRegistry = readFingerprintMap(registrySnapshotFile, 'registry snapshot');
+  if (!loadedRegistry.ok) {
+    console.error(`${BIN_VERIFY}: ${loadedRegistry.error}`);
     return 2;
   }
 
-  let registry: Record<string, string>;
-  try {
-    registry = JSON.parse(readFileSync(registrySnapshotFile, 'utf8'));
-  } catch (err) {
-    console.error(
-      `event-catalog manifest verify: cannot read registry snapshot "${registrySnapshotFile}": ${(err as Error).message}`,
-    );
-    return 2;
-  }
+  const pinned = loadedPinned.value;
+  const registry = loadedRegistry.value;
 
   const stale: Array<{ name: string; pinned: string; current: string }> = [];
   const unknown: string[] = [];
@@ -172,13 +247,4 @@ async function verify(args: string[]): Promise<number> {
   console.log('');
   console.log(`${fresh} fresh, ${stale.length} stale, ${unknown.length} unknown`);
   return stale.length + unknown.length === 0 ? 0 : 1;
-}
-
-function getArg(args: string[], name: string): string | undefined {
-  for (const arg of args) {
-    if (arg.startsWith(`--${name}=`)) return arg.slice(name.length + 3);
-  }
-  const idx = args.indexOf(`--${name}`);
-  if (idx !== -1 && args[idx + 1]) return args[idx + 1];
-  return undefined;
 }

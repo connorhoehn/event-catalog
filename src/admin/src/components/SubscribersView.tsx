@@ -87,14 +87,14 @@ export function SubscribersView() {
   if (error) return <Banner variant="error" title="Error">{error}</Banner>;
 
   return (
-    <div className="subscribers-view" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid #e2e8f0' }}>
-        <h2 style={{ margin: 0 }}>Subscribers</h2>
+    <div className="subscribers-view view-column">
+      <div className="view-toolbar">
+        <h2>Subscribers</h2>
         <Chip tone="success">{counts.fresh} fresh</Chip>
         <Chip tone="warning">{counts.aging} aging</Chip>
         <Chip tone="danger">{counts.stale} stale</Chip>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="view-toolbar-right">
           <Button variant={filter === 'all' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('all')}>all</Button>
           <Button variant={filter === 'fresh' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('fresh')}>fresh</Button>
           <Button variant={filter === 'stale' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('stale')}>stale</Button>
@@ -113,29 +113,29 @@ export function SubscribersView() {
           }
         />
       ) : (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 16px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <div className="view-scroll tight">
+          <table className="data-table">
             <thead>
-              <tr style={{ borderBottom: '1px solid #cbd5e1', textAlign: 'left' }}>
-                <th style={{ padding: '6px 8px' }}>Status</th>
-                <th style={{ padding: '6px 8px' }}>Event</th>
-                <th style={{ padding: '6px 8px' }}>Service</th>
-                <th style={{ padding: '6px 8px' }}>Last seen</th>
-                <th style={{ padding: '6px 8px' }}>Age</th>
+              <tr>
+                <th>Status</th>
+                <th>Event</th>
+                <th>Service</th>
+                <th>Last seen</th>
+                <th>Age</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((r, i) => (
-                <tr key={`${r.eventName}-${r.serviceName}-${i}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '6px 8px' }}>{statusChip(r.ageSeconds)}</td>
-                  <td style={{ padding: '6px 8px' }}>
-                    <Link to={`/events/${encodeURIComponent(r.eventName)}`} style={{ color: '#0f172a', fontWeight: 500 }}>
+                <tr key={`${r.eventName}-${r.serviceName}-${i}`}>
+                  <td>{statusChip(r.ageSeconds)}</td>
+                  <td>
+                    <Link to={`/events/${encodeURIComponent(r.eventName)}`} className="link-plain medium">
                       {r.eventName}
                     </Link>
                   </td>
-                  <td style={{ padding: '6px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{r.serviceName}</td>
-                  <td style={{ padding: '6px 8px', fontSize: 11, color: '#64748b' }}>{new Date(r.lastSeenAt).toLocaleString()}</td>
-                  <td style={{ padding: '6px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{formatAge(r.ageSeconds)}</td>
+                  <td className="cell-mono">{r.serviceName}</td>
+                  <td className="cell-timestamp">{new Date(r.lastSeenAt).toLocaleString()}</td>
+                  <td className="cell-mono">{formatAge(r.ageSeconds)}</td>
                 </tr>
               ))}
             </tbody>

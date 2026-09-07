@@ -21,9 +21,23 @@
 // This file deliberately does NOT touch any of those.
 
 import type { EventDeclaration } from '../types/index';
+import { annotateDeclarations, type FieldGlossary } from './field-glossary';
 
 const PRODUCER = 'distributed-core';
 const TAGS_BASE = ['pipeline', 'producer:distributed-core'];
+
+/**
+ * P1-specific field meanings. Shared names (runId, stepId, at, error,
+ * durationMs, model, prompt …) resolve from the common glossary.
+ */
+const FIELDS: FieldGlossary = {
+    atStepIds: 'Step ids the run was paused at — the frontier frozen by the pause.',
+    nodeType: 'Pipeline node type of the step (llm, agent, join, approval, …).',
+    startedAt: 'ISO-8601 timestamp at which the attempt began.',
+    openedAt: 'ISO-8601 timestamp at which the provider stream was opened.',
+    patchId: 'Identifier of the context patch this event refers to.',
+    mode: 'How the patch was applied — merge or replace semantics for the target context path.',
+};
 
 /** Common envelope-shape builder for events whose payload follows the
  *  `{ runId, ...fields, at }` pattern emitted by PipelineExecutor. */
@@ -392,3 +406,7 @@ export const pipelineP1Declarations: EventDeclaration[] = [
     pipelineContextPatchedUnvalidated,
     pipelineContextPatchReverted,
 ];
+
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+annotateDeclarations(pipelineP1Declarations, FIELDS);

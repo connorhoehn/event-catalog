@@ -21,8 +21,15 @@
 // is out of scope per the v1 design.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineImageVisionDeclarations = exports.pipelineImageVisionFailed = exports.pipelineImageVisionAnalyzed = exports.pipelineImageVisionToken = exports.pipelineImageVisionStarted = void 0;
+const field_glossary_1 = require("./field-glossary");
 const PRODUCER = 'platform-api';
 const TAGS_BASE = ['pipeline', 'image', 'vision', 'producer:platform-api'];
+/** Vision-specific field meanings; the rest come from the common glossary. */
+const FIELDS = {
+    imageId: 'Identifier of the image being analysed.',
+    visionModel: 'Anthropic model id used for the vision call.',
+    delta: 'Incremental slice of the streamed vision output since the previous token event.',
+};
 /**
  * Common envelope for `pipeline:image:vision:*` events. All three carry
  * `{ runId, stepId, at }` at minimum; per-event extras add on top.
@@ -197,4 +204,7 @@ exports.pipelineImageVisionDeclarations = [
     exports.pipelineImageVisionAnalyzed,
     exports.pipelineImageVisionFailed,
 ];
+// Stamp the shared field vocabulary onto every schema above (additive —
+// fills absent property descriptions only). See ./field-glossary.ts.
+(0, field_glossary_1.annotateDeclarations)(exports.pipelineImageVisionDeclarations, FIELDS);
 //# sourceMappingURL=pipeline-image-vision.js.map

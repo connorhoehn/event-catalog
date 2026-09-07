@@ -34,7 +34,7 @@ export function TransportHealth() {
   if (error) return <Banner variant="error" title="Error">{error}</Banner>;
   if (!health) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="skeleton-stack">
         <SkeletonCard height={120} />
         <SkeletonCard height={120} />
       </div>

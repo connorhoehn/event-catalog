@@ -136,11 +136,16 @@ function validateBundle(bundle, registry) {
         }
     }
     if (registeredTransports.size > 0) {
+        // An event registered as 'both' contributes BOTH sides to the
+        // inference. Without this, a bundle whose events are all declared
+        // `transport: 'both'` infers 'signal' and is wrongly reported invalid.
+        const hasSignal = registeredTransports.has('signal') || registeredTransports.has('both');
+        const hasDurable = registeredTransports.has('durable') || registeredTransports.has('both');
         let inferredTransport;
-        if (registeredTransports.has('signal') && registeredTransports.has('durable')) {
+        if (hasSignal && hasDurable) {
             inferredTransport = 'both';
         }
-        else if (registeredTransports.has('durable')) {
+        else if (hasDurable) {
             inferredTransport = 'durable';
         }
         else {
