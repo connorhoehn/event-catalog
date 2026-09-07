@@ -24,7 +24,9 @@ const ops_js_1 = require("./routes/ops.js");
 const transports_js_1 = require("./routes/transports.js");
 const dlq_js_1 = require("./routes/dlq.js");
 function createRoutes(deps) {
-    const router = (0, http_router_js_1.Router)();
+    // The router's own uncaught-handler warning goes to the same sink the
+    // handlers use, so an operator sees one stream, not two.
+    const router = (0, http_router_js_1.Router)(deps.logger);
     const events = (0, events_js_1.createEventHandlers)(deps);
     const subscribers = (0, subscribers_js_1.createSubscriberHandlers)(deps);
     const deprecation = (0, deprecation_js_1.createDeprecationHandlers)(deps);

@@ -6,12 +6,28 @@ import { tapEmitter } from './tap-emitter.js';
 import type { ProducerAttributionStore } from './producer-attribution.js';
 import type { PoisonEventDetector } from './poison-detector.js';
 import { auditEmitter } from './audit-emitter.js';
+import { LogThrottle } from '../utils/bounded.js';
+import { LogWriter, type CatalogLogger, errorMessage } from '../utils/logger.js';
 
 /**
  * Ceiling on how many synthetic publish/error observations one poll pass
  * will replay from a single queue's counter delta.
  */
 const MAX_CATCHUP_PER_POLL = 10_000;
+
+/**
+ * Rate ceiling on the observer's two per-event warnings.
+ *
+ * `pollDurableStats` runs every 5s and `pruneRemovedSubscriptions` walks
+ * every tracked channel on each pass, so a Redis that refuses
+ * unsubscribe — or an event whose channel cannot be subscribed —
+ * produces one line per event per 5s, i.e. 17k lines a day for a single
+ * stuck event and far more for a registry-wide outage. Keyed by event
+ * name so one bad event does not mask another; the window ceiling is
+ * what holds when the whole registry is failing at once.
+ */
+const OBSERVER_LOG_WINDOW_MS = 60_000;
+const OBSERVER_LOGS_PER_WINDOW = 5;
 
 export class MetricsObserver {
   private readonly registry: Registry;
@@ -44,6 +60,12 @@ export class MetricsObserver {
    */
   private polling = false;
 
+  private readonly log: LogWriter;
+  private readonly warnings = new LogThrottle({
+    keyIntervalMs: OBSERVER_LOG_WINDOW_MS,
+    maxPerWindow: OBSERVER_LOGS_PER_WINDOW,
+  });
+
   constructor(deps: {
     registry: Registry;
     signal: SignalTransport;
@@ -52,7 +74,10 @@ export class MetricsObserver {
     attribution?: ProducerAttributionStore;
     poisonDetector?: PoisonEventDetector;
     durablePollIntervalMs?: number;
+    /** Diagnostics sink. Defaults to `console.warn`. */
+    logger?: CatalogLogger;
   }) {
+    this.log = new LogWriter(deps.logger);
     this.registry = deps.registry;
     this.signal = deps.signal;
     this.durable = deps.durable;
@@ -139,7 +164,21 @@ export class MetricsObserver {
       try {
         await unsub();
       } catch (err) {
-        console.warn(`[metrics-observer] failed to release channel "${name}":`, (err as Error).message);
+        const suppressed = this.warnings.attempt(`release:${name}`);
+        if (suppressed !== null) {
+          this.log.warn(
+            `[metrics-observer] failed to release channel "${name}"`
+            + LogThrottle.suffix(suppressed) + ':',
+            {
+              component: 'metrics-observer',
+              eventName: name,
+              action: 'release-channel',
+              error: errorMessage(err),
+              suppressed,
+            },
+            (err as Error).message,
+          );
+        }
       }
     }
   }
@@ -197,7 +236,21 @@ export class MetricsObserver {
     } catch (err) {
       this.metrics.recordError(eventName);
       this.maybePoison(eventName);
-      console.warn(`[metrics-observer] failed to observe signal channel "${eventName}":`, (err as Error).message);
+      const suppressed = this.warnings.attempt(`observe:${eventName}`);
+      if (suppressed !== null) {
+        this.log.warn(
+          `[metrics-observer] failed to observe signal channel "${eventName}"`
+          + LogThrottle.suffix(suppressed) + ':',
+          {
+            component: 'metrics-observer',
+            eventName,
+            action: 'observe-signal',
+            error: errorMessage(err),
+            suppressed,
+          },
+          (err as Error).message,
+        );
+      }
     }
   }
 
@@ -213,7 +266,18 @@ export class MetricsObserver {
         namespace: entry?.namespace ?? 'unknown',
         version: entry?.version ?? 0,
       });
-      console.warn(`[event-catalog] event "${eventName}" marked poisoned — exceeded failure threshold`);
+      // Latched by the detector: `recordFailure` returns true only on the
+      // transition into the poisoned state, so this is once per event per
+      // poisoning, not once per failure.
+      this.log.warn(
+        `[event-catalog] event "${eventName}" marked poisoned — exceeded failure threshold`,
+        {
+          component: 'metrics-observer',
+          eventName,
+          namespace: entry?.namespace ?? 'unknown',
+          status: 'poisoned',
+        },
+      );
     }
   }
 

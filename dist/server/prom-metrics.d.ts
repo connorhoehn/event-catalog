@@ -1,5 +1,6 @@
 import { MetricsRegistry } from 'distributed-core';
 import type { MetricSample } from 'distributed-core';
+import { type CatalogLogger } from '../utils/logger.js';
 /**
  * Prom-formatted metrics surface for the event-catalog service.
  *
@@ -119,6 +120,10 @@ export declare function escapeLabelValue(raw: string): string;
 export interface PromMetricsOptions {
     /** Max distinct `event` label values before collapsing to `other`. */
     maxEventLabels?: number;
+    /**
+     * Sink for the collector-failure warning. Defaults to `console.warn`.
+     */
+    logger?: CatalogLogger;
 }
 export declare class PromMetrics {
     private readonly registry;
@@ -140,6 +145,8 @@ export declare class PromMetrics {
     private sseActiveGauge;
     private sseMaxGauge;
     private sseRejectedCounter;
+    private readonly log;
+    private readonly collectorWarnings;
     constructor(registry?: MetricsRegistry, options?: PromMetricsOptions);
     /**
      * Map a raw event name to the label value used on the wire.

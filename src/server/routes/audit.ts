@@ -15,7 +15,7 @@ import {
   type AuditFilter,
 } from '../audit-emitter.js';
 import { sseRegistry, type SseStream } from '../sse.js';
-import { badRequest, stringParam, type RoutesDeps } from './_shared.js';
+import { badRequest, RouteLog, stringParam, type RoutesDeps } from './_shared.js';
 import { MAX_AUDIT_QUERY_LIMIT } from './limits.js';
 
 /** The full AuditEventKind union, as a runtime value for `?kind=` narrowing. */
@@ -44,6 +44,7 @@ function auditKind(raw: string | string[] | undefined): AuditEventKind | undefin
 }
 
 export function createAuditHandlers(deps: RoutesDeps) {
+  const log = new RouteLog(deps.logger);
   const { auditLog } = deps;
 
   async function stream(req: Request, res: Response): Promise<void> {
@@ -116,9 +117,12 @@ export function createAuditHandlers(deps: RoutesDeps) {
     } catch (err) {
       // 503, not `{events: []}` — an operator reading the audit trail during
       // an incident must not be told "nothing happened" because Redis is down.
-      console.warn(
+      const detail = err instanceof Error ? err.message : String(err);
+      log.warn(
+        'audit-history',
         '[event-catalog] audit history read failed:',
-        err instanceof Error ? err.message : String(err),
+        { component: 'routes/audit', route: 'GET /api/audit/recent', status: 503, error: detail },
+        detail,
       );
       res.status(503).json({
         error: 'Audit history is unavailable — the audit log store did not answer. '

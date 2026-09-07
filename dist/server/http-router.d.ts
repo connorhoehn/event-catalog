@@ -1,5 +1,6 @@
 import type * as http from 'node:http';
 import { type CompressionConfig, type Encoding } from './compression.js';
+import { type CatalogLogger } from '../utils/logger.js';
 export interface RouteRequest {
     /** Uppercase HTTP method. */
     method: string;
@@ -66,6 +67,13 @@ export declare function compressionFor(nodeReq: http.IncomingMessage, config: Co
 export declare function makeRouteResponse(nodeRes: http.ServerResponse, compression?: ResponseCompression): RouteResponse;
 export declare class HttpRouter {
     private readonly routes;
+    private readonly log;
+    private readonly handlerErrors;
+    /**
+     * @param logger diagnostics sink for uncaught handler errors. Omitted,
+     *   they go to `console.warn` exactly as before.
+     */
+    constructor(logger?: CatalogLogger);
     get(path: string, handler: RouteHandler): this;
     post(path: string, handler: RouteHandler): this;
     put(path: string, handler: RouteHandler): this;
@@ -83,7 +91,7 @@ export declare class HttpRouter {
     handle(req: RouteRequest, res: RouteResponse, pathname: string): Promise<boolean>;
 }
 /** Express-style factory so route modules read `const router = Router()`. */
-export declare function Router(): HttpRouter;
+export declare function Router(logger?: CatalogLogger): HttpRouter;
 export type Mount = [prefix: string, router: HttpRouter];
 /**
  * Strip `prefix` off `path`. Returns the sub-path ('/' for an exact

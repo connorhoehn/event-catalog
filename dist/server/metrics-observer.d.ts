@@ -4,6 +4,7 @@ import { DurableTransport } from '../client/durable.js';
 import type { MetricsCollector } from './metrics.js';
 import type { ProducerAttributionStore } from './producer-attribution.js';
 import type { PoisonEventDetector } from './poison-detector.js';
+import { type CatalogLogger } from '../utils/logger.js';
 export declare class MetricsObserver {
     private readonly registry;
     private readonly signal;
@@ -29,6 +30,8 @@ export declare class MetricsObserver {
      * double. Serialize instead.
      */
     private polling;
+    private readonly log;
+    private readonly warnings;
     constructor(deps: {
         registry: Registry;
         signal: SignalTransport;
@@ -37,6 +40,8 @@ export declare class MetricsObserver {
         attribution?: ProducerAttributionStore;
         poisonDetector?: PoisonEventDetector;
         durablePollIntervalMs?: number;
+        /** Diagnostics sink. Defaults to `console.warn`. */
+        logger?: CatalogLogger;
     });
     start(): Promise<void>;
     observe(eventName: string, transport: 'signal' | 'durable' | 'both'): Promise<void>;

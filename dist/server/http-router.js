@@ -30,6 +30,8 @@ exports.stripPrefix = stripPrefix;
 exports.dispatchMounts = dispatchMounts;
 exports.createRequestListener = createRequestListener;
 const compression_js_1 = require("./compression.js");
+const bounded_js_1 = require("../utils/bounded.js");
+const logger_js_1 = require("../utils/logger.js");
 // ─── Adapters ────────────────────────────────────────────────────────────────
 function parseQuery(rawUrl) {
     const q = rawUrl.indexOf('?');
@@ -205,8 +207,33 @@ function makeRouteResponse(nodeRes, compression) {
     };
     return res;
 }
+/**
+ * Rate ceiling on the uncaught-handler warning.
+ *
+ * This is the definitive per-request log path: one line for every
+ * request whose handler throws, on a surface an unauthenticated caller
+ * can drive as fast as it likes. A handler that throws on a malformed
+ * body throws for every retry of that body. Keyed by `METHOD path` so
+ * one broken route cannot hide another, and capped per window so a
+ * caller cycling paths cannot use the key space to get around it.
+ */
+const HANDLER_ERROR_WINDOW_MS = 60_000;
+const HANDLER_ERRORS_PER_WINDOW = 10;
 class HttpRouter {
     routes = [];
+    log;
+    handlerErrors = new bounded_js_1.LogThrottle({
+        keyIntervalMs: HANDLER_ERROR_WINDOW_MS,
+        maxPerWindow: HANDLER_ERRORS_PER_WINDOW,
+        maxKeys: 256,
+    });
+    /**
+     * @param logger diagnostics sink for uncaught handler errors. Omitted,
+     *   they go to `console.warn` exactly as before.
+     */
+    constructor(logger) {
+        this.log = new logger_js_1.LogWriter(logger);
+    }
     get(path, handler) { return this.add('GET', path, handler); }
     post(path, handler) { return this.add('POST', path, handler); }
     put(path, handler) { return this.add('PUT', path, handler); }
@@ -237,7 +264,19 @@ class HttpRouter {
                 await route.handler(req, res);
             }
             catch (err) {
-                console.warn(`[http-router] handler error on ${req.method} ${req.path}:`, err instanceof Error ? err.message : String(err));
+                const detail = (0, logger_js_1.errorMessage)(err);
+                const suppressed = this.handlerErrors.attempt(`${req.method} ${req.path}`);
+                if (suppressed !== null) {
+                    this.log.warn(`[http-router] handler error on ${req.method} ${req.path}`
+                        + bounded_js_1.LogThrottle.suffix(suppressed) + ':', {
+                        component: 'http-router',
+                        method: req.method,
+                        path: req.path,
+                        status: res.headersSent ? undefined : 500,
+                        error: detail,
+                        suppressed,
+                    }, detail);
+                }
                 if (!res.headersSent) {
                     res.status(500).json({ error: 'InternalServerError' });
                 }
@@ -249,8 +288,8 @@ class HttpRouter {
 }
 exports.HttpRouter = HttpRouter;
 /** Express-style factory so route modules read `const router = Router()`. */
-function Router() {
-    return new HttpRouter();
+function Router(logger) {
+    return new HttpRouter(logger);
 }
 function splitPath(path) {
     return path.split('/').filter(s => s.length > 0);

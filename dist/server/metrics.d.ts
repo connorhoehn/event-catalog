@@ -1,6 +1,7 @@
 import { MetricsRegistry } from 'distributed-core';
 import type { RedisClientType } from 'redis';
 import type { EventStats } from '../types/index.js';
+import { type CatalogLogger } from '../utils/logger.js';
 /**
  * Ceiling on distinct events this collector will track.
  *
@@ -58,7 +59,8 @@ export declare class MetricsCollector {
     private readonly knownEvents;
     private droppedEvents;
     private warnedAboutCap;
-    constructor(rateWindowSeconds?: number, maxTrackedEvents?: number);
+    private readonly log;
+    constructor(rateWindowSeconds?: number, maxTrackedEvents?: number, logger?: CatalogLogger);
     recordPublish(eventName: string): void;
     recordError(eventName: string): void;
     setSubscriberCount(eventName: string, count: number): void;

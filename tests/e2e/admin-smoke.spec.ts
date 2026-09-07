@@ -71,6 +71,8 @@ test('every nav destination renders without an uncaught error', async ({ page })
     '/namespaces',
     '/declarations',
     '/topology',
+    '/bundles',
+    '/coverage',
     '/flow',
     '/audit',
     '/subscribers',

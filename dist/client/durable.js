@@ -764,7 +764,23 @@ class DurableTransport {
                 this.pollFailures++;
                 const suppressed = this.pollWarnings.attempt(`loop:${queueName}`);
                 if (suppressed !== null) {
-                    this.log.warn(`[durable-transport] poll error for "${queueName}"` + bounded_1.LogThrottle.suffix(suppressed) + ':', {
+                    // `error`, matching the "poll failed after retries" site above.
+                    // These are one failure class from an operator's point of view
+                    // — the poll loop for this queue did not complete an iteration,
+                    // so nothing is being consumed — and reporting it at two levels
+                    // meant a filter on `error` caught an outage only when it
+                    // happened to surface on the inner path.
+                    //
+                    // `error` is the right one of the two, not `warn`: the inner
+                    // site fires only *after* `pollRetryManager` has exhausted its
+                    // backoff, so transient blips are already absorbed and what is
+                    // left is "durable delivery on this queue has stopped". The
+                    // outer catch is the broader class (anything else thrown in the
+                    // loop body, including message processing), which is if anything
+                    // more serious. Neither loses a message — the loop sleeps and
+                    // retries — but "we are consuming nothing until something
+                    // changes" is what `error` is for.
+                    this.log.error(`[durable-transport] poll error for "${queueName}"` + bounded_1.LogThrottle.suffix(suppressed) + ':', {
                         queue: queueName,
                         error: (0, logger_1.errorMessage)(err),
                         pollFailures: this.pollFailures,

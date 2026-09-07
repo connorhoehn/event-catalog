@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ensureTable = ensureTable;
 const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
+const logger_js_1 = require("../utils/logger.js");
 const DLQ_TABLE_NAME = process.env.DLQ_TABLE_NAME ?? 'event-catalog-dlq';
 function makeDynamoClient() {
     const endpoint = process.env.DYNAMODB_ENDPOINT || process.env.LOCALSTACK_ENDPOINT;
@@ -21,7 +22,7 @@ async function waitForActive(client, tableName) {
     }
     throw new Error(`Table ${tableName} did not become ACTIVE within ${maxWait}ms`);
 }
-async function ensureTTL(client, tableName) {
+async function ensureTTL(client, tableName, log) {
     const ttlDesc = await client.send(new client_dynamodb_1.DescribeTimeToLiveCommand({ TableName: tableName }));
     const status = ttlDesc.TimeToLiveDescription?.TimeToLiveStatus;
     if (status === 'ENABLED' || status === 'ENABLING')
@@ -33,13 +34,24 @@ async function ensureTTL(client, tableName) {
             AttributeName: 'ttl',
         },
     }));
-    console.log(`[dynamo-setup] TTL enabled on ${tableName}`);
+    log.info(`[dynamo-setup] TTL enabled on ${tableName}`, {
+        component: 'dynamo-setup',
+        table: tableName,
+        action: 'ttl-enabled',
+    });
 }
-async function ensureTable() {
+/**
+ * Provision the DLQ table if it is missing. Runs once at boot.
+ *
+ * `logger` is threaded from `ServerConfig`; omitted, the two lines below
+ * go to `console.log` exactly as they always did.
+ */
+async function ensureTable(logger) {
     const client = makeDynamoClient();
+    const log = new logger_js_1.LogWriter(logger);
     try {
         await client.send(new client_dynamodb_1.DescribeTableCommand({ TableName: DLQ_TABLE_NAME }));
-        await ensureTTL(client, DLQ_TABLE_NAME);
+        await ensureTTL(client, DLQ_TABLE_NAME, log);
         return;
     }
     catch (err) {
@@ -60,7 +72,11 @@ async function ensureTable() {
             ],
             BillingMode: 'PAY_PER_REQUEST',
         }));
-        console.log(`[dynamo-setup] created table ${DLQ_TABLE_NAME}`);
+        log.info(`[dynamo-setup] created table ${DLQ_TABLE_NAME}`, {
+            component: 'dynamo-setup',
+            table: DLQ_TABLE_NAME,
+            action: 'table-created',
+        });
     }
     catch (err) {
         if (!(err instanceof client_dynamodb_1.ResourceInUseException)) {
@@ -68,6 +84,6 @@ async function ensureTable() {
         }
     }
     await waitForActive(client, DLQ_TABLE_NAME);
-    await ensureTTL(client, DLQ_TABLE_NAME);
+    await ensureTTL(client, DLQ_TABLE_NAME, log);
 }
 //# sourceMappingURL=dynamo-setup.js.map

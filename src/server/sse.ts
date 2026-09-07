@@ -32,6 +32,8 @@
 // gives the shutdown path a way to end them deterministically.
 
 import type { Request, Response } from './http-router.js';
+import { LogThrottle } from '../utils/bounded.js';
+import { LogWriter, type CatalogLogger, errorMessage } from '../utils/logger.js';
 
 /**
  * Default ceiling on concurrent SSE streams across BOTH endpoints.
@@ -51,6 +53,18 @@ export const DEFAULT_SSE_BACKLOG_BYTES = 4 * 1024 * 1024;
 
 /** Comment frame interval — keeps proxies from idle-timing the stream out. */
 export const SSE_HEARTBEAT_MS = 30_000;
+
+/**
+ * Rate ceiling on the two stream-lifecycle warnings.
+ *
+ * Both fire per stream, and the cap is 256 concurrent — a client that
+ * reconnects in a loop while its socket is backed up (the exact
+ * behaviour that trips the backlog drop) reopens and gets dropped as
+ * fast as the network allows. Five lines a minute is the sample; the
+ * `sse_streams` gauge is the real signal.
+ */
+const SSE_LOG_WINDOW_MS = 60_000;
+const SSE_LOGS_PER_WINDOW = 5;
 
 /** Handle returned to a route for a successfully opened stream. */
 export interface SseStream {
@@ -94,6 +108,8 @@ class ManagedStream implements SseStream {
     private readonly res: Response,
     private readonly backlogBytes: number,
     private readonly teardown: () => void,
+    private readonly log: LogWriter,
+    private readonly warnings: LogThrottle,
   ) {}
 
   startHeartbeat(): void {
@@ -114,10 +130,21 @@ class ManagedStream implements SseStream {
     // backlog. Drop it rather than buffering the whole event stream in
     // this process's memory on its behalf.
     if (this.backlogBytes > 0 && this.res.raw.writableLength > this.backlogBytes) {
-      console.warn(
-        '[sse] dropping a stream whose write backlog exceeded',
-        `${this.backlogBytes} bytes — client is not reading`,
-      );
+      const suppressed = this.warnings.attempt('backlog');
+      if (suppressed !== null) {
+        this.log.warn(
+          '[sse] dropping a stream whose write backlog exceeded'
+          + LogThrottle.suffix(suppressed),
+          {
+            component: 'sse',
+            reason: 'backlog-exceeded',
+            backlogBytes: this.backlogBytes,
+            unflushedBytes: this.res.raw.writableLength,
+            suppressed,
+          },
+          `${this.backlogBytes} bytes — client is not reading`,
+        );
+      }
       this.close();
       return false;
     }
@@ -141,7 +168,19 @@ class ManagedStream implements SseStream {
     try {
       this.teardown();
     } catch (err) {
-      console.warn('[sse] stream teardown threw:', (err as Error).message);
+      const suppressed = this.warnings.attempt('teardown');
+      if (suppressed !== null) {
+        this.log.warn(
+          '[sse] stream teardown threw' + LogThrottle.suffix(suppressed) + ':',
+          {
+            component: 'sse',
+            reason: 'teardown-threw',
+            error: errorMessage(err),
+            suppressed,
+          },
+          (err as Error).message,
+        );
+      }
     }
     try {
       this.res.end();
@@ -166,8 +205,14 @@ class ManagedStream implements SseStream {
 export class SseRegistry {
   private readonly streams = new Set<ManagedStream>();
   private limits: SseLimits;
+  private log = new LogWriter();
+  private readonly warnings = new LogThrottle({
+    keyIntervalMs: SSE_LOG_WINDOW_MS,
+    maxPerWindow: SSE_LOGS_PER_WINDOW,
+  });
 
-  constructor(limits?: Partial<SseLimits>) {
+  constructor(limits?: Partial<SseLimits>, logger?: CatalogLogger) {
+    if (logger !== undefined) this.log = new LogWriter(logger);
     this.limits = {
       maxStreams: limits?.maxStreams
         ?? envInt('EVENT_CATALOG_MAX_SSE_STREAMS', DEFAULT_MAX_SSE_STREAMS),
@@ -192,6 +237,30 @@ export class SseRegistry {
   }
 
   /**
+   * Point stream diagnostics at an operator-supplied sink.
+   *
+   * A setter rather than a constructor argument because this class is a
+   * process singleton created at module load, long before `startServer`
+   * has resolved its config. Passing `undefined` restores the console
+   * default.
+   */
+  /**
+   * Called when a stream is refused at the cap. PromMetrics.recordSseRejected
+   * existed with ZERO callers, so `sse_streams_rejected_total` was never
+   * registered or rendered and saturation was only inferable from
+   * `active === max` happening to land on a scrape.
+   */
+  private onReject?: () => void;
+
+  useRejectionHook(hook?: () => void): void {
+    this.onReject = hook;
+  }
+
+  useLogger(logger?: CatalogLogger): void {
+    this.log = new LogWriter(logger);
+  }
+
+  /**
    * Open a managed SSE stream for `req`/`res`.
    *
    * Returns null — having already answered with 503 — when the process
@@ -206,6 +275,7 @@ export class SseRegistry {
   open(req: Request, res: Response, onClose: () => void): SseStream | null {
     const { maxStreams, backlogBytes } = this.limits;
     if (maxStreams > 0 && this.streams.size >= maxStreams) {
+      this.onReject?.();
       res.status(503).json({
         error: 'TooManyStreams',
         message: `server is at its concurrent event-stream limit (${maxStreams})`,
@@ -218,7 +288,7 @@ export class SseRegistry {
     const stream = new ManagedStream(res, backlogBytes, () => {
       this.streams.delete(stream);
       onClose();
-    });
+    }, this.log, this.warnings);
     this.streams.add(stream);
     stream.startHeartbeat();
 

@@ -1,6 +1,20 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AlertManager = exports.DEFAULT_MAX_TRACKED_KEYS = void 0;
+const bounded_js_1 = require("../utils/bounded.js");
+const logger_js_1 = require("../utils/logger.js");
+/**
+ * Rate ceiling on webhook-delivery failures.
+ *
+ * A failed delivery deliberately does NOT set the cooldown (see
+ * `fire`), so a down webhook is retried at the full rate the caller
+ * evaluates alerts — `observeHealth` runs on the 30s health tick and
+ * `onErrorThreshold` once per declared event per tick. That is the
+ * correct retry behaviour and the wrong log volume. Keyed on the
+ * failure shape so a 500 and a timeout are separately visible.
+ */
+const ALERT_LOG_WINDOW_MS = 300_000;
+const ALERT_LOGS_PER_WINDOW = 4;
 /**
  * Ceiling on the per-key bookkeeping maps.
  *
@@ -29,7 +43,14 @@ class AlertManager {
      * fires on the DELTA, not on the cumulative total.
      */
     lastErrorCount = new Map();
+    log;
+    deliveryWarnings = new bounded_js_1.LogThrottle({
+        keyIntervalMs: ALERT_LOG_WINDOW_MS,
+        maxPerWindow: ALERT_LOGS_PER_WINDOW,
+        maxKeys: 32,
+    });
     constructor(config = {}) {
+        this.log = new logger_js_1.LogWriter(config.logger);
         this.webhookUrl = config.webhookUrl ?? process.env.ALERT_WEBHOOK_URL;
         this.errorRateThreshold = config.errorRateThreshold ?? 10;
         this.cooldownMs = config.cooldownMs ?? 300_000;
@@ -215,14 +236,34 @@ class AlertManager {
                 signal: controller.signal,
             });
             if (!res.ok) {
-                console.warn(`[alerting] webhook returned ${res.status} — alert not delivered, cooldown NOT applied`);
+                const suppressed = this.deliveryWarnings.attempt(`status:${res.status}`);
+                if (suppressed !== null) {
+                    this.log.warn(`[alerting] webhook returned ${res.status} — alert not delivered, cooldown NOT applied`
+                        + bounded_js_1.LogThrottle.suffix(suppressed), {
+                        component: 'alerting',
+                        alertKey: key,
+                        status: res.status,
+                        cooldownApplied: false,
+                        suppressed,
+                    });
+                }
                 return false;
             }
             this.remember(this.lastAlerted, key, now);
             return true;
         }
         catch (err) {
-            console.warn('[alerting] webhook delivery failed:', err.message);
+            const detail = (0, logger_js_1.errorMessage)(err);
+            const suppressed = this.deliveryWarnings.attempt(`error:${detail}`);
+            if (suppressed !== null) {
+                this.log.warn('[alerting] webhook delivery failed' + bounded_js_1.LogThrottle.suffix(suppressed) + ':', {
+                    component: 'alerting',
+                    alertKey: key,
+                    error: detail,
+                    cooldownApplied: false,
+                    suppressed,
+                }, err.message);
+            }
             return false;
         }
         finally {

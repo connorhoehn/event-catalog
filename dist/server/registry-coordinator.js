@@ -78,6 +78,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.RegistryCoordinator = exports.MUTATIONS_CHANNEL = void 0;
 const redis_1 = require("redis");
 const redis_boot_strategy_js_1 = require("../utils/redis-boot-strategy.js");
+const bounded_js_1 = require("../utils/bounded.js");
+const logger_js_1 = require("../utils/logger.js");
 exports.MUTATIONS_CHANNEL = 'event-catalog:mutations';
 /** Cap on stamps retained. Bounded so a churning registry can't leak. */
 const MAX_STAMPS = 20_000;
@@ -138,8 +140,52 @@ function targetEvent(kind, payload) {
     }
     return typeof p.name === 'string' ? p.name : null;
 }
+/**
+ * Rate ceiling on the coordinator's diagnostics.
+ *
+ * Everything below the `start()` banner is on a message path: a Redis
+ * client error re-fires on every reconnect attempt, and `receive` /
+ * `applyMutation` run once per broadcast from every peer — which for a
+ * peer running a build that emits malformed payloads is one line per
+ * mutation, cluster-wide, forever. Keyed by failure shape so a broken
+ * `declare` and a broken `subscriber.add` are both visible.
+ */
+const COORDINATOR_LOG_WINDOW_MS = 60_000;
+const COORDINATOR_LOGS_PER_WINDOW = 8;
 class RegistryCoordinator {
     replicaId = crypto.randomUUID();
+    log;
+    warnings = new bounded_js_1.LogThrottle({
+        keyIntervalMs: COORDINATOR_LOG_WINDOW_MS,
+        maxPerWindow: COORDINATOR_LOGS_PER_WINDOW,
+        maxKeys: 128,
+    });
+    /**
+     * @param logger diagnostics sink; omitted, every line below goes to
+     *   `console.warn` / `console.log` exactly as before.
+     */
+    constructor(logger) {
+        this.log = new logger_js_1.LogWriter(logger);
+    }
+    /**
+     * Emit one throttled warning, tagged with this replica's id.
+     *
+     * The suppressed-count suffix is inserted *before* a trailing colon so
+     * a line whose detail is passed as a second console argument still
+     * reads `… failed (+3 similar suppressed): detail`. With nothing
+     * suppressed the suffix is empty and the message is byte-identical to
+     * what the call site emitted before it was throttled.
+     */
+    warn(key, message, fields, ...tail) {
+        const suppressed = this.warnings.attempt(key);
+        if (suppressed === null)
+            return;
+        const suffix = bounded_js_1.LogThrottle.suffix(suppressed);
+        const text = message.endsWith(':')
+            ? message.slice(0, -1) + suffix + ':'
+            : message + suffix;
+        this.log.warn(text, { component: 'registry-coordinator', replicaId: this.replicaId, ...fields, suppressed }, ...tail);
+    }
     pubClient = null;
     subClient = null;
     _started = false;
@@ -196,8 +242,8 @@ class RegistryCoordinator {
             url: redisUrl,
             socket: { reconnectStrategy: subBootStrategy.reconnectStrategy },
         });
-        this.pubClient.on('error', (err) => console.warn('[registry-coordinator] pub client error:', (0, redis_boot_strategy_js_1.formatRedisError)(err)));
-        this.subClient.on('error', (err) => console.warn('[registry-coordinator] sub client error:', (0, redis_boot_strategy_js_1.formatRedisError)(err)));
+        this.pubClient.on('error', (err) => this.warnRedisClient('pub', err));
+        this.subClient.on('error', (err) => this.warnRedisClient('sub', err));
         // A reconnect means the subscription was down for some interval and
         // pub/sub has no replay, so anything published in that window is
         // gone. Treat it exactly like a detected sequence gap.
@@ -230,7 +276,30 @@ class RegistryCoordinator {
         // missed — it either lands in the snapshot or arrives as a
         // broadcast we apply on top of it.
         await this.resync('boot');
-        console.log(`[registry-coordinator] replica ${this.replicaId.slice(0, 8)} subscribed to ${exports.MUTATIONS_CHANNEL}`);
+        this.log.info(`[registry-coordinator] replica ${this.replicaId.slice(0, 8)} subscribed to ${exports.MUTATIONS_CHANNEL}`, {
+            component: 'registry-coordinator',
+            replicaId: this.replicaId,
+            channel: exports.MUTATIONS_CHANNEL,
+            action: 'subscribed',
+        });
+    }
+    /**
+     * Redis client errors arrive once per failed reconnect attempt on each
+     * of the two clients, so they are throttled per role. The message keeps
+     * its two-argument console shape.
+     */
+    warnRedisClient(role, err) {
+        const detail = (0, redis_boot_strategy_js_1.formatRedisError)(err);
+        const suppressed = this.warnings.attempt(`client:${role}`);
+        if (suppressed === null)
+            return;
+        this.log.warn(`[registry-coordinator] ${role} client error` + bounded_js_1.LogThrottle.suffix(suppressed) + ':', {
+            component: 'registry-coordinator',
+            replicaId: this.replicaId,
+            role,
+            error: detail,
+            suppressed,
+        }, detail);
     }
     async stop() {
         await Promise.allSettled([
@@ -273,7 +342,7 @@ class RegistryCoordinator {
             await this.pubClient.publish(exports.MUTATIONS_CHANNEL, JSON.stringify(msg));
         }
         catch (err) {
-            console.warn('[registry-coordinator] broadcast failed:', err.message);
+            this.warn('broadcast', '[registry-coordinator] broadcast failed:', { action: 'broadcast', kind, error: (0, logger_js_1.errorMessage)(err) }, err.message);
         }
     }
     /**
@@ -298,12 +367,12 @@ class RegistryCoordinator {
             this.stamps.clear();
             this.pending = [];
             if (cause !== 'boot') {
-                console.warn(`[registry-coordinator] resynced from shared registry (${cause})`);
+                this.warn('resynced', `[registry-coordinator] resynced from shared registry (${cause})`, { action: 'resync', status: 'recovered', cause, resyncs: this._resyncs });
             }
             return true;
         }
         catch (err) {
-            console.warn('[registry-coordinator] resync failed:', err.message);
+            this.warn('resync-failed', '[registry-coordinator] resync failed:', { action: 'resync', status: 'failed', cause, error: (0, logger_js_1.errorMessage)(err) }, err.message);
             return false;
         }
     }
@@ -372,8 +441,16 @@ class RegistryCoordinator {
         this.markStale(`missed ${mutation.seq - prev - 1} broadcast(s) from replica ${mutation.replicaId.slice(0, 8)}`);
     }
     markStale(detail) {
-        if (!this._stale)
-            console.warn(`[registry-coordinator] stale: ${detail}`);
+        // Guarded on the stale latch, so this is one line per healthy→stale
+        // transition rather than one per missed broadcast.
+        if (!this._stale) {
+            this.log.warn(`[registry-coordinator] stale: ${detail}`, {
+                component: 'registry-coordinator',
+                replicaId: this.replicaId,
+                status: 'stale',
+                detail,
+            });
+        }
         this._stale = true;
         // Best-effort self-repair from the shared registry hash.
         void this.resync(detail);
@@ -391,10 +468,10 @@ class RegistryCoordinator {
             // Unknown kind, or a payload missing the fields that identify what
             // it mutates. Nothing safe to do with it.
             if (!isKnownKind(mutation.kind)) {
-                console.warn('[registry-coordinator] unknown mutation kind:', mutation.kind);
+                this.warn(`unknown-kind:${String(mutation.kind)}`, '[registry-coordinator] unknown mutation kind:', { action: 'receive', kind: mutation.kind, fromReplica: mutation.replicaId }, mutation.kind);
             }
             else {
-                console.warn('[registry-coordinator] malformed mutation payload:', mutation.kind);
+                this.warn(`malformed:${String(mutation.kind)}`, '[registry-coordinator] malformed mutation payload:', { action: 'receive', kind: mutation.kind, fromReplica: mutation.replicaId }, mutation.kind);
             }
             return;
         }
@@ -571,8 +648,14 @@ class RegistryCoordinator {
             fromReplica,
             detail: compat.violations.join('; '),
         });
-        console.warn(`[registry-coordinator] refused replicated declare for "${entry.name}" — `
-            + `strict compat violation: ${compat.violations.join('; ')}`);
+        this.warn(`compat:${entry.name}`, `[registry-coordinator] refused replicated declare for "${entry.name}" — `
+            + `strict compat violation: ${compat.violations.join('; ')}`, {
+            action: 'declare',
+            status: 'refused',
+            eventName: entry.name,
+            fromReplica,
+            violations: compat.violations,
+        });
         return false;
     }
     /** Returns true when the mutation was actually applied. */
@@ -619,12 +702,18 @@ class RegistryCoordinator {
                     registry.remove(mutation.payload.name);
                     return true;
                 default:
-                    console.warn('[registry-coordinator] unknown mutation kind:', mutation.kind);
+                    this.warn(`apply-unknown-kind:${String(mutation.kind)}`, '[registry-coordinator] unknown mutation kind:', { action: 'apply', kind: mutation.kind, fromReplica: mutation.replicaId }, mutation.kind);
                     return false;
             }
         }
         catch (err) {
-            console.warn('[registry-coordinator] failed to apply remote mutation:', err.message, mutation.kind);
+            this.warn(`apply-failed:${mutation.kind}`, '[registry-coordinator] failed to apply remote mutation:', {
+                action: 'apply',
+                status: 'failed',
+                kind: mutation.kind,
+                fromReplica: mutation.replicaId,
+                error: (0, logger_js_1.errorMessage)(err),
+            }, err.message, mutation.kind);
             return false;
         }
     }

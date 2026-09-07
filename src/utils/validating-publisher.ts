@@ -1,5 +1,7 @@
 import { Registry } from '../registry/index';
 import type { DLQManager } from '../dlq/DLQManager.js';
+import { LogThrottle } from './bounded.js';
+import { LogWriter, type CatalogLogger } from './logger.js';
 
 export type ValidationMode = 'strict' | 'warn' | 'off';
 
@@ -19,7 +21,31 @@ export interface ValidatingPublisherOptions {
    * Valid payloads are still published normally.
    */
   dlq?: DLQManager;
+  /**
+   * Where the 'warn'-mode advisory goes. Defaults to `console.warn`,
+   * byte-for-byte as before.
+   *
+   * This module takes its own options object, which is why it was the one
+   * call site the client-side logger pass missed: `SignalTransport` and
+   * `DurableTransport` read `logger` off their transport options and
+   * nothing reaches this wrapper from there. It is a publish-path
+   * warning like the rest of them and belongs on the same sink.
+   */
+  logger?: CatalogLogger;
 }
+
+/**
+ * Rate ceiling for the 'warn'-mode advisory.
+ *
+ * The line fires on *every* failing publish, and a publisher whose
+ * payload shape has drifted fails every publish — so at even a modest
+ * publish rate this was tens of thousands of identical lines an hour,
+ * from the one code path whose entire purpose is to keep publishing
+ * anyway. Five per minute is enough to notice; `onValidationError` is
+ * the unthrottled hook for a caller that wants every occurrence.
+ */
+const WARN_MODE_LOG_WINDOW_MS = 60_000;
+const WARN_MODE_LOGS_PER_WINDOW = 5;
 
 /**
  * Thrown by createValidatingPublisher / createPublisher when the mode is
@@ -59,6 +85,12 @@ export function createValidatingPublisher<T>(
     return (payload: T) => publishFn(payload);
   }
 
+  const log = new LogWriter(options?.logger);
+  const warnings = new LogThrottle({
+    keyIntervalMs: WARN_MODE_LOG_WINDOW_MS,
+    maxPerWindow: WARN_MODE_LOGS_PER_WINDOW,
+  });
+
   return async (payload: T): Promise<void> => {
     const result = registry.validate(eventName, payload);
 
@@ -86,9 +118,19 @@ export function createValidatingPublisher<T>(
       }
 
       // 'warn' — log and fall through to publish
-      console.warn(
-        `[event-catalog] Validation warning for "${eventName}": ${errors.join('; ')}`,
-      );
+      const suppressed = warnings.attempt(eventName);
+      if (suppressed !== null) {
+        log.warn(
+          `[event-catalog] Validation warning for "${eventName}": ${errors.join('; ')}`
+          + LogThrottle.suffix(suppressed),
+          {
+            eventName,
+            mode,
+            errors,
+            suppressed,
+          },
+        );
+      }
     }
 
     await publishFn(payload);

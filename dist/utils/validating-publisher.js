@@ -4,6 +4,20 @@ exports.ValidationError = void 0;
 exports.createValidatingPublisher = createValidatingPublisher;
 exports.createPublisher = createPublisher;
 const index_1 = require("../registry/index");
+const bounded_js_1 = require("./bounded.js");
+const logger_js_1 = require("./logger.js");
+/**
+ * Rate ceiling for the 'warn'-mode advisory.
+ *
+ * The line fires on *every* failing publish, and a publisher whose
+ * payload shape has drifted fails every publish — so at even a modest
+ * publish rate this was tens of thousands of identical lines an hour,
+ * from the one code path whose entire purpose is to keep publishing
+ * anyway. Five per minute is enough to notice; `onValidationError` is
+ * the unthrottled hook for a caller that wants every occurrence.
+ */
+const WARN_MODE_LOG_WINDOW_MS = 60_000;
+const WARN_MODE_LOGS_PER_WINDOW = 5;
 /**
  * Thrown by createValidatingPublisher / createPublisher when the mode is
  * 'strict' and the payload does not pass registry validation.
@@ -32,6 +46,11 @@ function createValidatingPublisher(registry, eventName, publishFn, options) {
     if (mode === 'off') {
         return (payload) => publishFn(payload);
     }
+    const log = new logger_js_1.LogWriter(options?.logger);
+    const warnings = new bounded_js_1.LogThrottle({
+        keyIntervalMs: WARN_MODE_LOG_WINDOW_MS,
+        maxPerWindow: WARN_MODE_LOGS_PER_WINDOW,
+    });
     return async (payload) => {
         const result = registry.validate(eventName, payload);
         if (!result.valid) {
@@ -48,7 +67,16 @@ function createValidatingPublisher(registry, eventName, publishFn, options) {
                 throw new ValidationError(eventName, errors);
             }
             // 'warn' — log and fall through to publish
-            console.warn(`[event-catalog] Validation warning for "${eventName}": ${errors.join('; ')}`);
+            const suppressed = warnings.attempt(eventName);
+            if (suppressed !== null) {
+                log.warn(`[event-catalog] Validation warning for "${eventName}": ${errors.join('; ')}`
+                    + bounded_js_1.LogThrottle.suffix(suppressed), {
+                    eventName,
+                    mode,
+                    errors,
+                    suppressed,
+                });
+            }
         }
         await publishFn(payload);
     };

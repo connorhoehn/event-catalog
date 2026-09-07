@@ -2,7 +2,9 @@ import { type BodyLimitsConfig } from 'distributed-core/server';
 import { type DeadLetteredMessage } from '../client/durable.js';
 import { type Middleware } from './http-router.js';
 import type { CompressionConfig } from './compression.js';
+import { FeatureBundleRegistry } from '../bundles/FeatureBundle.js';
 import type { RegistryEntry } from '../types/index.js';
+import { type CatalogLogger } from '../utils/logger.js';
 /**
  * Hard cap on a request body, in bytes. Matches the `express.json({ limit:
  * '1mb' })` the server ran with before the AdmissionHttpServer move. Nothing
@@ -106,6 +108,8 @@ export declare function buildDeadLetterCallback(deps: {
         }, retentionSeconds?: number): Promise<unknown>;
     };
     additionalHandlers: DeadLetterHandler[];
+    /** Diagnostics sink. Omitted ⇒ console, byte-for-byte as before. */
+    logger?: CatalogLogger;
 }): (message: DeadLetteredMessage) => void;
 export interface ServerConfig {
     port?: number;
@@ -152,7 +156,33 @@ export interface ServerConfig {
      * touching the environment.
      */
     compression?: CompressionConfig;
+    /**
+     * Where this server's own diagnostics go.
+     *
+     * The same {@link CatalogLogger} the client half takes — deliberately
+     * one type, so a host process configures one sink and gets both the
+     * library's publish-path lines and the service's boot, coordination,
+     * request and shutdown lines through it.
+     *
+     * Omitted, every line goes to `console.warn` / `console.error` /
+     * `console.log` with exactly the arguments it used before this option
+     * existed; `tests/server-logger.test.ts` asserts the full
+     * `console.*.mock.calls` arrays for the representative sites.
+     *
+     * Rate limiting stays in front of the sink: the per-request and
+     * per-scrape paths are `LogThrottle`-guarded here, because only this
+     * code knows which lines run at request rate.
+     */
+    logger?: CatalogLogger;
 }
+/**
+ * Populate a FeatureBundleRegistry from the declared bundles.
+ *
+ * Exported so the e2e harness exercises THIS function rather than a faithful
+ * copy of it — the registry was previously built inline and left empty, and a
+ * duplicated loop in the test server would let that regression recur unseen.
+ */
+export declare function buildBundleRegistry(): FeatureBundleRegistry;
 export declare function startServer(config?: ServerConfig): Promise<{
     /** Bound address (distributed-core AdmissionHttpServer.address()). */
     address: () => {

@@ -7,6 +7,7 @@ import {
   ResourceInUseException,
   ResourceNotFoundException,
 } from '@aws-sdk/client-dynamodb';
+import { LogWriter, type CatalogLogger } from '../utils/logger.js';
 
 const DLQ_TABLE_NAME = process.env.DLQ_TABLE_NAME ?? 'event-catalog-dlq';
 
@@ -29,7 +30,11 @@ async function waitForActive(client: DynamoDBClient, tableName: string): Promise
   throw new Error(`Table ${tableName} did not become ACTIVE within ${maxWait}ms`);
 }
 
-async function ensureTTL(client: DynamoDBClient, tableName: string): Promise<void> {
+async function ensureTTL(
+  client: DynamoDBClient,
+  tableName: string,
+  log: LogWriter,
+): Promise<void> {
   const ttlDesc = await client.send(
     new DescribeTimeToLiveCommand({ TableName: tableName }),
   );
@@ -45,15 +50,26 @@ async function ensureTTL(client: DynamoDBClient, tableName: string): Promise<voi
       },
     }),
   );
-  console.log(`[dynamo-setup] TTL enabled on ${tableName}`);
+  log.info(`[dynamo-setup] TTL enabled on ${tableName}`, {
+    component: 'dynamo-setup',
+    table: tableName,
+    action: 'ttl-enabled',
+  });
 }
 
-export async function ensureTable(): Promise<void> {
+/**
+ * Provision the DLQ table if it is missing. Runs once at boot.
+ *
+ * `logger` is threaded from `ServerConfig`; omitted, the two lines below
+ * go to `console.log` exactly as they always did.
+ */
+export async function ensureTable(logger?: CatalogLogger): Promise<void> {
   const client = makeDynamoClient();
+  const log = new LogWriter(logger);
 
   try {
     await client.send(new DescribeTableCommand({ TableName: DLQ_TABLE_NAME }));
-    await ensureTTL(client, DLQ_TABLE_NAME);
+    await ensureTTL(client, DLQ_TABLE_NAME, log);
     return;
   } catch (err: unknown) {
     if (!(err instanceof ResourceNotFoundException)) {
@@ -76,7 +92,11 @@ export async function ensureTable(): Promise<void> {
         BillingMode: 'PAY_PER_REQUEST',
       }),
     );
-    console.log(`[dynamo-setup] created table ${DLQ_TABLE_NAME}`);
+    log.info(`[dynamo-setup] created table ${DLQ_TABLE_NAME}`, {
+      component: 'dynamo-setup',
+      table: DLQ_TABLE_NAME,
+      action: 'table-created',
+    });
   } catch (err: unknown) {
     if (!(err instanceof ResourceInUseException)) {
       throw err;
@@ -84,5 +104,5 @@ export async function ensureTable(): Promise<void> {
   }
 
   await waitForActive(client, DLQ_TABLE_NAME);
-  await ensureTTL(client, DLQ_TABLE_NAME);
+  await ensureTTL(client, DLQ_TABLE_NAME, log);
 }

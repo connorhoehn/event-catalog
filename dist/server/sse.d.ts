@@ -1,4 +1,5 @@
 import type { Request, Response } from './http-router.js';
+import { type CatalogLogger } from '../utils/logger.js';
 /**
  * Default ceiling on concurrent SSE streams across BOTH endpoints.
  * Override with `EVENT_CATALOG_MAX_SSE_STREAMS` (0 disables the cap).
@@ -38,13 +39,32 @@ export interface SseLimits {
 export declare class SseRegistry {
     private readonly streams;
     private limits;
-    constructor(limits?: Partial<SseLimits>);
+    private log;
+    private readonly warnings;
+    constructor(limits?: Partial<SseLimits>, logger?: CatalogLogger);
     /** Number of currently open streams. */
     get size(): number;
     /** Current limits (read-only view). */
     getLimits(): SseLimits;
     /** Replace the limits — used by startServer and by tests. */
     configure(limits: Partial<SseLimits>): void;
+    /**
+     * Point stream diagnostics at an operator-supplied sink.
+     *
+     * A setter rather than a constructor argument because this class is a
+     * process singleton created at module load, long before `startServer`
+     * has resolved its config. Passing `undefined` restores the console
+     * default.
+     */
+    /**
+     * Called when a stream is refused at the cap. PromMetrics.recordSseRejected
+     * existed with ZERO callers, so `sse_streams_rejected_total` was never
+     * registered or rendered and saturation was only inferable from
+     * `active === max` happening to land on a scrape.
+     */
+    private onReject?;
+    useRejectionHook(hook?: () => void): void;
+    useLogger(logger?: CatalogLogger): void;
     /**
      * Open a managed SSE stream for `req`/`res`.
      *

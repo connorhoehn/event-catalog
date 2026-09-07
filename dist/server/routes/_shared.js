@@ -9,6 +9,7 @@
 // repeated verbatim across the handlers — response envelopes, query
 // coercion, SSE preamble — with no behavior change.
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.RouteLog = exports.ROUTE_LOGS_PER_WINDOW = exports.ROUTE_LOG_WINDOW_MS = void 0;
 exports.eventNotFound = eventNotFound;
 exports.badRequest = badRequest;
 exports.stringParam = stringParam;
@@ -19,6 +20,67 @@ exports.enumParam = enumParam;
 exports.resolveParams = resolveParams;
 exports.openSseStream = openSseStream;
 exports.startSseHeartbeat = startSseHeartbeat;
+const bounded_js_1 = require("../../utils/bounded.js");
+const logger_js_1 = require("../../utils/logger.js");
+/**
+ * Default rate ceiling for handler diagnostics.
+ *
+ * Every warning a route handler emits is by definition on a per-request
+ * path, and the admin API is unauthenticated by default — so each of
+ * them is a log source an arbitrary caller can drive at line rate. A
+ * single client looping `GET /api/events/x/history` against a down Redis
+ * writes one line per request, forever.
+ *
+ * Ten a minute per key is enough to see what is failing and how often
+ * (the suppressed count rides on the line); the metrics and the 503s are
+ * the volume-independent signal.
+ */
+exports.ROUTE_LOG_WINDOW_MS = 60_000;
+exports.ROUTE_LOGS_PER_WINDOW = 10;
+/**
+ * Throttled, structured diagnostics for a route module.
+ *
+ * One instance per handler factory, so the key space is scoped to a
+ * route family and a noisy `/history` cannot suppress a `/dlq` line.
+ * Keys must be derived from something bounded — a route name plus at
+ * most an event name — because they are the throttle's dedupe key and
+ * event names arrive from HTTP; `maxKeys` bounds the damage regardless.
+ */
+class RouteLog {
+    log;
+    throttle;
+    constructor(logger, options = {}) {
+        this.log = new logger_js_1.LogWriter(logger);
+        this.throttle = new bounded_js_1.LogThrottle({
+            keyIntervalMs: exports.ROUTE_LOG_WINDOW_MS,
+            maxPerWindow: exports.ROUTE_LOGS_PER_WINDOW,
+            maxKeys: 128,
+            ...options,
+        });
+    }
+    /**
+     * Emit one line unless the throttle says otherwise.
+     *
+     * `tail` is what the call site used to pass as extra `console.warn`
+     * arguments; it is forwarded verbatim on the default console sink and
+     * is always also present in `fields`, so an injected sink loses
+     * nothing. The suppressed-count suffix goes *before* a trailing colon
+     * so `… failed (+3 similar suppressed): detail` still reads correctly,
+     * and is the empty string — hence byte-identical output — when nothing
+     * was suppressed.
+     */
+    warn(key, message, fields, ...tail) {
+        const suppressed = this.throttle.attempt(key);
+        if (suppressed === null)
+            return;
+        const suffix = bounded_js_1.LogThrottle.suffix(suppressed);
+        const text = message.endsWith(':')
+            ? message.slice(0, -1) + suffix + ':'
+            : message + suffix;
+        this.log.warn(text, { ...fields, suppressed }, ...tail);
+    }
+}
+exports.RouteLog = RouteLog;
 /** 404 envelope used by every handler that resolves an event by name. */
 function eventNotFound(res, name) {
     res.status(404).json({ error: `Event "${name}" not found` });

@@ -4,11 +4,26 @@ exports.MetricsObserver = void 0;
 const durable_js_1 = require("../client/durable.js");
 const tap_emitter_js_1 = require("./tap-emitter.js");
 const audit_emitter_js_1 = require("./audit-emitter.js");
+const bounded_js_1 = require("../utils/bounded.js");
+const logger_js_1 = require("../utils/logger.js");
 /**
  * Ceiling on how many synthetic publish/error observations one poll pass
  * will replay from a single queue's counter delta.
  */
 const MAX_CATCHUP_PER_POLL = 10_000;
+/**
+ * Rate ceiling on the observer's two per-event warnings.
+ *
+ * `pollDurableStats` runs every 5s and `pruneRemovedSubscriptions` walks
+ * every tracked channel on each pass, so a Redis that refuses
+ * unsubscribe — or an event whose channel cannot be subscribed —
+ * produces one line per event per 5s, i.e. 17k lines a day for a single
+ * stuck event and far more for a registry-wide outage. Keyed by event
+ * name so one bad event does not mask another; the window ceiling is
+ * what holds when the whole registry is failing at once.
+ */
+const OBSERVER_LOG_WINDOW_MS = 60_000;
+const OBSERVER_LOGS_PER_WINDOW = 5;
 class MetricsObserver {
     registry;
     signal;
@@ -39,7 +54,13 @@ class MetricsObserver {
      * double. Serialize instead.
      */
     polling = false;
+    log;
+    warnings = new bounded_js_1.LogThrottle({
+        keyIntervalMs: OBSERVER_LOG_WINDOW_MS,
+        maxPerWindow: OBSERVER_LOGS_PER_WINDOW,
+    });
     constructor(deps) {
+        this.log = new logger_js_1.LogWriter(deps.logger);
         this.registry = deps.registry;
         this.signal = deps.signal;
         this.durable = deps.durable;
@@ -122,7 +143,17 @@ class MetricsObserver {
                 await unsub();
             }
             catch (err) {
-                console.warn(`[metrics-observer] failed to release channel "${name}":`, err.message);
+                const suppressed = this.warnings.attempt(`release:${name}`);
+                if (suppressed !== null) {
+                    this.log.warn(`[metrics-observer] failed to release channel "${name}"`
+                        + bounded_js_1.LogThrottle.suffix(suppressed) + ':', {
+                        component: 'metrics-observer',
+                        eventName: name,
+                        action: 'release-channel',
+                        error: (0, logger_js_1.errorMessage)(err),
+                        suppressed,
+                    }, err.message);
+                }
             }
         }
     }
@@ -179,7 +210,17 @@ class MetricsObserver {
         catch (err) {
             this.metrics.recordError(eventName);
             this.maybePoison(eventName);
-            console.warn(`[metrics-observer] failed to observe signal channel "${eventName}":`, err.message);
+            const suppressed = this.warnings.attempt(`observe:${eventName}`);
+            if (suppressed !== null) {
+                this.log.warn(`[metrics-observer] failed to observe signal channel "${eventName}"`
+                    + bounded_js_1.LogThrottle.suffix(suppressed) + ':', {
+                    component: 'metrics-observer',
+                    eventName,
+                    action: 'observe-signal',
+                    error: (0, logger_js_1.errorMessage)(err),
+                    suppressed,
+                }, err.message);
+            }
         }
     }
     maybePoison(eventName) {
@@ -195,7 +236,15 @@ class MetricsObserver {
                 namespace: entry?.namespace ?? 'unknown',
                 version: entry?.version ?? 0,
             });
-            console.warn(`[event-catalog] event "${eventName}" marked poisoned — exceeded failure threshold`);
+            // Latched by the detector: `recordFailure` returns true only on the
+            // transition into the poisoned state, so this is once per event per
+            // poisoning, not once per failure.
+            this.log.warn(`[event-catalog] event "${eventName}" marked poisoned — exceeded failure threshold`, {
+                component: 'metrics-observer',
+                eventName,
+                namespace: entry?.namespace ?? 'unknown',
+                status: 'poisoned',
+            });
         }
     }
     async pollDurableStats() {

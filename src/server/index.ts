@@ -50,6 +50,9 @@ import {
   formatRedisError,
 } from '../utils/redis-boot-strategy.js';
 import type { RegistryEntry } from '../types/index.js';
+import { LogThrottle } from '../utils/bounded.js';
+import { LogWriter, type CatalogLogger, errorMessage } from '../utils/logger.js';
+import { sendStaticBuffer, withStaticCompression } from './static-compression.js';
 
 /**
  * Hard cap on a request body, in bytes. Matches the `express.json({ limit:
@@ -191,7 +194,17 @@ export function buildDeadLetterCallback(deps: {
   registry: { get(name: string): RegistryEntry | undefined };
   dlqStore: { put(entry: { eventName: string; payload: unknown; error: string; attempts: number; deadAt: string }, retentionSeconds?: number): Promise<unknown> };
   additionalHandlers: DeadLetterHandler[];
+  /** Diagnostics sink. Omitted ⇒ console, byte-for-byte as before. */
+  logger?: CatalogLogger;
 }): (message: DeadLetteredMessage) => void {
+  const log = new LogWriter(deps.logger);
+  // Dead-lettering is driven by the failure rate of the durable
+  // transport, not by anything this process controls: a queue whose
+  // consumer is broken dead-letters every message it holds, so both
+  // lines below fire once per message. Keyed by event name so one bad
+  // event does not hide another.
+  const storeWarnings = new LogThrottle({ keyIntervalMs: 60_000, maxPerWindow: 5, maxKeys: 128 });
+  const handlerWarnings = new LogThrottle({ keyIntervalMs: 60_000, maxPerWindow: 5, maxKeys: 128 });
   return (message) => {
     const entry = deps.registry.get(message.envelope.eventName);
     deps.dlqStore.put({
@@ -201,7 +214,20 @@ export function buildDeadLetterCallback(deps: {
       attempts: message.attempts,
       deadAt: message.deadLetteredAt,
     }, entry?.dlqRetention).catch((err: Error) => {
-      console.error('[server] DLQ store write failed:', err.message);
+      const suppressed = storeWarnings.attempt(message.envelope.eventName);
+      if (suppressed !== null) {
+        log.error(
+          '[server] DLQ store write failed' + LogThrottle.suffix(suppressed) + ':',
+          {
+            component: 'server',
+            action: 'dlq-store-write',
+            eventName: message.envelope.eventName,
+            error: err.message,
+            suppressed,
+          },
+          err.message,
+        );
+      }
     });
 
     if (deps.additionalHandlers.length === 0) return;
@@ -212,10 +238,21 @@ export function buildDeadLetterCallback(deps: {
       new Promise<void>((resolve) => {
         resolve(handler(message, context));
       }).catch((err: Error) => {
-        console.warn(
-          `[server] DLQ handler threw on "${message.envelope.eventName}":`,
-          err.message,
-        );
+        const suppressed = handlerWarnings.attempt(message.envelope.eventName);
+        if (suppressed !== null) {
+          log.warn(
+            `[server] DLQ handler threw on "${message.envelope.eventName}"`
+            + LogThrottle.suffix(suppressed) + ':',
+            {
+              component: 'server',
+              action: 'dlq-handler',
+              eventName: message.envelope.eventName,
+              error: err.message,
+              suppressed,
+            },
+            err.message,
+          );
+        }
       });
     }
   };
@@ -266,6 +303,48 @@ export interface ServerConfig {
    * touching the environment.
    */
   compression?: CompressionConfig;
+  /**
+   * Where this server's own diagnostics go.
+   *
+   * The same {@link CatalogLogger} the client half takes — deliberately
+   * one type, so a host process configures one sink and gets both the
+   * library's publish-path lines and the service's boot, coordination,
+   * request and shutdown lines through it.
+   *
+   * Omitted, every line goes to `console.warn` / `console.error` /
+   * `console.log` with exactly the arguments it used before this option
+   * existed; `tests/server-logger.test.ts` asserts the full
+   * `console.*.mock.calls` arrays for the representative sites.
+   *
+   * Rate limiting stays in front of the sink: the per-request and
+   * per-scrape paths are `LogThrottle`-guarded here, because only this
+   * code knows which lines run at request rate.
+   */
+  logger?: CatalogLogger;
+}
+
+/**
+ * Populate a FeatureBundleRegistry from the declared bundles.
+ *
+ * Exported so the e2e harness exercises THIS function rather than a faithful
+ * copy of it — the registry was previously built inline and left empty, and a
+ * duplicated loop in the test server would let that regression recur unseen.
+ */
+export function buildBundleRegistry(): FeatureBundleRegistry {
+  const bundleRegistry = new FeatureBundleRegistry();
+  for (const bundle of allBundles) {
+    try {
+      bundleRegistry.register(bundle);
+    } catch (err) {
+      // A duplicate name+version with a different event set is a source bug,
+      // not a runtime condition; surface it without killing boot.
+      console.warn(
+        `[server] feature bundle "${bundle.name}@${bundle.version}" not registered:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return bundleRegistry;
 }
 
 export async function startServer(config: ServerConfig = {}): Promise<{
@@ -297,7 +376,36 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     onDeadLetter = [],
     shutdownDrainMs,
     compression = resolved.config.compression,
+    logger,
   } = config;
+
+  // One writer for this server's own lines; every sub-component below is
+  // handed `logger` and builds its own so it can carry its own throttles.
+  const log = new LogWriter(logger);
+  // Point the process-wide SSE registry at the same sink. It is a module
+  // singleton constructed at import time, long before this config exists.
+  sseRegistry.useLogger(logger);
+  /**
+   * Periodic background lines: the health probe (every 15s), the metrics
+   * snapshot and the subscriber sweep (every 60s). None of these is
+   * request-driven, but all of them repeat forever while a dependency is
+   * down — a Redis outage over a weekend is ~17k identical health lines.
+   * Keyed by the condition so redis and message-queue are independently
+   * visible.
+   */
+  const periodicWarnings = new LogThrottle({ keyIntervalMs: 300_000, maxPerWindow: 6, maxKeys: 32 });
+  const periodicWarn = (
+    key: string,
+    message: string,
+    fields: Record<string, unknown>,
+    ...tail: unknown[]
+  ): void => {
+    const suppressed = periodicWarnings.attempt(key);
+    if (suppressed === null) return;
+    const suffix = LogThrottle.suffix(suppressed);
+    const text = message.endsWith(':') ? message.slice(0, -1) + suffix + ':' : message + suffix;
+    log.warn(text, { component: 'server', ...fields, suppressed }, ...tail);
+  };
 
   // Auth is opt-in and off unless configured. With no explicit middleware
   // and no $EVENT_CATALOG_AUTH_TOKEN this is `undefined`, the `if
@@ -306,6 +414,7 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   const authMiddleware = resolveAuthMiddleware(
     config.authMiddleware,
     resolved.config.authToken,
+    config.logger,
   );
 
   const drainMs = shutdownDrainMs
@@ -319,13 +428,26 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     socket: { reconnectStrategy: registryBootStrategy.reconnectStrategy },
   }) as RedisClientType;
   redisClient.on('error', (err: Error) => {
-    console.warn('[server] registry Redis error:', formatRedisError(err));
+    // Fires once per failed reconnect attempt for the life of an outage.
+    periodicWarn(
+      'registry-redis-error',
+      '[server] registry Redis error:',
+      { action: 'registry-redis', error: formatRedisError(err) },
+      formatRedisError(err),
+    );
   });
   await redisClient.connect()
     .then(() => registryBootStrategy.markConnected())
     .catch(err => {
-      console.warn(
-        '[server] registry Redis connection failed:', formatRedisError(err),
+      log.warn(
+        '[server] registry Redis connection failed:',
+        {
+          component: 'server',
+          action: 'registry-redis-connect',
+          status: 'degraded',
+          error: formatRedisError(err),
+        },
+        formatRedisError(err),
         '— continuing in degraded mode (in-memory registry, no cross-replica sync)',
       );
     });
@@ -335,32 +457,57 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   // hGetAll throws ClientClosedError. Serve an empty in-memory registry
   // instead of failing boot — producers re-declare on their next sync.
   await registry.load().catch(err => {
-    console.warn(
-      '[server] registry hydration failed:', formatRedisError(err),
+    log.warn(
+      '[server] registry hydration failed:',
+      {
+        component: 'server',
+        action: 'registry-hydrate',
+        status: 'degraded',
+        error: formatRedisError(err),
+      },
+      formatRedisError(err),
       '— starting with an empty in-memory registry',
     );
   });
 
-  const metrics = new MetricsCollector(60);
+  const metrics = new MetricsCollector(60, undefined, logger);
   await metrics.restoreFromRedis(redisClient).catch(err => {
-    console.warn('[server] metrics restore failed:', formatRedisError(err));
+    log.warn(
+      '[server] metrics restore failed:',
+      { component: 'server', action: 'metrics-restore', error: formatRedisError(err) },
+      formatRedisError(err),
+    );
   });
 
-  const signal = new SignalTransport({ url: redisUrl });
-  const durable = new DurableTransport({ url: messageQueueUrl });
+  // The transports take the same sink, so the publish-path lines from
+  // src/client land alongside the service's own.
+  const signal = new SignalTransport({ url: redisUrl, logger });
+  const durable = new DurableTransport({ url: messageQueueUrl, logger });
   const startedAt = Date.now();
 
   // Connect transports
   await signal.connect().catch(err => {
-    console.warn('[server] Redis connection failed:', (err as Error).message);
+    log.warn(
+      '[server] Redis connection failed:',
+      { component: 'server', action: 'signal-connect', error: errorMessage(err) },
+      (err as Error).message,
+    );
   });
 
   await durable.connect().catch(err => {
-    console.warn('[server] message-queue connection failed:', (err as Error).message);
+    log.warn(
+      '[server] message-queue connection failed:',
+      { component: 'server', action: 'message-queue-connect', error: errorMessage(err) },
+      (err as Error).message,
+    );
   });
 
-  await ensureTable().catch(err => {
-    console.warn('[server] DLQ table auto-provision failed:', (err as Error).message);
+  await ensureTable(logger).catch(err => {
+    log.warn(
+      '[server] DLQ table auto-provision failed:',
+      { component: 'server', action: 'dlq-table-provision', error: errorMessage(err) },
+      (err as Error).message,
+    );
   });
 
   const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -371,27 +518,39 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     registry,
     dlqStore,
     additionalHandlers: onDeadLetter,
+    logger,
   }));
 
   const attribution = new ProducerAttributionStore();
   const poisonDetector = new PoisonEventDetector();
-  const metricsObserver = new MetricsObserver({ registry, signal, durable, metrics, attribution, poisonDetector });
+  const metricsObserver = new MetricsObserver({ registry, signal, durable, metrics, attribution, poisonDetector, logger });
 
   // wave26-d — multi-replica registry coordination via Redis pub/sub.
-  const coordinator = new RegistryCoordinator();
+  const coordinator = new RegistryCoordinator(logger);
   coordinator.start(redisUrl, registry).catch(err => {
-    console.warn('[server] registry coordinator start failed:', (err as Error).message);
+    log.warn(
+      '[server] registry coordinator start failed:',
+      { component: 'server', action: 'coordinator-start', error: errorMessage(err) },
+      (err as Error).message,
+    );
   });
   await metricsObserver.start().catch(err => {
-    console.warn('[server] metrics observer start failed:', (err as Error).message);
+    log.warn(
+      '[server] metrics observer start failed:',
+      { component: 'server', action: 'metrics-observer-start', error: errorMessage(err) },
+      (err as Error).message,
+    );
   });
 
-  const promMetrics = new PromMetrics();
+  const promMetrics = new PromMetrics(undefined, { logger });
   const serviceVersion = readServiceVersion();
 
   // Pull-style gauges, sampled at scrape time rather than pushed on a timer —
   // registry size, poisoned events and SSE saturation are all cheap reads whose
   // value is "what is true right now", and a timer would only add staleness.
+  // recordSseRejected had no caller, so stream saturation was invisible.
+  sseRegistry.useRejectionHook(() => promMetrics.recordSseRejected());
+
   promMetrics.collect(() => {
     promMetrics.setRegistrySize(registry.size());
     promMetrics.setPoisonedEvents(poisonDetector.listPoisoned().length);
@@ -492,7 +651,7 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   const manifestStore = new RedisManifestStore(redisClient);
 
   // Admin API
-  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution, poisonDetector, coordinator });
+  const routes = createRoutes({ registry, metrics, signal, durable, metricsObserver, dlqStore, startedAt, promMetrics, auditLog, manifestStore, attribution, poisonDetector, coordinator, logger });
 
   // FeatureBundle admin surface — CRD query endpoints for dc-k8s-operator.
   //
@@ -501,20 +660,9 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   // production while 18 bundles sat declared in the source. ec-lint-crd
   // reads them from the package rather than the server, which is why
   // nothing failed loudly — the HTTP surface was simply blank.
-  const bundleRegistry = new FeatureBundleRegistry();
-  for (const bundle of allBundles) {
-    try {
-      bundleRegistry.register(bundle);
-    } catch (err) {
-      // A duplicate name+version with a different event set is a source
-      // bug, not a runtime condition; surface it without killing boot.
-      console.warn(
-        `[server] feature bundle "${bundle.name}@${bundle.version}" not registered:`,
-        err instanceof Error ? err.message : String(err),
-      );
-    }
-  }
-  const bundleRoutes = createBundleRoutes({ bundleRegistry, registry });
+  const bundleRegistry = buildBundleRegistry();
+
+  const bundleRoutes = createBundleRoutes({ bundleRegistry, registry, logger });
 
   // Longest prefix first so /api/feature-bundles/* reaches its router
   // before the general /api router gets a shot.
@@ -525,9 +673,25 @@ export async function startServer(config: ServerConfig = {}): Promise<{
 
   // Static admin UI (production build) via distributed-core's serveStatic;
   // unmatched GETs fall through to the SPA's index.html.
+  //
+  // `serveStatic` writes straight to the socket, so it never reached the
+  // gzip/brotli negotiation `makeRouteResponse` applies to the API — the
+  // admin bundle shipped raw while a 2 KiB JSON body got compressed.
+  // `withStaticCompression` hands it a recording response instead of the
+  // real one and runs the finished buffer through the same
+  // `compression.ts` policy; see that module for why the upstream handler
+  // is wrapped rather than replaced. 629 KiB → 196 KiB on this build.
   const adminDistDir = join(__dirname, '../admin/dist');
-  const staticHandler = serveStatic({ staticDir: adminDistDir });
+  const staticHandler = withStaticCompression(
+    serveStatic({ staticDir: adminDistDir }),
+    { compression },
+  );
   const spaIndexPath = join(adminDistDir, 'index.html');
+  /** Headers the SPA fallback sends — matches serveStatic's HTML policy. */
+  const spaIndexHeaders = new Map<string, string>([
+    ['content-type', 'text/html'],
+    ['cache-control', 'no-cache'],
+  ]);
 
   /**
    * The single request entrypoint handed to AdmissionHttpServer.
@@ -605,10 +769,14 @@ export async function startServer(config: ServerConfig = {}): Promise<{
 
     if (req.method === 'GET' || req.method === 'HEAD') {
       if (staticHandler(nodeReq, nodeRes)) return;
-      // SPA fallback for admin UI routes.
+      // SPA fallback for admin UI routes. Goes through sendStaticBuffer
+      // rather than `ares.raw` so this last static path negotiates its
+      // coding like every other one (index.html is 481 bytes today, so
+      // it lands under the threshold and is sent identity — but it still
+      // needs the `Vary: Accept-Encoding` that keeps caches honest).
       try {
         const html = await readFile(spaIndexPath);
-        ares.raw(200, html, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
+        sendStaticBuffer(nodeReq, nodeRes, 200, html, spaIndexHeaders, compression);
       } catch {
         ares.json(404, { error: 'NotFound', detail: 'admin UI not built (src/admin: npm run build)' });
       }
@@ -620,7 +788,12 @@ export async function startServer(config: ServerConfig = {}): Promise<{
 
   const metricsSnapshotInterval = setInterval(() => {
     metrics.snapshotToRedis(redisClient).catch(err => {
-      console.warn('[server] metrics snapshot failed:', (err as Error).message);
+      periodicWarn(
+        'metrics-snapshot',
+        '[server] metrics snapshot failed:',
+        { action: 'metrics-snapshot', error: errorMessage(err) },
+        (err as Error).message,
+      );
     });
   }, 60_000);
 
@@ -649,12 +822,17 @@ export async function startServer(config: ServerConfig = {}): Promise<{
             });
           }
         } catch (err) {
-          console.warn('[server] subscriber sweep failed:', (err as Error).message);
+          periodicWarn(
+            'subscriber-sweep',
+            '[server] subscriber sweep failed:',
+            { action: 'subscriber-sweep', error: errorMessage(err) },
+            (err as Error).message,
+          );
         }
       }, 60_000)
     : null;
 
-  const alertManager = new AlertManager();
+  const alertManager = new AlertManager({ logger });
 
   // Periodic background health probe
   const healthInterval = setInterval(async () => {
@@ -663,10 +841,18 @@ export async function startServer(config: ServerConfig = {}): Promise<{
       durable.healthCheck(),
     ]);
     if (redisHealth.status !== 'connected') {
-      console.warn(`[event-catalog] redis health: ${redisHealth.status} (${redisHealth.latencyMs}ms)`);
+      periodicWarn(
+        `health:redis:${redisHealth.status}`,
+        `[event-catalog] redis health: ${redisHealth.status} (${redisHealth.latencyMs}ms)`,
+        { action: 'health-probe', transport: 'redis', status: redisHealth.status, latencyMs: redisHealth.latencyMs },
+      );
     }
     if (mqHealth.status !== 'connected') {
-      console.warn(`[event-catalog] message-queue health: ${mqHealth.status} (${mqHealth.latencyMs}ms)`);
+      periodicWarn(
+        `health:message-queue:${mqHealth.status}`,
+        `[event-catalog] message-queue health: ${mqHealth.status} (${mqHealth.latencyMs}ms)`,
+        { action: 'health-probe', transport: 'message-queue', status: mqHealth.status, latencyMs: mqHealth.latencyMs },
+      );
     }
 
     const checks: Array<{
@@ -706,6 +892,7 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   // control. Both limit keys are spelled out against BodyLimitsConfig; an
   // unknown key here is a silent no-op at runtime, so the typecheck over
   // src/server (npm run lint:all) is what keeps this honest.
+  const requestErrors = new LogThrottle({ keyIntervalMs: 60_000, maxPerWindow: 10, maxKeys: 64 });
   const admission = new AdmissionHttpServer({
     port,
     // Bind all interfaces (AdmissionHttpServer defaults to 127.0.0.1,
@@ -714,19 +901,43 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     bodyLimits: REQUEST_BODY_LIMITS,
     onRequest,
     onError: err => {
-      console.warn('[server] unhandled request error:', err.message);
+      // Transport-level, so one line per failing request: a client that
+      // resets connections mid-body drives this as fast as it can open
+      // sockets. Keyed by the error text so distinct causes stay visible.
+      const suppressed = requestErrors.attempt(err.message);
+      if (suppressed === null) return;
+      log.warn(
+        '[server] unhandled request error' + LogThrottle.suffix(suppressed) + ':',
+        {
+          component: 'server',
+          action: 'unhandled-request-error',
+          error: err.message,
+          suppressed,
+        },
+        err.message,
+      );
     },
   });
   await admission.start();
-  console.log(`[event-catalog] server listening on :${port}`);
+  log.info(`[event-catalog] server listening on :${port}`, {
+    component: 'server', action: 'listening', port, version: serviceVersion,
+  });
   // Redacted — these URLs carry credentials in every deployment that
   // uses an authenticated Redis.
-  console.log(`[event-catalog] redis: ${redactUrl(redisUrl)}`);
-  console.log(`[event-catalog] message-queue: ${redactUrl(messageQueueUrl)}`);
-  console.log(`[event-catalog] admin UI: http://localhost:${port}`);
+  log.info(`[event-catalog] redis: ${redactUrl(redisUrl)}`, {
+    component: 'server', action: 'config', redisUrl: redactUrl(redisUrl),
+  });
+  log.info(`[event-catalog] message-queue: ${redactUrl(messageQueueUrl)}`, {
+    component: 'server', action: 'config', messageQueueUrl: redactUrl(messageQueueUrl),
+  });
+  log.info(`[event-catalog] admin UI: http://localhost:${port}`, {
+    component: 'server', action: 'config', adminUrl: `http://localhost:${port}`,
+  });
 
   const shutdown = async () => {
-    console.log('[event-catalog] shutting down...');
+    log.info('[event-catalog] shutting down...', {
+      component: 'server', action: 'shutdown', phase: 'begin',
+    });
     clearInterval(healthInterval);
     clearInterval(metricsSnapshotInterval);
     if (subscriberSweepInterval) clearInterval(subscriberSweepInterval);
@@ -742,7 +953,9 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     // and the process died to the orchestrator's SIGKILL.
     const closedStreams = sseRegistry.closeAll();
     if (closedStreams > 0) {
-      console.log(`[event-catalog] closed ${closedStreams} open event stream(s)`);
+      log.info(`[event-catalog] closed ${closedStreams} open event stream(s)`, {
+        component: 'server', action: 'shutdown', phase: 'sse-closed', closedStreams,
+      });
     }
 
     await metrics.snapshotToRedis(redisClient).catch(() => {});
@@ -757,8 +970,9 @@ export async function startServer(config: ServerConfig = {}): Promise<{
       t.unref?.();
     });
     if (await Promise.race([stopped.then(() => 'closed' as const), drainTimer]) === 'timeout') {
-      console.warn(
+      log.warn(
         `[event-catalog] requests still in flight after ${drainMs}ms — closing connections`,
+        { component: 'server', action: 'shutdown', phase: 'drain-timeout', drainMs },
       );
       admission.nodeServer.closeAllConnections?.();
       await stopped;
@@ -769,7 +983,9 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     await signal.disconnect();
     await durable.disconnect();
     await redisClient.quit().catch(() => {});
-    console.log('[event-catalog] shutdown complete');
+    log.info('[event-catalog] shutdown complete', {
+      component: 'server', action: 'shutdown', phase: 'complete',
+    });
   };
 
   return { address: () => admission.address(), shutdown };

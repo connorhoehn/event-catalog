@@ -26,11 +26,14 @@ import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serveStatic } from 'distributed-core/server';
-import { expressLikeApp } from '../helpers/test-app.js';
+import { expressLikeApp, type TestApp } from '../helpers/test-app.js';
 import { Registry } from '../../src/registry/index.js';
 import { MetricsCollector } from '../../src/server/metrics.js';
 import { PromMetrics } from '../../src/server/prom-metrics.js';
 import { createRoutes } from '../../src/server/routes.js';
+import { createBundleRoutes } from '../../src/server/bundle-routes.js';
+import { buildBundleRegistry } from '../../src/server/index.js';
+import { FeatureBundleRegistry } from '../../src/bundles/FeatureBundle.js';
 import { tapEmitter, type TapEvent } from '../../src/server/tap-emitter.js';
 
 const PORT = Number(process.env.E2E_PORT ?? 3099);
@@ -248,6 +251,45 @@ app.use(
   }),
 );
 
+// ─── FeatureBundle surface ──────────────────────────────────────────────────
+//
+// Mirrors what `startServer()` does at boot: a fresh FeatureBundleRegistry
+// populated from `src/declarations/bundles`, behind `createBundleRoutes`.
+//
+// This is the endpoint that shipped broken. The registry was constructed and
+// never populated, so `GET /api/feature-bundles` answered `{bundles: [],
+// total: 0}` in production while 19 bundles sat declared in the source — and
+// the admin rendered that as "No bundles registered", indistinguishable from
+// a deployment that genuinely has none. The specs assert the UI's counts
+// against what this endpoint actually returns, so an empty answer fails
+// rather than rendering as a tidy empty state.
+//
+// This calls the SAME `buildBundleRegistry()` that `startServer()` uses, not
+// a copy of it — a duplicated loop here would let the empty-registry
+// regression recur in production while these specs stayed green.
+
+/** The populated registry — what a healthy deployment serves. */
+const bundleRegistry = buildBundleRegistry();
+
+/** A deployment that genuinely declared no bundles — the OTHER empty state. */
+const emptyBundleRegistry = new FeatureBundleRegistry();
+
+function mountBundleRoutes(reg: FeatureBundleRegistry): TestApp {
+  const bundleApp = expressLikeApp();
+  bundleApp.use('/api/feature-bundles', createBundleRoutes({ bundleRegistry: reg, registry }));
+  return bundleApp;
+}
+
+const bundleApps: Record<'real' | 'empty', TestApp> = {
+  real: mountBundleRoutes(bundleRegistry),
+  empty: mountBundleRoutes(emptyBundleRegistry),
+};
+
+/** Which registry `/api/feature-bundles` answers from. */
+let bundleMode: 'real' | 'empty' = 'real';
+/** When set, `/api/feature-bundles*` fails with this message instead. */
+let bundleFailure: string | null = null;
+
 // ─── /__e2e__ control plane ─────────────────────────────────────────────────
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
@@ -372,11 +414,34 @@ async function controlPlane(req: http.IncomingMessage, res: http.ServerResponse,
     return json(res, 200, { mode: 'small', events: registry.size() });
   }
 
+  // Swap `/api/feature-bundles` between the declared bundles and a registry
+  // that genuinely holds none. "No bundles declared" and "the bundle registry
+  // was never populated" are different deployments that produced the same
+  // blank screen for months; a spec can only tell them apart if it can put
+  // the server into each state.
+  if (path === '/__e2e__/bundles' && method === 'POST') {
+    const body = (await readBody(req)) as Record<string, unknown>;
+    bundleMode = body.mode === 'empty' ? 'empty' : 'real';
+    const reg = bundleMode === 'empty' ? emptyBundleRegistry : bundleRegistry;
+    return json(res, 200, { mode: bundleMode, total: reg.list().length });
+  }
+
+  // Make `/api/feature-bundles*` fail outright. Not one-shot: the views retry,
+  // and a failure that heals on the second request would prove nothing about
+  // the error state. POST `{ "message": null }` to clear.
+  if (path === '/__e2e__/bundles/fail' && method === 'POST') {
+    const body = (await readBody(req)) as Record<string, unknown>;
+    bundleFailure = body.message === null ? null : String(body.message ?? 'bundle registry unreachable');
+    return json(res, 200, { failing: bundleFailure });
+  }
+
   // Per-spec isolation: wipe mutable state and restore the small fixture.
   if (path === '/__e2e__/reset' && method === 'POST') {
     dlqStore.reset();
     published = [];
     nextPublishError = null;
+    bundleMode = 'real';
+    bundleFailure = null;
     seedSmall();
     return json(res, 200, { reset: true });
   }
@@ -447,6 +512,16 @@ async function main(): Promise<void> {
 
       if (path.startsWith('/__e2e__')) {
         controlPlane(req, res, path).catch(err => json(res, 500, { error: String(err) }));
+        return;
+      }
+      // Longest prefix first, as `startServer()` mounts it: the bundle router
+      // has to get `/api/feature-bundles/*` before the general /api router.
+      if (path === '/api/feature-bundles' || path.startsWith('/api/feature-bundles/')) {
+        if (bundleFailure !== null) {
+          json(res, 503, { error: 'ServiceUnavailable', detail: bundleFailure });
+          return;
+        }
+        bundleApps[bundleMode](req, res);
         return;
       }
       if (path === '/api' || path.startsWith('/api/')) {

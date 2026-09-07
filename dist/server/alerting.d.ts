@@ -1,3 +1,4 @@
+import { type CatalogLogger } from '../utils/logger.js';
 export type Severity = 'warning' | 'critical' | 'resolved';
 export interface AlertPayload {
     service: string;
@@ -23,6 +24,8 @@ export interface AlertManagerConfig {
     healthConfirmations?: number;
     /** Max distinct alert keys retained for cooldown bookkeeping. */
     maxTrackedKeys?: number;
+    /** Sink for webhook-delivery diagnostics. Defaults to `console.warn`. */
+    logger?: CatalogLogger;
 }
 /**
  * Ceiling on the per-key bookkeeping maps.
@@ -50,6 +53,8 @@ export declare class AlertManager {
      * fires on the DELTA, not on the cumulative total.
      */
     private readonly lastErrorCount;
+    private readonly log;
+    private readonly deliveryWarnings;
     constructor(config?: AlertManagerConfig);
     get enabled(): boolean;
     getPreviousState(component: string): string | undefined;

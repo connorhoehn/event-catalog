@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MetricsCollector = exports.COLLECTOR_METRIC_NAMESPACE = exports.DEFAULT_MAX_TRACKED_EVENTS = void 0;
 const distributed_core_1 = require("distributed-core");
+const logger_js_1 = require("../utils/logger.js");
 const SNAPSHOT_KEY = 'event-catalog:metrics:snapshot';
 /**
  * Ceiling on distinct events this collector will track.
@@ -60,10 +61,12 @@ class MetricsCollector {
     knownEvents = new Set();
     droppedEvents = 0;
     warnedAboutCap = false;
-    constructor(rateWindowSeconds = 60, maxTrackedEvents = exports.DEFAULT_MAX_TRACKED_EVENTS) {
+    log;
+    constructor(rateWindowSeconds = 60, maxTrackedEvents = exports.DEFAULT_MAX_TRACKED_EVENTS, logger) {
         this.rateWindowSeconds = rateWindowSeconds;
         this.maxTrackedEvents = maxTrackedEvents;
         this.registry = new distributed_core_1.MetricsRegistry('event-catalog', { namespace: exports.COLLECTOR_METRIC_NAMESPACE });
+        this.log = new logger_js_1.LogWriter(logger);
     }
     recordPublish(eventName) {
         const handles = this.getOrCreate(eventName);
@@ -273,9 +276,16 @@ class MetricsCollector {
             if (!this.knownEvents.has(eventName) && this.knownEvents.size >= this.maxTrackedEvents) {
                 this.droppedEvents++;
                 if (!this.warnedAboutCap) {
+                    // Latched, so this is once per process — the getOrCreate path
+                    // runs on every publish and needs no further throttling.
                     this.warnedAboutCap = true;
-                    console.warn(`[metrics] tracking cap of ${this.maxTrackedEvents} events reached — ` +
-                        'further events are not measured. Registry is larger than this service expects.');
+                    this.log.warn(`[metrics] tracking cap of ${this.maxTrackedEvents} events reached — ` +
+                        'further events are not measured. Registry is larger than this service expects.', {
+                        component: 'metrics',
+                        maxTrackedEvents: this.maxTrackedEvents,
+                        eventName,
+                        droppedEvents: this.droppedEvents,
+                    });
                 }
                 return null;
             }

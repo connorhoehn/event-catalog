@@ -1,4 +1,5 @@
 import type { Middleware } from './http-router.js';
+import { type CatalogLogger } from '../utils/logger.js';
 /**
  * Methods that never mutate registry state and are therefore never
  * challenged. HEAD and OPTIONS ride along with GET: OPTIONS is the CORS
@@ -74,6 +75,11 @@ export interface BearerAuthOptions {
      * token never appears in it.
      */
     readonly onReject?: (line: string) => void;
+    /**
+     * Sink for the default rejection line, used when `onReject` is not
+     * supplied. Defaults to `console.warn` — identical output to before.
+     */
+    readonly logger?: CatalogLogger;
 }
 /**
  * Connect-style middleware for `ServerConfig.authMiddleware`.
@@ -96,5 +102,5 @@ export declare function createBearerAuthMiddleware(options: BearerAuthOptions): 
  * consumer who brings their own JWT check is not second-guessed by an
  * environment variable.
  */
-export declare function resolveAuthMiddleware(explicit: Middleware | undefined, token: string | undefined): Middleware | undefined;
+export declare function resolveAuthMiddleware(explicit: Middleware | undefined, token: string | undefined, logger?: CatalogLogger): Middleware | undefined;
 //# sourceMappingURL=auth.d.ts.map

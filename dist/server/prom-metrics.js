@@ -4,6 +4,8 @@ exports.PromMetrics = exports.MAX_LABEL_VALUE_LENGTH = exports.DEFAULT_MAX_EVENT
 exports.escapeLabelValue = escapeLabelValue;
 exports.renderExposition = renderExposition;
 const distributed_core_1 = require("distributed-core");
+const bounded_js_1 = require("../utils/bounded.js");
+const logger_js_1 = require("../utils/logger.js");
 /**
  * Prom-formatted metrics surface for the event-catalog service.
  *
@@ -162,6 +164,17 @@ function envInt(name, fallback) {
         return fallback;
     return Math.trunc(parsed);
 }
+/**
+ * Rate ceiling on the collector-failure warning.
+ *
+ * `renderProm()` runs once per Prometheus scrape — every 15s in a
+ * default deployment, per scraper. A collector that throws throws on
+ * every scrape, so the unthrottled line was ~5.7k identical entries a
+ * day per broken collector for as long as nobody looked. Keyed by the
+ * error text so two different broken collectors are both visible.
+ */
+const COLLECTOR_LOG_WINDOW_MS = 300_000;
+const COLLECTOR_LOGS_PER_WINDOW = 4;
 class PromMetrics {
     registry;
     publishCounters = new Map();
@@ -182,7 +195,14 @@ class PromMetrics {
     sseActiveGauge = null;
     sseMaxGauge = null;
     sseRejectedCounter = null;
+    log;
+    collectorWarnings = new bounded_js_1.LogThrottle({
+        keyIntervalMs: COLLECTOR_LOG_WINDOW_MS,
+        maxPerWindow: COLLECTOR_LOGS_PER_WINDOW,
+        maxKeys: 16,
+    });
     constructor(registry, options = {}) {
+        this.log = new logger_js_1.LogWriter(options.logger);
         // Use 'event_catalog' as namespace so the rendered name becomes
         // `event_catalog_publish_total` (formatPrometheus joins namespace
         // and name with `_`).
@@ -447,7 +467,15 @@ class PromMetrics {
                 fn();
             }
             catch (err) {
-                console.warn('[prom-metrics] collector failed:', err.message);
+                const detail = (0, logger_js_1.errorMessage)(err);
+                const suppressed = this.collectorWarnings.attempt(detail);
+                if (suppressed !== null) {
+                    this.log.warn('[prom-metrics] collector failed' + bounded_js_1.LogThrottle.suffix(suppressed) + ':', {
+                        component: 'prom-metrics',
+                        error: detail,
+                        suppressed,
+                    }, err.message);
+                }
             }
         }
         return renderExposition(this.registry.getSnapshot());

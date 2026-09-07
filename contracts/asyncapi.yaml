@@ -1,5 +1,5 @@
 # AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
-# Generated at: 2026-09-07T17:44:51.527Z
+# Scope: the gateway WebSocket protocol — 110 of 229 declarations
 # Source of truth: @connorhoehn/event-catalog src/declarations/
 asyncapi: 2.6.0
 info:
@@ -8,8 +8,7 @@ info:
   description: |-
     Machine-readable contract for the websocket-gateway real-time WebSocket
     protocol, generated from the `@connorhoehn/event-catalog` declarations
-    (`client.*` outbound frames + `ws.*` inbound send-backs) plus the
-    session-bootstrap welcome frame.
+    (`client.*` outbound frames + `ws.*` inbound send-backs).
 
     AUDIENCE: non-React / non-JS adopters who cannot read the
     `@connorhoehn/realtime-modules/client` hook source. JS/TS adopters
@@ -21,10 +20,29 @@ info:
     frames carry `{ service, action, channel?, ... }`; inbound frames carry
     a `type` discriminator.
 
+    SCOPE: this document describes 110 of the registry's
+    229 declarations — the gateway WebSocket frames, and
+    only those. It is NOT the platform event inventory. The other
+    119 declarations are broker-addressed backbone events
+    (Redis pub/sub and the durable message-queue) and are described in the
+    companion document `contracts/asyncapi.registry.yaml`. See
+    `info.x-event-catalog-coverage` below for the exact partition rule.
+
     REGENERATE: `npm run generate-asyncapi` in @connorhoehn/event-catalog.
     DO NOT hand-edit — frame shapes are owned by src/declarations/.
   license:
     name: UNLICENSED
+  x-event-catalog-coverage:
+    registryDeclarations: 229
+    describedInThisDocument: 110
+    describedInCompanionDocument:
+      file: contracts/asyncapi.registry.yaml
+      count: 119
+    partitionRule: "Declarations in namespace `client` or `ws` are gateway WebSocket frames: they carry no `channel` and no `queue` because they are multiplexed over one connection, so they are described in contracts/asyncapi.yaml as a single channel with a oneOf per direction. Every other declaration is broker-addressed (a Redis pub/sub channel or a message-queue queue) and is described in contracts/asyncapi.registry.yaml as one channel per event."
+    fullInventory: contracts/registry.snapshot.json lists all 229 events with their schema fingerprints.
+externalDocs:
+  description: "Companion document: the broker-addressed backbone events this file does not cover."
+  url: ./asyncapi.registry.yaml
 servers:
   localDev:
     url: ws://localhost:8080/ws
@@ -86,10 +104,9 @@ channels:
     subscribe:
       operationId: receiveGatewayFrame
       summary: Frames the client RECEIVES from the gateway (gateway→client).
-      description: The first frame after connect is always the SessionBootstrap (`type:"session"`). Thereafter the gateway pushes `ws.*` send-back / broadcast frames discriminated by `type`.
+      description: The first frame after connect is always `ws.session.connected` (`type:"session"`) — the gateway queues every other outbound frame until it has gone out. Thereafter the gateway pushes `ws.*` send-back / broadcast frames discriminated by `type`.
       message:
         oneOf:
-          - $ref: "#/components/messages/SessionBootstrap"
           - $ref: "#/components/messages/ws_chat_joined"
           - $ref: "#/components/messages/ws_chat_left"
           - $ref: "#/components/messages/ws_chat_message"
@@ -171,46 +188,6 @@ channels:
           - $ref: "#/components/messages/ws_crdt_awareness"
 components:
   messages:
-    SessionBootstrap:
-      messageId: session
-      name: session
-      title: session
-      summary: Gateway welcome frame, sent once immediately after the WebSocket connection opens (before any client frame). Carries the assigned clientId, a resume token, and the list of enabled services. Produced directly by websocket-gateway src/server.ts (not via event-catalog).
-      schemaFormat: application/schema+json;version=draft-07
-      payload:
-        type: object
-        properties:
-          type:
-            type: string
-            const: session
-          status:
-            type: string
-            const: connected
-          clientId:
-            type: string
-            description: gateway-assigned connection id, echoed on all client frames
-          sessionToken:
-            type: string
-            description: opaque token for resume-on-reconnect
-          restored:
-            type: boolean
-            description: true when this connection restored a prior session
-          nodeId:
-            type: string
-            description: id of the gateway node serving this connection
-          enabledServices:
-            type: array
-            items:
-              type: string
-            description: services this gateway has enabled (chat, presence, reaction, ...)
-          timestamp:
-            type: string
-            description: ISO-8601
-        required:
-          - type
-          - status
-          - clientId
-        additionalProperties: true
     client_chat_join:
       messageId: client.chat.join
       name: client.chat.join
@@ -593,11 +570,11 @@ components:
             type: string
             const: subscribe
             description: Verb the addressed service should perform.
-          channel: &a1
+          channel:
             type: string
             description: "DEPRECATED: legacy alias still sent by useActivity for old-server tolerance; the gateway ActivityService reads channelId only"
             deprecated: true
-          channelId: &a2
+          channelId:
             type: string
             description: activity feed channel id — the field the gateway ActivityService reads
         required:
@@ -622,8 +599,13 @@ components:
             type: string
             const: unsubscribe
             description: Verb the addressed service should perform.
-          channel: *a1
-          channelId: *a2
+          channel:
+            type: string
+            description: "DEPRECATED: legacy alias still sent by useActivity for old-server tolerance; the gateway ActivityService reads channelId only"
+            deprecated: true
+          channelId:
+            type: string
+            description: activity feed channel id — the field the gateway ActivityService reads
         required:
           - service
           - action
@@ -646,8 +628,13 @@ components:
             type: string
             const: getHistory
             description: Verb the addressed service should perform.
-          channel: *a1
-          channelId: *a2
+          channel:
+            type: string
+            description: "DEPRECATED: legacy alias still sent by useActivity for old-server tolerance; the gateway ActivityService reads channelId only"
+            deprecated: true
+          channelId:
+            type: string
+            description: activity feed channel id — the field the gateway ActivityService reads
           limit:
             type: number
             description: optional — server default 50, clamped to 1..maxHistoryItems
@@ -3708,7 +3695,7 @@ components:
             type: string
             const: notification
             description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
-          payload: &a3
+          payload:
             type: object
             properties:
               id:
@@ -3826,7 +3813,59 @@ components:
             properties:
               notifications:
                 type: array
-                items: *a3
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      description: Identifier of the notification.
+                    type:
+                      type: string
+                      description: NotificationType — semantic category
+                    title:
+                      type: string
+                      description: Short human-readable headline.
+                    body:
+                      type: string
+                      description: Body text of the notification.
+                    timestamp:
+                      type: string
+                      description: ISO-8601 timestamp at which the producer emitted this frame.
+                      format: date-time
+                    read:
+                      type: boolean
+                      description: Whether the notification has been read by the recipient.
+                    channel:
+                      type: string
+                      description: origin channel for click-to-navigate
+                    payload:
+                      type: object
+                      additionalProperties: true
+                      description: Application-defined body of the notification.
+                    action:
+                      type: object
+                      properties:
+                        label:
+                          type: string
+                          description: Human-readable label rendered on the control.
+                        href:
+                          type: string
+                          description: Destination URL the notification action navigates to.
+                          format: uri
+                        onClickEvent:
+                          type: string
+                          description: Event name the frontend dispatches when the action is clicked.
+                      required:
+                        - label
+                      additionalProperties: true
+                      description: Optional call-to-action rendered with the notification.
+                  required:
+                    - id
+                    - type
+                    - title
+                    - timestamp
+                  additionalProperties: true
+                  description: Frame body — the per-frame payload.
                 description: Notifications included in this batch.
             required:
               - notifications

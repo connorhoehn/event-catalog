@@ -14,7 +14,7 @@ export declare const MQ_QUEUE_NAMES: {
      * Registering here makes multi-consumer fan-out first-class and prevents
      * silent string drift between producer and consumer config.
      */
-    readonly ACTIVITY_RECORDED: "activity.recorded";
+    readonly ACTIVITY_RECORDED: "activity-recorded";
     /**
      * Hangout-recording transcription jobs. Producer: platform-api (lvsWebhooks
      * on recording.completed when transcribe flag set). Consumer: the
@@ -45,7 +45,7 @@ export type MQQueueName = (typeof MQ_QUEUE_NAMES)[keyof typeof MQ_QUEUE_NAMES];
  * Standalone re-export for callers that only need the activity.recorded
  * constant without importing the full MQ_QUEUE_NAMES map.
  */
-export declare const ACTIVITY_RECORDED: "activity.recorded";
+export declare const ACTIVITY_RECORDED: "activity-recorded";
 /**
  * Standalone re-export for the transcription-jobs queue.
  */

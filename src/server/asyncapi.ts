@@ -5,6 +5,14 @@
 // (codegen, validators, doc renderers) without adopting a separate
 // schema-of-record.
 //
+// Two callers, one builder:
+//   - `GET /api/asyncapi` renders it live from whatever is registered now.
+//   - `scripts/generate-asyncapi.ts` renders it offline over
+//     `allDeclarations` and commits the result as
+//     `contracts/asyncapi.registry.yaml`.
+// Sharing the builder is deliberate: the published artifact and the live
+// endpoint cannot describe the backbone differently.
+//
 // Mapping conventions:
 //
 //   declaration               → AsyncAPI primitive
@@ -14,16 +22,21 @@
 //   tags                      → message.tags
 //   producer (string|string[]) → operation.action: 'send' (one operation per producer)
 //   schema                    → message.payload  (JSON Schema directly — same draft)
-//   transport: 'signal'        → channel binding: redis pub/sub
-//   transport: 'durable'       → channel binding: messaging-queue
+//   transport: 'signal'        → channel on the Redis pub/sub server
+//   transport: 'durable'       → channel on the message-queue server
 //   transport: 'both'          → two operations on two channels (signal + durable)
-//   namespace                 → channel grouping (one channel per namespace)
+//   aliases                   → message['x-aliases']
+//   deprecation               → message['x-deprecated'] + a `deprecated` tag
 //
-// We don't use AsyncAPI's protocol bindings spec rigorously — Redis +
-// the platform's MQ aren't in the bindings catalog. The `bindings`
-// field is left as a stub that names the protocol so external
-// tooling can recognize it without false-precision claims.
+// BINDINGS, HONESTLY. AsyncAPI's bindings catalog has a `redis` entry
+// (reserved, no properties yet) and nothing at all for this platform's
+// message-queue. Earlier revisions invented a `bindings.mq` key, which is
+// not a protocol any tool recognizes — false precision. So: signal channels
+// carry the real (empty) `redis` binding, durable channels carry none, and
+// BOTH carry `x-event-catalog-transport` plus a `servers` reference, which
+// is where the transport fact actually belongs in 3.0.
 
+import { DurableTransport } from '../client/durable.js';
 import type { Registry } from '../registry/index.js';
 import type { RegistryEntry } from '../types/index.js';
 
@@ -34,18 +47,85 @@ export interface AsyncApiBuildOpts {
   version?: string;
   /** Optional namespace filter — restrict output to one namespace. */
   namespace?: string;
+  /**
+   * Namespaces to drop from the output.
+   *
+   * Used by `scripts/generate-asyncapi.ts` to exclude `client` / `ws` — the
+   * gateway frames, which are multiplexed over one WebSocket and have no
+   * broker address, so describing them as Redis channels here would be a
+   * lie. They get their own document (`contracts/asyncapi.yaml`).
+   */
+  excludeNamespaces?: string[];
+  /** Override `info.description`. */
+  description?: string;
+  /**
+   * Extra `x-`-prefixed members to merge into `info`. The offline generator
+   * uses this to stamp a machine-readable coverage statement onto the
+   * committed artifact, so a reader learns the document's scope from the
+   * document itself rather than from a README they may never open.
+   */
+  infoExtensions?: Record<string, unknown>;
+  /** Optional `externalDocs` block (e.g. pointing at the companion document). */
+  externalDocs?: { description?: string; url: string };
+}
+
+/**
+ * Server keys. Exported so a generator can assert it referenced the servers
+ * it thinks it did.
+ */
+export const ASYNCAPI_SERVER_KEYS = {
+  signal: 'signalRedis',
+  durable: 'durableMessageQueue',
+} as const;
+
+function serverDefinitions(): Record<string, Record<string, unknown>> {
+  return {
+    [ASYNCAPI_SERVER_KEYS.signal]: {
+      host: '{redisHost}:{redisPort}',
+      protocol: 'redis',
+      description:
+        'Redis pub/sub — the ephemeral "signal" transport. A signal event is fire-and-forget: '
+        + 'no persistence, no retry, no delivery guarantee. Subscribers that are not connected at '
+        + 'publish time never see the message. Configured via REDIS_URL.',
+      variables: {
+        redisHost: { default: 'localhost', description: 'Redis host from REDIS_URL.' },
+        redisPort: { default: '6379', description: 'Redis port from REDIS_URL.' },
+      },
+    },
+    [ASYNCAPI_SERVER_KEYS.durable]: {
+      host: '{messageQueueHost}',
+      protocol: 'http',
+      protocolVersion: '1.1',
+      pathname: '/api/v1/queues',
+      description:
+        'The @connorhoehn/message-queue service — the persisted, retryable "durable" transport. '
+        + 'Producers POST an envelope to /api/v1/queues/{queue}/messages; consumers long-poll the '
+        + 'same queue. Messages survive a consumer restart and dead-letter after the declared '
+        + 'attempt budget. Configured via MESSAGE_QUEUE_URL.',
+      variables: {
+        messageQueueHost: {
+          default: 'localhost:3004',
+          description: 'message-queue host:port from MESSAGE_QUEUE_URL.',
+        },
+      },
+    },
+  };
 }
 
 export function buildAsyncApiSpec(
   registry: Registry,
   opts: AsyncApiBuildOpts = {},
 ): Record<string, unknown> {
-  const entries = registry.list(opts.namespace ? { namespace: opts.namespace } : undefined);
+  const excluded = new Set(opts.excludeNamespaces ?? []);
+  const entries = registry
+    .list(opts.namespace ? { namespace: opts.namespace } : undefined)
+    .filter((entry) => !excluded.has(entry.namespace));
 
   const channels: Record<string, unknown> = {};
   const operations: Record<string, unknown> = {};
   const messages: Record<string, unknown> = {};
   const schemas: Record<string, unknown> = {};
+  const usedServers = new Set<string>();
 
   for (const entry of entries) {
     const transports: Array<'signal' | 'durable'> = entry.transport === 'both'
@@ -56,6 +136,8 @@ export function buildAsyncApiSpec(
       const channelKey = channelKeyFor(transport, entry);
       const messageKey = messageKeyFor(entry, transport);
       const schemaKey = schemaKeyFor(entry);
+      const serverKey = ASYNCAPI_SERVER_KEYS[transport];
+      usedServers.add(serverKey);
 
       // Schemas — dedupe by event name (one schema per event regardless of transport).
       if (!schemas[schemaKey]) {
@@ -76,20 +158,44 @@ export function buildAsyncApiSpec(
           ...(entry.description ? { description: entry.description } : {}),
           ...(tags.length > 0 ? { tags } : {}),
           ...(entry.deprecation ? { 'x-deprecated': entry.deprecation } : {}),
+          // A deprecated alias is a name still on the wire. Omitting it means
+          // a consumer written from this document silently drops those
+          // messages, so it is emitted even though AsyncAPI has no native
+          // slot for "this message also arrives under these older names".
+          ...(entry.aliases && entry.aliases.length > 0 ? { 'x-aliases': entry.aliases } : {}),
           payload: { $ref: `#/components/schemas/${schemaKey}` },
         };
       }
 
       // Channels — one per (transport, eventName). Address mirrors the
-      // resolved channel pattern (signal: declared `channel` or event
-      // name; durable: queue name or event-derived default).
+      // resolved channel pattern (signal: declared `channel` or event name;
+      // durable: declared `queue` or the name-derived queue), and points at
+      // the server that address is valid on.
       if (!channels[channelKey]) {
         channels[channelKey] = {
           address: addressFor(transport, entry),
+          title: entry.name,
+          ...(entry.description ? { description: entry.description } : {}),
+          servers: [{ $ref: `#/servers/${serverKey}` }],
           messages: { [messageKey]: { $ref: `#/components/messages/${messageKey}` } },
-          bindings: {
-            [transport === 'signal' ? 'redis' : 'mq']: { 'x-event-catalog-transport': transport },
-          },
+          // See the BINDINGS note in the file header: `redis` is a real (empty)
+          // AsyncAPI binding; the platform MQ has none, so durable channels
+          // get no `bindings` object rather than an invented one.
+          ...(transport === 'signal' ? { bindings: { redis: {} } } : {}),
+          'x-event-catalog-transport': transport,
+          ...(transport === 'durable'
+            ? {
+              'x-event-catalog-queue-source': entry.queue ? 'declared' : 'derived-from-event-name',
+              ...(entry.fifo ? { 'x-event-catalog-fifo': true } : {}),
+              ...(entry.retention ? { 'x-event-catalog-retention-seconds': entry.retention } : {}),
+              ...(entry.dlqAfterAttempts
+                ? { 'x-event-catalog-dlq-after-attempts': entry.dlqAfterAttempts }
+                : {}),
+            }
+            : {}),
+          ...(transport === 'signal' && !entry.channel
+            ? { 'x-event-catalog-channel-source': 'derived-from-event-name' }
+            : {}),
         };
       }
 
@@ -103,6 +209,8 @@ export function buildAsyncApiSpec(
         operations[opKey] = {
           action: 'send',
           channel: { $ref: `#/channels/${channelKey}` },
+          messages: [{ $ref: `#/channels/${channelKey}/messages/${messageKey}` }],
+          title: `${producer} → ${entry.name}`,
           summary: `${producer} publishes ${entry.name}`,
           ...(entry.description ? { description: entry.description } : {}),
           ...(entry.tags && entry.tags.length > 0 ? { tags: entry.tags.map((name) => ({ name })) } : {}),
@@ -111,14 +219,27 @@ export function buildAsyncApiSpec(
     }
   }
 
+  const allServers = serverDefinitions();
+  const servers: Record<string, unknown> = {};
+  for (const key of Object.keys(allServers)) {
+    // Only ship a server some channel actually sits on — an unreferenced
+    // server is an orphan, and orphans are what make a spec untrustworthy.
+    if (usedServers.has(key)) servers[key] = allServers[key];
+  }
+
   return {
     asyncapi: '3.0.0',
     info: {
       title: opts.title ?? 'event-catalog',
       version: opts.version ?? '0.0.0',
       description:
-        'Auto-generated from the event-catalog registry. Source of truth for cross-service event contracts.',
+        opts.description
+        ?? 'Auto-generated from the event-catalog registry. Source of truth for cross-service event contracts.',
+      ...(opts.infoExtensions ?? {}),
     },
+    ...(opts.externalDocs ? { externalDocs: opts.externalDocs } : {}),
+    defaultContentType: 'application/json',
+    servers,
     channels,
     operations,
     components: {
@@ -153,5 +274,9 @@ function addressFor(transport: 'signal' | 'durable', entry: RegistryEntry): stri
   if (transport === 'signal') {
     return typeof entry.channel === 'string' ? entry.channel : entry.name;
   }
-  return entry.queue ?? entry.name;
+  // Must match the publish path exactly (`EventCatalog.publish`:
+  // `entry.queue ?? DurableTransport.eventNameToQueueName(name)`). The old
+  // fallback here was the raw event name, which is NOT a queue name —
+  // `activity.recorded` publishes to `activity-recorded`.
+  return entry.queue ?? DurableTransport.eventNameToQueueName(entry.name);
 }

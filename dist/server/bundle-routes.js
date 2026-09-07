@@ -18,7 +18,7 @@ const http_router_js_1 = require("./http-router.js");
 const FeatureBundle_js_1 = require("../bundles/FeatureBundle.js");
 function createBundleRoutes(deps) {
     const { bundleRegistry, registry } = deps;
-    const router = (0, http_router_js_1.Router)();
+    const router = (0, http_router_js_1.Router)(deps.logger);
     // GET /api/feature-bundles
     // Returns all registered bundles sorted by name then version.
     router.get('/', (_req, res) => {

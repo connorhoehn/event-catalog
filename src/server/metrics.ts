@@ -2,6 +2,7 @@ import { RateTracker, MetricsRegistry } from 'distributed-core';
 import { Counter, Gauge } from 'distributed-core/monitoring';
 import type { RedisClientType } from 'redis';
 import type { EventStats } from '../types/index.js';
+import { LogWriter, type CatalogLogger } from '../utils/logger.js';
 
 const SNAPSHOT_KEY = 'event-catalog:metrics:snapshot';
 
@@ -97,10 +98,17 @@ export class MetricsCollector {
   private droppedEvents = 0;
   private warnedAboutCap = false;
 
-  constructor(rateWindowSeconds = 60, maxTrackedEvents = DEFAULT_MAX_TRACKED_EVENTS) {
+  private readonly log: LogWriter;
+
+  constructor(
+    rateWindowSeconds = 60,
+    maxTrackedEvents = DEFAULT_MAX_TRACKED_EVENTS,
+    logger?: CatalogLogger,
+  ) {
     this.rateWindowSeconds = rateWindowSeconds;
     this.maxTrackedEvents = maxTrackedEvents;
     this.registry = new MetricsRegistry('event-catalog', { namespace: COLLECTOR_METRIC_NAMESPACE });
+    this.log = new LogWriter(logger);
   }
 
   recordPublish(eventName: string): void {
@@ -322,10 +330,18 @@ export class MetricsCollector {
       if (!this.knownEvents.has(eventName) && this.knownEvents.size >= this.maxTrackedEvents) {
         this.droppedEvents++;
         if (!this.warnedAboutCap) {
+          // Latched, so this is once per process — the getOrCreate path
+          // runs on every publish and needs no further throttling.
           this.warnedAboutCap = true;
-          console.warn(
+          this.log.warn(
             `[metrics] tracking cap of ${this.maxTrackedEvents} events reached — ` +
             'further events are not measured. Registry is larger than this service expects.',
+            {
+              component: 'metrics',
+              maxTrackedEvents: this.maxTrackedEvents,
+              eventName,
+              droppedEvents: this.droppedEvents,
+            },
           );
         }
         return null;

@@ -48,6 +48,21 @@ export interface CatalogLogger {
    * exists so a sink can accept one without a later breaking change.
    */
   debug?(message: string, fields?: LogFields): void;
+  /**
+   * Optional, and only the *server* half emits at this level: the boot
+   * banner, the coordinator's replica-subscribed line, the DynamoDB
+   * table/TTL provisioning lines, and the shutdown sequence. Those went
+   * to `console.log`, which is exactly as unroutable as the `console.warn`
+   * lines were, so they route through the same sink.
+   *
+   * Optional rather than required because it was added after
+   * {@link CatalogLogger} shipped and every existing two-method sink must
+   * keep compiling. A sink that implements neither `info` nor `debug`
+   * drops these lines — they are the only level where that is an
+   * acceptable outcome, and a sink that declares neither has said it does
+   * not want them.
+   */
+  info?(message: string, fields?: LogFields): void;
 }
 
 /**
@@ -67,6 +82,10 @@ export const consoleLogger: CatalogLogger = {
   error(message: string, fields?: LogFields): void {
     if (fields === undefined) console.error(message);
     else console.error(message, fields);
+  },
+  info(message: string, fields?: LogFields): void {
+    if (fields === undefined) console.log(message);
+    else console.log(message, fields);
   },
 };
 
@@ -107,6 +126,21 @@ export class LogWriter {
       return;
     }
     this.sink.error(message, fields);
+  }
+
+  /**
+   * Lifecycle lines the server used to send to `console.log`. Same
+   * byte-identical guarantee on the default path; on an injected sink it
+   * prefers `info`, falls back to `debug`, and is dropped if the sink
+   * implements neither (see {@link CatalogLogger.info}).
+   */
+  info(message: string, fields?: LogFields, ...consoleTail: unknown[]): void {
+    if (this.rawConsole) {
+      console.log(message, ...consoleTail);
+      return;
+    }
+    const sink = this.sink.info ?? this.sink.debug;
+    sink?.call(this.sink, message, fields);
   }
 }
 

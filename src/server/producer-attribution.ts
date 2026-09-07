@@ -6,14 +6,63 @@
  */
 export class ProducerAttributionStore {
   private readonly observed = new Map<string, Set<string>>();
+  private droppedEvents = 0;
+  private droppedProducers = 0;
+
+  /**
+   * Both dimensions are caller-controlled and neither was bounded.
+   *
+   * `actualProducer` is `envelope.metadata.producer` — a string chosen per
+   * message by whoever published to Redis — and `eventName` is any channel
+   * this process observes. A publisher that varies either field per message
+   * grew this map forever, and `GET /api/events/attribution` re-serialized
+   * the whole thing on every call. This is attribution telemetry, not a
+   * ledger: capping it costs visibility into the least-recent keys and
+   * nothing else. Counters keep the loss visible.
+   */
+  private readonly maxEvents: number;
+  private readonly maxProducersPerEvent: number;
+
+  constructor(opts: { maxEvents?: number; maxProducersPerEvent?: number } = {}) {
+    this.maxEvents = opts.maxEvents ?? 5000;
+    this.maxProducersPerEvent = opts.maxProducersPerEvent ?? 100;
+  }
 
   record(eventName: string, actualProducer: string): void {
     let producers = this.observed.get(eventName);
     if (!producers) {
+      if (this.observed.size >= this.maxEvents) {
+        const oldest = this.observed.keys().next();
+        if (!oldest.done) {
+          this.observed.delete(oldest.value);
+          this.droppedEvents++;
+        }
+      }
       producers = new Set();
       this.observed.set(eventName, producers);
     }
+    if (!producers.has(actualProducer) && producers.size >= this.maxProducersPerEvent) {
+      const oldest = producers.values().next();
+      if (!oldest.done) {
+        producers.delete(oldest.value);
+        this.droppedProducers++;
+      }
+    }
     producers.add(actualProducer);
+  }
+
+  /** Eviction counters, so a capped store never looks like a quiet one. */
+  getOverflowStats(): { events: number; droppedEvents: number; droppedProducers: number } {
+    return {
+      events: this.observed.size,
+      droppedEvents: this.droppedEvents,
+      droppedProducers: this.droppedProducers,
+    };
+  }
+
+  /** Drop attribution for an event that no longer exists. */
+  forget(eventName: string): void {
+    this.observed.delete(eventName);
   }
 
   getObserved(eventName: string): string[] {

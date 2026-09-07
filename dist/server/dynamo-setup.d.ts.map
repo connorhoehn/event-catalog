@@ -1,1 +1,1 @@
-{"version":3,"file":"dynamo-setup.d.ts","sourceRoot":"","sources":["../../src/server/dynamo-setup.ts"],"names":[],"mappings":"AAkDA,wBAAsB,WAAW,IAAI,OAAO,CAAC,IAAI,CAAC,CAqCjD"}
+{"version":3,"file":"dynamo-setup.d.ts","sourceRoot":"","sources":["../../src/server/dynamo-setup.ts"],"names":[],"mappings":"AASA,OAAO,EAAa,KAAK,aAAa,EAAE,MAAM,oBAAoB,CAAC;AAkDnE;;;;;GAKG;AACH,wBAAsB,WAAW,CAAC,MAAM,CAAC,EAAE,aAAa,GAAG,OAAO,CAAC,IAAI,CAAC,CA0CvE"}

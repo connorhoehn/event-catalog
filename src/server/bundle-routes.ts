@@ -19,17 +19,24 @@ import type {
 } from '../bundles/FeatureBundle.js';
 import { validateBundle, isBundleTransport, BUNDLE_TRANSPORTS } from '../bundles/FeatureBundle.js';
 import type { IRegistry } from '../registry/types.js';
+import type { CatalogLogger } from '../utils/logger.js';
 
 export interface BundleRoutesDeps {
   /** Isolated FeatureBundleRegistry instance (DI-friendly). */
   bundleRegistry: FeatureBundleRegistry;
   /** Event registry for validate endpoint transport/version checks. */
   registry: IRegistry;
+  /**
+   * Diagnostics sink for the router's uncaught-handler warning. These
+   * handlers log nothing themselves; without this the bundle router
+   * would be the one route table still writing to bare console.
+   */
+  logger?: CatalogLogger;
 }
 
 export function createBundleRoutes(deps: BundleRoutesDeps): HttpRouter {
   const { bundleRegistry, registry } = deps;
-  const router = Router();
+  const router = Router(deps.logger);
 
   // GET /api/feature-bundles
   // Returns all registered bundles sorted by name then version.

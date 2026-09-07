@@ -1,5 +1,6 @@
 import { Registry } from '../registry/index';
 import type { DLQManager } from '../dlq/DLQManager.js';
+import { type CatalogLogger } from './logger.js';
 export type ValidationMode = 'strict' | 'warn' | 'off';
 export interface ValidatingPublisherOptions {
     /** default: 'warn' */
@@ -17,6 +18,17 @@ export interface ValidatingPublisherOptions {
      * Valid payloads are still published normally.
      */
     dlq?: DLQManager;
+    /**
+     * Where the 'warn'-mode advisory goes. Defaults to `console.warn`,
+     * byte-for-byte as before.
+     *
+     * This module takes its own options object, which is why it was the one
+     * call site the client-side logger pass missed: `SignalTransport` and
+     * `DurableTransport` read `logger` off their transport options and
+     * nothing reaches this wrapper from there. It is a publish-path
+     * warning like the rest of them and belongs on the same sink.
+     */
+    logger?: CatalogLogger;
 }
 /**
  * Thrown by createValidatingPublisher / createPublisher when the mode is

@@ -15,6 +15,7 @@ import {
   isJsonObject,
   jsonBody,
   resolveParams,
+  RouteLog,
   singleParam,
   type ParamResult,
   type RoutesDeps,
@@ -53,6 +54,7 @@ function resolveCompatMode(
 }
 
 export function createEventHandlers(deps: RoutesDeps) {
+  const log = new RouteLog(deps.logger);
   const {
     registry, metrics, metricsObserver, signal, promMetrics,
     manifestStore, attribution, poisonDetector, coordinator,
@@ -255,9 +257,19 @@ export function createEventHandlers(deps: RoutesDeps) {
         // Same distinction as the audit and DLQ reads: an empty ring buffer
         // and an unreachable Redis are different facts and must not share a
         // response shape.
-        console.warn(
+        const detail = err instanceof Error ? err.message : String(err);
+        log.warn(
+          'history-read',
           `[event-catalog] history read failed for "${entry.name}":`,
-          err instanceof Error ? err.message : String(err),
+          {
+            component: 'routes/events',
+            route: 'GET /api/events/:name/history',
+            eventName: entry.name,
+            transport: 'signal',
+            status: 503,
+            error: detail,
+          },
+          detail,
         );
         res.status(503).json({
           error: 'Message history is unavailable — the signal transport did not answer. '
@@ -336,8 +348,16 @@ export function createEventHandlers(deps: RoutesDeps) {
         }
         // 'warn' — fall through to declare, but log advisory. The
         // violations are also surfaced on the 201 response below.
-        console.warn(
+        log.warn(
+          'compat-warn',
           `[event-catalog] compat-warn for "${name}": ${compat.violations.join('; ')}`,
+          {
+            component: 'routes/events',
+            route: 'POST /api/events',
+            eventName: name,
+            mode: 'warn',
+            violations: compat.violations,
+          },
         );
       }
     }
@@ -391,8 +411,16 @@ export function createEventHandlers(deps: RoutesDeps) {
           return;
         }
         if (affectedConsumers.length > 0) {
-          console.warn(
+          log.warn(
+            'check-manifests-warn',
             `[event-catalog] check-manifests warn: declare("${name}") would stale ${affectedConsumers.length} pinned consumer(s)`,
+            {
+              component: 'routes/events',
+              route: 'POST /api/events',
+              eventName: name,
+              mode: 'warn',
+              affectedConsumers,
+            },
           );
         }
       }
@@ -534,7 +562,24 @@ export function createEventHandlers(deps: RoutesDeps) {
             : {}),
         });
       } catch (err) {
-        console.warn(`[event-catalog] bulk declare skipped "${event.name}":`, (err as Error).message);
+        // One POST /api/events/bulk carries up to 1000 events, so an
+        // all-invalid payload was 1000 lines from a single request. The
+        // throttle key is the route, not the event name: the name is
+        // caller-supplied and would give every skipped event its own
+        // bucket.
+        const detail = (err as Error).message;
+        log.warn(
+          'bulk-declare-skipped',
+          `[event-catalog] bulk declare skipped "${event.name}":`,
+          {
+            component: 'routes/events',
+            route: 'POST /api/events/bulk',
+            eventName: event.name,
+            status: 'skipped',
+            error: detail,
+          },
+          detail,
+        );
         continue;
       }
 

@@ -6,7 +6,7 @@
 import type { Request, Response } from '../http-router.js';
 import { DurableTransport } from '../../client/durable.js';
 import { toDlqWireEntry, type DlqWireEntry } from '../dlq-store.js';
-import { badRequest, type RoutesDeps } from './_shared.js';
+import { badRequest, RouteLog, type RoutesDeps } from './_shared.js';
 import { MAX_DLQ_REPLAY_IDS, withinArrayLimit } from './limits.js';
 
 const MAX_DLQ_LIMIT = 1000;
@@ -53,11 +53,25 @@ const DLQ_REPLAY_FAILED_MESSAGE =
   'Replay failed — the durable transport rejected the message. '
   + 'Retry once it is healthy; see the server logs for detail.';
 
-/** Log the real error under `context`, return the message clients get. */
-function redact(context: string, err: unknown, clientMessage: string): string {
-  console.warn(
+/**
+ * Log the real error under `context`, return the message clients get.
+ *
+ * `log` is the route family's throttled writer: every caller of this is a
+ * request handler, so an unreachable DynamoDB turns each poll of the DLQ
+ * browser into a log line. `context` doubles as the throttle key — it is
+ * a fixed string per call site, never request input.
+ */
+function redact(log: RouteLog, context: string, err: unknown, clientMessage: string): string {
+  const detail = err instanceof Error ? err.message : String(err);
+  // Several contexts embed a DLQ entry id, which is request input. Fold
+  // it out of the throttle key so a caller cycling ids cannot mint a
+  // fresh dedupe bucket per request.
+  const key = context.replace(/"[^"]*"/g, '"*"');
+  log.warn(
+    `redact:${key}`,
     `[event-catalog] ${context}:`,
-    err instanceof Error ? err.message : String(err),
+    { component: 'routes/dlq', context, error: detail },
+    detail,
   );
   return clientMessage;
 }
@@ -96,6 +110,7 @@ function parseDlqLimit(
 }
 
 export function createDlqHandlers(deps: RoutesDeps) {
+  const log = new RouteLog(deps.logger);
   const { durable, dlqStore } = deps;
 
   // Durable transport dead-letter queue (persisted)
@@ -137,7 +152,7 @@ export function createDlqHandlers(deps: RoutesDeps) {
         messages,
         total: messages.length,
         source: 'in-memory',
-        error: redact('DLQ list fell back to the in-memory mirror', err, DLQ_LIST_DEGRADED_MESSAGE),
+        error: redact(log, 'DLQ list fell back to the in-memory mirror', err, DLQ_LIST_DEGRADED_MESSAGE),
       });
     }
   }
@@ -189,7 +204,7 @@ export function createDlqHandlers(deps: RoutesDeps) {
       } catch (err) {
         failed.push({
           id,
-          error: redact(`DLQ replay lookup failed for "${id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
+          error: redact(log, `DLQ replay lookup failed for "${id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
         });
         continue;
       }
@@ -209,7 +224,7 @@ export function createDlqHandlers(deps: RoutesDeps) {
       } catch (err) {
         failed.push({
           id,
-          error: redact(`DLQ batch replay failed for "${id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
+          error: redact(log, `DLQ batch replay failed for "${id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
         });
       }
     }
@@ -248,7 +263,7 @@ export function createDlqHandlers(deps: RoutesDeps) {
       res.json({ replayed: entry.id, eventName: entry.eventName });
     } catch (err) {
       res.status(500).json({
-        error: redact(`DLQ replay failed for "${entry.id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
+        error: redact(log, `DLQ replay failed for "${entry.id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
       });
     }
   }

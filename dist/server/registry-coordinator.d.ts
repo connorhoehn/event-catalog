@@ -74,6 +74,7 @@
  *    not.
  */
 import type { Registry } from '../registry/index.js';
+import { type CatalogLogger } from '../utils/logger.js';
 export declare const MUTATIONS_CHANNEL = "event-catalog:mutations";
 export type MutationKind = 'declare' | 'deprecate' | 'undeprecate' | 'subscriber.add' | 'subscriber.remove' | 'remove';
 export interface MutationMessage {
@@ -96,6 +97,23 @@ export interface ReplicationConflict {
 }
 export declare class RegistryCoordinator {
     readonly replicaId: string;
+    private readonly log;
+    private readonly warnings;
+    /**
+     * @param logger diagnostics sink; omitted, every line below goes to
+     *   `console.warn` / `console.log` exactly as before.
+     */
+    constructor(logger?: CatalogLogger);
+    /**
+     * Emit one throttled warning, tagged with this replica's id.
+     *
+     * The suppressed-count suffix is inserted *before* a trailing colon so
+     * a line whose detail is passed as a second console argument still
+     * reads `… failed (+3 similar suppressed): detail`. With nothing
+     * suppressed the suffix is empty and the message is byte-identical to
+     * what the call site emitted before it was throttled.
+     */
+    private warn;
     private pubClient;
     private subClient;
     private _started;
@@ -133,6 +151,12 @@ export declare class RegistryCoordinator {
         conflicts: number;
     };
     start(redisUrl: string, registry: Registry): Promise<void>;
+    /**
+     * Redis client errors arrive once per failed reconnect attempt on each
+     * of the two clients, so they are throttled per role. The message keeps
+     * its two-argument console shape.
+     */
+    private warnRedisClient;
     stop(): Promise<void>;
     /** Publish a mutation to all peer replicas. Never throws. */
     broadcast(kind: MutationKind, payload: unknown): Promise<void>;

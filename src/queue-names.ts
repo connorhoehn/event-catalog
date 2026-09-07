@@ -24,7 +24,13 @@ export const MQ_QUEUE_NAMES = {
    * Registering here makes multi-consumer fan-out first-class and prevents
    * silent string drift between producer and consumer config.
    */
-  ACTIVITY_RECORDED: 'activity.recorded',
+  // 'activity-recorded', not 'activity.recorded': both publish and
+  // subscribe route through DurableTransport.eventNameToQueueName, which
+  // replaces [:.] with '-'. The dotted value named a queue nothing ever
+  // created, so anything configuring MQ from this constant would have
+  // listened on an empty queue. No repo consumed it, so this corrects a
+  // latent trap rather than changing live behaviour.
+  ACTIVITY_RECORDED: 'activity-recorded',
   /**
    * Hangout-recording transcription jobs. Producer: platform-api (lvsWebhooks
    * on recording.completed when transcribe flag set). Consumer: the

@@ -1,6 +1,8 @@
 import { MetricsRegistry, formatPrometheus } from 'distributed-core';
 import type { MetricSample } from 'distributed-core';
 import type { Counter, Gauge } from 'distributed-core/monitoring';
+import { LogThrottle } from '../utils/bounded.js';
+import { LogWriter, type CatalogLogger, errorMessage } from '../utils/logger.js';
 
 /**
  * Prom-formatted metrics surface for the event-catalog service.
@@ -165,7 +167,23 @@ function envInt(name: string, fallback: number): number {
 export interface PromMetricsOptions {
   /** Max distinct `event` label values before collapsing to `other`. */
   maxEventLabels?: number;
+  /**
+   * Sink for the collector-failure warning. Defaults to `console.warn`.
+   */
+  logger?: CatalogLogger;
 }
+
+/**
+ * Rate ceiling on the collector-failure warning.
+ *
+ * `renderProm()` runs once per Prometheus scrape — every 15s in a
+ * default deployment, per scraper. A collector that throws throws on
+ * every scrape, so the unthrottled line was ~5.7k identical entries a
+ * day per broken collector for as long as nobody looked. Keyed by the
+ * error text so two different broken collectors are both visible.
+ */
+const COLLECTOR_LOG_WINDOW_MS = 300_000;
+const COLLECTOR_LOGS_PER_WINDOW = 4;
 
 export class PromMetrics {
   private readonly registry: MetricsRegistry;
@@ -190,7 +208,15 @@ export class PromMetrics {
   private sseMaxGauge: Gauge | null = null;
   private sseRejectedCounter: Counter | null = null;
 
+  private readonly log: LogWriter;
+  private readonly collectorWarnings = new LogThrottle({
+    keyIntervalMs: COLLECTOR_LOG_WINDOW_MS,
+    maxPerWindow: COLLECTOR_LOGS_PER_WINDOW,
+    maxKeys: 16,
+  });
+
   constructor(registry?: MetricsRegistry, options: PromMetricsOptions = {}) {
+    this.log = new LogWriter(options.logger);
     // Use 'event_catalog' as namespace so the rendered name becomes
     // `event_catalog_publish_total` (formatPrometheus joins namespace
     // and name with `_`).
@@ -533,7 +559,19 @@ export class PromMetrics {
       try {
         fn();
       } catch (err) {
-        console.warn('[prom-metrics] collector failed:', (err as Error).message);
+        const detail = errorMessage(err);
+        const suppressed = this.collectorWarnings.attempt(detail);
+        if (suppressed !== null) {
+          this.log.warn(
+            '[prom-metrics] collector failed' + LogThrottle.suffix(suppressed) + ':',
+            {
+              component: 'prom-metrics',
+              error: detail,
+              suppressed,
+            },
+            (err as Error).message,
+          );
+        }
       }
     }
     return renderExposition(this.registry.getSnapshot());

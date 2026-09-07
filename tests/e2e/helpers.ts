@@ -110,6 +110,83 @@ export async function armDurableFailure(request: APIRequestContext, message: str
   expect(res.ok()).toBeTruthy();
 }
 
+// ─── FeatureBundles ─────────────────────────────────────────────────────────
+
+export interface BundleMemberRef {
+  name: string;
+  version?: number;
+  required?: boolean;
+}
+
+export interface ServerBundle {
+  name: string;
+  version: string;
+  fingerprint: string;
+  transport: 'signal' | 'durable' | 'both';
+  description?: string;
+  events: BundleMemberRef[];
+  deprecated?: { since: string; replacement?: string };
+}
+
+export interface ServerEvent {
+  name: string;
+  namespace?: string;
+  transport: string;
+  producer: string | string[];
+}
+
+/**
+ * A bundle member is required unless it says otherwise — the same asymmetry
+ * `src/admin/src/api.ts#isRequired` encodes, restated here so the spec does
+ * not read its expectations out of the code under test.
+ */
+export function memberIsRequired(ref: BundleMemberRef): boolean {
+  return ref.required !== false;
+}
+
+/** What `GET /api/feature-bundles` actually holds right now. */
+export async function fetchBundles(request: APIRequestContext): Promise<{
+  bundles: ServerBundle[];
+  total: number;
+}> {
+  const res = await request.get('/api/feature-bundles');
+  expect(res.ok(), 'GET /api/feature-bundles failed').toBeTruthy();
+  return (await res.json()) as { bundles: ServerBundle[]; total: number };
+}
+
+/** What `GET /api/events` actually holds right now. */
+export async function fetchEvents(request: APIRequestContext): Promise<ServerEvent[]> {
+  const res = await request.get('/api/events');
+  expect(res.ok(), 'GET /api/events failed').toBeTruthy();
+  return ((await res.json()) as { events: ServerEvent[] }).events;
+}
+
+/**
+ * Point `/api/feature-bundles` at the declared bundles (`real`) or at a
+ * registry that genuinely holds none (`empty`).
+ *
+ * The whole reason this switch exists: an empty registry and a broken one
+ * looked identical in the admin for months. A spec has to be able to produce
+ * each state on the real server to prove they no longer do.
+ */
+export async function setBundleRegistry(
+  request: APIRequestContext,
+  mode: 'real' | 'empty',
+): Promise<number> {
+  const res = await request.post('/__e2e__/bundles', { data: { mode } });
+  expect(res.ok(), `failed to switch the bundle registry to ${mode}`).toBeTruthy();
+  return (await res.json()).total as number;
+}
+
+/** Make `/api/feature-bundles*` fail until called again with `null`. */
+export async function failBundles(
+  request: APIRequestContext,
+  message: string | null,
+): Promise<void> {
+  const res = await request.post('/__e2e__/bundles/fail', { data: { message } });
+  expect(res.ok()).toBeTruthy();
+}
+
 /**
  * Start collecting uncaught page errors. Returned callback asserts none were
  * raised — this is what turns "the view white-screened" from a confusing

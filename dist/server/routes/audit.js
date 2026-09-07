@@ -36,6 +36,7 @@ function auditKind(raw) {
     return AUDIT_KINDS.find(k => k === raw);
 }
 function createAuditHandlers(deps) {
+    const log = new _shared_js_1.RouteLog(deps.logger);
     const { auditLog } = deps;
     async function stream(req, res) {
         const filter = {
@@ -105,7 +106,8 @@ function createAuditHandlers(deps) {
         catch (err) {
             // 503, not `{events: []}` — an operator reading the audit trail during
             // an incident must not be told "nothing happened" because Redis is down.
-            console.warn('[event-catalog] audit history read failed:', err instanceof Error ? err.message : String(err));
+            const detail = err instanceof Error ? err.message : String(err);
+            log.warn('audit-history', '[event-catalog] audit history read failed:', { component: 'routes/audit', route: 'GET /api/audit/recent', status: 503, error: detail }, detail);
             res.status(503).json({
                 error: 'Audit history is unavailable — the audit log store did not answer. '
                     + 'This is not the same as an empty history; see the server logs.',

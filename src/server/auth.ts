@@ -42,6 +42,8 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Middleware, RouteRequest } from './http-router.js';
+import { LogThrottle } from '../utils/bounded.js';
+import { LogWriter, type CatalogLogger } from '../utils/logger.js';
 
 /**
  * Methods that never mutate registry state and are therefore never
@@ -198,7 +200,32 @@ export interface BearerAuthOptions {
    * token never appears in it.
    */
   readonly onReject?: (line: string) => void;
+  /**
+   * Sink for the default rejection line, used when `onReject` is not
+   * supplied. Defaults to `console.warn` — identical output to before.
+   */
+  readonly logger?: CatalogLogger;
 }
+
+/**
+ * Rate ceiling on rejection lines, keyed by source address.
+ *
+ * This is a per-request path on the one endpoint family an attacker can
+ * hammer: every unauthenticated POST/DELETE writes a line, so a scanner
+ * or a misconfigured producer retrying its boot sync is an unbounded log
+ * source reachable by anyone who can open a socket. Ten lines a minute
+ * per source still shows an operator that something is being rejected
+ * and from where; the count of what was suppressed rides along on the
+ * line itself.
+ *
+ * The throttle sits in front of `onReject` too, not only the default
+ * sink: the storm is a property of this call site, and an injected sink
+ * cannot know that.
+ */
+const REJECT_LOG_WINDOW_MS = 60_000;
+const REJECT_LOGS_PER_WINDOW = 10;
+/** Distinct source addresses tracked before oldest-first eviction. */
+const REJECT_LOG_MAX_SOURCES = 256;
 
 /**
  * Connect-style middleware for `ServerConfig.authMiddleware`.
@@ -212,7 +239,12 @@ export interface BearerAuthOptions {
  */
 export function createBearerAuthMiddleware(options: BearerAuthOptions): Middleware {
   const { token } = options;
-  const onReject = options.onReject ?? ((line: string) => { console.warn(line); });
+  const log = new LogWriter(options.logger);
+  const throttle = new LogThrottle({
+    keyIntervalMs: REJECT_LOG_WINDOW_MS,
+    maxPerWindow: REJECT_LOGS_PER_WINDOW,
+    maxKeys: REJECT_LOG_MAX_SOURCES,
+  });
 
   return (req, res, next) => {
     if (!requiresAuth(req.method, req.path)) {
@@ -226,10 +258,24 @@ export function createBearerAuthMiddleware(options: BearerAuthOptions): Middlewa
       return;
     }
 
-    onReject(
-      `[auth] rejected ${sanitizeForLog(req.method)} ${sanitizeForLog(req.path)} `
-      + `from ${sanitizeForLog(describeSource(req))} — missing or invalid bearer token`,
-    );
+    const source = sanitizeForLog(describeSource(req));
+    const suppressed = throttle.attempt(source);
+    if (suppressed !== null) {
+      const line = `[auth] rejected ${sanitizeForLog(req.method)} ${sanitizeForLog(req.path)} `
+        + `from ${source} — missing or invalid bearer token`
+        + LogThrottle.suffix(suppressed);
+      if (options.onReject) options.onReject(line);
+      else {
+        log.warn(line, {
+          component: 'auth',
+          method: sanitizeForLog(req.method),
+          path: sanitizeForLog(req.path),
+          source,
+          reason: 'missing-or-invalid-bearer-token',
+          suppressed,
+        });
+      }
+    }
     res.setHeader('WWW-Authenticate', 'Bearer');
     res.status(401).json({ error: 'Unauthorized' });
   };
@@ -248,8 +294,9 @@ export function createBearerAuthMiddleware(options: BearerAuthOptions): Middlewa
 export function resolveAuthMiddleware(
   explicit: Middleware | undefined,
   token: string | undefined,
+  logger?: CatalogLogger,
 ): Middleware | undefined {
   if (explicit !== undefined) return explicit;
   if (token === undefined) return undefined;
-  return createBearerAuthMiddleware({ token });
+  return createBearerAuthMiddleware({ token, logger });
 }

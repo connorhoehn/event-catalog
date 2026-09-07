@@ -26,7 +26,9 @@ import { createDlqHandlers } from './routes/dlq.js';
 export type { RoutesDeps } from './routes/_shared.js';
 
 export function createRoutes(deps: RoutesDeps): HttpRouter {
-  const router = Router();
+  // The router's own uncaught-handler warning goes to the same sink the
+  // handlers use, so an operator sees one stream, not two.
+  const router = Router(deps.logger);
 
   const events = createEventHandlers(deps);
   const subscribers = createSubscriberHandlers(deps);

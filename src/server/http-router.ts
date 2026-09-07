@@ -27,6 +27,8 @@ import {
   type CompressionConfig,
   type Encoding,
 } from './compression.js';
+import { LogThrottle } from '../utils/bounded.js';
+import { LogWriter, type CatalogLogger, errorMessage } from '../utils/logger.js';
 
 // ─── Request / response shapes ───────────────────────────────────────────────
 
@@ -296,8 +298,35 @@ interface RouteEntry {
   handler: RouteHandler;
 }
 
+/**
+ * Rate ceiling on the uncaught-handler warning.
+ *
+ * This is the definitive per-request log path: one line for every
+ * request whose handler throws, on a surface an unauthenticated caller
+ * can drive as fast as it likes. A handler that throws on a malformed
+ * body throws for every retry of that body. Keyed by `METHOD path` so
+ * one broken route cannot hide another, and capped per window so a
+ * caller cycling paths cannot use the key space to get around it.
+ */
+const HANDLER_ERROR_WINDOW_MS = 60_000;
+const HANDLER_ERRORS_PER_WINDOW = 10;
+
 export class HttpRouter {
   private readonly routes: RouteEntry[] = [];
+  private readonly log: LogWriter;
+  private readonly handlerErrors = new LogThrottle({
+    keyIntervalMs: HANDLER_ERROR_WINDOW_MS,
+    maxPerWindow: HANDLER_ERRORS_PER_WINDOW,
+    maxKeys: 256,
+  });
+
+  /**
+   * @param logger diagnostics sink for uncaught handler errors. Omitted,
+   *   they go to `console.warn` exactly as before.
+   */
+  constructor(logger?: CatalogLogger) {
+    this.log = new LogWriter(logger);
+  }
 
   get(path: string, handler: RouteHandler): this { return this.add('GET', path, handler); }
   post(path: string, handler: RouteHandler): this { return this.add('POST', path, handler); }
@@ -328,10 +357,23 @@ export class HttpRouter {
       try {
         await route.handler(req, res);
       } catch (err) {
-        console.warn(
-          `[http-router] handler error on ${req.method} ${req.path}:`,
-          err instanceof Error ? err.message : String(err),
-        );
+        const detail = errorMessage(err);
+        const suppressed = this.handlerErrors.attempt(`${req.method} ${req.path}`);
+        if (suppressed !== null) {
+          this.log.warn(
+            `[http-router] handler error on ${req.method} ${req.path}`
+            + LogThrottle.suffix(suppressed) + ':',
+            {
+              component: 'http-router',
+              method: req.method,
+              path: req.path,
+              status: res.headersSent ? undefined : 500,
+              error: detail,
+              suppressed,
+            },
+            detail,
+          );
+        }
         if (!res.headersSent) {
           res.status(500).json({ error: 'InternalServerError' });
         }
@@ -343,8 +385,8 @@ export class HttpRouter {
 }
 
 /** Express-style factory so route modules read `const router = Router()`. */
-export function Router(): HttpRouter {
-  return new HttpRouter();
+export function Router(logger?: CatalogLogger): HttpRouter {
+  return new HttpRouter(logger);
 }
 
 function splitPath(path: string): string[] {

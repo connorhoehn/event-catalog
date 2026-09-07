@@ -42,6 +42,12 @@ exports.consoleLogger = {
         else
             console.error(message, fields);
     },
+    info(message, fields) {
+        if (fields === undefined)
+            console.log(message);
+        else
+            console.log(message, fields);
+    },
 };
 /**
  * Internal adapter the transports write through.
@@ -77,6 +83,20 @@ class LogWriter {
             return;
         }
         this.sink.error(message, fields);
+    }
+    /**
+     * Lifecycle lines the server used to send to `console.log`. Same
+     * byte-identical guarantee on the default path; on an injected sink it
+     * prefers `info`, falls back to `debug`, and is dropped if the sink
+     * implements neither (see {@link CatalogLogger.info}).
+     */
+    info(message, fields, ...consoleTail) {
+        if (this.rawConsole) {
+            console.log(message, ...consoleTail);
+            return;
+        }
+        const sink = this.sink.info ?? this.sink.debug;
+        sink?.call(this.sink, message, fields);
     }
 }
 exports.LogWriter = LogWriter;
