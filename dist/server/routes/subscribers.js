@@ -9,7 +9,20 @@ exports.createSubscriberHandlers = createSubscriberHandlers;
 const audit_emitter_js_1 = require("../audit-emitter.js");
 const _shared_js_1 = require("./_shared.js");
 function createSubscriberHandlers(deps) {
-    const { registry, coordinator } = deps;
+    const { registry, coordinator, metrics } = deps;
+    // The `subscriber_count` gauge is push-only and was previously written
+    // exactly once, when `MetricsObserver` first subscribed to the event's
+    // channel. It therefore did not move when a consumer registered or
+    // deregistered here: an operator refreshing the admin UI right after a
+    // POST read the count from before their own call. Re-derive it from
+    // the registry on every mutation — synchronous and local, so it cannot
+    // fail the request. The observer reconciles the same way on its poll
+    // tick, which covers the mutation paths outside this module (the
+    // stale-subscriber sweeper, and replicas applying a coordinator
+    // broadcast).
+    function syncCount(eventName) {
+        metrics.setSubscriberCount(eventName, registry.get(eventName)?.subscribers.length ?? 0);
+    }
     // Register a subscriber for an event
     function add(req, res) {
         const { serviceName } = req.body;
@@ -23,6 +36,7 @@ function createSubscriberHandlers(deps) {
             return;
         }
         registry.addSubscriber(req.params.name, serviceName);
+        syncCount(req.params.name);
         audit_emitter_js_1.auditEmitter.publish({
             kind: 'subscriber.added',
             timestamp: new Date().toISOString(),
@@ -41,6 +55,10 @@ function createSubscriberHandlers(deps) {
             return;
         }
         registry.removeSubscriber(req.params.name, req.params.serviceName);
+        // Mirror image of `add`: a deregistration that leaves the gauge
+        // alone reports a consumer that is gone, which is the direction that
+        // hides an outage rather than causing a false alarm.
+        syncCount(req.params.name);
         audit_emitter_js_1.auditEmitter.publish({
             kind: 'subscriber.removed',
             timestamp: new Date().toISOString(),

@@ -9,7 +9,21 @@ import { auditEmitter } from '../audit-emitter.js';
 import { badRequest, eventNotFound, stringParam, type RoutesDeps } from './_shared.js';
 
 export function createSubscriberHandlers(deps: RoutesDeps) {
-  const { registry, coordinator } = deps;
+  const { registry, coordinator, metrics } = deps;
+
+  // The `subscriber_count` gauge is push-only and was previously written
+  // exactly once, when `MetricsObserver` first subscribed to the event's
+  // channel. It therefore did not move when a consumer registered or
+  // deregistered here: an operator refreshing the admin UI right after a
+  // POST read the count from before their own call. Re-derive it from
+  // the registry on every mutation — synchronous and local, so it cannot
+  // fail the request. The observer reconciles the same way on its poll
+  // tick, which covers the mutation paths outside this module (the
+  // stale-subscriber sweeper, and replicas applying a coordinator
+  // broadcast).
+  function syncCount(eventName: string): void {
+    metrics.setSubscriberCount(eventName, registry.get(eventName)?.subscribers.length ?? 0);
+  }
 
   // Register a subscriber for an event
   function add(req: Request, res: Response): void {
@@ -27,6 +41,7 @@ export function createSubscriberHandlers(deps: RoutesDeps) {
     }
 
     registry.addSubscriber(req.params.name, serviceName);
+    syncCount(req.params.name);
     auditEmitter.publish({
       kind: 'subscriber.added',
       timestamp: new Date().toISOString(),
@@ -47,6 +62,10 @@ export function createSubscriberHandlers(deps: RoutesDeps) {
     }
 
     registry.removeSubscriber(req.params.name, req.params.serviceName);
+    // Mirror image of `add`: a deregistration that leaves the gauge
+    // alone reports a consumer that is gone, which is the direction that
+    // hides an outage rather than causing a false alarm.
+    syncCount(req.params.name);
     auditEmitter.publish({
       kind: 'subscriber.removed',
       timestamp: new Date().toISOString(),

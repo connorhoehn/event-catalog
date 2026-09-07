@@ -160,17 +160,25 @@ export function EventList() {
           <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
             Clear selection
           </Button>
-          {/* The outcome of a bulk action is the one thing here the operator
-              did ask for and must not miss, so it is announced. */}
-          {bulkResult && (
-            <span
-              role="status"
-              className={`bulk-result${bulkResult.startsWith('Error') ? ' error' : ''}`}
-            >
-              {bulkResult}
-            </span>
-          )}
         </div>
+      )}
+
+      {/* The outcome of a bulk action is the one thing here the operator did
+          ask for and must not miss, so it is announced.
+
+          It lives OUTSIDE the toolbar because a successful deprecate clears
+          the selection, and the toolbar only renders while something is
+          selected — so the success message was mounted and unmounted in the
+          same commit and no operator ever saw it. Deprecating forty events
+          gave exactly as much feedback as deprecating none; only the two
+          failure paths, which leave the selection intact, showed anything. */}
+      {bulkResult && (
+        <p
+          role="status"
+          className={`bulk-result${bulkResult.startsWith('Error') ? ' error' : ''}`}
+        >
+          {bulkResult}
+        </p>
       )}
 
       {loading && (

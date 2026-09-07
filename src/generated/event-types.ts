@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-07T14:42:36.024Z
+// Generated at: 2026-09-07T15:38:43.422Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -1195,14 +1195,14 @@ export interface EventPayloadMap {
   /** A producer (one audio or video track) was added on a channel — the first track of a live stream going online. Emitted from api/channels/transports.js:137 and api/channels/index.js:641. */
   'sfu.stream.started': {
     channelArn: string;
-    participantId: string;
+    participantId?: string;
     kind: 'audio' | 'video';
     producerId: string;
   };
   /** A producer track was removed — the transport observer fired "close" on the live transport. Emitted from api/channels/transports.js:142 and api/channels/index.js:644. */
   'sfu.stream.ended': {
     channelArn: string;
-    participantId: string;
+    participantId?: string;
     kind: 'audio' | 'video';
     producerId: string;
   };
@@ -1251,8 +1251,8 @@ export interface EventPayloadMap {
     tracks?: ({
       participantId: string;
       userId?: string;
-      key: string;
-      url: string;
+      key?: string | null;
+      url?: string | null;
       size?: number;
       kind: string;
       [key: string]: unknown;
@@ -1282,7 +1282,7 @@ export interface EventPayloadMap {
     channelArn: string;
     producerId: string;
     kind: 'audio' | 'video';
-    participantId: string;
+    participantId?: string;
     displayName?: string;
     userId?: string;
     isPiped: boolean;
@@ -1296,7 +1296,7 @@ export interface EventPayloadMap {
     channelArn: string;
     producerId: string;
     kind: 'audio' | 'video';
-    participantId: string;
+    participantId?: string;
   };
   /** Recording started or stopped for a channel. Pushed onto the per-channel stream-events bus so stage-WS subscribers can drop their GET /:arn/recording poll. Emitted from recording/RecordingManager.js via _emitStateChange (:501) on start (:948), per-peer start (:2433), stop (:1837) and zero-track prune (:1644). */
   'sfu.recording.state.changed': {

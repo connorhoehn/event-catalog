@@ -867,7 +867,10 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
   border-radius: 4px;
 }
 
-.bulk-result { font-size: 12px; color: var(--success-text); }
+/* Sits under the bulk toolbar rather than inside it — a successful action
+   clears the selection, which unmounts the toolbar, so a message nested in it
+   was never visible. */
+.bulk-result { font-size: 12px; color: var(--success-text); margin: 0 0 12px; }
 .bulk-result.error { color: var(--error-text); }
 .bulk-msg { font-size: 12px; color: var(--success-text); margin-bottom: 6px; }
 

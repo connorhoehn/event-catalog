@@ -43,6 +43,35 @@ export interface AuditTapHandle {
 
 const MAX_BUFFER = 200;
 
+const KNOWN_KINDS = new Set<string>([
+  'event.declared',
+  'event.version.bumped',
+  'event.removed',
+  'subscriber.added',
+  'subscriber.removed',
+]);
+
+/**
+ * Same guard as useFlowTap's, plus `kind`.
+ *
+ * A frame that parses but is off-shape used to reach the renderer, which does
+ * `kindMeta[event.kind].label` and `event.timestamp.slice(...)` — an unknown
+ * kind from a newer server, or a stray non-object frame, threw during render
+ * and blanked the whole Registry Changes view. Unknown kinds are dropped here
+ * rather than rendered, which is the failure an operator can recover from:
+ * one missing row instead of no page.
+ */
+function isAuditEvent(value: unknown): value is AuditEvent {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.eventName === 'string' &&
+    typeof v.timestamp === 'string' &&
+    typeof v.kind === 'string' &&
+    KNOWN_KINDS.has(v.kind)
+  );
+}
+
 export function useAuditTap(filters: AuditFilters, initiallyLive = true): AuditTapHandle {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [lastEvent, setLastEvent] = useState<AuditEvent | null>(null);
@@ -68,7 +97,9 @@ export function useAuditTap(filters: AuditFilters, initiallyLive = true): AuditT
 
     es.onmessage = (msg) => {
       try {
-        const ev = JSON.parse(msg.data) as AuditEvent;
+        const parsed: unknown = JSON.parse(msg.data);
+        if (!isAuditEvent(parsed)) return;
+        const ev = parsed;
         setLastEvent(ev);
         setEvents((prev) => {
           const next = [...prev, ev];

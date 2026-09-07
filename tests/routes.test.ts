@@ -1063,7 +1063,12 @@ describe('Server Routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.replayed).toHaveLength(1);
-      expect(res.body.failed).toEqual([{ id: 'b1', error: 'queue offline' }]);
+      // The publish error itself is redacted (raw AWS / message-queue text
+      // stays in the server log); what matters here is that b1 failed,
+      // b2 still ran, and the batch reported both.
+      expect(res.body.failed).toHaveLength(1);
+      expect(res.body.failed[0].id).toBe('b1');
+      expect(res.body.failed[0].error).not.toContain('queue offline');
     });
 
     it('rejects empty or malformed ids array with 400', async () => {

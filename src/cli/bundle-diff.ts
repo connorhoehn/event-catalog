@@ -26,7 +26,7 @@
 //   Fingerprint: abc123 → def456
 //   Suggested semver bump: major (required event removed + opt→req transition)
 
-import { getFeatureBundle, type EventReference } from '../bundles/FeatureBundle.js';
+import { getFeatureBundle, listFeatureBundles, type EventReference } from '../bundles/FeatureBundle.js';
 import '../declarations/bundles/index.js'; // registers all bundles as side-effect
 import { parseFlags, runCli, usageError } from './_args.js';
 
@@ -41,6 +41,12 @@ export interface BundleDiff {
   addedRequired: string[];
   addedOptional: string[];
   removed: string[];
+  /**
+   * Subset of `removed` that was optional in v1. Optional because callers
+   * (and older tests) construct BundleDiff literals by hand; when absent
+   * every removed event renders unannotated.
+   */
+  removedOptional?: string[];
   requiredToOptional: string[];
   optionalToRequired: string[];
   fingerprintV1: string;
@@ -90,6 +96,7 @@ export function diffBundles(
   const addedRequired: string[] = [];
   const addedOptional: string[] = [];
   const removed: string[] = [];
+  const removedOptional: string[] = [];
   const requiredToOptional: string[] = [];
   const optionalToRequired: string[] = [];
 
@@ -106,9 +113,10 @@ export function diffBundles(
   }
 
   // Events in v1 but not in v2 → removed
-  for (const [name] of eventsV1) {
+  for (const [name, ref1] of eventsV1) {
     if (!eventsV2.has(name)) {
       removed.push(name);
+      if (ref1.required === false) removedOptional.push(name);
     }
   }
 
@@ -131,8 +139,13 @@ export function diffBundles(
   let suggestedBump: BundleDiff['suggestedBump'] = 'none';
   const reasons: string[] = [];
 
-  // Major triggers
-  if (removed.length > 0) {
+  // Major triggers.
+  // Removing a REQUIRED event breaks consumers → major. Removing an event that
+  // was already optional is a contract narrowing, not a break → minor, handled
+  // below. Reporting every removal as "required event removed" was simply
+  // false when the event had `required: false`.
+  const removedRequired = removed.filter((n) => !removedOptional.includes(n));
+  if (removedRequired.length > 0) {
     suggestedBump = 'major';
     reasons.push('required event removed');
   }
@@ -155,6 +168,10 @@ export function diffBundles(
       suggestedBump = 'minor';
       reasons.push('req→optional transition');
     }
+    if (removedOptional.length > 0) {
+      suggestedBump = 'minor';
+      reasons.push('optional event removed');
+    }
   }
 
   // Patch triggers (only if no major/minor already)
@@ -174,6 +191,7 @@ export function diffBundles(
     addedRequired,
     addedOptional,
     removed,
+    removedOptional,
     requiredToOptional,
     optionalToRequired,
     fingerprintV1: b1.fingerprint,
@@ -187,20 +205,27 @@ export function diffBundles(
 // Output formatting
 // ---------------------------------------------------------------------------
 
+/**
+ * True when the two versions differ in their event set. Drives `--exit-code`
+ * so CI can branch on "differs" without scraping stdout.
+ */
+export function hasChanges(diff: BundleDiff): boolean {
+  return (
+    diff.addedRequired.length > 0 ||
+    diff.addedOptional.length > 0 ||
+    diff.removed.length > 0 ||
+    diff.requiredToOptional.length > 0 ||
+    diff.optionalToRequired.length > 0
+  );
+}
+
 export function formatDiff(diff: BundleDiff): string {
   const lines: string[] = [];
 
   lines.push(`Bundle: ${diff.bundleName}`);
   lines.push(`Versions: ${diff.v1} → ${diff.v2}`);
 
-  const hasChanges =
-    diff.addedRequired.length > 0 ||
-    diff.addedOptional.length > 0 ||
-    diff.removed.length > 0 ||
-    diff.requiredToOptional.length > 0 ||
-    diff.optionalToRequired.length > 0;
-
-  if (!hasChanges) {
+  if (!hasChanges(diff)) {
     lines.push('');
     lines.push('No changes.');
   } else {
@@ -224,7 +249,8 @@ export function formatDiff(diff: BundleDiff): string {
       lines.push('');
       lines.push('Removed:');
       for (const name of diff.removed) {
-        lines.push(`  - ${name}`);
+        const wasOptional = diff.removedOptional?.includes(name) ?? false;
+        lines.push(`  - ${name}${wasOptional ? ' (was optional)' : ''}`);
       }
     }
 
@@ -265,32 +291,61 @@ export function formatDiff(diff: BundleDiff): string {
 // ---------------------------------------------------------------------------
 
 const BIN = 'ec-bundle-diff';
-const USAGE = 'ec-bundle-diff <name>@<v1> <name>@<v2>';
+const USAGE = 'ec-bundle-diff <name>@<v1> <name>@<v2> [--exit-code]';
+const SPEC = { boolean: ['exit-code'] } as const;
+
+/** Ran successfully and found differences. Distinct from 1 (failed to run). */
+export const EXIT_DIFFERENCES = 3;
+
+/** Render "known versions of <name>" for a not-found error. */
+function knownVersionsHint(name: string): string {
+  const versions = listFeatureBundles()
+    .filter((b) => b.name === name)
+    .map((b) => b.version);
+  if (versions.length === 0) {
+    const names = [...new Set(listFeatureBundles().map((b) => b.name))].sort();
+    return `no bundle named "${name}" is registered (known bundles: ${names.join(', ')})`;
+  }
+  return `known versions of "${name}": ${versions.join(', ')}`;
+}
 
 export async function bundleDiff(args: string[]): Promise<number> {
   const HELP = `
 ec-bundle-diff — compare two versions of a FeatureBundle and report event set changes
 
 USAGE
-  ec-bundle-diff <name>@<v1> <name>@<v2>
+  ec-bundle-diff <name>@<v1> <name>@<v2> [--exit-code]
   ec-bundle-diff --help
 
 ARGUMENTS
   <name>@<v1>    First bundle reference (e.g. chat@1.0.0)
   <name>@<v2>    Second bundle reference (e.g. chat@2.0.0)
+
+OPTIONS
+  --exit-code    Exit 3 when the two versions differ (like \`git diff --exit-code\`,
+                 but 3 rather than 1 so "they differ" stays distinguishable from
+                 "the diff failed to run"). Without it a successful diff always
+                 exits 0, whatever it found.
   --help, -h     Show this help
 
 EXIT CODES
-  0   Diff completed (including "no changes" case)
-  1   One or both bundle versions not found in the catalog
-  2   Usage error (wrong arguments, mismatched bundle names)
+  0   Diff ran; no differences (or differences, without --exit-code)
+  1   Failed to run — one or both bundle versions are not in the catalog
+  2   Usage error (wrong arguments, unknown flag, mismatched bundle names)
+  3   Diff ran; differences found (only with --exit-code)
+
+NOTES
+  Both references must name the SAME bundle: this compares two versions of one
+  bundle, not two different bundles. Versions must already be registered in the
+  catalog compiled into this CLI.
 
 EXAMPLES
   ec-bundle-diff chat@1.0.0 chat@2.0.0
   ec-bundle-diff presence@1.0.0 presence@1.1.0
+  ec-bundle-diff chat@1.0.0 chat@2.0.0 --exit-code   # CI: 3 ⇒ event set changed
 `.trim();
 
-  const parsed = parseFlags(args, {});
+  const parsed = parseFlags(args, SPEC);
   if (!parsed.ok) return usageError(BIN, parsed.error, USAGE);
   if (parsed.args.help) {
     console.log(HELP);
@@ -333,11 +388,18 @@ EXAMPLES
     if (!getFeatureBundle(ref2.name, ref2.version)) {
       console.error(`${BIN}: bundle not found: ${ref2.name}@${ref2.version}`);
     }
+    console.error(`${BIN}: ${knownVersionsHint(ref1.name)}`);
     console.error(`run \`${BIN} --help\` for usage`);
     return 1;
   }
 
   console.log(formatDiff(diff));
+
+  // Only opt in to a non-zero "differs" code: existing callers pipe this into
+  // grep and expect 0 from a successful run.
+  if (parsed.args.flags.has('exit-code') && hasChanges(diff)) {
+    return EXIT_DIFFERENCES;
+  }
   return 0;
 }
 

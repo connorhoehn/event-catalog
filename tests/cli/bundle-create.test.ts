@@ -501,3 +501,170 @@ describe('bundleCreate — real filesystem (temp dir)', () => {
     expect(content).toBe('// original');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Round-trip property
+//
+// A bundle scaffolded by ec-bundle-create must, once registered, (a) lint
+// clean under ec-lint-crd when a CRD pins it, and (b) diff empty against
+// itself. Both CLIs are driven in-process here.
+// ---------------------------------------------------------------------------
+
+import { computeFingerprint, getFeatureBundle, registerFeatureBundle }
+  from '../../src/bundles/FeatureBundle.js';
+import { lintCrd } from '../../src/cli/lint-crd.js';
+import { bundleDiff, diffBundles, hasChanges } from '../../src/cli/bundle-diff.js';
+
+/**
+ * Recover the bundle definition from the text ec-bundle-create emitted.
+ * Reading it back out of the generated source (rather than re-deriving it
+ * from the inputs) is what makes this a round trip: if the template ever
+ * stops matching the FeatureBundle shape, these assertions fail.
+ */
+function parseGeneratedTemplate(src: string): {
+  name: string;
+  version: string;
+  transport: 'signal' | 'durable' | 'both';
+  events: Array<{ name: string; required: boolean }>;
+} {
+  const grab = (key: string): string => {
+    const m = new RegExp(`^  ${key}: '([^']*)',$`, 'm').exec(src);
+    if (!m) throw new Error(`generated template has no ${key} field:\n${src}`);
+    return m[1]!;
+  };
+  const events = [...src.matchAll(/^ {4}\{ name: '([^']+)', required: (true|false) \},$/gm)].map(
+    (m) => ({ name: m[1]!, required: m[2] === 'true' }),
+  );
+  return {
+    name: grab('name'),
+    version: grab('version'),
+    transport: grab('transport') as 'signal' | 'durable' | 'both',
+    events,
+  };
+}
+
+describe('round trip — create → lint → diff', () => {
+  let dir: string;
+  const BUNDLE = 'roundtrip-fixture';
+  const REF = `${BUNDLE}@1.4.0`;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'ec-roundtrip-'));
+    mkdirSync(join(dir, 'bundles'), { recursive: true });
+    writeFileSync(join(dir, 'bundles', 'index.ts'), MINIMAL_INDEX);
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  /** Scaffold the fixture bundle and register what the template describes. */
+  function scaffoldAndRegister() {
+    const bundlesDir = join(dir, 'bundles');
+    const result = bundleCreate(
+      BUNDLE,
+      '1.4.0',
+      'signal',
+      ['ws.rt.alpha', 'ws.rt.beta'],
+      { bundlesDir, indexPath: join(bundlesDir, 'index.ts') },
+    );
+    expect(result.code).toBe(0);
+
+    const src = readFileSync(join(bundlesDir, `${BUNDLE}.ts`), 'utf8');
+    const def = parseGeneratedTemplate(src);
+    registerFeatureBundle(def);
+    return def;
+  }
+
+  it('the generated template round-trips through the FeatureBundle shape', () => {
+    const def = scaffoldAndRegister();
+    expect(def.name).toBe(BUNDLE);
+    expect(def.version).toBe('1.4.0');
+    expect(def.transport).toBe('signal');
+    expect(def.events.map((e) => e.name)).toEqual(['ws.rt.alpha', 'ws.rt.beta']);
+    // Every scaffolded event defaults to required — the diff tool's
+    // opt→req/req→opt classification depends on this being explicit.
+    expect(def.events.every((e) => e.required)).toBe(true);
+  });
+
+  it('the registered fingerprint matches computeFingerprint over the template', () => {
+    const def = scaffoldAndRegister();
+    const registered = getFeatureBundle(BUNDLE, '1.4.0');
+    expect(registered).toBeDefined();
+    expect(registered!.fingerprint).toBe(computeFingerprint(def));
+    expect(registered!.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('a CRD pinning the scaffolded bundle lints clean (exit 0)', async () => {
+    scaffoldAndRegister();
+    const fp = getFeatureBundle(BUNDLE, '1.4.0')!.fingerprint;
+    const crd = join(dir, 'crd.yaml');
+    writeFileSync(
+      crd,
+      [
+        'apiVersion: platform.connorhoehn.dev/v1',
+        'kind: FeatureDeployment',
+        'metadata:',
+        '  name: roundtrip-app',
+        'spec:',
+        `  eventBundle: ${BUNDLE}@1.4.0#${fp.slice(0, 12)}`,
+        '',
+      ].join('\n'),
+    );
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await lintCrd([crd])).toBe(0);
+  });
+
+  it('an unpinned CRD referencing the scaffolded bundle also lints clean', async () => {
+    scaffoldAndRegister();
+    const crd = join(dir, 'crd-unpinned.yaml');
+    writeFileSync(
+      crd,
+      [
+        'apiVersion: platform.connorhoehn.dev/v1',
+        'kind: FeatureDeployment',
+        'metadata:',
+        '  name: roundtrip-app',
+        'spec:',
+        `  eventBundle: ${REF}`,
+        '',
+      ].join('\n'),
+    );
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await lintCrd([crd])).toBe(0);
+  });
+
+  it('negative control: a stale pin on the same bundle is an error (exit 1)', async () => {
+    scaffoldAndRegister();
+    const crd = join(dir, 'crd-stale.yaml');
+    writeFileSync(
+      crd,
+      [
+        'apiVersion: platform.connorhoehn.dev/v1',
+        'kind: FeatureDeployment',
+        'metadata:',
+        '  name: roundtrip-app',
+        'spec:',
+        `  eventBundle: ${BUNDLE}@1.4.0#deadbeefdead`,
+        '',
+      ].join('\n'),
+    );
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await lintCrd([crd])).toBe(1);
+  });
+
+  it('the scaffolded bundle diffs empty against itself', async () => {
+    scaffoldAndRegister();
+    const diff = diffBundles(BUNDLE, '1.4.0', '1.4.0')!;
+    expect(hasChanges(diff)).toBe(false);
+    expect(diff.suggestedBump).toBe('none');
+
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    // 0 even under --exit-code: an unchanged bundle is not a difference.
+    expect(await bundleDiff([REF, REF, '--exit-code'])).toBe(0);
+  });
+});

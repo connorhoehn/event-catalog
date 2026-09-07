@@ -114,7 +114,8 @@ export function DLQBrowser() {
     <div className="dlq-browser">
       <div className="page-header">
         <h2>Dead-Letter Queue</h2>
-        <Chip tone="neutral">{entries.length} entries</Chip>
+        {/* Same reason: a count from a fetch that failed is not a count. */}
+        <Chip tone="neutral">{loadFailed ? 'unavailable' : `${entries.length} entries`}</Chip>
         {source === 'in-memory' && <Chip tone="warning">in-memory fallback</Chip>}
       </div>
 
@@ -168,7 +169,13 @@ export function DLQBrowser() {
         />
       )}
 
-      {entries.length > 0 && (
+      {/* `!loadFailed` is load-bearing, not belt-and-braces. Without it a
+          failed refresh rendered the error state AND the previous fetch's rows
+          underneath it, with the header still counting them — so a queue that
+          could not be read at all looked like a queue with two entries in it,
+          and the operator would go act on rows that may since have been
+          redriven by someone else. A failed fetch has no table. */}
+      {!loadFailed && entries.length > 0 && (
         <table className="dlq-table">
           <thead>
             <tr>

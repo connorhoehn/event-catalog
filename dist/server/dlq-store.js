@@ -4,8 +4,47 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DLQStore = void 0;
+exports.toDlqWireEntry = toDlqWireEntry;
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
 const node_crypto_1 = __importDefault(require("node:crypto"));
+function isDlqEntry(entry) {
+    return typeof entry.deadAt === 'string'
+        && entry.envelope === undefined;
+}
+/**
+ * Normalize either source's entry into the single wire shape.
+ *
+ * The in-memory branch reads defensively rather than trusting
+ * `DeadLetteredMessage` field-for-field: this path only ever runs while
+ * the durable store is already failing, and serving `undefined` fields
+ * to an operator mid-outage would be a second failure on top of the
+ * first. `messageId` wins over `id`, and `envelope.eventName`/
+ * `envelope.payload` over the bare top-level equivalents.
+ */
+function toDlqWireEntry(entry) {
+    if (isDlqEntry(entry)) {
+        const wire = {
+            id: entry.id,
+            eventName: entry.eventName,
+            payload: entry.payload,
+            error: entry.error,
+            attempts: entry.attempts,
+            deadAt: entry.deadAt,
+        };
+        if (typeof entry.ttl === 'number' && Number.isFinite(entry.ttl)) {
+            wire.expiresAt = new Date(entry.ttl * 1000).toISOString();
+        }
+        return wire;
+    }
+    return {
+        id: entry.messageId ?? entry.id ?? '',
+        eventName: entry.envelope?.eventName ?? entry.eventName ?? entry.queueName ?? '',
+        payload: entry.envelope !== undefined ? entry.envelope.payload : entry.payload,
+        error: entry.error ?? '',
+        attempts: typeof entry.attempts === 'number' ? entry.attempts : 0,
+        deadAt: entry.deadLetteredAt ?? entry.deadAt ?? '',
+    };
+}
 const DEFAULT_TTL_SECONDS = 30 * 86400;
 const BATCH_WRITE_MAX_RETRIES = 5;
 const defaultBackoff = (attempt) => new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));

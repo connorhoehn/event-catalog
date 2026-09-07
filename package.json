@@ -50,7 +50,8 @@
   },
   "files": [
     "dist",
-    "contracts"
+    "contracts",
+    "templates"
   ],
   "scripts": {
     "dev": "tsx watch src/cli/index.ts",

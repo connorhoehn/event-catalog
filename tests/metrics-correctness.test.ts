@@ -139,7 +139,13 @@ describe('MetricsCollector — bounded tracking', () => {
     expect(DEFAULT_MAX_TRACKED_EVENTS).toBeGreaterThan(1000);
   });
 
-  it('frees a slot when an event is reset', () => {
+  // A reset does NOT free a cap slot for a *new* name. `MetricsRegistry`
+  // keys its store by (name, labels) and has no delete — `reset()` only
+  // zeroes instances — so the memory the cap protects is still held after
+  // `MetricsCollector.reset` drops its own map entry. Handing the slot
+  // back would let reset + a fresh name grow the process without bound
+  // while `size()` stayed under the cap forever.
+  it('does not hand a cap slot to a new event after a reset', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const metrics = new MetricsCollector(60, 2);
     metrics.recordPublish('a');
@@ -149,7 +155,36 @@ describe('MetricsCollector — bounded tracking', () => {
 
     metrics.reset('a');
     metrics.recordPublish('c');
-    expect(metrics.getStats('c')!.publishCount).toBe(1);
+    expect(metrics.getStats('c')).toBeNull();
+    expect(metrics.knownEventCount()).toBe(2);
+    warn.mockRestore();
+  });
+
+  it('re-tracks a reset event, because its handles were never released', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const metrics = new MetricsCollector(60, 2);
+    metrics.recordPublish('a');
+    metrics.recordPublish('b');
+    metrics.reset('a');
+
+    metrics.recordPublish('a');
+    // Counter restarted at 1 (reset zeroed it) and the name cost no new
+    // slot, so 'b' is untouched.
+    expect(metrics.getStats('a')!.publishCount).toBe(1);
+    expect(metrics.getStats('b')!.publishCount).toBe(1);
+    expect(metrics.knownEventCount()).toBe(2);
+    expect(metrics.droppedEventCount).toBe(0);
+    warn.mockRestore();
+  });
+
+  it('a name churn behind resets cannot exceed the cap', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const metrics = new MetricsCollector(60, 5);
+    for (let i = 0; i < 500; i++) {
+      metrics.recordPublish(`churn.${i}`);
+      metrics.reset(`churn.${i}`);
+    }
+    expect(metrics.knownEventCount()).toBe(5);
     warn.mockRestore();
   });
 });

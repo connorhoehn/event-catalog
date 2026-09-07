@@ -1,22 +1,31 @@
-# Reusable workflow that lints all CRDs in a repo against the event-catalog bundle catalog.
+# Workflow that lints changed CRDs in a repo against the event-catalog bundle catalog.
 # Drop into .github/workflows/lint-crds.yml in any repo that holds CRDs.
 #
 # REQUIREMENTS
-#   The repo must have an EVENT_CATALOG_URL secret (or variable) pointing at a running
-#   event-catalog service. ec-lint-crd fetches bundle metadata from that URL at lint time.
+#   @connorhoehn/event-catalog is published to the GitHub Packages registry, not
+#   to npmjs.com, so the install step needs a registry + token (the built-in
+#   GITHUB_TOKEN is enough for a package in the same org, hence
+#   `permissions: packages: read`). A plain `npm install @connorhoehn/event-catalog`
+#   with no .npmrc resolves against npmjs.com and 404s.
 #
-# EXIT CODE BEHAVIOUR
+#   ec-lint-crd does NOT talk to a running event-catalog service: the bundle
+#   catalog is compiled into the CLI. There is no EVENT_CATALOG_URL to set —
+#   the version of the package you install IS the catalog you lint against.
+#
+# EXIT CODE CONTRACT OF ec-lint-crd (as of v0.5.0)
 #   0 — all CRDs clean
 #   1 — at least one CRD has an error (missing bundle, stale fingerprint) → PR fails
-#   2 — warnings only (deprecated bundle reference) → pass by default, fail in strict mode
+#   2 — usage error (bad flag, missing/typo'd path). THE LINT NEVER RAN → PR fails
+#   3 — completed with warnings only (deprecated bundle reference) → passes unless
+#       STRICT_MODE is 'true'
+#
+#   Never write `ec-lint-crd ... || [ $? -eq 2 ]`: 2 used to mean "warnings only"
+#   and now means "you invoked me wrong". That recipe turns a typo'd path into a
+#   green check over CRDs nothing ever looked at.
 #
 # USAGE
-#   Default (fail on errors, warn on deprecated):
-#     Uses this file as-is.
-#
-#   Strict mode (fail on errors AND warnings):
-#     Set the job env var STRICT_MODE: 'true'
-#     The "Lint CRDs (strict)" step below shows the pattern.
+#   Default: fail on errors, warn on deprecated bundles.
+#   Strict:  set STRICT_MODE: 'true' in the job env below to also fail on warnings.
 
 name: Lint CRDs
 
@@ -31,83 +40,135 @@ jobs:
   lint:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      packages: read
+
     env:
-      EVENT_CATALOG_URL: ${{ secrets.EVENT_CATALOG_URL || vars.EVENT_CATALOG_URL || 'http://localhost:3010' }}
+      # Set to 'true' to fail the PR on deprecated-bundle warnings as well as errors.
+      STRICT_MODE: 'false'
+      # Pin the catalog version you lint against. Bumping this is how you adopt
+      # newly declared bundles and newly deprecated ones.
+      EVENT_CATALOG_VERSION: '0.5.0'
 
     steps:
       - uses: actions/checkout@v4
         with:
-          # Fetch enough history to diff against origin/main
+          # Full history so the merge-base diff below resolves.
           fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@connorhoehn'
 
       - name: Install event-catalog CLI
-        run: npm install --no-save @connorhoehn/event-catalog@0.3.47
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm install --no-save "@connorhoehn/event-catalog@${EVENT_CATALOG_VERSION}"
 
       - name: Find changed CRD files
         id: changes
         run: |
-          # On a PR, diff staged changes against the merge base.
-          # Falls back to all YAML files if the base ref is unavailable.
+          set -uo pipefail
           base="${{ github.event.pull_request.base.sha }}"
           if [ -n "$base" ]; then
-            changed=$(git diff --name-only "$base" HEAD -- '*.yaml' '*.yml' 2>/dev/null || true)
+            changed=$(git diff --name-only "$base" HEAD -- '*.yaml' '*.yml' || true)
           else
-            changed=$(find . -name '*.yaml' -o -name '*.yml' | head -200 || true)
+            changed=$(find . -path ./node_modules -prune -o \( -name '*.yaml' -o -name '*.yml' \) -print || true)
           fi
-          # Filter to paths that actually contain platform.connorhoehn.dev apiVersion
-          platform_files=""
-          for f in $changed; do
+
+          # Keep only files that are actually platform CRDs.
+          : > /tmp/crd-files.txt
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
             [ -f "$f" ] || continue
             if grep -q 'apiVersion: platform.connorhoehn.dev' "$f" 2>/dev/null; then
-              platform_files="$platform_files $f"
+              printf '%s\n' "$f" >> /tmp/crd-files.txt
             fi
-          done
-          platform_files="${platform_files#"${platform_files%%[! ]*}"}"  # ltrim
-          echo "files=$platform_files" >> "$GITHUB_OUTPUT"
-          if [ -z "$platform_files" ]; then
+          done <<< "$changed"
+
+          count=$(wc -l < /tmp/crd-files.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          if [ "$count" = "0" ]; then
             echo "No platform CRD files changed — skipping lint."
           else
-            echo "Platform CRD files to lint: $platform_files"
+            echo "Platform CRD files to lint:"
+            cat /tmp/crd-files.txt
           fi
 
       - name: Lint changed CRDs
-        if: steps.changes.outputs.files != ''
+        if: steps.changes.outputs.count != '0'
         run: |
-          # Exit code 1 = errors → step fails, PR is blocked.
-          # Exit code 2 = warnings only (deprecated) → step passes; see "strict" step below.
-          exit_code=0
-          for f in ${{ steps.changes.outputs.files }}; do
-            ./node_modules/.bin/ec-lint-crd "$f" || {
-              code=$?
-              [ $code -gt $exit_code ] && exit_code=$code
-            }
-          done
-          # Propagate errors (code 1) but absorb warnings-only (code 2)
-          [ $exit_code -le 1 ] && exit $exit_code || exit 0
+          set -uo pipefail
 
-      - name: Lint changed CRDs (strict — fail on deprecated too)
-        if: steps.changes.outputs.files != '' && env.STRICT_MODE == 'true'
-        run: |
-          # In strict mode any non-zero exit (errors OR warnings) fails the PR.
-          for f in ${{ steps.changes.outputs.files }}; do
-            ./node_modules/.bin/ec-lint-crd "$f" || exit 1
-          done
+          # One invocation over every file: ec-lint-crd folds them into a single
+          # exit code with the correct precedence (any error ⇒ 1, warnings only ⇒ 3).
+          # Looping per file and taking the numeric max of the codes is WRONG —
+          # 3 > 1, so a deprecation warning in one file would mask a hard error
+          # in another.
+          #
+          # File names come in through a file, never through ${{ }} interpolation
+          # into the shell.
+          files=()
+          while IFS= read -r f; do files+=("$f"); done < /tmp/crd-files.txt
 
+          # GitHub runs `run:` blocks under `bash -e`, so capture the code with
+          # `|| code=$?` — a bare invocation followed by `code=$?` would abort
+          # the step before the case statement ever ran.
+          code=0
+          ./node_modules/.bin/ec-lint-crd "${files[@]}" || code=$?
+
+          case $code in
+            0)
+              echo "All CRDs clean."
+              ;;
+            1)
+              echo "::error::CRD lint errors found (missing bundle or stale fingerprint)."
+              exit 1
+              ;;
+            2)
+              echo "::error::ec-lint-crd exited 2 (usage error) — the CRDs were NOT checked. Fix the workflow invocation."
+              exit 1
+              ;;
+            3)
+              echo "::warning::One or more CRDs reference deprecated bundles."
+              if [ "${STRICT_MODE}" = "true" ]; then
+                echo "::error::STRICT_MODE is on — failing on deprecation warnings."
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::ec-lint-crd exited with unexpected code $code."
+              exit 1
+              ;;
+          esac
+
+      # ---------------------------------------------------------------------
+      # Optional: audit bundle version changes in the event-catalog repo itself.
+      # ---------------------------------------------------------------------
       - name: Bundle diff (event-catalog repo only)
         if: github.repository == 'connorhoehn/event-catalog'
         run: |
-          # Surface what events were added/removed/transitioned between HEAD and main.
-          # This step is informational — it does not fail the PR.
-          # Adapt the bundle names to the ones actually changed in this PR.
+          set -uo pipefail
+
+          # ec-bundle-diff compares two versions of ONE bundle that are both
+          # registered in the catalog. Replace the reference below with the
+          # bundle + versions this PR actually touches.
           #
-          # Example (replace with real bundle names + versions):
-          #   ./node_modules/.bin/ec-bundle-diff chat@1.0.0 chat@1.1.0
+          # Exit codes:
+          #   0  ran; no differences (or differences found, without --exit-code)
+          #   1  a bundle/version was not found — the diff never ran
+          #   2  usage error
+          #   3  ran; differences found (only with --exit-code)
           #
-          # To enforce that a major bump is declared when required events are removed:
-          #   ./node_modules/.bin/ec-bundle-diff chat@1.0.0 chat@2.0.0 | \
-          #     grep "Suggested semver bump: major"
-          echo "Add ec-bundle-diff calls here to audit event set changes across bundle versions."
+          # Without --exit-code this step is purely informational. With it, a
+          # non-empty diff is machine-detectable without parsing stdout.
+          code=0
+          ./node_modules/.bin/ec-bundle-diff chat@1.0.0 chat@1.0.0 --exit-code || code=$?
+          case $code in
+            0) echo "No bundle event-set changes." ;;
+            3) echo "::notice::Bundle event set changed — check the suggested semver bump above." ;;
+            *) echo "::error::ec-bundle-diff failed to run (exit $code)."; exit 1 ;;
+          esac

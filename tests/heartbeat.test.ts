@@ -202,3 +202,64 @@ describe('POST /api/heartbeat + GET /api/subscribers (wave24-b)', () => {
     expect(all.body.total).toBe(2);
   });
 });
+
+// The subscriber_count gauge is push-only. It used to be written exactly
+// once — when MetricsObserver first subscribed to the event's channel —
+// so a POST or DELETE here left it reporting the count from before the
+// operator's own call. Both mutations must re-derive it.
+describe('subscriber routes keep the subscriber_count gauge current', () => {
+  function makeAppWithMetrics() {
+    const reg = new Registry();
+    reg.declare({ name: 'a.x', schema: {}, transport: 'signal', producer: 's' });
+    const metrics = new MetricsCollector(60);
+    // Whatever the observer wrote at boot; the routes must overwrite it.
+    metrics.setSubscriberCount('a.x', 0);
+    const app = expressLikeApp();
+    app.use('/api', createRoutes({
+      registry: reg,
+      metrics,
+      metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
+      signal: { isConnected: () => true, healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }), getAllMetrics: () => new Map(), getHistory: async () => [] } as unknown as RoutesDeps['signal'],
+      durable: { isConnected: () => true, healthCheck: async () => ({ status: 'connected' as const, latencyMs: 1 }), getAllMetrics: () => new Map() } as unknown as RoutesDeps['durable'],
+      dlqStore: { list: async () => [], remove: async () => true, findById: async () => null, put: async () => ({}) } as unknown as RoutesDeps['dlqStore'],
+      startedAt: Date.now(),
+    }));
+    return { app, metrics, registry: reg };
+  }
+
+  it('POST /events/:name/subscribers raises the count immediately', async () => {
+    const { app, metrics } = makeAppWithMetrics();
+
+    await request(app).post('/api/events/a.x/subscribers').send({ serviceName: 'consumer-1' });
+    expect(metrics.getStats('a.x')!.subscriberCount).toBe(1);
+
+    await request(app).post('/api/events/a.x/subscribers').send({ serviceName: 'consumer-2' });
+    expect(metrics.getStats('a.x')!.subscriberCount).toBe(2);
+  });
+
+  it('a duplicate registration does not double-count', async () => {
+    const { app, metrics } = makeAppWithMetrics();
+
+    await request(app).post('/api/events/a.x/subscribers').send({ serviceName: 'consumer-1' });
+    await request(app).post('/api/events/a.x/subscribers').send({ serviceName: 'consumer-1' });
+    expect(metrics.getStats('a.x')!.subscriberCount).toBe(1);
+  });
+
+  it('DELETE /events/:name/subscribers/:serviceName lowers the count immediately', async () => {
+    const { app, metrics } = makeAppWithMetrics();
+
+    await request(app).post('/api/events/a.x/subscribers').send({ serviceName: 'consumer-1' });
+    await request(app).post('/api/events/a.x/subscribers').send({ serviceName: 'consumer-2' });
+    await request(app).delete('/api/events/a.x/subscribers/consumer-1');
+
+    expect(metrics.getStats('a.x')!.subscriberCount).toBe(1);
+  });
+
+  it('leaves the gauge alone when the event does not exist', async () => {
+    const { app, metrics } = makeAppWithMetrics();
+
+    const res = await request(app).post('/api/events/nope.x/subscribers').send({ serviceName: 'c' });
+    expect(res.status).toBe(404);
+    expect(metrics.getStats('nope.x')).toBeNull();
+  });
+});

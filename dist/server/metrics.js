@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MetricsCollector = exports.DEFAULT_MAX_TRACKED_EVENTS = void 0;
+exports.MetricsCollector = exports.COLLECTOR_METRIC_NAMESPACE = exports.DEFAULT_MAX_TRACKED_EVENTS = void 0;
 const distributed_core_1 = require("distributed-core");
 const SNAPSHOT_KEY = 'event-catalog:metrics:snapshot';
 /**
@@ -17,6 +17,25 @@ const SNAPSHOT_KEY = 'event-catalog:metrics:snapshot';
  * than growing the process without limit.
  */
 exports.DEFAULT_MAX_TRACKED_EVENTS = 5000;
+/**
+ * Metric namespace for this collector's registry.
+ *
+ * Deliberately NOT `event_catalog`, which is what `PromMetrics` uses for
+ * the `/metrics` scrape surface. Both classes register a metric called
+ * `publish_total`, but with different label sets — `{event}` here versus
+ * `{event, transport, mode}` there. They are separate `MetricsRegistry`
+ * instances so nothing collides today, but a single Prometheus metric
+ * family whose series disagree on label names is invalid exposition and
+ * a scraper drops the whole family. Namespacing the two apart means
+ * merging the registries, or ever rendering this one, produces
+ * `event_catalog_stats_publish_total` and `event_catalog_publish_total`
+ * — two well-formed families rather than one broken one.
+ *
+ * Nothing renders this registry today: `getStats`/`snapshot` read the
+ * handles directly and the JSON admin API never sees a metric name, so
+ * this constant is invisible outside the collector.
+ */
+exports.COLLECTOR_METRIC_NAMESPACE = 'event_catalog_stats';
 class MetricsCollector {
     events = new Map();
     registry;
@@ -25,12 +44,26 @@ class MetricsCollector {
     rateHistory = new Map();
     HISTORY_BUCKETS = 60;
     maxTrackedEvents;
+    /**
+     * Every event name that has ever been given metric handles.
+     *
+     * The cap has to be counted here rather than on `this.events`, because
+     * `MetricsRegistry` keys its store by `(name, labels)` and has no
+     * delete: `reset()` zeroes instances but never removes them, and this
+     * class's own `reset(eventName)` only drops its map entry. Counting
+     * live entries therefore hands back a cap slot while the memory it was
+     * protecting is still held, so a churn of reset + fresh event name
+     * grows the process past `maxTrackedEvents` without limit and without
+     * ever tripping the guard. A name already in this set costs nothing
+     * new, so re-tracking one after a reset is always allowed.
+     */
+    knownEvents = new Set();
     droppedEvents = 0;
     warnedAboutCap = false;
     constructor(rateWindowSeconds = 60, maxTrackedEvents = exports.DEFAULT_MAX_TRACKED_EVENTS) {
         this.rateWindowSeconds = rateWindowSeconds;
         this.maxTrackedEvents = maxTrackedEvents;
-        this.registry = new distributed_core_1.MetricsRegistry('event-catalog', { namespace: 'event_catalog' });
+        this.registry = new distributed_core_1.MetricsRegistry('event-catalog', { namespace: exports.COLLECTOR_METRIC_NAMESPACE });
     }
     recordPublish(eventName) {
         const handles = this.getOrCreate(eventName);
@@ -52,6 +85,16 @@ class MetricsCollector {
             return;
         handles.subscriberGauge.set(count);
     }
+    /**
+     * The underlying metric store (tests / advanced wiring).
+     *
+     * Nothing renders it — the JSON admin API reads handles directly — but
+     * it is exposed so a test can assert that this registry's metric names
+     * never collide with the ones `PromMetrics` puts on `/metrics`.
+     */
+    getRegistry() {
+        return this.registry;
+    }
     /** Events refused a metric handle because the tracking cap was hit. */
     get droppedEventCount() {
         return this.droppedEvents;
@@ -60,33 +103,52 @@ class MetricsCollector {
     size() {
         return this.events.size;
     }
+    /**
+     * Distinct event names that have ever been allocated handles — the
+     * quantity the tracking cap is actually enforced against, since the
+     * underlying registry never releases a metric it has created.
+     */
+    knownEventCount() {
+        return this.knownEvents.size;
+    }
     updateDurableStats(eventName, stats) {
         const handles = this.getOrCreate(eventName);
         if (!handles)
             return;
-        if (stats.queueDepth !== undefined)
+        if (stats.queueDepth !== undefined) {
             handles.queueDepthGauge.set(stats.queueDepth);
-        if (stats.messagesInFlight !== undefined)
+            handles.durableFields.add('queueDepth');
+        }
+        if (stats.messagesInFlight !== undefined) {
             handles.messagesInFlightGauge.set(stats.messagesInFlight);
-        if (stats.oldestMessageAge !== undefined)
+            handles.durableFields.add('messagesInFlight');
+        }
+        if (stats.oldestMessageAge !== undefined) {
             handles.oldestMessageAgeGauge.set(stats.oldestMessageAge);
+            handles.durableFields.add('oldestMessageAge');
+        }
     }
     getStats(eventName) {
         const handles = this.events.get(eventName);
         if (!handles)
             return null;
-        const queueDepth = handles.queueDepthGauge.get();
-        const messagesInFlight = handles.messagesInFlightGauge.get();
-        const oldestMessageAge = handles.oldestMessageAgeGauge.get();
+        // A durable field is present once it has been measured, even when
+        // the measurement is 0 — "the queue drained" and "we never looked"
+        // are different answers and the admin UI has to be able to tell
+        // them apart. Absent still means never measured (a signal-only
+        // event, or a durable one whose queue has not been polled yet).
         return {
             publishCount: handles.publishCounter.get(),
             publishRate: handles.rateTracker.rate(),
             lastPublishedAt: handles.lastPublishedAt,
             errorCount: handles.errorCounter.get(),
             subscriberCount: handles.subscriberGauge.get(),
-            ...(queueDepth !== 0 ? { queueDepth } : {}),
-            ...(messagesInFlight !== 0 ? { messagesInFlight } : {}),
-            ...(oldestMessageAge !== 0 ? { oldestMessageAge } : {}),
+            ...(handles.durableFields.has('queueDepth')
+                ? { queueDepth: handles.queueDepthGauge.get() } : {}),
+            ...(handles.durableFields.has('messagesInFlight')
+                ? { messagesInFlight: handles.messagesInFlightGauge.get() } : {}),
+            ...(handles.durableFields.has('oldestMessageAge')
+                ? { oldestMessageAge: handles.oldestMessageAgeGauge.get() } : {}),
         };
     }
     snapshot() {
@@ -152,6 +214,7 @@ class MetricsCollector {
             handles.queueDepthGauge.set(0);
             handles.messagesInFlightGauge.set(0);
             handles.oldestMessageAgeGauge.set(0);
+            handles.durableFields.clear();
         };
         if (eventName) {
             const handles = this.events.get(eventName);
@@ -207,7 +270,7 @@ class MetricsCollector {
     getOrCreate(eventName) {
         let handles = this.events.get(eventName);
         if (!handles) {
-            if (this.events.size >= this.maxTrackedEvents) {
+            if (!this.knownEvents.has(eventName) && this.knownEvents.size >= this.maxTrackedEvents) {
                 this.droppedEvents++;
                 if (!this.warnedAboutCap) {
                     this.warnedAboutCap = true;
@@ -226,8 +289,10 @@ class MetricsCollector {
                 oldestMessageAgeGauge: this.registry.gauge('oldest_message_age', labels),
                 rateTracker: new distributed_core_1.RateTracker(this.rateWindowSeconds),
                 lastPublishedAt: null,
+                durableFields: new Set(),
             };
             this.events.set(eventName, handles);
+            this.knownEvents.add(eventName);
         }
         return handles;
     }

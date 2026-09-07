@@ -1222,10 +1222,18 @@ paths:
       summary: List dead-letter queue entries
       description: |
         Backed by the DDB-based `DLQStore`. On DDB error, falls back to
-        the in-memory mirror and reports `source: "in-memory"` — and the
-        `messages` entries then have a **different shape**
-        (`InMemoryDlqEntry`, keyed by `messageId`, carrying the whole
-        envelope). Clients must branch on `source`.
+        this process's in-memory mirror and reports
+        `source: "in-memory"`.
+
+        Entries are always `DlqEntry` — both sources are normalized to
+        the one shape, so clients do **not** branch on `source`. Read
+        `source` to know the answer is degraded: the mirror holds only
+        what this replica dead-lettered since it started, so a short
+        list there is not evidence of a clean DLQ, and the ids it
+        returns are not resolvable by the replay/delete routes while
+        DynamoDB is down.
+
+        `?eventName=` and `?limit=` are applied to either source.
       parameters:
         - in: query
           name: eventName
@@ -1244,22 +1252,26 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [messages, total]
+                required: [messages, total, source]
                 properties:
                   messages:
                     type: array
-                    items:
-                      oneOf:
-                        - $ref: '#/components/schemas/DlqEntry'
-                        - $ref: '#/components/schemas/InMemoryDlqEntry'
+                    items: { $ref: '#/components/schemas/DlqEntry' }
                   total: { type: integer }
                   source:
                     type: string
-                    enum: [in-memory]
+                    enum: [store, in-memory]
                     description: |
-                      Present only on the DynamoDB-failure fallback path,
-                      alongside `error`. The response is still 200.
-                  error: { type: string }
+                      Which source answered. `in-memory` means the
+                      durable store failed and this is a degraded,
+                      single-replica view; `error` is set alongside it.
+                      The response is 200 either way.
+                  error:
+                    type: string
+                    description: |
+                      Operator-facing reason the answer is degraded.
+                      Redacted — the underlying AWS SDK text is written
+                      to the server log, not returned here.
         '400':
           description: Repeated `?eventName=`, or a `limit` outside 1..1000
           content:
@@ -1345,7 +1357,13 @@ paths:
                       type: object
                       properties:
                         id: { type: string }
-                        error: { type: string }
+                        error:
+                          type: string
+                          description: |
+                            `not found` when the id has no DLQ entry;
+                            otherwise a redacted replay-failure message
+                            — the raw transport error goes to the server
+                            log, not to the client.
                   total: { type: integer }
         '400':
           description: '`ids` missing, empty, containing a non-string, or over 100 entries'
@@ -1411,7 +1429,9 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '500':
-          description: Replay failed (publish error)
+          description: |
+            Replay failed (publish error). The message is redacted — the
+            underlying message-queue error is written to the server log.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -2199,35 +2219,44 @@ components:
     DlqEntry:
       type: object
       description: |
-        A row from the DynamoDB-backed `DLQStore` (`src/server/dlq-store.ts`).
-        `pk`/`sk`/`ttl` are storage keys that come back on the wire as-is.
-      required: [id, pk, sk, eventName, payload, error, attempts, deadAt, ttl]
+        One dead-lettered message, in the single shape the DLQ list
+        serves regardless of which source answered
+        (`toDlqWireEntry` in `src/server/dlq-store.ts`).
+
+        Both the DynamoDB-backed `DLQStore` and the in-process mirror
+        (`DurableTransport.getDLQ()`) are normalized into this; the
+        mirror's `messageId`/`envelope`/`deadLetteredAt` are mapped onto
+        `id`/`eventName`+`payload`/`deadAt`. The response's top-level
+        `source` says which answered, but the entries no longer differ.
+
+        The DynamoDB composite key (`pk`/`sk`) is not on the wire — it is
+        a storage detail, and re-derivable as `DLQ#<eventName>` /
+        `<deadAt>#<id>`. The `ttl` attribute is surfaced as `expiresAt`.
+      required: [id, eventName, payload, error, attempts, deadAt]
       properties:
-        id: { type: string }
-        pk: { type: string }
-        sk: { type: string }
+        id:
+          type: string
+          description: |
+            Entry id — the value accepted by the delete and replay
+            routes, and reused as the replayed envelope's
+            `metadata.id` (idempotency key).
         eventName: { type: string }
         payload: {}
-        error: { type: string }
-        attempts: { type: integer }
+        error:
+          type: string
+          description: Why the message was dead-lettered.
+        attempts:
+          type: integer
+          description: Delivery attempts made before dead-lettering.
         deadAt: { type: string, format: date-time }
-        ttl: { type: integer, description: Epoch seconds at which DynamoDB expires the row. }
-
-    InMemoryDlqEntry:
-      type: object
-      description: |
-        The in-process mirror (`DurableTransport.getDLQ()`), returned
-        instead of `DlqEntry` on the DynamoDB-failure fallback path. A
-        different shape entirely — note `messageId` rather than `id`, and
-        the full envelope rather than a bare payload.
-      required: [messageId, queueName, envelope, error, attempts, deadLetteredAt]
-      properties:
-        messageId: { type: string }
-        queueName: { type: string }
-        envelope: { $ref: '#/components/schemas/EventEnvelope' }
-        error: { type: string }
-        attempts: { type: integer }
-        deadLetteredAt: { type: string, format: date-time }
+        expiresAt:
+          type: string
+          format: date-time
+          description: |
+            When the answering source expires the entry (from the
+            DynamoDB row's TTL). Absent for in-memory entries, which
+            have no expiry — they live until the process restarts or
+            the bounded ring evicts them.
 
     ConsumerManifest:
       type: object

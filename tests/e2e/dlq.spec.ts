@@ -132,7 +132,9 @@ test('a failed replay surfaces the error and leaves the entry in place', async (
   await page.goto('/dlq');
   await page.getByRole('row').filter({ hasText: 'test.beta' }).getByRole('button', { name: 'Replay' }).click();
 
-  await expect(page.getByRole('alert')).toContainText('Replay failed: queue unreachable');
+  // The raw transport error is deliberately not echoed to the client — it goes
+  // to the server log. The alert must still name the failure and say what to do.
+  await expect(page.getByRole('alert')).toContainText('the durable transport rejected the message');
   // The dead letter is still there — a failed redrive must not lose the message.
   expect((await (await request.get('/__e2e__/dlq')).json()).entries).toHaveLength(1);
 });

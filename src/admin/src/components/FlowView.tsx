@@ -88,9 +88,26 @@ export function FlowView() {
   const [topology, setTopology] = useState<TopologyGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [namespace, setNamespace] = useState<string>('');
-  const [sample, setSample] = useState<number>(1);
+  // The sample knob keeps the operator's raw keystrokes, and the number sent
+  // to the server is derived from them.
+  //
+  // Holding a coerced number in state made the field uneditable: emptying it
+  // fired onChange('') which coerced to 1, React re-rendered the box as "1",
+  // and the next keystroke appended — so an operator trying to sample 1-in-10
+  // on a firehose got 1-in-110. Same for typing a leading 0. Coercing on read
+  // instead of on keystroke leaves the field alone while it is being typed
+  // in, and normalises it on blur.
+  const [sampleText, setSampleText] = useState('1');
   const namespaceId = useId();
   const sampleId = useId();
+
+  // An empty or nonsense box means "no sampling", i.e. every event — never
+  // zero, which the server would read as a divisor and which means nothing.
+  const sample = useMemo(() => {
+    const parsed = parseInt(sampleText, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return 1;
+    return Math.min(parsed, 1000);
+  }, [sampleText]);
 
   // Edge states keyed by edge id. Stored in a ref + state to balance
   // 60Hz reads (ref) with re-renders triggered on state-change.
@@ -245,8 +262,9 @@ export function FlowView() {
             type="number"
             min={1}
             max={1000}
-            value={sample}
-            onChange={(e) => setSample(Math.max(1, parseInt(e.target.value, 10) || 1))}
+            value={sampleText}
+            onChange={(e) => setSampleText(e.target.value)}
+            onBlur={() => setSampleText(String(sample))}
             className="view-number-input"
           />
 

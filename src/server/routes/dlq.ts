@@ -5,10 +5,54 @@
 
 import type { Request, Response } from '../http-router.js';
 import { DurableTransport } from '../../client/durable.js';
+import { toDlqWireEntry, type DlqWireEntry } from '../dlq-store.js';
 import { badRequest, type RoutesDeps } from './_shared.js';
 import { MAX_DLQ_REPLAY_IDS, withinArrayLimit } from './limits.js';
 
 const MAX_DLQ_LIMIT = 1000;
+
+/** Mirrors `DLQStore.list()`'s own default so both sources page alike. */
+const DEFAULT_DLQ_LIMIT = 100;
+
+/** Apply the route's `?eventName=`/`?limit=` to an in-memory array. */
+function filterWireEntries(
+  entries: DlqWireEntry[],
+  eventName: string | undefined,
+  limit: number,
+): DlqWireEntry[] {
+  const matched = eventName === undefined
+    ? entries
+    : entries.filter((entry) => entry.eventName === eventName);
+  return matched.slice(0, limit);
+}
+
+// ─── Error redaction ─────────────────────────────────────────────────────────
+//
+// These three sites used to forward `(err as Error).message` straight to
+// the client. That message is raw AWS SDK or message-queue text —
+// table names, endpoint hostnames, credential-resolution chains, queue
+// URLs — none of which the caller can act on and all of which describe
+// our internals. The detail is still written to the server log, where an
+// operator can read it; the client gets a stable, actionable sentence.
+// (The router already redacts uncaught handler errors to
+// `InternalServerError`; these were the hand-rolled leaks around it.)
+
+const DLQ_LIST_DEGRADED_MESSAGE =
+  'DLQ store unavailable — serving this instance\'s in-memory mirror, '
+  + 'which holds only what it dead-lettered since start. Check the server logs.';
+
+const DLQ_REPLAY_FAILED_MESSAGE =
+  'Replay failed — the durable transport rejected the message. '
+  + 'Retry once it is healthy; see the server logs for detail.';
+
+/** Log the real error under `context`, return the message clients get. */
+function redact(context: string, err: unknown, clientMessage: string): string {
+  console.warn(
+    `[event-catalog] ${context}:`,
+    err instanceof Error ? err.message : String(err),
+  );
+  return clientMessage;
+}
 
 // Express delivers duplicate `?eventName=A&eventName=B` as an array, which
 // silently coerces to `'A,B'` when passed to the DDB Query — wrong partition,
@@ -59,17 +103,44 @@ export function createDlqHandlers(deps: RoutesDeps) {
       return;
     }
 
+    // Both arms normalize through `toDlqWireEntry` so the response has
+    // one shape regardless of which source answered. `source` still says
+    // which one did, so an operator can see the data is degraded — the
+    // in-memory mirror is this process's only, and holds nothing from
+    // before it started or from any sibling replica.
     try {
       const entries = await dlqStore.list({
         eventName: eventNameResult.value,
         limit: limitResult.value,
       });
-      res.json({ messages: entries, total: entries.length });
+      const messages = entries.map(toDlqWireEntry);
+      res.json({ messages, total: messages.length, source: 'store' });
     } catch (err) {
-      const inMemory = durable.getDLQ();
-      res.json({ messages: inMemory, total: inMemory.length, source: 'in-memory', error: (err as Error).message });
+      // The mirror is an unfiltered array, so `?eventName=`/`?limit=`
+      // have to be applied here — otherwise the same query silently
+      // widens to "everything this process has" the moment DynamoDB
+      // goes down, on top of changing shape.
+      const messages = filterWireEntries(
+        durable.getDLQ().map(toDlqWireEntry),
+        eventNameResult.value,
+        limitResult.value ?? DEFAULT_DLQ_LIMIT,
+      );
+      res.json({
+        messages,
+        total: messages.length,
+        source: 'in-memory',
+        error: redact('DLQ list fell back to the in-memory mirror', err, DLQ_LIST_DEGRADED_MESSAGE),
+      });
     }
   }
+
+  // The remaining handlers return no DLQ entry at all — only ids,
+  // counts and per-id outcomes — so `list` was the only dual-shape
+  // surface. They also have no in-memory fallback: while the durable
+  // store is down they throw, and the router turns that into a redacted
+  // 500. That asymmetry is deliberate — an id from the degraded list is
+  // not replayable — and is called out in the list route's OpenAPI
+  // description so an operator isn't surprised by it.
 
   // Delete a single DLQ entry
   async function remove(req: Request, res: Response): Promise<void> {
@@ -115,7 +186,10 @@ export function createDlqHandlers(deps: RoutesDeps) {
         await dlqStore.remove(entry.id);
         replayed.push({ id: entry.id, eventName: entry.eventName });
       } catch (err) {
-        failed.push({ id, error: (err as Error).message });
+        failed.push({
+          id,
+          error: redact(`DLQ batch replay failed for "${id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
+        });
       }
     }
 
@@ -152,7 +226,9 @@ export function createDlqHandlers(deps: RoutesDeps) {
       await dlqStore.remove(entry.id);
       res.json({ replayed: entry.id, eventName: entry.eventName });
     } catch (err) {
-      res.status(500).json({ error: `Replay failed: ${(err as Error).message}` });
+      res.status(500).json({
+        error: redact(`DLQ replay failed for "${entry.id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
+      });
     }
   }
 

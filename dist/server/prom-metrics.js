@@ -1,8 +1,94 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PromMetrics = exports.MAX_LABEL_VALUE_LENGTH = exports.DEFAULT_MAX_EVENT_LABELS = exports.OVERFLOW_LABEL = void 0;
+exports.PromMetrics = exports.MAX_LABEL_VALUE_LENGTH = exports.DEFAULT_MAX_EVENT_LABELS = exports.OVERFLOW_LABEL = exports.PROM_METRIC_NAMESPACE = void 0;
 exports.escapeLabelValue = escapeLabelValue;
 const distributed_core_1 = require("distributed-core");
+/**
+ * Prom-formatted metrics surface for the event-catalog service.
+ *
+ * Separate from `MetricsCollector` (which powers the JSON admin API
+ * with per-event stats). This registry is dedicated to the
+ * Prometheus `/metrics` scrape endpoint.
+ *
+ * The two classes both register a metric named `publish_total` but
+ * label it differently (`{event}` there, `{event, transport, mode}`
+ * here), so they must never share a namespace: one metric family with
+ * inconsistent label names is invalid exposition and a scraper drops
+ * the whole family. `event_catalog` belongs to this file;
+ * `MetricsCollector` uses `COLLECTOR_METRIC_NAMESPACE`
+ * (`event_catalog_stats`) so the names stay distinct even if the two
+ * registries are ever merged or the JSON one is ever rendered.
+ *
+ * ## Metric families
+ *
+ * Publish / consumer flow:
+ *   - event_catalog_publish_total{event, transport, mode}          counter
+ *   - event_catalog_publish_failures_total{event, reason}          counter
+ *   - event_catalog_schema_fetches_total{event}                    counter
+ *   - event_catalog_schema_evolution_rejections_total{event, mode} counter
+ *
+ * Backlog / saturation:
+ *   - event_catalog_dlq_entries{event}                             gauge
+ *   - event_catalog_dlq_oldest_age_seconds                         gauge
+ *   - event_catalog_sse_streams_active                             gauge
+ *   - event_catalog_sse_streams_max                                gauge
+ *   - event_catalog_sse_streams_rejected_total                     counter
+ *
+ * Dependency + inventory health:
+ *   - event_catalog_transport_up{transport}                        gauge (1/0)
+ *   - event_catalog_transport_probe_latency_seconds{transport}     gauge
+ *   - event_catalog_registry_events                                gauge
+ *   - event_catalog_poisoned_events                                gauge
+ *
+ * Self-observability:
+ *   - event_catalog_metric_label_overflow_total{label}             counter
+ *
+ * The metric names match the Prometheus convention even though
+ * MetricsRegistry uses dotted names internally — `formatPrometheus`
+ * rewrites `.` → `_` on render. Counters carry `_total`; gauges do
+ * not. Every duration is in seconds and says so in its name.
+ *
+ * ## Cardinality
+ *
+ * Two label values on this surface come from input the service does not
+ * control: the `event` label, and it reaches us from three places that
+ * are NOT all bounded by the ~200 committed declarations —
+ *
+ *   1. `recordSchemaFetch` / `recordPublish` — a registry name, and the
+ *      registry is writable over HTTP (`POST /api/events`, and
+ *      `/api/events/bulk` takes 1000 at a time with no ceiling on
+ *      requests).
+ *   2. `recordFailure` from the dead-letter hook — the `eventName` off a
+ *      dead-lettered envelope, which never passed through
+ *      `validateEventName` and is frequently an event the catalog has
+ *      never heard of (that is often *why* it dead-lettered).
+ *   3. `setDLQEntries` from the DLQ scan — same provenance as (2).
+ *
+ * An unbounded label value is how you take down a Prometheus server, so
+ * every event label goes through `eventLabel()`: the first
+ * `maxEventLabels` distinct names get their own series and everything
+ * after that collapses into `event="other"`, with the collapse itself
+ * counted so an operator can see the allowlist is undersized rather
+ * than silently losing detail. `transport` / `mode` / `reason` /
+ * `transport-name` are closed sets, enforced at runtime rather than
+ * trusted from the type signature.
+ *
+ * ## Escaping
+ *
+ * distributed-core's `formatPrometheus` interpolates label values into
+ * `key="value"` with no escaping at all, so a single event name
+ * containing a `"` renders a malformed exposition line and Prometheus
+ * drops the ENTIRE scrape — every metric, not just that series.
+ * `validateEventName` rejects only control characters, so `evt"x` is a
+ * perfectly declarable name today, and DLQ-sourced names bypass that
+ * validation entirely. Label values are therefore escaped here, before
+ * they are handed to the registry.
+ */
+/**
+ * Namespace prefixed onto every metric rendered at `/metrics`.
+ * Owned exclusively by this class — see the class doc above.
+ */
+exports.PROM_METRIC_NAMESPACE = 'event_catalog';
 /** Closed sets — anything outside them is bucketed rather than trusted. */
 const PUBLISH_MODES = new Set(['strict', 'warn', 'off']);
 const TRANSPORTS = new Set(['signal', 'durable', 'both']);
@@ -99,7 +185,7 @@ class PromMetrics {
         // Use 'event_catalog' as namespace so the rendered name becomes
         // `event_catalog_publish_total` (formatPrometheus joins namespace
         // and name with `_`).
-        this.registry = registry ?? new distributed_core_1.MetricsRegistry('event-catalog', { namespace: 'event_catalog' });
+        this.registry = registry ?? new distributed_core_1.MetricsRegistry('event-catalog', { namespace: exports.PROM_METRIC_NAMESPACE });
         this.maxEventLabels = options.maxEventLabels
             ?? envInt('EVENT_CATALOG_MAX_METRIC_EVENT_LABELS', exports.DEFAULT_MAX_EVENT_LABELS);
     }

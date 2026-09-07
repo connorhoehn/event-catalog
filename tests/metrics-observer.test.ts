@@ -625,3 +625,257 @@ describe('MetricsObserver', () => {
     });
   });
 });
+
+describe('MetricsObserver — subscriber count', () => {
+  let registry: Registry;
+
+  beforeEach(() => {
+    registry = new Registry();
+    tapEmitter.removeAllListeners('publish');
+    auditEmitter.removeAllListeners('audit');
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function makeObserver(metrics: MetricsCollector, durablePollIntervalMs = 100) {
+    return new MetricsObserver({
+      registry,
+      signal: makeSignal() as any,
+      durable: makeDurable() as any,
+      metrics: metrics as any,
+      durablePollIntervalMs,
+    });
+  }
+
+  // The observer opens its own Redis subscription to watch the channel.
+  // That connection is an implementation detail, not a consumer, and it
+  // used to be added to the reported count.
+  it('does not count the observer\'s own subscription', async () => {
+    registry.declare({ name: 'a.b', schema: {}, transport: 'signal', producer: 'svc' });
+    const metrics = new MetricsCollector(60);
+    const observer = makeObserver(metrics);
+
+    await observer.start();
+    await observer.stop();
+
+    expect(metrics.getStats('a.b')!.subscriberCount).toBe(0);
+  });
+
+  it('reports exactly the registry\'s registered subscribers', async () => {
+    registry.declare({ name: 'a.b', schema: {}, transport: 'signal', producer: 'svc' });
+    registry.addSubscriber('a.b', 'consumer-1');
+    registry.addSubscriber('a.b', 'consumer-2');
+    const metrics = new MetricsCollector(60);
+    const observer = makeObserver(metrics);
+
+    await observer.start();
+    await observer.stop();
+
+    expect(metrics.getStats('a.b')!.subscriberCount).toBe(2);
+  });
+
+  // Durable-only events never reach observeSignal, so their gauge was
+  // never written at all — a durable event with consumers read 0.
+  it('counts subscribers on a durable-only event', async () => {
+    registry.declare({ name: 'dur.x', schema: {}, transport: 'durable', producer: 'svc' });
+    registry.addSubscriber('dur.x', 'worker-1');
+    const metrics = new MetricsCollector(60);
+    const observer = makeObserver(metrics);
+
+    await observer.start();
+    await observer.stop();
+
+    expect(metrics.getStats('dur.x')!.subscriberCount).toBe(1);
+  });
+
+  it('refreshSubscriberCount re-reads one event from the registry', async () => {
+    registry.declare({ name: 'a.b', schema: {}, transport: 'signal', producer: 'svc' });
+    const metrics = new MetricsCollector(60);
+    const observer = makeObserver(metrics);
+    await observer.start();
+
+    registry.addSubscriber('a.b', 'consumer-1');
+    observer.refreshSubscriberCount('a.b');
+    expect(metrics.getStats('a.b')!.subscriberCount).toBe(1);
+
+    registry.removeSubscriber('a.b', 'consumer-1');
+    observer.refreshSubscriberCount('a.b');
+    expect(metrics.getStats('a.b')!.subscriberCount).toBe(0);
+
+    await observer.stop();
+  });
+
+  it('refreshSubscriberCount ignores an event the registry no longer holds', async () => {
+    const metrics = new MetricsCollector(60);
+    const observer = makeObserver(metrics);
+
+    observer.refreshSubscriberCount('never.declared');
+    // No handles minted for a name that does not exist.
+    expect(metrics.getStats('never.declared')).toBeNull();
+    expect(metrics.size()).toBe(0);
+    await observer.stop();
+  });
+
+  // The stale-subscriber sweeper and RegistryCoordinator both mutate
+  // `entry.subscribers` without going through a route, so the gauge has
+  // to reconcile on its own or it reports consumers that are gone.
+  it('reconciles counts on the poll tick after an out-of-band prune', async () => {
+    registry.declare({ name: 'a.b', schema: {}, transport: 'signal', producer: 'svc' });
+    registry.addSubscriber('a.b', 'consumer-1');
+    registry.addSubscriber('a.b', 'consumer-2');
+    const metrics = new MetricsCollector(60);
+    const observer = makeObserver(metrics);
+
+    await observer.start();
+    expect(metrics.getStats('a.b')!.subscriberCount).toBe(2);
+
+    // Sweeper drops both, without telling anyone.
+    registry.pruneStaleSubscribers(1000, Date.now() + 60_000);
+    await vi.advanceTimersByTimeAsync(101);
+    expect(metrics.getStats('a.b')!.subscriberCount).toBe(0);
+
+    // And a replica applying a coordinator broadcast is picked up too.
+    registry.addSubscriber('a.b', 'consumer-3');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(metrics.getStats('a.b')!.subscriberCount).toBe(1);
+
+    await observer.stop();
+  });
+});
+
+describe('MetricsObserver — durable baseline hygiene', () => {
+  let registry: Registry;
+
+  beforeEach(() => {
+    registry = new Registry();
+    tapEmitter.removeAllListeners('publish');
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // The baselines are keyed by event name and nothing else removed from
+  // them, so every name ever declared over HTTP — including the 1000
+  // per request `POST /api/events/bulk` accepts — was retained for the
+  // process lifetime even after `DELETE /api/events/:name`.
+  it('drops baselines for events the registry no longer holds', async () => {
+    registry.declare({ name: 'gone.event', schema: {}, transport: 'durable', producer: 'svc' });
+    const counters = { sent: 4, received: 0, failed: 0, inFlight: 0 };
+    const durable = {
+      isConnected: vi.fn().mockReturnValue(true),
+      getQueueAttributes: vi.fn().mockResolvedValue(null),
+      getMetrics: vi.fn(() => ({ ...counters })),
+    };
+    const metrics = makeMetrics();
+    const observer = new MetricsObserver({
+      registry, signal: makeSignal() as any, durable: durable as any,
+      metrics: metrics as any, durablePollIntervalMs: 100,
+    });
+
+    await observer.start();
+    await vi.advanceTimersByTimeAsync(101);
+    expect(metrics.recordPublish).toHaveBeenCalledTimes(4);
+
+    registry.remove('gone.event');
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Re-declared under the same name: the baseline was dropped with the
+    // event, so the poll re-baselines from 0 exactly as it does for a
+    // name declared for the first time against a queue with history.
+    registry.declare({ name: 'gone.event', schema: {}, transport: 'durable', producer: 'svc' });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(metrics.recordPublish).toHaveBeenCalledTimes(8);
+
+    await observer.stop();
+  });
+});
+
+describe('MetricsObserver — signal subscription hygiene', () => {
+  let registry: Registry;
+
+  beforeEach(() => {
+    registry = new Registry();
+    tapEmitter.removeAllListeners('publish');
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // DELETE /api/events/:name drops the declaration but used to leave the
+  // observer's Redis subscription open forever, still recording publishes
+  // for an event the catalog no longer knows about.
+  it('releases the subscription for an event removed from the registry', async () => {
+    registry.declare({ name: 'gone.signal', schema: {}, transport: 'signal', producer: 'svc' });
+    const unsub = vi.fn().mockResolvedValue(undefined);
+    const signal = makeSignal();
+    signal.subscribe.mockResolvedValue(unsub);
+
+    const observer = new MetricsObserver({
+      registry, signal: signal as any, durable: makeDurable() as any,
+      metrics: makeMetrics() as any, durablePollIntervalMs: 100,
+    });
+
+    await observer.start();
+    expect(signal.subscribe).toHaveBeenCalledOnce();
+
+    registry.remove('gone.signal');
+    await vi.advanceTimersByTimeAsync(101);
+    expect(unsub).toHaveBeenCalledOnce();
+
+    // Nothing left to release on later ticks, and stop() does not
+    // double-unsubscribe.
+    await vi.advanceTimersByTimeAsync(200);
+    await observer.stop();
+    expect(unsub).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the subscription for an event that is still declared', async () => {
+    registry.declare({ name: 'live.signal', schema: {}, transport: 'signal', producer: 'svc' });
+    const unsub = vi.fn().mockResolvedValue(undefined);
+    const signal = makeSignal();
+    signal.subscribe.mockResolvedValue(unsub);
+
+    const observer = new MetricsObserver({
+      registry, signal: signal as any, durable: makeDurable() as any,
+      metrics: makeMetrics() as any, durablePollIntervalMs: 100,
+    });
+
+    await observer.start();
+    await vi.advanceTimersByTimeAsync(301);
+    expect(unsub).not.toHaveBeenCalled();
+
+    await observer.stop();
+    expect(unsub).toHaveBeenCalledOnce();
+  });
+
+  it('survives an unsubscribe that rejects', async () => {
+    registry.declare({ name: 'bad.unsub', schema: {}, transport: 'signal', producer: 'svc' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const signal = makeSignal();
+    signal.subscribe.mockResolvedValue(vi.fn().mockRejectedValue(new Error('redis gone')));
+
+    const observer = new MetricsObserver({
+      registry, signal: signal as any, durable: makeDurable() as any,
+      metrics: makeMetrics() as any, durablePollIntervalMs: 100,
+    });
+
+    await observer.start();
+    registry.remove('bad.unsub');
+    // The poll must not blow up on a failed release.
+    await vi.advanceTimersByTimeAsync(101);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('failed to release channel "bad.unsub"'),
+      'redis gone',
+    );
+
+    await observer.stop();
+    warn.mockRestore();
+  });
+});

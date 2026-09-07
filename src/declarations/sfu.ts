@@ -231,7 +231,7 @@ export const sfuStreamStarted: EventDeclaration = {
             kind: { type: 'string', enum: ['audio', 'video'] },
             producerId: { type: 'string' },
         },
-        required: ['channelArn', 'participantId', 'kind', 'producerId'],
+        required: ['channelArn', 'kind', 'producerId'],
         additionalProperties: false,
     },
 };
@@ -257,7 +257,7 @@ export const sfuStreamEnded: EventDeclaration = {
             kind: { type: 'string', enum: ['audio', 'video'] },
             producerId: { type: 'string' },
         },
-        required: ['channelArn', 'participantId', 'kind', 'producerId'],
+        required: ['channelArn', 'kind', 'producerId'],
         additionalProperties: false,
     },
 };
@@ -417,12 +417,12 @@ export const sfuRecordingCompleted: EventDeclaration = {
                     properties: {
                         participantId: { type: 'string' },
                         userId: { type: 'string' },
-                        key: { type: 'string', description: 'Storage key of this participant\'s track, relative to the recording bucket.' },
-                        url: { type: 'string' },
+                        key: { type: ['string', 'null'], description: 'Storage key of this participant\'s track, relative to the recording bucket. Null when the leg was never uploaded.' },
+                        url: { type: ['string', 'null'], description: 'Fetchable URL of this participant\'s track. Null when the leg was neither uploaded nor written locally.' },
                         size: { type: 'integer', minimum: 0 },
                         kind: { type: 'string' },
                     },
-                    required: ['participantId', 'key', 'url', 'kind'],
+                    required: ['participantId', 'kind'],
                     additionalProperties: true,
                 },
             },
@@ -551,7 +551,7 @@ export const sfuProducerAdded: EventDeclaration = {
                 additionalProperties: true,
             },
         },
-        required: ['channelArn', 'producerId', 'kind', 'participantId', 'isPiped'],
+        required: ['channelArn', 'producerId', 'kind', 'isPiped'],
         additionalProperties: false,
     },
 };
@@ -575,7 +575,7 @@ export const sfuProducerRemoved: EventDeclaration = {
             kind: { type: 'string', enum: ['audio', 'video'] },
             participantId: { type: 'string' },
         },
-        required: ['channelArn', 'producerId', 'kind', 'participantId'],
+        required: ['channelArn', 'producerId', 'kind'],
         additionalProperties: false,
     },
 };

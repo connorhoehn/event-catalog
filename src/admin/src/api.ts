@@ -201,8 +201,41 @@ export const api = {
     return request<TopologyGraph>(`/topology${qs ? `?${qs}` : ''}`);
   },
 
-  getHealth() {
-    return request<HealthStatus>('/health');
+  /**
+   * `GET /api/health` answers **503** — with a complete, truthful body —
+   * exactly when a transport is disconnected (src/server/routes/ops.ts). The
+   * generic `request()` treats any non-2xx as a failure and discards the
+   * body, so the one moment the health card exists for (Redis or the message
+   * queue being down) rendered as "Error loading the dashboard: API 503"
+   * instead of "Message Queue (Durable): disconnected" — an operator was told
+   * the catalog was unreachable when in fact the catalog was telling them
+   * precisely which transport had failed.
+   *
+   * So: a 503 whose body is a health report is data. A 503 from something
+   * that is not the catalog (a proxy's HTML error page, an ingress that never
+   * reached us) is still an error — the shape check is what tells them apart,
+   * and it is applied only on the 503 path so a 2xx behaves exactly as every
+   * other endpoint does.
+   */
+  async getHealth(): Promise<HealthStatus> {
+    const res = await fetch(`${BASE}/health`, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const raw = await res.text().catch(() => '');
+    if (res.ok) {
+      return JSON.parse(raw) as HealthStatus;
+    }
+    if (res.status === 503) {
+      try {
+        const body = JSON.parse(raw) as HealthStatus;
+        if (body && typeof body === 'object' && body.redis && body.messageQueue) {
+          return body;
+        }
+      } catch {
+        // Not JSON — fall through to the throw below.
+      }
+    }
+    throw new Error(`API ${res.status}: ${raw}`);
   },
 
   /** wave26-b — richer registry health for the Dashboard health card. */

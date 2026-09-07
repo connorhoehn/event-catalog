@@ -53,13 +53,77 @@ class MetricsObserver {
         for (const entry of entries) {
             await this.observe(entry.name, entry.transport);
         }
+        // Durable-only events never reach `observeSignal`, so without this
+        // their subscriber gauge sat at 0 for the process lifetime no matter
+        // how many consumers had registered.
+        this.syncSubscriberCounts();
         this.durablePollTimer = setInterval(() => {
+            // Reconcile first and outside `pollDurableStats`'s re-entrancy
+            // guard: this is synchronous and local, and it must not be skipped
+            // because a message-queue round-trip is hung.
+            this.syncSubscriberCounts();
             this.pollDurableStats();
         }, this.durablePollIntervalMs);
     }
     async observe(eventName, transport) {
         if (transport === 'signal' || transport === 'both') {
             await this.observeSignal(eventName);
+        }
+        this.refreshSubscriberCount(eventName);
+    }
+    /**
+     * Re-read one event's subscriber count from the registry.
+     *
+     * The gauge is push-only, so every path that mutates
+     * `entry.subscribers` has to say so or the operator reads a number
+     * from whenever the event was first observed. `routes/subscribers.ts`
+     * calls this on add and remove; the periodic
+     * {@link syncSubscriberCounts} catches the paths that cannot (the
+     * stale-subscriber sweeper in `server/index.ts`, and replicated
+     * mutations arriving via `RegistryCoordinator`).
+     *
+     * An event the registry no longer holds is left alone rather than
+     * zeroed — `MetricsCollector.reset` owns teardown, and zeroing here
+     * would mint handles for a name that no longer exists.
+     */
+    refreshSubscriberCount(eventName) {
+        const entry = this.registry.get(eventName);
+        if (!entry)
+            return;
+        this.metrics.setSubscriberCount(eventName, entry.subscribers.length);
+    }
+    /** Reconcile every declared event's subscriber gauge with the registry. */
+    syncSubscriberCounts() {
+        for (const entry of this.registry.list()) {
+            this.metrics.setSubscriberCount(entry.name, entry.subscribers.length);
+        }
+    }
+    /**
+     * Release signal subscriptions for events the registry has dropped.
+     *
+     * `DELETE /api/events/:name` removes the declaration but nothing told
+     * the observer, so the Redis subscription stayed open for the process
+     * lifetime and kept recording publishes against an event that no
+     * longer exists — one retained handler and one map entry per deleted
+     * name, and names arrive from HTTP (`POST /api/events/bulk` takes
+     * 1000 per request).
+     *
+     * An event deleted and re-declared between two ticks keeps its
+     * subscription: the registry lookup finds it again. A re-declare
+     * racing this teardown is safe because `SignalTransport`'s unsubscribe
+     * is per-handler and only drops the channel with its last handler.
+     */
+    async pruneRemovedSubscriptions() {
+        for (const [name, unsub] of [...this.signalUnsubscribes]) {
+            if (this.registry.get(name))
+                continue;
+            this.signalUnsubscribes.delete(name);
+            try {
+                await unsub();
+            }
+            catch (err) {
+                console.warn(`[metrics-observer] failed to release channel "${name}":`, err.message);
+            }
         }
     }
     async stop() {
@@ -105,7 +169,12 @@ class MetricsObserver {
                 }
             });
             this.signalUnsubscribes.set(eventName, unsub);
-            this.metrics.setSubscriberCount(eventName, (this.registry.get(eventName)?.subscribers.length ?? 0) + 1);
+            // The count is the registry's registered consumers, nothing else.
+            // It used to be `length + 1`, which counted the observer's OWN
+            // Redis subscription — an internal implementation detail — so the
+            // admin UI reported one consumer more than exist, and an event
+            // with none at all looked like it had one.
+            this.refreshSubscriberCount(eventName);
         }
         catch (err) {
             this.metrics.recordError(eventName);
@@ -134,6 +203,7 @@ class MetricsObserver {
             return;
         this.polling = true;
         try {
+            await this.pruneRemovedSubscriptions();
             await this.pollDurableStatsOnce();
         }
         finally {
@@ -148,6 +218,20 @@ class MetricsObserver {
         const durableEvents = this.registry
             .list()
             .filter(e => e.transport === 'durable' || e.transport === 'both');
+        // Drop baselines for events the registry no longer holds (deleted,
+        // or re-declared onto a signal-only transport). Nothing else ever
+        // removes from these maps, so without this they retain an entry per
+        // event name the service has ever seen — and event names arrive from
+        // HTTP, where `POST /api/events/bulk` takes 1000 at a time.
+        const live = new Set(durableEvents.map(e => e.name));
+        for (const name of this.lastDurableSent.keys()) {
+            if (!live.has(name))
+                this.lastDurableSent.delete(name);
+        }
+        for (const name of this.lastDurableFailed.keys()) {
+            if (!live.has(name))
+                this.lastDurableFailed.delete(name);
+        }
         for (const entry of durableEvents) {
             const queueName = durable_js_1.DurableTransport.eventNameToQueueName(entry.name);
             const attrs = await this.durable.getQueueAttributes(queueName);

@@ -8,6 +8,15 @@ import type { Counter, Gauge } from 'distributed-core/monitoring';
  * with per-event stats). This registry is dedicated to the
  * Prometheus `/metrics` scrape endpoint.
  *
+ * The two classes both register a metric named `publish_total` but
+ * label it differently (`{event}` there, `{event, transport, mode}`
+ * here), so they must never share a namespace: one metric family with
+ * inconsistent label names is invalid exposition and a scraper drops
+ * the whole family. `event_catalog` belongs to this file;
+ * `MetricsCollector` uses `COLLECTOR_METRIC_NAMESPACE`
+ * (`event_catalog_stats`) so the names stay distinct even if the two
+ * registries are ever merged or the JSON one is ever rendered.
+ *
  * ## Metric families
  *
  * Publish / consumer flow:
@@ -73,6 +82,12 @@ import type { Counter, Gauge } from 'distributed-core/monitoring';
  * validation entirely. Label values are therefore escaped here, before
  * they are handed to the registry.
  */
+/**
+ * Namespace prefixed onto every metric rendered at `/metrics`.
+ * Owned exclusively by this class — see the class doc above.
+ */
+export const PROM_METRIC_NAMESPACE = 'event_catalog';
+
 export type PublishMode = 'strict' | 'warn' | 'off';
 export type FailureReason = 'schema' | 'transport' | 'network';
 export type TransportName = 'redis' | 'message-queue';
@@ -178,7 +193,7 @@ export class PromMetrics {
     // Use 'event_catalog' as namespace so the rendered name becomes
     // `event_catalog_publish_total` (formatPrometheus joins namespace
     // and name with `_`).
-    this.registry = registry ?? new MetricsRegistry('event-catalog', { namespace: 'event_catalog' });
+    this.registry = registry ?? new MetricsRegistry('event-catalog', { namespace: PROM_METRIC_NAMESPACE });
     this.maxEventLabels = options.maxEventLabels
       ?? envInt('EVENT_CATALOG_MAX_METRIC_EVENT_LABELS', DEFAULT_MAX_EVENT_LABELS);
   }

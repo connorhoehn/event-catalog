@@ -338,3 +338,235 @@ describe('formatDiff — fingerprint display', () => {
     expect(out).toContain('abc123456789 → def456789abc');
   });
 });
+
+// ---------------------------------------------------------------------------
+// End-to-end diff of two REALLY registered versions.
+//
+// Every bundle shipped in src/declarations/bundles is at 1.0.0, so the
+// catalog itself cannot exercise a non-empty diff. Register a uniquely named
+// fixture in the same module singleton bundle-diff.ts reads from, so these
+// tests cover the path an operator actually hits when a version is bumped.
+// The name is unique, so nothing else in the suite can collide with it.
+// ---------------------------------------------------------------------------
+
+import { registerFeatureBundle } from '../../src/bundles/FeatureBundle.js';
+import { hasChanges, EXIT_DIFFERENCES } from '../../src/cli/bundle-diff.js';
+
+const FIXTURE = 'diff-fixture';
+
+registerFeatureBundle({
+  name: FIXTURE,
+  version: '1.0.0',
+  transport: 'signal',
+  events: [
+    { name: 'ws.fx.kept', required: true },
+    { name: 'ws.fx.gone-required', required: true },
+    { name: 'ws.fx.gone-optional', required: false },
+    { name: 'ws.fx.relaxed', required: true },
+    { name: 'ws.fx.tightened', required: false },
+  ],
+});
+
+registerFeatureBundle({
+  name: FIXTURE,
+  version: '2.0.0',
+  transport: 'signal',
+  events: [
+    { name: 'ws.fx.kept', required: true },
+    { name: 'ws.fx.relaxed', required: false },
+    { name: 'ws.fx.tightened', required: true },
+    { name: 'ws.fx.new-required', required: true },
+    { name: 'ws.fx.new-optional', required: false },
+  ],
+});
+
+describe('diffBundles — two real registered versions', () => {
+  it('classifies every kind of change', () => {
+    const diff = diffBundles(FIXTURE, '1.0.0', '2.0.0')!;
+    expect(diff).not.toBeNull();
+    expect(diff.addedRequired).toEqual(['ws.fx.new-required']);
+    expect(diff.addedOptional).toEqual(['ws.fx.new-optional']);
+    expect(diff.removed.sort()).toEqual(['ws.fx.gone-optional', 'ws.fx.gone-required']);
+    expect(diff.removedOptional).toEqual(['ws.fx.gone-optional']);
+    expect(diff.requiredToOptional).toEqual(['ws.fx.relaxed']);
+    expect(diff.optionalToRequired).toEqual(['ws.fx.tightened']);
+    expect(diff.fingerprintV1).not.toBe(diff.fingerprintV2);
+  });
+
+  it('is directional — reversing the arguments inverts add/remove', () => {
+    const fwd = diffBundles(FIXTURE, '1.0.0', '2.0.0')!;
+    const rev = diffBundles(FIXTURE, '2.0.0', '1.0.0')!;
+    expect(rev.removed.sort()).toEqual([...fwd.addedOptional, ...fwd.addedRequired].sort());
+    expect([...rev.addedOptional, ...rev.addedRequired].sort()).toEqual(fwd.removed.sort());
+    expect(rev.optionalToRequired).toEqual(fwd.requiredToOptional);
+    expect(rev.requiredToOptional).toEqual(fwd.optionalToRequired);
+  });
+
+  it('suggests major when a required event is removed', () => {
+    const diff = diffBundles(FIXTURE, '1.0.0', '2.0.0')!;
+    expect(diff.suggestedBump).toBe('major');
+    expect(diff.suggestedBumpReason).toContain('required event removed');
+  });
+
+  it('renders removed-optional events as "(was optional)"', () => {
+    const out = formatDiff(diffBundles(FIXTURE, '1.0.0', '2.0.0')!);
+    expect(out).toContain('- ws.fx.gone-optional (was optional)');
+    expect(out).toContain('- ws.fx.gone-required');
+    expect(out).not.toContain('- ws.fx.gone-required (was optional)');
+  });
+
+  it('a bundle diffed against itself reports no changes', () => {
+    const diff = diffBundles(FIXTURE, '2.0.0', '2.0.0')!;
+    expect(hasChanges(diff)).toBe(false);
+    expect(diff.suggestedBump).toBe('none');
+    expect(formatDiff(diff)).toContain('No changes.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Removing only OPTIONAL events must not be reported as "required event removed"
+// ---------------------------------------------------------------------------
+
+describe('diffBundles — optional-only removal', () => {
+  const NAME = 'diff-fixture-optional';
+
+  beforeEach(() => {
+    registerFeatureBundle({
+      name: NAME,
+      version: '1.0.0',
+      transport: 'signal',
+      events: [
+        { name: 'ws.opt.kept', required: true },
+        { name: 'ws.opt.dropped', required: false },
+      ],
+    });
+    registerFeatureBundle({
+      name: NAME,
+      version: '1.1.0',
+      transport: 'signal',
+      events: [{ name: 'ws.opt.kept', required: true }],
+    });
+  });
+
+  it('suggests minor, not major, and says "optional event removed"', () => {
+    const diff = diffBundles(NAME, '1.0.0', '1.1.0')!;
+    expect(diff.removed).toEqual(['ws.opt.dropped']);
+    expect(diff.removedOptional).toEqual(['ws.opt.dropped']);
+    expect(diff.suggestedBump).toBe('minor');
+    expect(diff.suggestedBumpReason).toBe('optional event removed');
+    // The old code hard-coded this reason for ANY removal.
+    expect(diff.suggestedBumpReason).not.toContain('required event removed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --exit-code: "these differ" must be distinguishable from "I failed to run"
+// ---------------------------------------------------------------------------
+
+describe('bundleDiff() CLI — --exit-code', () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('exits 3 when the versions differ', async () => {
+    expect(await bundleDiff([`${FIXTURE}@1.0.0`, `${FIXTURE}@2.0.0`, '--exit-code'])).toBe(
+      EXIT_DIFFERENCES,
+    );
+  });
+
+  it('exits 0 when the versions are identical', async () => {
+    expect(await bundleDiff([`${FIXTURE}@2.0.0`, `${FIXTURE}@2.0.0`, '--exit-code'])).toBe(0);
+  });
+
+  it('still prints the full diff when exiting 3', async () => {
+    await bundleDiff([`${FIXTURE}@1.0.0`, `${FIXTURE}@2.0.0`, '--exit-code']);
+    const out = logSpy.mock.calls.flat().join('\n');
+    expect(out).toContain('Added (required):');
+    expect(out).toContain('Suggested semver bump: major');
+  });
+
+  it('exits 0 on differences WITHOUT the flag (back-compat)', async () => {
+    expect(await bundleDiff([`${FIXTURE}@1.0.0`, `${FIXTURE}@2.0.0`])).toBe(0);
+  });
+
+  it('"differs" (3) is not the code used for "failed to run" (1)', async () => {
+    const differs = await bundleDiff([`${FIXTURE}@1.0.0`, `${FIXTURE}@2.0.0`, '--exit-code']);
+    const failed = await bundleDiff([`${FIXTURE}@1.0.0`, `${FIXTURE}@9.9.9`, '--exit-code']);
+    expect(differs).toBe(3);
+    expect(failed).toBe(1);
+    expect(differs).not.toBe(failed);
+  });
+
+  it('rejects an unknown flag with exit 2, not a silent no-op', async () => {
+    expect(await bundleDiff([`${FIXTURE}@1.0.0`, `${FIXTURE}@2.0.0`, '--exitcode'])).toBe(2);
+  });
+
+  it('rejects --exit-code given a value', async () => {
+    expect(await bundleDiff([`${FIXTURE}@1.0.0`, `${FIXTURE}@2.0.0`, '--exit-code=yes'])).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Not-found errors point at what IS available
+// ---------------------------------------------------------------------------
+
+describe('bundleDiff() CLI — not-found diagnostics', () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('lists the known versions when the version is wrong', async () => {
+    await bundleDiff([`${FIXTURE}@1.0.0`, `${FIXTURE}@9.9.9`]);
+    const err = errorSpy.mock.calls.flat().join('\n');
+    expect(err).toContain(`bundle not found: ${FIXTURE}@9.9.9`);
+    expect(err).toContain(`known versions of "${FIXTURE}"`);
+    expect(err).toContain('1.0.0');
+  });
+
+  it('lists the known bundle names when the name is wrong', async () => {
+    await bundleDiff(['no-such-bundle@1.0.0', 'no-such-bundle@2.0.0']);
+    const err = errorSpy.mock.calls.flat().join('\n');
+    expect(err).toContain('no bundle named "no-such-bundle" is registered');
+    expect(err).toContain('chat');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --help lists the flags the parser actually accepts
+// ---------------------------------------------------------------------------
+
+describe('bundleDiff() CLI — --help', () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  it('exits 0 and documents --exit-code and every exit code', async () => {
+    expect(await bundleDiff(['--help'])).toBe(0);
+    const out = logSpy.mock.calls.flat().join('\n');
+    expect(out).toContain('--exit-code');
+    for (const code of ['0 ', '1 ', '2 ', '3 ']) expect(out).toContain(code);
+  });
+
+  it('--help wins over positional arguments', async () => {
+    expect(await bundleDiff(['nope@1.0.0', 'nope@2.0.0', '--help'])).toBe(0);
+  });
+});

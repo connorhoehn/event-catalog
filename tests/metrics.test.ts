@@ -66,6 +66,42 @@ describe('MetricsCollector', () => {
       expect(stats!.messagesInFlight).toBe(3);
       expect(stats!.oldestMessageAge).toBe(120);
     });
+
+    // "We measured it and it is empty" and "we never measured it" are
+    // different answers. A drained queue used to have its field vanish
+    // from the JSON rather than report the drop to 0, so the admin UI
+    // could not distinguish a queue that emptied from a signal-only
+    // event, and `oldestMessageAge: 0` — the "nothing is stuck" reading
+    // — was not expressible at all.
+    it('reports a drained queue as 0 rather than dropping the field', () => {
+      metrics.updateDurableStats('pipeline:completed', {
+        queueDepth: 42, messagesInFlight: 3, oldestMessageAge: 120,
+      });
+      metrics.updateDurableStats('pipeline:completed', {
+        queueDepth: 0, messagesInFlight: 0, oldestMessageAge: 0,
+      });
+
+      const stats = metrics.getStats('pipeline:completed')!;
+      expect(stats.queueDepth).toBe(0);
+      expect(stats.messagesInFlight).toBe(0);
+      expect(stats.oldestMessageAge).toBe(0);
+    });
+
+    it('omits durable fields that have never been measured', () => {
+      metrics.recordPublish('signal.only');
+      const stats = metrics.getStats('signal.only')!;
+      expect(stats.queueDepth).toBeUndefined();
+      expect(stats.messagesInFlight).toBeUndefined();
+      expect(stats.oldestMessageAge).toBeUndefined();
+    });
+
+    it('reports a zero measurement even on the first observation', () => {
+      metrics.updateDurableStats('fresh.queue', { queueDepth: 0 });
+      const stats = metrics.getStats('fresh.queue')!;
+      expect(stats.queueDepth).toBe(0);
+      // Fields the same call said nothing about stay absent.
+      expect(stats.messagesInFlight).toBeUndefined();
+    });
   });
 
   describe('snapshot', () => {

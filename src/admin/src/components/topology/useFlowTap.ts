@@ -41,6 +41,26 @@ export interface FlowTapHandle extends FlowTapState {
 const MAX_BUFFER = 200;
 
 /**
+ * Is this parsed frame actually a tap event?
+ *
+ * `JSON.parse` succeeding is not the same as the frame being a TapEvent:
+ * `null`, `"a string"` and `{"ok":true}` all parse cleanly. Anything that got
+ * into the buffer was then read by the flow ticker as `e.timestamp.slice(...)`
+ * and `e.producer`, so one off-shape frame threw during render and took the
+ * entire Live Flow view down — graph included — with a blank screen and no
+ * way back except a reload.
+ *
+ * `eventName` and `timestamp` are the two fields every consumer dereferences,
+ * so those are what "well-formed" means here. The optional fields (channel,
+ * queue, envelope) are genuinely optional and are not checked.
+ */
+function isTapEvent(value: unknown): value is TapEvent {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.eventName === 'string' && typeof v.timestamp === 'string';
+}
+
+/**
  * Open an EventSource on /api/flow with the given filters. The hook
  * keeps a ring buffer of the most recent N tap events. Re-attaches
  * when filters change.
@@ -73,7 +93,9 @@ export function useFlowTap(filters: FlowTapFilters, initiallyLive = true): FlowT
 
     es.onmessage = (msg) => {
       try {
-        const ev = JSON.parse(msg.data) as TapEvent;
+        const parsed: unknown = JSON.parse(msg.data);
+        if (!isTapEvent(parsed)) return;
+        const ev = parsed;
         setLastEvent(ev);
         setEvents((prev) => {
           const next = [...prev, ev];
