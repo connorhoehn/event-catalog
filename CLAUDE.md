@@ -50,7 +50,7 @@ assume cross-service events are declared and validated here.
 | Producer | Status |
 |----------|--------|
 | `platform-api` | ✅ Library consumer; publishes via `catalog.publishSignal`/`publish`. |
-| `websocket-gateway` | ✅ Library consumer (Phase E2); shared envelope builders adopted in `message-router.ts`; 23 frame-type declarations in `gateway-event-declarations.ts` + finer-grained `gatewaySignalDeclarations` pulled from this repo. |
+| `websocket-gateway` | ✅ Library consumer (Phase E2); shared envelope builders adopted in `message-router.ts`; 23 frame-type declarations in `realtime-examples/src/observability/gateway-event-declarations.ts` (they live in realtime-examples, not this repo or websocket-gateway) + finer-grained `gatewaySignalDeclarations` pulled from this repo. |
 | `live-video-streaming` (SFU) | ✅ Best-effort registration at boot via `src/event-declarations.js` (20 events: webhook + control-plane + chat-bus). LVS is inactive — direct edits permitted; no handoff required. |
 | `realtime-modules` | ✅ Type-only devDependency — client hooks annotate outbound frames with `satisfies ClientFramePayload<...>` from `@connorhoehn/event-catalog/client-frames` (hub#1497). |
 | `distributed-core` | ❌ Never a direct consumer (it's a library). Its ~36 pipeline events are declared on its behalf by this repo at `src/declarations/`. |

@@ -10,6 +10,18 @@ import {
   channelNodesRedisKey,
   type ChannelMessageEnvelope,
 } from '../types/envelopes';
+import { BoundedCounter, LogThrottle, rememberBounded } from '../utils/bounded';
+
+/**
+ * Cap on per-channel bookkeeping (metrics, drop counts).
+ *
+ * Channels are caller-controlled: a declaration may carry
+ * `channel: p => \`document:${p.documentId}\``, and `publishChannelMessage`
+ * takes a raw channel id from the gateway. Both key spaces are effectively
+ * unbounded over a process lifetime, so per-channel detail is capped and
+ * evicted oldest-first while the aggregate totals stay exact.
+ */
+const MAX_TRACKED_CHANNELS = 1000;
 
 export interface SignalTransportConfig {
   /**
@@ -19,6 +31,12 @@ export interface SignalTransportConfig {
   url: string;
   /** Per-channel history ring-buffer depth (Redis Stream MAXLEN). Default 100. */
   ringBufferSize?: number;
+  /**
+   * Cap on how many distinct channels keep per-channel metrics and drop
+   * counters. Oldest-first eviction past this; aggregate totals are never
+   * evicted. Default 1000.
+   */
+  maxTrackedChannels?: number;
 }
 
 interface ChannelMetrics {
@@ -53,22 +71,46 @@ export class SignalTransport {
   private readonly url: string;
   private readonly ringBufferSize: number;
   private connected = false;
+  /** Shared by concurrent `connect()` callers so a race opens one pair of clients. */
+  private connectInFlight: Promise<void> | null = null;
   private subscriptions = new Map<string, Set<MessageHandler>>();
   private channelMetrics = new Map<string, ChannelMetrics>();
+  private readonly maxTrackedChannels: number;
+  /** Channels whose metrics were evicted for capacity. */
+  private evictedChannelMetrics = 0;
   private readonly circuitBreaker: CircuitBreaker;
   /**
    * Publishes discarded because the transport was not connected. Keyed by
    * channel. A dropped publish is otherwise invisible — it neither throws
    * nor increments publishCount — so this counter is the only durable
-   * evidence it happened.
+   * evidence it happened. Bounded: per-channel detail evicts, the total
+   * does not.
    */
-  private readonly droppedCounts = new Map<string, number>();
-  /** Channels we've already warned about, so a hot path can't flood logs. */
-  private readonly warnedDisconnectedChannels = new Set<string>();
+  private readonly droppedCounts: BoundedCounter;
+  /**
+   * Rate limit for the disconnected-publish warning. Warn-once-per-channel
+   * on its own does not bound anything when channels are per-document: the
+   * window ceiling does.
+   */
+  private readonly dropWarnings: LogThrottle;
+  /** Ring-buffer write failures: counted always, logged at most once a minute. */
+  private readonly ringBufferWarnings: LogThrottle;
+  private ringBufferFailures = 0;
+  /**
+   * node-redis emits `error` on every reconnect attempt, so a Redis outage
+   * emits these at the reconnect cadence for as long as it lasts.
+   */
+  private readonly clientErrorWarnings: LogThrottle;
+  private clientErrors = 0;
 
   constructor(config: SignalTransportConfig) {
     this.url = config.url;
     this.ringBufferSize = config.ringBufferSize ?? 100;
+    this.maxTrackedChannels = Math.max(1, config.maxTrackedChannels ?? MAX_TRACKED_CHANNELS);
+    this.droppedCounts = new BoundedCounter(this.maxTrackedChannels);
+    this.dropWarnings = new LogThrottle({ maxKeys: 512, maxPerWindow: 10 });
+    this.ringBufferWarnings = new LogThrottle({ keyIntervalMs: 60_000, maxKeys: 8, maxPerWindow: 2 });
+    this.clientErrorWarnings = new LogThrottle({ keyIntervalMs: 60_000, maxKeys: 8, maxPerWindow: 4 });
     this.circuitBreaker = new CircuitBreaker({
       failureThreshold: 5,
       resetTimeout: 30000,
@@ -89,10 +131,26 @@ export class SignalTransport {
    */
   async connect(): Promise<void> {
     if (this.connected) return;
+    // Two callers racing connect() previously opened two pairs of Redis
+    // clients and leaked the losing pair (with its reconnect timers and
+    // error listeners). Share the in-flight attempt instead.
+    if (this.connectInFlight) return this.connectInFlight;
 
+    this.connectInFlight = this.openClients()
+      .then(() => {
+        this.connected = true;
+      })
+      .finally(() => {
+        this.connectInFlight = null;
+      });
+
+    return this.connectInFlight;
+  }
+
+  private async openClients(): Promise<void> {
     // A fresh outage deserves a fresh warning, so re-arm the one-shot
     // disconnected-publish warnings each time we come back up.
-    this.warnedDisconnectedChannels.clear();
+    this.dropWarnings.clear();
 
     await this.circuitBreaker.execute(async () => {
       // Boot-bounded reconnect — node-redis retries the FIRST connect()
@@ -116,47 +174,100 @@ export class SignalTransport {
       }) as RedisClientType;
 
       this.publishClient.on('error', (err: Error) => {
-        console.warn('[signal-transport] publish client error:', formatRedisError(err));
+        this.warnClientError('publish', err);
       });
 
       this.subscribeClient.on('error', (err: Error) => {
-        console.warn('[signal-transport] subscribe client error:', formatRedisError(err));
+        this.warnClientError('subscribe', err);
       });
 
-      await Promise.all([
-        this.publishClient.connect().then(() => publishBootStrategy.markConnected()),
-        this.subscribeClient.connect().then(() => subscribeBootStrategy.markConnected()),
-      ]);
+      try {
+        await Promise.all([
+          this.publishClient.connect().then(() => publishBootStrategy.markConnected()),
+          this.subscribeClient.connect().then(() => subscribeBootStrategy.markConnected()),
+        ]);
+      } catch (err) {
+        // A failed connect used to leave both clients referenced and
+        // reconnecting forever — a rejected connect() that keeps the
+        // process alive is the classic "container will not stop".
+        await this.destroyClients(false);
+        throw err;
+      }
     });
+  }
 
-    this.connected = true;
+  /**
+   * Warn about a Redis client error at most once a minute per client role.
+   * node-redis fires this on every reconnect attempt, so an outage would
+   * otherwise emit one line per attempt for the whole outage.
+   */
+  private warnClientError(role: 'publish' | 'subscribe', err: Error): void {
+    this.clientErrors++;
+    const suppressed = this.clientErrorWarnings.attempt(role);
+    if (suppressed === null) return;
+    console.warn(
+      `[signal-transport] ${role} client error:` + LogThrottle.suffix(suppressed),
+      formatRedisError(err),
+    );
+  }
+
+  /**
+   * Tear both clients down without regard for `connected`. Never throws.
+   *
+   * `graceful` picks the teardown: `quit()` drains pending commands and is
+   * right for a live client, but on a client that never finished
+   * connecting it *queues* the QUIT and waits — which is why a failed
+   * connect must use the forced `disconnect()` instead of hanging boot.
+   */
+  private async destroyClients(graceful: boolean): Promise<void> {
+    const clients = [this.publishClient, this.subscribeClient];
+    this.publishClient = null;
+    this.subscribeClient = null;
+    await Promise.all(clients.map(async (client) => {
+      if (!client) return;
+      const raw = client as unknown as {
+        removeAllListeners?: (event?: string) => unknown;
+        quit?: () => Promise<unknown>;
+        disconnect?: () => Promise<unknown> | unknown;
+      };
+      try { raw.removeAllListeners?.('error'); } catch { /* not an emitter */ }
+      if (graceful) {
+        try {
+          await raw.quit?.();
+          return;
+        } catch { /* fall through to a forced close */ }
+      }
+      // Forced close: stops the reconnect timer that would otherwise hold
+      // the event loop open long after connect() rejected.
+      try { await raw.disconnect?.(); } catch { /* already gone */ }
+    }));
   }
 
   /**
    * Unsubscribe every channel and quit both Redis clients. Idempotent and
    * best-effort: errors during teardown are swallowed so shutdown always
    * completes. After this, publishes are dropped rather than thrown.
+   *
+   * Safe to call twice, and safe to call after a *failed* `connect()` —
+   * it tears down whatever clients exist rather than checking `connected`,
+   * so a half-open connect cannot leave a reconnect timer holding the
+   * process open past SIGTERM.
    */
   async disconnect(): Promise<void> {
-    if (!this.connected) return;
+    this.connected = false;
 
-    for (const channel of this.subscriptions.keys()) {
-      try {
-        await this.subscribeClient!.unsubscribe(channel);
-      } catch {
-        // ignore during shutdown
+    if (this.subscribeClient) {
+      for (const channel of this.subscriptions.keys()) {
+        try {
+          await this.subscribeClient.unsubscribe(channel);
+        } catch {
+          // ignore during shutdown
+        }
       }
     }
     this.subscriptions.clear();
 
-    await Promise.all([
-      this.publishClient?.quit().catch(() => {}),
-      this.subscribeClient?.quit().catch(() => {}),
-    ]);
-
-    this.publishClient = null;
-    this.subscribeClient = null;
-    this.connected = false;
+    await this.destroyClients(true);
   }
 
   /**
@@ -192,7 +303,17 @@ export class SignalTransport {
         { payload: serialized },
         { TRIM: { strategy: 'MAXLEN', strategyModifier: '~', threshold: this.ringBufferSize } },
       ).catch((err: Error) => {
-        console.warn(`[signal-transport] ring buffer write failed for ${channel}:`, err.message);
+        // Redis rejecting XADD (OOM, a wrong-type key, a replica) rejects it
+        // for *every* publish. Count them all; log at most one a minute.
+        this.ringBufferFailures++;
+        const suppressed = this.ringBufferWarnings.attempt('ring-buffer');
+        if (suppressed === null) return;
+        console.warn(
+          `[signal-transport] ring buffer write failed for ${channel} `
+          + `(${this.ringBufferFailures} total this process)`
+          + LogThrottle.suffix(suppressed) + ':',
+          err.message,
+        );
       });
     });
 
@@ -382,8 +503,42 @@ export class SignalTransport {
   getDroppedCount(channel: string): number;
   getDroppedCount(): Map<string, number>;
   getDroppedCount(channel?: string): number | Map<string, number> {
-    if (channel !== undefined) return this.droppedCounts.get(channel) ?? 0;
-    return new Map(this.droppedCounts);
+    if (channel !== undefined) return this.droppedCounts.get(channel);
+    return this.droppedCounts.snapshot();
+  }
+
+  /**
+   * Aggregates that survive eviction and log suppression.
+   *
+   * `getDroppedCount()`'s map holds at most `maxTrackedChannels` entries,
+   * so on a per-document channel scheme the map is a *sample*, not the
+   * total. `droppedTotal` here is exact for the life of the process, and
+   * `suppressedWarnings` says how many log lines were withheld. Read these
+   * before concluding from the map that nothing was lost.
+   */
+  getOverflowStats(): {
+    droppedTotal: number;
+    droppedEvictedChannels: number;
+    droppedEvictedTotal: number;
+    trackedChannels: number;
+    evictedChannelMetrics: number;
+    ringBufferFailures: number;
+    clientErrors: number;
+    suppressedWarnings: number;
+  } {
+    return {
+      droppedTotal: this.droppedCounts.total,
+      droppedEvictedChannels: this.droppedCounts.evictedKeys,
+      droppedEvictedTotal: this.droppedCounts.evictedTotal,
+      trackedChannels: this.channelMetrics.size,
+      evictedChannelMetrics: this.evictedChannelMetrics,
+      ringBufferFailures: this.ringBufferFailures,
+      clientErrors: this.clientErrors,
+      suppressedWarnings:
+        this.dropWarnings.suppressedTotal
+        + this.ringBufferWarnings.suppressedTotal
+        + this.clientErrorWarnings.suppressedTotal,
+    };
   }
 
   /** True once `connect()` has resolved and before `disconnect()` is called. */
@@ -403,12 +558,16 @@ export class SignalTransport {
     }
 
     const start = performance.now();
+    // The timer has to be cleared even when the ping wins the race: a
+    // health endpoint polled every second otherwise keeps 2s of timers
+    // permanently pending, and holds the event loop open at shutdown.
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
         this.publishClient.ping(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('timeout')), 2000)
-        ),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('timeout')), 2000);
+        }),
       ]);
       const latencyMs = Math.round(performance.now() - start);
       if (result === 'PONG') {
@@ -421,6 +580,8 @@ export class SignalTransport {
         return { status: 'degraded', latencyMs };
       }
       return { status: 'disconnected', latencyMs };
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
 
@@ -430,29 +591,43 @@ export class SignalTransport {
    * flight; the counter keeps the drop visible for the whole process life.
    */
   private recordDrop(channel: string, message: string): void {
-    this.droppedCounts.set(channel, (this.droppedCounts.get(channel) ?? 0) + 1);
-    if (!this.warnedDisconnectedChannels.has(channel)) {
-      this.warnedDisconnectedChannels.add(channel);
-      console.warn(message);
-    }
+    this.droppedCounts.increment(channel);
+    const suppressed = this.dropWarnings.attempt(channel);
+    if (suppressed === null) return;
+    console.warn(message + LogThrottle.suffix(suppressed));
+  }
+
+  /**
+   * Fetch (or create) a channel's metrics row, evicting the oldest row when
+   * the tracked-channel cap is reached. Publishing to a hostile or
+   * per-document channel space therefore costs a bounded amount of memory.
+   */
+  private metricsFor(channel: string): ChannelMetrics {
+    const existing = this.channelMetrics.get(channel);
+    if (existing) return existing;
+    const metrics: ChannelMetrics = {
+      publishCount: 0,
+      lastPublishedAt: null,
+      subscriberCount: 0,
+    };
+    const evicted = rememberBounded(
+      this.channelMetrics,
+      channel,
+      metrics,
+      this.maxTrackedChannels,
+    );
+    if (evicted !== undefined) this.evictedChannelMetrics++;
+    return metrics;
   }
 
   private incrementMetrics(channel: string): void {
-    let metrics = this.channelMetrics.get(channel);
-    if (!metrics) {
-      metrics = { publishCount: 0, lastPublishedAt: null, subscriberCount: 0 };
-      this.channelMetrics.set(channel, metrics);
-    }
+    const metrics = this.metricsFor(channel);
     metrics.publishCount++;
     metrics.lastPublishedAt = new Date().toISOString();
   }
 
   private updateSubscriberCount(channel: string): void {
-    let metrics = this.channelMetrics.get(channel);
-    if (!metrics) {
-      metrics = { publishCount: 0, lastPublishedAt: null, subscriberCount: 0 };
-      this.channelMetrics.set(channel, metrics);
-    }
+    const metrics = this.metricsFor(channel);
     metrics.subscriberCount = this.subscriptions.get(channel)?.size ?? 0;
   }
 }

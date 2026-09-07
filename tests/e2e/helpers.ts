@@ -16,10 +16,28 @@ export interface TapInput {
   count?: number;
 }
 
-/** Wipe DLQ + recorded publishes. The registry fixture is untouched. */
+/** Wipe DLQ + recorded publishes and restore the four-event fixture. */
 export async function resetServer(request: APIRequestContext): Promise<void> {
   const res = await request.post('/__e2e__/reset');
   expect(res.ok()).toBeTruthy();
+}
+
+/**
+ * Swap the server's registry between the four-event fixture and the real
+ * ~225 declarations from `src/declarations`.
+ *
+ * The specs share one server process and run serially, so a spec that seeds
+ * `scale` MUST restore `small` in an `afterAll` — every other spec asserts
+ * exact counts against the small fixture. `resetServer` restores it too, so a
+ * crashed scale spec cannot poison the rest of the suite.
+ */
+export async function seedRegistry(
+  request: APIRequestContext,
+  mode: 'small' | 'scale',
+): Promise<number> {
+  const res = await request.post('/__e2e__/registry', { data: { mode } });
+  expect(res.ok(), `failed to seed the ${mode} registry`).toBeTruthy();
+  return (await res.json()).events as number;
 }
 
 /**

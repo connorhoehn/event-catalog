@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-07T15:38:43.422Z
+// Generated at: 2026-09-07T16:33:33.793Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -1306,6 +1306,87 @@ export interface EventPayloadMap {
     startedAt?: string;
     pruned?: boolean;
     reason?: string;
+  };
+  /** A producer's runtime state was mutated through PATCH /api/channels/:arn/producers/:producerId/state — force-mute and self-mute both land here. Emitted only when the patch actually changed a field; an idempotent no-op patch takes the else branch and emits nothing (api/channels/producerState.js:214). The wire type is the short form `producer.state-changed`. */
+  'sfu.producer.state-changed': {
+    channelArn: string;
+    producerId: string;
+    participantId: string;
+    kind: string | null;
+    state: {
+      muted: boolean;
+      [key: string]: unknown;
+    };
+  };
+  /** A participant was forcibly disconnected from a channel. Two emit sites, distinguished by `source`: the ops endpoint DELETE /api/admin/channels/:arn/sessions/:transportId (api/admin/disconnect-session.js:100) and the cluster denylist watcher, which fires only once it has actually closed at least one local transport (workers/denyListWatcher.js:100). Clients that receive this event carrying their OWN participantId should treat it as terminal. */
+  'sfu.participant.disconnected': {
+    channelArn: string;
+    participantId: string;
+    reason: string;
+    source: 'admin-disconnect' | 'denylist';
+    transportId?: string;
+  };
+  /** Server-arbitrated cross-tab ownership was assigned for a member on a channel. The first stage-WS tab to claim the per-member Redis lock becomes the owner; sibling tabs of the same member become silent observers and learn of the assignment from this frame (ws/stageWsServer.js:476). Emitted only for Wave-5+ tokens — a legacy JWT with no `mid` claim never triggers it, which keeps the per-channel eventId sequence stable for older replay-buffer consumers. */
+  'sfu.member.owner.changed': {
+    channelArn: string;
+    memberId: string;
+    userId?: string;
+    ownerClientId: string | null;
+    participantId: string | null;
+  };
+  /** A custom, application-defined chat event was published into a channel's live event stream via POST /api/channels/:arn/chat/events — the IVS Chat `SendEvent` equivalent (api/channels/chat-events.js:184). Rides the stream-events hub, not the chat-bus, so unlike the sfu.chat.* frames it carries channelArn and is fanned out to stage-WS subscribers and other pods rather than to IVS chat clients. */
+  'sfu.chat.event': {
+    channelArn: string;
+    eventName: string;
+    attributes: Record<string, unknown>;
+    publishedAt: string;
+  };
+  /** A finalized multi-leg recording was accepted for background composition, before the ffmpeg job starts. Emitted from the tail of finalizeRecording (recording/RecordingManager.js:1662) so a client can show a "Composing…" badge immediately; it is often the FIRST signal the recordings list gets that the row exists at all. Only the per-peer path reaches it — a single-file recording has no legs to compose. */
+  'sfu.recording.compose.queued': {
+    channelArn: string;
+    recordingId: string;
+    legCount: number;
+    durationMs: number;
+    recordingStartedAt: string;
+  };
+  /** The background compose job for a recording began. Emitted on the first line of runComposeJob (recording/RecordingManager.js:3754), before input triage and before ffmpeg is spawned, so it is unconditional for every attempt including the resume sweeper's. */
+  'sfu.recording.compose.started': {
+    channelArn: string;
+    recordingId: string;
+    jobId?: string;
+  };
+  /** The running compose job crossed a 10% progress bucket. Derived from ffmpeg's `time=` stderr line and deliberately throttled to one event per bucket (recording/RecordingManager.js:3965), which keeps bus traffic linear in recording count rather than in frame count. A short compose may emit this zero times; it never reports 100 — completion is what `sfu.recording.compose.completed` is for. */
+  'sfu.recording.compose.progress': {
+    channelArn: string;
+    recordingId: string;
+    jobId?: string;
+    progressPct: number;
+  };
+  /** The compose job failed and produced no usable output. Two emit sites carry DIFFERENT diagnostic fields: the windowed pre-pass failure (recording/RecordingManager.js:3897) sets `stage`, and the ffmpeg non-zero-exit / missing-output path (:4011) sets `exitCode`. A consumer must branch on which one is present rather than assume either; `reason` is the only human-readable field common to both. */
+  'sfu.recording.compose.failed': {
+    channelArn: string;
+    recordingId: string;
+    jobId?: string;
+    wallMs: number;
+    reason: string;
+    stage?: string;
+    exitCode?: number;
+  };
+  /** The compose job finished and its composed render was uploaded and persisted (recording/RecordingManager.js:4093). This — not the `sfu.recording.completed` webhook — is the event that says a composed playback file exists, because compose runs after that webhook has already fired. `composeStatus` distinguishes a clean render from one ffmpeg exited zero on but that came out materially shorter than planned. */
+  'sfu.recording.compose.completed': {
+    channelArn: string;
+    recordingId: string;
+    jobId?: string;
+    wallMs: number;
+    composeStatus: 'ok' | 'degraded';
+    composedSegment: {
+      key: string;
+      url: string;
+      size: number;
+      legCount: number;
+      composedAt: string;
+    };
+    outputProbedDurationMs: number | null;
   };
   /** A chat message was sent by a participant, in IVS Chat wire-protocol shape. Persisted to the per-channel history list before fan-out; republished cross-pod on chat-bus so other pods can broadcast it to their local sockets (chat/ChatHub.js:206). */
   'sfu.chat.message': {

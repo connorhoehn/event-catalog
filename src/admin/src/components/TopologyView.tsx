@@ -31,7 +31,7 @@ import AnimatedEdge from '@ui/components/pipelines/canvas/edges/AnimatedEdge';
 import { api, type TopologyGraph } from '../api';
 import EventNode from './topology/EventNode';
 import ServiceNode from './topology/ServiceNode';
-import { layoutGraph } from './topology/layout';
+import { GRAPH_MIN_ZOOM, layoutGraph } from './topology/layout';
 import { NamespaceClusters } from './topology/NamespaceClusters';
 
 const nodeTypes: NodeTypes = {
@@ -153,13 +153,18 @@ export function TopologyView() {
     }
     const baseNodes = toReactFlowNodes(topology);
     const baseEdges = toReactFlowEdges(topology);
-    const laidOut = layoutGraph(baseNodes, baseEdges);
     const byId: Record<string, string> = {};
     for (const n of topology.nodes) {
       if (n.type === 'event' && typeof n.metadata.namespace === 'string') {
         byId[n.id] = n.metadata.namespace;
       }
     }
+    // Grouped layout: dagre keeps each namespace's events together, which is
+    // what makes the NamespaceClusters overlay mean anything at 225 events.
+    // Ungrouped, the nine namespace boxes overlapped in 19 of 36 pairs and
+    // the three-event `transcription` box covered more canvas than the
+    // seventy-six-event `ws` one.
+    const laidOut = layoutGraph(baseNodes, baseEdges, { groups: byId });
     return { rfNodes: laidOut, rfEdges: baseEdges, nodeNamespaces: byId };
   }, [topology]);
 
@@ -237,7 +242,7 @@ export function TopologyView() {
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
               fitView
-              minZoom={0.2}
+              minZoom={GRAPH_MIN_ZOOM}
               maxZoom={1.5}
               proOptions={{ hideAttribution: true }}
             >

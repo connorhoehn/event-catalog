@@ -2,8 +2,15 @@
 // src/declarations/sfu.ts
 //
 // The `sfu.*` namespace — every cross-service event `live-video-streaming`
-// (the SFU) emits: 12 durable webhook events, 3 control-plane signal events,
-// and 5 chat-bus signal events. Twenty in total.
+// (the SFU) emits: 12 durable webhook events, 7 control-plane signal events,
+// 5 compose-job signal events, and 5 chat-bus signal events. Twenty-nine in
+// total.
+//
+// 2026-09-07: nine of those are new. A cross-repo audit found nine events
+// riding the SAME `stream-events` hub as the three already-declared
+// control-plane events, declared nowhere — not here, and not in LVS's own
+// `src/event-declarations.js` either. Each was read at its construction site
+// and is justified in the header of the part file that holds it.
 //
 // WHY THEY LIVE HERE
 // ------------------
@@ -67,12 +74,64 @@
 //
 // Fields the producer never sends are dropped rather than kept as aspirational
 // documentation; fields it does send are added.
+//
+// FILE LAYOUT (2026-09-07 decomposition — declarations unchanged, fingerprints
+// identical): the three groups above now live one file per bus under
+// `./sfu/`:
+//   webhook.ts           the 12 durable webhook events (HTTP POST → platform-api)
+//   control-plane.ts     the 7 channel-state signal events (`stream-events`)
+//   recording-compose.ts the 5 compose-job signal events (`stream-events`)
+//   chat-bus.ts          the 5 chat-bus signal events (`chat-bus:<arn>`)
+// This module stays the single public entry point: it re-exports every
+// declaration under its original name, owns the aggregate array in its
+// original order, and — critically — owns the ONE `annotateDeclarations()`
+// call together with BOTH glossaries it applies (`FIELDS` and `FORMATS`).
+// Keeping all three here is what guarantees the split cannot silently change
+// which description or which lexical `format` lands on which event. Never call
+// `annotateDeclarations` from a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sfuDeclarations = exports.sfuChatUserUnbanned = exports.sfuChatUserBanned = exports.sfuChatUserDisconnected = exports.sfuChatMessageDeleted = exports.sfuChatMessage = exports.sfuRecordingStateChanged = exports.sfuProducerRemoved = exports.sfuProducerAdded = exports.sfuChannelDeleted = exports.sfuChannelUpdated = exports.sfuChannelCreated = exports.sfuRecordingCompleted = exports.sfuRecordingStarted = exports.sfuStreamThumbnailUpdated = exports.sfuStreamHealthRecovered = exports.sfuStreamHealthDegraded = exports.sfuStreamEnded = exports.sfuStreamStarted = exports.sfuSessionEnded = exports.sfuSessionCreated = void 0;
+exports.sfuDeclarations = exports.sfuChatUserUnbanned = exports.sfuChatUserBanned = exports.sfuChatUserDisconnected = exports.sfuChatMessageDeleted = exports.sfuChatMessage = exports.sfuRecordingComposeCompleted = exports.sfuRecordingComposeFailed = exports.sfuRecordingComposeProgress = exports.sfuRecordingComposeStarted = exports.sfuRecordingComposeQueued = exports.sfuChatEvent = exports.sfuMemberOwnerChanged = exports.sfuParticipantDisconnected = exports.sfuProducerStateChanged = exports.sfuRecordingStateChanged = exports.sfuProducerRemoved = exports.sfuProducerAdded = exports.sfuChannelDeleted = exports.sfuChannelUpdated = exports.sfuChannelCreated = exports.sfuRecordingCompleted = exports.sfuRecordingStarted = exports.sfuStreamThumbnailUpdated = exports.sfuStreamHealthRecovered = exports.sfuStreamHealthDegraded = exports.sfuStreamEnded = exports.sfuStreamStarted = exports.sfuSessionEnded = exports.sfuSessionCreated = void 0;
 const field_glossary_1 = require("./field-glossary");
-const PRODUCER = 'sfu-cluster';
-const BASE_TAGS = ['sfu', `producer:${PRODUCER}`];
-const DAY = 86400;
+const webhook_1 = require("./sfu/webhook");
+const control_plane_1 = require("./sfu/control-plane");
+const recording_compose_1 = require("./sfu/recording-compose");
+const chat_bus_1 = require("./sfu/chat-bus");
+// ---------------------------------------------------------------------------
+// Public surface — every declaration, under the name it has always had.
+// ---------------------------------------------------------------------------
+var webhook_2 = require("./sfu/webhook");
+Object.defineProperty(exports, "sfuSessionCreated", { enumerable: true, get: function () { return webhook_2.sfuSessionCreated; } });
+Object.defineProperty(exports, "sfuSessionEnded", { enumerable: true, get: function () { return webhook_2.sfuSessionEnded; } });
+Object.defineProperty(exports, "sfuStreamStarted", { enumerable: true, get: function () { return webhook_2.sfuStreamStarted; } });
+Object.defineProperty(exports, "sfuStreamEnded", { enumerable: true, get: function () { return webhook_2.sfuStreamEnded; } });
+Object.defineProperty(exports, "sfuStreamHealthDegraded", { enumerable: true, get: function () { return webhook_2.sfuStreamHealthDegraded; } });
+Object.defineProperty(exports, "sfuStreamHealthRecovered", { enumerable: true, get: function () { return webhook_2.sfuStreamHealthRecovered; } });
+Object.defineProperty(exports, "sfuStreamThumbnailUpdated", { enumerable: true, get: function () { return webhook_2.sfuStreamThumbnailUpdated; } });
+Object.defineProperty(exports, "sfuRecordingStarted", { enumerable: true, get: function () { return webhook_2.sfuRecordingStarted; } });
+Object.defineProperty(exports, "sfuRecordingCompleted", { enumerable: true, get: function () { return webhook_2.sfuRecordingCompleted; } });
+Object.defineProperty(exports, "sfuChannelCreated", { enumerable: true, get: function () { return webhook_2.sfuChannelCreated; } });
+Object.defineProperty(exports, "sfuChannelUpdated", { enumerable: true, get: function () { return webhook_2.sfuChannelUpdated; } });
+Object.defineProperty(exports, "sfuChannelDeleted", { enumerable: true, get: function () { return webhook_2.sfuChannelDeleted; } });
+var control_plane_2 = require("./sfu/control-plane");
+Object.defineProperty(exports, "sfuProducerAdded", { enumerable: true, get: function () { return control_plane_2.sfuProducerAdded; } });
+Object.defineProperty(exports, "sfuProducerRemoved", { enumerable: true, get: function () { return control_plane_2.sfuProducerRemoved; } });
+Object.defineProperty(exports, "sfuRecordingStateChanged", { enumerable: true, get: function () { return control_plane_2.sfuRecordingStateChanged; } });
+Object.defineProperty(exports, "sfuProducerStateChanged", { enumerable: true, get: function () { return control_plane_2.sfuProducerStateChanged; } });
+Object.defineProperty(exports, "sfuParticipantDisconnected", { enumerable: true, get: function () { return control_plane_2.sfuParticipantDisconnected; } });
+Object.defineProperty(exports, "sfuMemberOwnerChanged", { enumerable: true, get: function () { return control_plane_2.sfuMemberOwnerChanged; } });
+Object.defineProperty(exports, "sfuChatEvent", { enumerable: true, get: function () { return control_plane_2.sfuChatEvent; } });
+var recording_compose_2 = require("./sfu/recording-compose");
+Object.defineProperty(exports, "sfuRecordingComposeQueued", { enumerable: true, get: function () { return recording_compose_2.sfuRecordingComposeQueued; } });
+Object.defineProperty(exports, "sfuRecordingComposeStarted", { enumerable: true, get: function () { return recording_compose_2.sfuRecordingComposeStarted; } });
+Object.defineProperty(exports, "sfuRecordingComposeProgress", { enumerable: true, get: function () { return recording_compose_2.sfuRecordingComposeProgress; } });
+Object.defineProperty(exports, "sfuRecordingComposeFailed", { enumerable: true, get: function () { return recording_compose_2.sfuRecordingComposeFailed; } });
+Object.defineProperty(exports, "sfuRecordingComposeCompleted", { enumerable: true, get: function () { return recording_compose_2.sfuRecordingComposeCompleted; } });
+var chat_bus_2 = require("./sfu/chat-bus");
+Object.defineProperty(exports, "sfuChatMessage", { enumerable: true, get: function () { return chat_bus_2.sfuChatMessage; } });
+Object.defineProperty(exports, "sfuChatMessageDeleted", { enumerable: true, get: function () { return chat_bus_2.sfuChatMessageDeleted; } });
+Object.defineProperty(exports, "sfuChatUserDisconnected", { enumerable: true, get: function () { return chat_bus_2.sfuChatUserDisconnected; } });
+Object.defineProperty(exports, "sfuChatUserBanned", { enumerable: true, get: function () { return chat_bus_2.sfuChatUserBanned; } });
+Object.defineProperty(exports, "sfuChatUserUnbanned", { enumerable: true, get: function () { return chat_bus_2.sfuChatUserUnbanned; } });
 /**
  * SFU field vocabulary. Names whose meaning is platform-wide (`channelArn`,
  * `participantId`, `recordingId`, `durationMs`, `userId`, `reason` …) resolve
@@ -119,6 +178,17 @@ const FIELDS = {
     isRecording: 'Whether recording is now active on the channel — true on start, false on stop or prune.',
     pruned: 'Present and true only when the recording was discarded at finalize because it captured no tracks.',
     durationSeconds: 'How long the ban lasts, in seconds; null for a permanent ban.',
+    // --- stream-events control plane (added 2026-09-07) --------------------
+    transportId: 'Identifier of the mediasoup WebRTC transport the ops endpoint was asked to close.',
+    source: 'Which subsystem produced this event, and therefore which optional fields to expect on it.',
+    memberId: 'Deterministic member identity from the stage-WS token\'s `mid` claim. Stable across a person\'s browser tabs, unlike `participantId`, which is per-tab.',
+    ownerClientId: 'Client id currently holding the per-member owner lock; null when no session store is wired to arbitrate, in which case every tab treats itself as the owner.',
+    eventName: 'Caller-defined name of the custom chat event. At most 64 characters, never empty.',
+    attributes: 'Free-form string attributes carried alongside the event.',
+    publishedAt: 'ISO-8601 timestamp at which the SFU accepted and published the event.',
+    // --- compose jobs (added 2026-09-07) -----------------------------------
+    recordingStartedAt: 'ISO-8601 timestamp at which the recording being composed originally opened.',
+    wallMs: 'Wall-clock milliseconds the compose job had been running when this event fired.',
     // --- IVS Chat wire-protocol frames (chat/ChatHub.js) -------------------
     // PascalCase because these payloads are ALSO broadcast verbatim to
     // IVS-style WebSocket clients. See the block comment on the chat
@@ -142,592 +212,48 @@ const FORMATS = {
     url: 'uri',
     thumbnailUrl: 'uri',
     composedUrl: 'uri',
+    publishedAt: 'date-time',
+    recordingStartedAt: 'date-time',
+    composedAt: 'date-time',
     SendTime: 'date-time',
     DeleteTime: 'date-time',
     DisconnectTime: 'date-time',
 };
-// ===========================================================================
-// Webhook events (durable) — webhookDispatcher.emit(channelArn, type, data),
-// delivered as HTTP POST. Consumed by platform-api's lvsWebhooks route.
-// ===========================================================================
-/** A WebRTC transport session opened for one participant. */
-exports.sfuSessionCreated = {
-    namespace: 'sfu',
-    name: 'sfu.session.created',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'A WebRTC transport session has been established for a participant on a channel. '
-        + 'Emitted once per participant per session join (api/channels/index.js:412).',
-    tags: [...BASE_TAGS, 'webhook', 'session', 'lifecycle'],
-    queue: 'sfu-session-events',
-    retention: 7 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            sessionId: { type: 'string' },
-            participantId: { type: 'string' },
-        },
-        required: ['channelArn', 'sessionId', 'participantId'],
-        additionalProperties: false,
-    },
-};
-/** A WebRTC transport session closed. */
-exports.sfuSessionEnded = {
-    namespace: 'sfu',
-    name: 'sfu.session.ended',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'A WebRTC transport session has closed — the transport observer fired "close". '
-        + 'Carries the whole session lifetime (api/channels/index.js:434).',
-    tags: [...BASE_TAGS, 'webhook', 'session', 'lifecycle'],
-    queue: 'sfu-session-events',
-    retention: 7 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            sessionId: { type: 'string' },
-            participantId: { type: 'string' },
-            durationMs: { type: 'integer', minimum: 0 },
-        },
-        required: ['channelArn', 'sessionId', 'participantId', 'durationMs'],
-        additionalProperties: false,
-    },
-};
-/** A producer track was added — a live stream going online. */
-exports.sfuStreamStarted = {
-    namespace: 'sfu',
-    name: 'sfu.stream.started',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'A producer (one audio or video track) was added on a channel — the first track of a '
-        + 'live stream going online. Emitted from api/channels/transports.js:137 and '
-        + 'api/channels/index.js:641.',
-    tags: [...BASE_TAGS, 'webhook', 'stream', 'lifecycle'],
-    queue: 'sfu-stream-events',
-    retention: 30 * DAY,
-    dlqRetention: 90 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            participantId: { type: 'string' },
-            kind: { type: 'string', enum: ['audio', 'video'] },
-            producerId: { type: 'string' },
-        },
-        required: ['channelArn', 'kind', 'producerId'],
-        additionalProperties: false,
-    },
-};
-/** A producer track was removed. */
-exports.sfuStreamEnded = {
-    namespace: 'sfu',
-    name: 'sfu.stream.ended',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'A producer track was removed — the transport observer fired "close" on the live '
-        + 'transport. Emitted from api/channels/transports.js:142 and api/channels/index.js:644.',
-    tags: [...BASE_TAGS, 'webhook', 'stream', 'lifecycle'],
-    queue: 'sfu-stream-events',
-    retention: 30 * DAY,
-    dlqRetention: 90 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            participantId: { type: 'string' },
-            kind: { type: 'string', enum: ['audio', 'video'] },
-            producerId: { type: 'string' },
-        },
-        required: ['channelArn', 'kind', 'producerId'],
-        additionalProperties: false,
-    },
-};
-/** Stream health fell below thresholds. */
-exports.sfuStreamHealthDegraded = {
-    namespace: 'sfu',
-    name: 'sfu.stream.health.degraded',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'Stream health metrics fell below their thresholds — bitrate drop, low fps, or an '
-        + 'over-long keyframe gap. `reasons` enumerates every predicate that tripped '
-        + '(services/streamHealthMonitor.js:99).',
-    tags: [...BASE_TAGS, 'webhook', 'stream', 'health'],
-    queue: 'sfu-stream-events',
-    retention: 30 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            reasons: { type: 'array', items: { type: 'string' }, minItems: 1 },
-            bitrateBps: { type: 'integer', minimum: 0 },
-            fps: { type: ['number', 'null'] },
-            keyframeGapSec: { type: ['number', 'null'] },
-        },
-        required: ['channelArn', 'reasons', 'bitrateBps', 'fps', 'keyframeGapSec'],
-        additionalProperties: false,
-    },
-};
-/** Stream health returned to nominal. */
-exports.sfuStreamHealthRecovered = {
-    namespace: 'sfu',
-    name: 'sfu.stream.health.recovered',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'Stream health returned to nominal after a previous degraded state '
-        + '(services/streamHealthMonitor.js:111).',
-    tags: [...BASE_TAGS, 'webhook', 'stream', 'health'],
-    queue: 'sfu-stream-events',
-    retention: 30 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            bitrateBps: { type: 'integer', minimum: 0 },
-            fps: { type: ['number', 'null'] },
-        },
-        required: ['channelArn', 'bitrateBps', 'fps'],
-        additionalProperties: false,
-    },
-};
-/** A new thumbnail snapshot was written. */
-exports.sfuStreamThumbnailUpdated = {
-    namespace: 'sfu',
-    name: 'sfu.stream.thumbnail.updated',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'A new thumbnail snapshot was written to storage for a live channel '
-        + '(thumbnails/ThumbnailManager.js:266).',
-    tags: [...BASE_TAGS, 'webhook', 'stream', 'thumbnail'],
-    queue: 'sfu-stream-events',
-    retention: 7 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            path: { type: 'string' },
-            sizeBytes: { type: 'integer', minimum: 0 },
-        },
-        required: ['channelArn', 'path', 'sizeBytes'],
-        additionalProperties: false,
-    },
-};
-/** A recording session opened. */
-exports.sfuRecordingStarted = {
-    namespace: 'sfu',
-    name: 'sfu.recording.started',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'A recording session opened on a live stream. Emitted from both the single-file path '
-        + '(recording/RecordingManager.js:943) and the per-peer path (:2426); only the latter '
-        + 'carries `legCount`.',
-    tags: [...BASE_TAGS, 'webhook', 'recording', 'lifecycle'],
-    queue: 'sfu-recording-events',
-    retention: 90 * DAY,
-    dlqRetention: 365 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            recordingId: { type: 'string' },
-            startedAt: { type: 'string' },
-            destination: { type: 'string' },
-            legCount: { type: 'integer', minimum: 0 },
-        },
-        required: ['channelArn', 'recordingId', 'startedAt', 'destination'],
-        additionalProperties: false,
-    },
-};
-/**
- * A recording session finalized.
- *
- * The widest schema in the namespace, and the one LVS's own copy got most
- * wrong: seven producer fields were missing under `additionalProperties:
- * false`. platform-api's lvsWebhooks route is the live consumer and reads
- * every one of them.
- */
-exports.sfuRecordingCompleted = {
-    namespace: 'sfu',
-    name: 'sfu.recording.completed',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'A recording session finalized. Carries the segment manifest, the per-participant track '
-        + 'manifest, total encoded size, duration, and the recording profile the run began under. '
-        + 'Drained by platform-api\'s lvsWebhooks route into video-call-recordings '
-        + '(recording/RecordingManager.js:1756).',
-    tags: [...BASE_TAGS, 'webhook', 'recording', 'lifecycle'],
-    queue: 'sfu-recording-events',
-    retention: 90 * DAY,
-    dlqRetention: 365 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            recordingId: { type: 'string' },
-            segments: {
-                type: 'array',
-                items: {
-                    type: 'object',
-                    properties: {
-                        key: { type: 'string', description: 'Storage key of this segment, relative to the recording bucket.' },
-                        url: { type: 'string' },
-                        size: { type: 'integer', minimum: 0 },
-                    },
-                    required: ['key', 'url', 'size'],
-                    additionalProperties: false,
-                },
-            },
-            totalSize: { type: 'integer', minimum: 0 },
-            durationMs: { type: 'integer', minimum: 0 },
-            destination: { type: 'string' },
-            thumbnailUrl: { type: 'string' },
-            composedUrl: { type: 'string' },
-            tracks: {
-                type: 'array',
-                items: {
-                    type: 'object',
-                    properties: {
-                        participantId: { type: 'string' },
-                        userId: { type: 'string' },
-                        key: { type: ['string', 'null'], description: 'Storage key of this participant\'s track, relative to the recording bucket. Null when the leg was never uploaded.' },
-                        url: { type: ['string', 'null'], description: 'Fetchable URL of this participant\'s track. Null when the leg was neither uploaded nor written locally.' },
-                        size: { type: 'integer', minimum: 0 },
-                        kind: { type: 'string' },
-                    },
-                    required: ['participantId', 'kind'],
-                    additionalProperties: true,
-                },
-            },
-            recordingProfile: { type: 'string' },
-            profileVersion: { type: 'number' },
-            composePerPeer: { type: 'boolean' },
-            transcribe: { type: 'boolean' },
-        },
-        required: [
-            'channelArn', 'recordingId', 'segments', 'totalSize', 'durationMs', 'destination',
-            'recordingProfile', 'profileVersion', 'composePerPeer', 'transcribe',
-        ],
-        additionalProperties: false,
-    },
-};
-/** A new channel was created. */
-exports.sfuChannelCreated = {
-    namespace: 'sfu',
-    name: 'sfu.channel.created',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'A new IVS-style channel was created via POST /api/channels '
-        + '(api/channels/index.js:1375).',
-    tags: [...BASE_TAGS, 'webhook', 'channel', 'lifecycle'],
-    queue: 'sfu-channel-events',
-    retention: 365 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            name: { type: 'string', description: 'Human-readable channel name supplied at creation.' },
-            type: {
-                type: 'string',
-                description: 'Channel quality tier — STANDARD, BASIC, ADVANCED_HD or ADVANCED_SD. Defaults to STANDARD when the create request omits it.',
-            },
-        },
-        required: ['channelArn', 'name', 'type'],
-        additionalProperties: false,
-    },
-};
-/** A field on an existing channel was mutated. */
-exports.sfuChannelUpdated = {
-    namespace: 'sfu',
-    name: 'sfu.channel.updated',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'A configuration field on an existing channel was mutated. `field` names which one '
-        + '(api/channels/index.js:1877, :1907).',
-    tags: [...BASE_TAGS, 'webhook', 'channel', 'lifecycle'],
-    queue: 'sfu-channel-events',
-    retention: 365 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            field: { type: 'string' },
-        },
-        required: ['channelArn', 'field'],
-        additionalProperties: false,
-    },
-};
-/** A channel was hard-deleted. */
-exports.sfuChannelDeleted = {
-    namespace: 'sfu',
-    name: 'sfu.channel.deleted',
-    transport: 'durable',
-    producer: PRODUCER,
-    description: 'A channel was hard-deleted via DELETE /api/channels/:arn. The wire `data` is empty; '
-        + 'the envelope\'s channelArn identifies the removed channel (api/channels/index.js:2014).',
-    tags: [...BASE_TAGS, 'webhook', 'channel', 'lifecycle'],
-    queue: 'sfu-channel-events',
-    retention: 365 * DAY,
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-        },
-        required: ['channelArn'],
-        additionalProperties: false,
-    },
-};
-// ===========================================================================
-// Control-plane events (signal) — streamEventsHub.emit(arn, type, data),
-// fanned out cluster-wide on the Redis pub/sub topic `stream-events`.
-//
-// `participant.joined` / `participant.left` are deliberately NOT here: those
-// are Socket.IO room-scoped frames delivered to per-client sockets, not
-// service-to-service traffic.
-// ===========================================================================
-/** A mediasoup Producer was created on the cluster. */
-exports.sfuProducerAdded = {
-    namespace: 'sfu',
-    name: 'sfu.producer.added',
-    transport: 'signal',
-    producer: PRODUCER,
-    description: 'A mediasoup Producer was created on the cluster. Emitted from the create-producer API '
-        + 'path (api/channels/index.js:617), which stamps identity and initial state, and from '
-        + 'the transport produce path (api/channels/transports.js:110), which does not.',
-    tags: [...BASE_TAGS, 'control-plane', 'producer'],
-    channel: 'stream-events',
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            producerId: { type: 'string' },
-            kind: { type: 'string', enum: ['audio', 'video'] },
-            participantId: { type: 'string' },
-            displayName: { type: 'string' },
-            userId: { type: 'string' },
-            isPiped: { type: 'boolean' },
-            state: {
-                type: 'object',
-                properties: {
-                    muted: { type: 'boolean' },
-                },
-                required: ['muted'],
-                additionalProperties: true,
-            },
-        },
-        required: ['channelArn', 'producerId', 'kind', 'isPiped'],
-        additionalProperties: false,
-    },
-};
-/** A mediasoup Producer was closed. */
-exports.sfuProducerRemoved = {
-    namespace: 'sfu',
-    name: 'sfu.producer.removed',
-    transport: 'signal',
-    producer: PRODUCER,
-    description: 'A mediasoup Producer was closed — the underlying transport observer fired "close". '
-        + 'Emitted from api/channels/index.js:624 and api/channels/transports.js:115.',
-    tags: [...BASE_TAGS, 'control-plane', 'producer'],
-    channel: 'stream-events',
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            producerId: { type: 'string' },
-            kind: { type: 'string', enum: ['audio', 'video'] },
-            participantId: { type: 'string' },
-        },
-        required: ['channelArn', 'producerId', 'kind'],
-        additionalProperties: false,
-    },
-};
-/** Recording started or stopped for a channel. */
-exports.sfuRecordingStateChanged = {
-    namespace: 'sfu',
-    name: 'sfu.recording.state.changed',
-    transport: 'signal',
-    producer: PRODUCER,
-    description: 'Recording started or stopped for a channel. Pushed onto the per-channel stream-events '
-        + 'bus so stage-WS subscribers can drop their GET /:arn/recording poll. Emitted from '
-        + 'recording/RecordingManager.js via _emitStateChange (:501) on start (:948), per-peer '
-        + 'start (:2433), stop (:1837) and zero-track prune (:1644).',
-    tags: [...BASE_TAGS, 'control-plane', 'recording'],
-    channel: 'stream-events',
-    schema: {
-        type: 'object',
-        properties: {
-            channelArn: { type: 'string' },
-            isRecording: { type: 'boolean' },
-            recordingId: { type: 'string' },
-            startedAt: { type: 'string' },
-            pruned: { type: 'boolean' },
-            reason: { type: 'string' },
-        },
-        required: ['channelArn', 'isRecording'],
-        additionalProperties: false,
-    },
-};
-// ===========================================================================
-// Chat-bus events (signal) — Redis channel `chat-bus:<channelArn>`.
-//
-// Two wire conventions coexist here BY DESIGN, not by drift:
-//
-//   * chat/ChatHub.js (message / message_deleted / user_disconnected) uses
-//     IVS Chat wire-protocol PascalCase — Type, Id, Sender, Content,
-//     SendTime. These exact objects are ALSO broadcast to IVS-style
-//     WebSocket clients on /api/channels/:arn/chat (ChatHub._broadcast is
-//     handed the same object it publishes at :161), so the key casing is
-//     an external protocol's, not ours to normalise. LVS is the IVS
-//     replacement target; reshaping these breaks IVS parity.
-//
-//   * api/channels/chatBans.js (user.banned / user.unbanned) uses lowercase
-//     `type` — internal cross-pod sync only, never seen by a client.
-//
-// The PascalCase keys are the reason `FOREIGN_WIRE_PROTOCOL_FIELDS` exists in
-// tests/declaration-hygiene.test.ts. See the note there.
-// ===========================================================================
-/** A chat message was sent. */
-exports.sfuChatMessage = {
-    namespace: 'sfu',
-    name: 'sfu.chat.message',
-    transport: 'signal',
-    producer: PRODUCER,
-    description: 'A chat message was sent by a participant, in IVS Chat wire-protocol shape. Persisted to '
-        + 'the per-channel history list before fan-out; republished cross-pod on chat-bus so other '
-        + 'pods can broadcast it to their local sockets (chat/ChatHub.js:206).',
-    tags: [...BASE_TAGS, 'chat', 'ivs-parity'],
-    schema: {
-        type: 'object',
-        properties: {
-            Type: { type: 'string', enum: ['MESSAGE'], description: 'IVS Chat wire-protocol frame discriminator. Always `MESSAGE`.' },
-            Id: { type: 'string' },
-            RequestId: { type: 'string' },
-            Sender: {
-                type: 'object',
-                properties: {
-                    UserId: { type: 'string' },
-                    Attributes: { type: 'object', additionalProperties: true },
-                },
-                required: ['UserId', 'Attributes'],
-                additionalProperties: true,
-            },
-            Content: { type: 'string' },
-            Attributes: { type: 'object', additionalProperties: true },
-            SendTime: { type: 'string' },
-        },
-        required: ['Type', 'Id', 'Sender', 'Content', 'Attributes', 'SendTime'],
-        additionalProperties: true,
-    },
-};
-/** A chat message was deleted by a moderator. */
-exports.sfuChatMessageDeleted = {
-    namespace: 'sfu',
-    name: 'sfu.chat.message_deleted',
-    transport: 'signal',
-    producer: PRODUCER,
-    description: 'A previously sent chat message was deleted by a moderator, in IVS Chat wire-protocol '
-        + 'shape (chat/ChatHub.js:226).',
-    tags: [...BASE_TAGS, 'chat', 'moderation', 'ivs-parity'],
-    schema: {
-        type: 'object',
-        properties: {
-            Type: { type: 'string', enum: ['MESSAGE_DELETED'], description: 'IVS Chat wire-protocol frame discriminator. Always `MESSAGE_DELETED`.' },
-            Id: { type: 'string' },
-            Reason: { type: 'string' },
-            DeleteTime: { type: 'string' },
-        },
-        required: ['Type', 'Id', 'Reason', 'DeleteTime'],
-        additionalProperties: true,
-    },
-};
-/** A user was forcibly disconnected from chat. */
-exports.sfuChatUserDisconnected = {
-    namespace: 'sfu',
-    name: 'sfu.chat.user_disconnected',
-    transport: 'signal',
-    producer: PRODUCER,
-    description: 'A user was forcibly disconnected from a chat channel by a moderator, in IVS Chat '
-        + 'wire-protocol shape. Subscribing pods close any local sockets held by the named user '
-        + '(producer chat/ChatHub.js:238; the cross-pod consumer is chat/ChatHub.js:137).',
-    tags: [...BASE_TAGS, 'chat', 'moderation', 'ivs-parity'],
-    schema: {
-        type: 'object',
-        properties: {
-            Type: { type: 'string', enum: ['USER_DISCONNECTED'], description: 'IVS Chat wire-protocol frame discriminator. Always `USER_DISCONNECTED`.' },
-            UserId: { type: 'string' },
-            Reason: { type: 'string' },
-            DisconnectTime: { type: 'string' },
-        },
-        required: ['Type', 'UserId', 'Reason', 'DisconnectTime'],
-        additionalProperties: true,
-    },
-};
-/** A user was banned from chat. */
-exports.sfuChatUserBanned = {
-    namespace: 'sfu',
-    name: 'sfu.chat.user.banned',
-    transport: 'signal',
-    producer: PRODUCER,
-    description: 'A user was banned from chat on a channel — internal cross-pod propagation, NOT part of '
-        + 'the IVS Chat wire protocol, so the keys are lowercase and no client ever sees it '
-        + '(api/channels/chatBans.js:42).',
-    tags: [...BASE_TAGS, 'chat', 'moderation', 'internal'],
-    schema: {
-        type: 'object',
-        properties: {
-            type: { type: 'string', enum: ['user.banned'], description: 'Chat-bus frame discriminator. Always `user.banned`.' },
-            userId: { type: 'string' },
-            reason: { type: 'string' },
-            durationSeconds: { type: ['integer', 'null'], minimum: 0 },
-        },
-        required: ['type', 'userId', 'reason', 'durationSeconds'],
-        additionalProperties: false,
-    },
-};
-/** A previously banned user was unbanned. */
-exports.sfuChatUserUnbanned = {
-    namespace: 'sfu',
-    name: 'sfu.chat.user.unbanned',
-    transport: 'signal',
-    producer: PRODUCER,
-    description: 'A previously banned user was unbanned — internal cross-pod propagation, lowercase keys, '
-        + 'no client visibility (api/channels/chatBans.js:90).',
-    tags: [...BASE_TAGS, 'chat', 'moderation', 'internal'],
-    schema: {
-        type: 'object',
-        properties: {
-            type: { type: 'string', enum: ['user.unbanned'], description: 'Chat-bus frame discriminator. Always `user.unbanned`.' },
-            userId: { type: 'string' },
-        },
-        required: ['type', 'userId'],
-        additionalProperties: false,
-    },
-};
-/** Every event the SFU emits: 12 durable webhook, 3 control-plane, 5 chat-bus. */
+/** Every event the SFU emits: 12 durable webhook, 7 control-plane, 5 compose-job, 5 chat-bus. */
 exports.sfuDeclarations = [
     // webhook (durable)
-    exports.sfuSessionCreated,
-    exports.sfuSessionEnded,
-    exports.sfuStreamStarted,
-    exports.sfuStreamEnded,
-    exports.sfuStreamHealthDegraded,
-    exports.sfuStreamHealthRecovered,
-    exports.sfuStreamThumbnailUpdated,
-    exports.sfuRecordingStarted,
-    exports.sfuRecordingCompleted,
-    exports.sfuChannelCreated,
-    exports.sfuChannelUpdated,
-    exports.sfuChannelDeleted,
+    webhook_1.sfuSessionCreated,
+    webhook_1.sfuSessionEnded,
+    webhook_1.sfuStreamStarted,
+    webhook_1.sfuStreamEnded,
+    webhook_1.sfuStreamHealthDegraded,
+    webhook_1.sfuStreamHealthRecovered,
+    webhook_1.sfuStreamThumbnailUpdated,
+    webhook_1.sfuRecordingStarted,
+    webhook_1.sfuRecordingCompleted,
+    webhook_1.sfuChannelCreated,
+    webhook_1.sfuChannelUpdated,
+    webhook_1.sfuChannelDeleted,
     // control-plane (signal)
-    exports.sfuProducerAdded,
-    exports.sfuProducerRemoved,
-    exports.sfuRecordingStateChanged,
+    control_plane_1.sfuProducerAdded,
+    control_plane_1.sfuProducerRemoved,
+    control_plane_1.sfuRecordingStateChanged,
+    control_plane_1.sfuProducerStateChanged,
+    control_plane_1.sfuParticipantDisconnected,
+    control_plane_1.sfuMemberOwnerChanged,
+    control_plane_1.sfuChatEvent,
+    // compose jobs (signal)
+    recording_compose_1.sfuRecordingComposeQueued,
+    recording_compose_1.sfuRecordingComposeStarted,
+    recording_compose_1.sfuRecordingComposeProgress,
+    recording_compose_1.sfuRecordingComposeFailed,
+    recording_compose_1.sfuRecordingComposeCompleted,
     // chat-bus (signal)
-    exports.sfuChatMessage,
-    exports.sfuChatMessageDeleted,
-    exports.sfuChatUserDisconnected,
-    exports.sfuChatUserBanned,
-    exports.sfuChatUserUnbanned,
+    chat_bus_1.sfuChatMessage,
+    chat_bus_1.sfuChatMessageDeleted,
+    chat_bus_1.sfuChatUserDisconnected,
+    chat_bus_1.sfuChatUserBanned,
+    chat_bus_1.sfuChatUserUnbanned,
 ];
 // Stamp the shared field vocabulary onto every schema above (additive —
 // fills absent property descriptions and formats only). See ./field-glossary.ts.

@@ -54,6 +54,25 @@ export interface EventCatalogClientOptions extends EventCatalogConfig {
      * request.
      */
     strictTransport?: boolean;
+    /**
+     * Shared secret presented as `Authorization: Bearer <token>` on the
+     * mutating registry calls this client makes (`syncToRemoteRegistry`,
+     * the subscriber heartbeat, subscriber registration, `pinManifest`).
+     *
+     * v0.5.0 added optional bearer auth to the *server*
+     * (`EVENT_CATALOG_AUTH_TOKEN`, see `src/server/auth.ts`) which challenges
+     * every non-GET on `/api`. Without a matching credential here, switching
+     * that on would 401 every producer's boot-time sync and heartbeat — and
+     * because the library never blocks on the registry, each service would
+     * still report healthy while the inventory silently emptied out. This is
+     * the client half of that feature.
+     *
+     * Defaults to `process.env.EVENT_CATALOG_AUTH_TOKEN`. Unset — the
+     * default, and what an unauthenticated server expects — means no
+     * `Authorization` header is sent and the requests are byte-for-byte what
+     * they were before v0.5.0.
+     */
+    authToken?: string;
 }
 /**
  * The library half of event-catalog: declare events, publish them with
@@ -79,14 +98,42 @@ export declare class EventCatalog {
     private readonly durable;
     private readonly syncRetryManager;
     private connected;
+    /** Shared by concurrent `connect()` callers so a race starts one re-sync loop. */
+    private connectInFlight;
     private resyncInterval;
-    /** Phase E3.5 — dedupe deprecation log to one line per alias per process. */
+    /**
+     * The pending background-sync retry. Tracked so `disconnect()` can clear
+     * it: an untracked chained `setTimeout` keeps the event loop alive after
+     * SIGTERM, and a reconnect used to resume every chain a previous failed
+     * connect had left behind.
+     */
+    private backgroundSyncTimer;
+    /** Heartbeat interval, so `disconnect()` releases it even if `stop()` is never called. */
+    private heartbeatInterval;
+    /**
+     * Phase E3.5 — dedupe deprecation log to one line per alias per process.
+     * Keyed by a *declared* alias, so this is bounded by the declaration set.
+     */
     private readonly warnedAliases;
-    /** wave25-a — track which deprecated event names we've already warned about. */
+    /**
+     * wave25-a — deprecated event names already warned about. Keyed by a
+     * declared canonical name, so bounded by the declaration set.
+     */
     private readonly warnedDeprecated;
-    /** Undeclared names already warned about on the publishSignal path. */
-    private readonly warnedUndeclaredSignal;
-    /** Publishes discarded because a transport was down, keyed by event name. */
+    /**
+     * Undeclared names already warned about on the publishSignal path.
+     * Bounded and rate-limited: the key is caller-controlled, and "warn once
+     * per key" over an unbounded key space is still unbounded logging.
+     */
+    private readonly undeclaredSignalWarnings;
+    /** Throttle for the per-publish hook/callback failure warnings. */
+    private readonly hookWarnings;
+    private hookFailures;
+    /**
+     * Publishes discarded because a transport was down, keyed by event name.
+     * Bounded per key with an exact lifetime total — see
+     * {@link getDroppedPublishTotal}.
+     */
     private readonly droppedPublishes;
     /**
      * @param config transport URLs, service identity, and optional
@@ -111,6 +158,7 @@ export declare class EventCatalog {
      *   starts regardless. Publishing never blocks on the registry.
      */
     connect(): Promise<void>;
+    private doConnect;
     /**
      * Stop the periodic registry re-sync and disconnect both transports.
      * Idempotent and best-effort — safe to call from a SIGTERM handler.
@@ -120,6 +168,17 @@ export declare class EventCatalog {
      * in-flight durable messages.
      */
     disconnect(): Promise<void>;
+    /**
+     * Clear every timer this catalog owns and disconnect both transports.
+     *
+     * Deliberately unconditional rather than gated on `connected`: a
+     * heartbeat can be started before connect, a background-sync chain can
+     * outlive a failed connect, and a transport can be left half-open by a
+     * partial connect. Any one of those surviving `disconnect()` keeps the
+     * event loop alive after SIGTERM — the classic container that will not
+     * stop. Idempotent; safe to call twice, and safe after a failed connect.
+     */
+    private releaseResources;
     /**
      * Register an event with the local registry. In strict mode
      * (`config.strict === true` or `EVENT_CATALOG_STRICT=true`), throws
@@ -216,6 +275,12 @@ export declare class EventCatalog {
      * cached schema is stale and the consumer should re-fetch.
      */
     getSchemaFingerprint(eventName: string): Promise<string | null>;
+    /**
+     * Headers for a mutating registry call. Adds `Authorization: Bearer` only
+     * when a token is configured, so an unauthenticated server sees exactly
+     * the request shape it saw before v0.5.0.
+     */
+    private registryHeaders;
     private isStrict;
     /**
      * Publish a declared event. Validates the payload locally against the
@@ -343,8 +408,34 @@ export declare class EventCatalog {
      */
     getDroppedPublishCount(eventName: string): number;
     getDroppedPublishCount(): Map<string, number>;
+    /**
+     * Every publish this catalog has dropped, and how much per-event detail
+     * has been evicted for capacity.
+     *
+     * `getDroppedPublishCount()`'s map holds at most 1000 event names —
+     * `publishSignal()` accepts undeclared names, so its key space is
+     * caller-controlled. `total` here never evicts and is the number to
+     * alert on. `suppressedWarnings` counts log lines withheld by the
+     * per-publish throttles, so a quiet log is not mistaken for a quiet
+     * system.
+     */
+    getDroppedPublishStats(): {
+        total: number;
+        trackedEvents: number;
+        evictedEvents: number;
+        evictedTotal: number;
+        hookFailures: number;
+        suppressedWarnings: number;
+    };
     /** Count a dropped publish and notify the configured observer. */
     private recordDroppedPublish;
+    /**
+     * Warn about a failure that recurs at the publish rate: counted every
+     * time, logged at most once a minute per key and ten times a minute
+     * overall. Without this a throwing hook turns a dependency outage into
+     * a log-volume outage.
+     */
+    private warnOnHotPath;
     /**
      * Message for "you referenced an event nobody declared". Includes what
      * to do next and the closest declared names — colon/dot confusion
@@ -352,6 +443,15 @@ export declare class EventCatalog {
      */
     private undeclaredEventMessage;
     private warnDeprecatedAlias;
+    /**
+     * Retry the declaration sync in the background with exponential back-off.
+     *
+     * At most one chain is ever pending: the handle is tracked so
+     * `disconnect()` can clear it, and a second `scheduleBackgroundSync()`
+     * replaces the first rather than running two chains. Before this, a
+     * connect/disconnect/connect cycle after repeated sync failures left one
+     * live chain per cycle, all re-syncing forever.
+     */
     private scheduleBackgroundSync;
     private syncToRemoteRegistry;
     private registerSubscriberRemote;

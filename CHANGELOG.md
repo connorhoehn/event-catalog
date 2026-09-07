@@ -177,15 +177,100 @@ wave through, and the service refuses to boot without `$REDIS_URL`.
   `resolve.dedupe`; the routes are also code-split now (initial JS 234 kB →
   74 kB gzipped).
 
+### Migration from `v0.3.59` (`474ed44`)
+
+**No consumer has to change a declaration.** `platform-api`,
+`websocket-gateway` (in `realtime-examples`) and `live-video-streaming` are all
+pinned to `474ed44`, and every declaration all three register is accepted
+unchanged by the tightened gate. That was checked, not assumed:
+
+- The gate only fires when one registry sees the *same* event name declared
+  twice with *different* schemas. None of the three does that. `platform-api`'s
+  only re-declaration is the four events `pipelineRaftStateMachineDeclarations`
+  shares with `pipelineRaftDeclarations`, and those are the same object — the
+  schema is byte-identical, so `declare()` takes the no-op path and never
+  reaches the checker. The gateway's 23 names and LVS's 20 are each unique.
+- Replaying every one of the 189 declarations this repo ships at `474ed44`
+  against its `v0.5.0` counterpart produces **zero** backward and **zero**
+  forward violations. The declaration sweeps added `description` and
+  `format` and loosened six `additionalProperties`; no `enum`, `pattern`,
+  `required` or bound was tightened on an existing event. `format` is inert —
+  `ajv` is not in the tree, so the fallback validator runs.
+- None of the three sets `strict`, and none sets `EVENT_CATALOG_STRICT`.
+  Server-side, `resolveCompatMode` defaults to `off`, so `POST /api/events`
+  does not gate at all unless an event carries `compatMode`, the caller sends
+  `x-event-catalog-strict`, or the operator sets `EVENT_CATALOG_STRICT`. No
+  shipped declaration carries `compatMode`.
+
+The rest of the list is likewise inert for these three: none calls
+`SignalTransport.getHistory()` or the audit log's `recent()`, none reads the
+DLQ list API, none runs `ec-lint-crd`, and none sets `strictTransport` (which
+defaults off, so disconnected signal publishes still resolve — they are only
+counted as errors rather than publishes now). The largest body any of them
+POSTs is LVS's 20-event bulk registration at 15 KB, well under the 1 MiB cap
+that is now actually enforced; a bulk POST of all 216 shipped declarations is
+234 KB.
+
+What an upgrading consumer must do, in order:
+
+1. **Set `REDIS_URL` on the event-catalog service** before deploying the new
+   image. This is the only step that can take the service down, and it is an
+   operator change, not a code change: unset is now a boot error rather than a
+   silent fall back to `redis://localhost:6379`.
+2. **Set `EVENT_CATALOG_CORS_ORIGIN`** if anything reaches the API from a
+   browser on another origin. The admin UI is served from the same origin and
+   is unaffected; `syncToRemoteRegistry`, CI and `curl` never involved CORS.
+3. **Re-pin and rebuild.** Exports are additive only — nothing was removed or
+   renamed, and `publish()` keeps its old `(string, T)` overload alongside the
+   new name-typed one, so existing call sites still compile.
+4. **Afterwards, check `GET /api/events` returns the count you expect** and
+   that the boot log carries no `compat-warn` lines. A `compat-warn` means the
+   registry took a schema the gate would refuse under strict mode — advisory
+   today, a `409` the moment anyone turns strict on.
+
+Two things to be careful of, neither of which bites today:
+
+- **Do not adopt the newly-shipped `sfuDeclarations`,
+  `gatewayDurableDeclarations` or `callCaptionDeclarations` without diffing
+  them first.** Those arrays cover 25 names that `platform-api` and LVS already
+  declare themselves, and 11 of the two copies disagree in a way the gate
+  reports: `sfu.recording.completed` (the whole `tracks[]` item schema), the
+  five `sfu.chat.*` events (this repo writes the `type` discriminator as an
+  enforced `enum`, LVS as an inert `const`), `sfu.recording.state.changed`,
+  `transcription:job.queued` and `transcription:transcript.ready`. Nothing
+  collides while each service declares only its own set, but a service that
+  registers both gets a version bump and a violation list, and on a shared
+  server the last writer decides which schema the message-queue workers
+  validate against.
+- **`ec-lint-crd` warnings now exit `3`, not `2`.** `2` is a usage error
+  across every bin in this package, so the documented `|| [ $? -eq 2 ]` recipe
+  was swallowing a typo'd path as clean-with-warnings. No consumer runs the
+  binary today; fix the recipe before anyone does.
+
+### Fixed (gratuitous break — `src/client/index.ts`)
+
+- **`EventCatalog` can now present a bearer token.** `v0.5.0` added optional
+  shared-secret auth to the server (`EVENT_CATALOG_AUTH_TOKEN`,
+  `src/server/auth.ts`), which challenges every non-GET on `/api` — and the
+  client had no way to answer it. Turning the feature on would have `401`'d
+  every producer's boot-time `syncToRemoteRegistry`, its heartbeat, subscriber
+  registration and `pinManifest`, and because the library never blocks on the
+  registry, each service would have gone on reporting healthy while the
+  inventory emptied and the topology, flow and "who consumes X" views went
+  blank. The new `authToken` option — defaulting to
+  `process.env.EVENT_CATALOG_AUTH_TOKEN` — sends `Authorization: Bearer` on
+  those four calls. Unset, which is the default and what an unauthenticated
+  server expects, sends no header and the requests are byte-for-byte what they
+  were before.
+
 ### Notes
 
 - Tests 1463 → 1950, plus 32 Playwright e2e specs. The 64 schema-gate tests
   each prove their case with a witness payload the old schema accepts and the
   new one rejects.
-- **Not done, needs a decision**: the 20 mutating endpoints still have no
-  authentication. `ServerConfig.authMiddleware` exists but nothing wires it and
-  distributed-core has no auth convention to follow, so no scheme was invented.
-  DLQ handlers still return raw AWS SDK error text to clients.
+- The 20 mutating endpoints now have optional bearer auth (`src/server/auth.ts`,
+  gated on `EVENT_CATALOG_AUTH_TOKEN`, off unless set) with the matching client
+  credential above. DLQ handlers still return raw AWS SDK error text to clients.
 - Known flake: the suite has a pre-existing ~1-in-6 `ECONNRESET` under parallel
   workers, measured at `v0.4.2` as well.
 

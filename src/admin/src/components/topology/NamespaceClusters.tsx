@@ -8,6 +8,7 @@
 // ReactFlow doesn't have a native "cluster" concept; this is the
 // workaround the agent audit recommended.
 
+import { memo, useMemo } from 'react';
 import { useStore } from '@xyflow/react';
 
 interface NamespaceClustersProps {
@@ -31,36 +32,46 @@ const NAMESPACE_COLORS: Record<string, { fill: string; stroke: string; text: str
 const PADDING = 24;
 const LABEL_OFFSET = 18;
 
-export function NamespaceClusters({ nodeNamespaces }: NamespaceClustersProps) {
+export const NamespaceClusters = memo(function NamespaceClusters({
+  nodeNamespaces,
+}: NamespaceClustersProps) {
   // Read live node positions from ReactFlow's store so we re-render as
   // the user drags nodes around.
   const nodes = useStore((s) => s.nodes);
 
   // Group nodes by namespace, computing each group's bounding box.
-  const groups = new Map<
-    string,
-    { x1: number; y1: number; x2: number; y2: number; count: number }
-  >();
-  for (const node of nodes) {
-    const ns = nodeNamespaces[node.id];
-    if (!ns) continue;
-    const w = node.measured?.width ?? node.width ?? 200;
-    const h = node.measured?.height ?? node.height ?? 60;
-    const x1 = node.position.x;
-    const y1 = node.position.y;
-    const x2 = x1 + w;
-    const y2 = y1 + h;
-    const cur = groups.get(ns);
-    if (!cur) {
-      groups.set(ns, { x1, y1, x2, y2, count: 1 });
-    } else {
-      cur.x1 = Math.min(cur.x1, x1);
-      cur.y1 = Math.min(cur.y1, y1);
-      cur.x2 = Math.max(cur.x2, x2);
-      cur.y2 = Math.max(cur.y2, y2);
-      cur.count += 1;
+  //
+  // Memoised on the node array: this walks every node in the graph, and on
+  // /flow the surrounding tree re-renders on each frame off the SSE tap.
+  // Recomputing 225 bounding boxes per event, to redraw nine rectangles that
+  // nothing moved, was pure per-frame overhead.
+  const groups = useMemo(() => {
+    const acc = new Map<
+      string,
+      { x1: number; y1: number; x2: number; y2: number; count: number }
+    >();
+    for (const node of nodes) {
+      const ns = nodeNamespaces[node.id];
+      if (!ns) continue;
+      const w = node.measured?.width ?? node.width ?? 200;
+      const h = node.measured?.height ?? node.height ?? 60;
+      const x1 = node.position.x;
+      const y1 = node.position.y;
+      const x2 = x1 + w;
+      const y2 = y1 + h;
+      const cur = acc.get(ns);
+      if (!cur) {
+        acc.set(ns, { x1, y1, x2, y2, count: 1 });
+      } else {
+        cur.x1 = Math.min(cur.x1, x1);
+        cur.y1 = Math.min(cur.y1, y1);
+        cur.x2 = Math.max(cur.x2, x2);
+        cur.y2 = Math.max(cur.y2, y2);
+        cur.count += 1;
+      }
     }
-  }
+    return acc;
+  }, [nodes, nodeNamespaces]);
 
   if (groups.size === 0) return null;
 
@@ -103,4 +114,4 @@ export function NamespaceClusters({ nodeNamespaces }: NamespaceClustersProps) {
       })}
     </svg>
   );
-}
+});

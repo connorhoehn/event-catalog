@@ -12,12 +12,73 @@
 // (AgUiEvent discriminated union). Event names follow the AG-UI v0.1.x spec.
 //
 // Reference: ui-components commit 7399dc1, src/components/agents/README.md.
+//
+// FILE LAYOUT (2026-09-07 decomposition — declarations unchanged, fingerprints
+// identical): the seven categories now live one file each under `./ag-ui/`:
+//   lifecycle.ts   RUN_* and STEP_*
+//   text.ts        TEXT_MESSAGE_*
+//   tool-calls.ts  TOOL_CALL_*
+//   state.ts       STATE_SNAPSHOT / STATE_DELTA / MESSAGES_SNAPSHOT
+//   activity.ts    ACTIVITY_SNAPSHOT / ACTIVITY_DELTA
+//   reasoning.ts   REASONING_* (message stream, phase markers, encrypted value)
+//   extensions.ts  RAW / CUSTOM / META_EVENT
+// This module stays the single public entry point: it re-exports every
+// declaration under its original name, owns the aggregate array in its
+// original order, and — critically — owns the ONE `annotateDeclarations()`
+// call and the local field glossary it applies. That glossary deliberately
+// OVERRIDES the platform-wide wording for `type`, `delta`, `name`, `value`
+// and friends, so keeping it beside the single call is what guarantees the
+// split cannot silently change which override lands on which event. Never call
+// `annotateDeclarations` from a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.agUiDeclarations = exports.agUiMetaEvent = exports.agUiCustom = exports.agUiRaw = exports.agUiReasoningEncryptedValue = exports.agUiReasoningEnd = exports.agUiReasoningStart = exports.agUiReasoningMessageChunk = exports.agUiReasoningMessageEnd = exports.agUiReasoningMessageContent = exports.agUiReasoningMessageStart = exports.agUiActivityDelta = exports.agUiActivitySnapshot = exports.agUiMessagesSnapshot = exports.agUiStateDelta = exports.agUiStateSnapshot = exports.agUiToolCallChunk = exports.agUiToolCallResult = exports.agUiToolCallEnd = exports.agUiToolCallArgs = exports.agUiToolCallStart = exports.agUiTextMessageChunk = exports.agUiTextMessageEnd = exports.agUiTextMessageContent = exports.agUiTextMessageStart = exports.agUiStepFinished = exports.agUiStepStarted = exports.agUiRunError = exports.agUiRunFinished = exports.agUiRunStarted = void 0;
 const field_glossary_1 = require("./field-glossary");
-const PRODUCER = 'ag-ui-agent';
-const NAMESPACE = 'ag-ui';
-const TAGS = ['ag-ui', 'agent', 'streaming'];
+const lifecycle_1 = require("./ag-ui/lifecycle");
+const text_1 = require("./ag-ui/text");
+const tool_calls_1 = require("./ag-ui/tool-calls");
+const state_1 = require("./ag-ui/state");
+const activity_1 = require("./ag-ui/activity");
+const reasoning_1 = require("./ag-ui/reasoning");
+const extensions_1 = require("./ag-ui/extensions");
+// ---------------------------------------------------------------------------
+// Public surface — every declaration, under the name it has always had.
+// ---------------------------------------------------------------------------
+var lifecycle_2 = require("./ag-ui/lifecycle");
+Object.defineProperty(exports, "agUiRunStarted", { enumerable: true, get: function () { return lifecycle_2.agUiRunStarted; } });
+Object.defineProperty(exports, "agUiRunFinished", { enumerable: true, get: function () { return lifecycle_2.agUiRunFinished; } });
+Object.defineProperty(exports, "agUiRunError", { enumerable: true, get: function () { return lifecycle_2.agUiRunError; } });
+Object.defineProperty(exports, "agUiStepStarted", { enumerable: true, get: function () { return lifecycle_2.agUiStepStarted; } });
+Object.defineProperty(exports, "agUiStepFinished", { enumerable: true, get: function () { return lifecycle_2.agUiStepFinished; } });
+var text_2 = require("./ag-ui/text");
+Object.defineProperty(exports, "agUiTextMessageStart", { enumerable: true, get: function () { return text_2.agUiTextMessageStart; } });
+Object.defineProperty(exports, "agUiTextMessageContent", { enumerable: true, get: function () { return text_2.agUiTextMessageContent; } });
+Object.defineProperty(exports, "agUiTextMessageEnd", { enumerable: true, get: function () { return text_2.agUiTextMessageEnd; } });
+Object.defineProperty(exports, "agUiTextMessageChunk", { enumerable: true, get: function () { return text_2.agUiTextMessageChunk; } });
+var tool_calls_2 = require("./ag-ui/tool-calls");
+Object.defineProperty(exports, "agUiToolCallStart", { enumerable: true, get: function () { return tool_calls_2.agUiToolCallStart; } });
+Object.defineProperty(exports, "agUiToolCallArgs", { enumerable: true, get: function () { return tool_calls_2.agUiToolCallArgs; } });
+Object.defineProperty(exports, "agUiToolCallEnd", { enumerable: true, get: function () { return tool_calls_2.agUiToolCallEnd; } });
+Object.defineProperty(exports, "agUiToolCallResult", { enumerable: true, get: function () { return tool_calls_2.agUiToolCallResult; } });
+Object.defineProperty(exports, "agUiToolCallChunk", { enumerable: true, get: function () { return tool_calls_2.agUiToolCallChunk; } });
+var state_2 = require("./ag-ui/state");
+Object.defineProperty(exports, "agUiStateSnapshot", { enumerable: true, get: function () { return state_2.agUiStateSnapshot; } });
+Object.defineProperty(exports, "agUiStateDelta", { enumerable: true, get: function () { return state_2.agUiStateDelta; } });
+Object.defineProperty(exports, "agUiMessagesSnapshot", { enumerable: true, get: function () { return state_2.agUiMessagesSnapshot; } });
+var activity_2 = require("./ag-ui/activity");
+Object.defineProperty(exports, "agUiActivitySnapshot", { enumerable: true, get: function () { return activity_2.agUiActivitySnapshot; } });
+Object.defineProperty(exports, "agUiActivityDelta", { enumerable: true, get: function () { return activity_2.agUiActivityDelta; } });
+var reasoning_2 = require("./ag-ui/reasoning");
+Object.defineProperty(exports, "agUiReasoningMessageStart", { enumerable: true, get: function () { return reasoning_2.agUiReasoningMessageStart; } });
+Object.defineProperty(exports, "agUiReasoningMessageContent", { enumerable: true, get: function () { return reasoning_2.agUiReasoningMessageContent; } });
+Object.defineProperty(exports, "agUiReasoningMessageEnd", { enumerable: true, get: function () { return reasoning_2.agUiReasoningMessageEnd; } });
+Object.defineProperty(exports, "agUiReasoningMessageChunk", { enumerable: true, get: function () { return reasoning_2.agUiReasoningMessageChunk; } });
+Object.defineProperty(exports, "agUiReasoningStart", { enumerable: true, get: function () { return reasoning_2.agUiReasoningStart; } });
+Object.defineProperty(exports, "agUiReasoningEnd", { enumerable: true, get: function () { return reasoning_2.agUiReasoningEnd; } });
+Object.defineProperty(exports, "agUiReasoningEncryptedValue", { enumerable: true, get: function () { return reasoning_2.agUiReasoningEncryptedValue; } });
+var extensions_2 = require("./ag-ui/extensions");
+Object.defineProperty(exports, "agUiRaw", { enumerable: true, get: function () { return extensions_2.agUiRaw; } });
+Object.defineProperty(exports, "agUiCustom", { enumerable: true, get: function () { return extensions_2.agUiCustom; } });
+Object.defineProperty(exports, "agUiMetaEvent", { enumerable: true, get: function () { return extensions_2.agUiMetaEvent; } });
 /**
  * AG-UI protocol field meanings. `type`, `delta` and friends mean something
  * different here than on the gateway's WS frames, so this module overrides
@@ -49,593 +110,46 @@ const FIELDS = {
     'delta.from': 'Source JSON Pointer for move/copy operations.',
 };
 // ---------------------------------------------------------------------------
-// Lifecycle events
-// ---------------------------------------------------------------------------
-exports.agUiRunStarted = {
-    name: 'ag-ui.RUN_STARTED',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Emitted when an agent run begins. Carries the thread and run IDs.',
-    schema: {
-        type: 'object',
-        required: ['type', 'threadId', 'runId'],
-        properties: {
-            type: { type: 'string', const: 'RUN_STARTED' },
-            threadId: { type: 'string' },
-            runId: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiRunFinished = {
-    name: 'ag-ui.RUN_FINISHED',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Emitted when an agent run completes successfully.',
-    schema: {
-        type: 'object',
-        required: ['type', 'threadId', 'runId'],
-        properties: {
-            type: { type: 'string', const: 'RUN_FINISHED' },
-            threadId: { type: 'string' },
-            runId: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiRunError = {
-    name: 'ag-ui.RUN_ERROR',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Emitted when an agent run terminates due to an error.',
-    schema: {
-        type: 'object',
-        required: ['type', 'message'],
-        properties: {
-            type: { type: 'string', const: 'RUN_ERROR' },
-            message: { type: 'string' },
-            code: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiStepStarted = {
-    name: 'ag-ui.STEP_STARTED',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Emitted when a named step begins within a run.',
-    schema: {
-        type: 'object',
-        required: ['type', 'stepName'],
-        properties: {
-            type: { type: 'string', const: 'STEP_STARTED' },
-            stepName: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiStepFinished = {
-    name: 'ag-ui.STEP_FINISHED',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Emitted when a named step completes.',
-    schema: {
-        type: 'object',
-        required: ['type', 'stepName'],
-        properties: {
-            type: { type: 'string', const: 'STEP_FINISHED' },
-            stepName: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-// ---------------------------------------------------------------------------
-// Text streaming events
-// ---------------------------------------------------------------------------
-exports.agUiTextMessageStart = {
-    name: 'ag-ui.TEXT_MESSAGE_START',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Opens a new streamed text message. Role identifies the speaker (assistant/user/system).',
-    schema: {
-        type: 'object',
-        required: ['type', 'messageId', 'role'],
-        properties: {
-            type: { type: 'string', const: 'TEXT_MESSAGE_START' },
-            messageId: { type: 'string' },
-            role: { type: 'string', enum: ['assistant', 'user', 'system'] },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiTextMessageContent = {
-    name: 'ag-ui.TEXT_MESSAGE_CONTENT',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Carries a text delta for an in-progress message stream.',
-    schema: {
-        type: 'object',
-        required: ['type', 'messageId', 'delta'],
-        properties: {
-            type: { type: 'string', const: 'TEXT_MESSAGE_CONTENT' },
-            messageId: { type: 'string' },
-            delta: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiTextMessageEnd = {
-    name: 'ag-ui.TEXT_MESSAGE_END',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Closes a streamed text message.',
-    schema: {
-        type: 'object',
-        required: ['type', 'messageId'],
-        properties: {
-            type: { type: 'string', const: 'TEXT_MESSAGE_END' },
-            messageId: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiTextMessageChunk = {
-    name: 'ag-ui.TEXT_MESSAGE_CHUNK',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Single-frame variant: complete text message in one event (no START/END pair).',
-    schema: {
-        type: 'object',
-        required: ['type', 'messageId', 'role', 'delta'],
-        properties: {
-            type: { type: 'string', const: 'TEXT_MESSAGE_CHUNK' },
-            messageId: { type: 'string' },
-            role: { type: 'string' },
-            delta: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-// ---------------------------------------------------------------------------
-// Tool call events
-// ---------------------------------------------------------------------------
-exports.agUiToolCallStart = {
-    name: 'ag-ui.TOOL_CALL_START',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Agent begins a tool invocation. toolCallId is unique per call within a run.',
-    schema: {
-        type: 'object',
-        required: ['type', 'toolCallId', 'toolCallName'],
-        properties: {
-            type: { type: 'string', const: 'TOOL_CALL_START' },
-            toolCallId: { type: 'string' },
-            toolCallName: { type: 'string' },
-            parentMessageId: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiToolCallArgs = {
-    name: 'ag-ui.TOOL_CALL_ARGS',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Carries a JSON delta fragment of the tool call arguments.',
-    schema: {
-        type: 'object',
-        required: ['type', 'toolCallId', 'delta'],
-        properties: {
-            type: { type: 'string', const: 'TOOL_CALL_ARGS' },
-            toolCallId: { type: 'string' },
-            delta: { type: 'string', description: 'Partial JSON of arguments being streamed.' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiToolCallEnd = {
-    name: 'ag-ui.TOOL_CALL_END',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Agent finishes streaming arguments for a tool call.',
-    schema: {
-        type: 'object',
-        required: ['type', 'toolCallId'],
-        properties: {
-            type: { type: 'string', const: 'TOOL_CALL_END' },
-            toolCallId: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiToolCallResult = {
-    name: 'ag-ui.TOOL_CALL_RESULT',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Carries the result of a completed tool call.',
-    schema: {
-        type: 'object',
-        required: ['type', 'messageId', 'toolCallId', 'toolCallName', 'content'],
-        properties: {
-            type: { type: 'string', const: 'TOOL_CALL_RESULT' },
-            messageId: { type: 'string' },
-            toolCallId: { type: 'string' },
-            toolCallName: { type: 'string' },
-            content: {},
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiToolCallChunk = {
-    name: 'ag-ui.TOOL_CALL_CHUNK',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Single-frame variant: complete tool call in one event.',
-    schema: {
-        type: 'object',
-        required: ['type', 'toolCallId'],
-        properties: {
-            type: { type: 'string', const: 'TOOL_CALL_CHUNK' },
-            toolCallId: { type: 'string' },
-            toolCallName: { type: 'string' },
-            delta: { type: 'string' },
-            parentMessageId: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-// ---------------------------------------------------------------------------
-// State events
-// ---------------------------------------------------------------------------
-exports.agUiStateSnapshot = {
-    name: 'ag-ui.STATE_SNAPSHOT',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Full state replacement. Replaces any prior state on the client.',
-    schema: {
-        type: 'object',
-        required: ['type', 'snapshot'],
-        properties: {
-            type: { type: 'string', const: 'STATE_SNAPSHOT' },
-            snapshot: {},
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiStateDelta = {
-    name: 'ag-ui.STATE_DELTA',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Incremental state update encoded as a JSON Patch (RFC 6902) delta.',
-    schema: {
-        type: 'object',
-        required: ['type', 'delta'],
-        properties: {
-            type: { type: 'string', const: 'STATE_DELTA' },
-            delta: {
-                type: 'array',
-                description: 'JSON Patch operations.',
-                items: {
-                    type: 'object',
-                    required: ['op', 'path'],
-                    properties: {
-                        op: { type: 'string', enum: ['add', 'remove', 'replace', 'move', 'copy', 'test'] },
-                        path: { type: 'string' },
-                        value: {},
-                        from: { type: 'string' },
-                    },
-                    // Explicit — mirrors the implicit JSON Schema default. RFC 6902
-                    // allows implementation-specific extras on an operation object.
-                    additionalProperties: true,
-                },
-            },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiMessagesSnapshot = {
-    name: 'ag-ui.MESSAGES_SNAPSHOT',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Full replacement of the message history in one event.',
-    schema: {
-        type: 'object',
-        required: ['type', 'messages'],
-        properties: {
-            type: { type: 'string', const: 'MESSAGES_SNAPSHOT' },
-            messages: { type: 'array', items: {} },
-        },
-        additionalProperties: true,
-    },
-};
-// ---------------------------------------------------------------------------
-// Activity events
-// ---------------------------------------------------------------------------
-exports.agUiActivitySnapshot = {
-    name: 'ag-ui.ACTIVITY_SNAPSHOT',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Full replacement of the activity feed (tool calls, reasoning, sub-steps).',
-    schema: {
-        type: 'object',
-        required: ['type', 'snapshot'],
-        properties: {
-            type: { type: 'string', const: 'ACTIVITY_SNAPSHOT' },
-            snapshot: { type: 'array', items: {} },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiActivityDelta = {
-    name: 'ag-ui.ACTIVITY_DELTA',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Incremental update to the activity feed (append or update one item).',
-    schema: {
-        type: 'object',
-        required: ['type', 'delta'],
-        properties: {
-            type: { type: 'string', const: 'ACTIVITY_DELTA' },
-            delta: { type: 'array', items: {} },
-        },
-        additionalProperties: true,
-    },
-};
-// ---------------------------------------------------------------------------
-// Reasoning events
-// ---------------------------------------------------------------------------
-exports.agUiReasoningMessageStart = {
-    name: 'ag-ui.REASONING_MESSAGE_START',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Opens a reasoning trace message stream.',
-    schema: {
-        type: 'object',
-        required: ['type', 'messageId'],
-        properties: {
-            type: { type: 'string', const: 'REASONING_MESSAGE_START' },
-            messageId: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiReasoningMessageContent = {
-    name: 'ag-ui.REASONING_MESSAGE_CONTENT',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Carries a text delta within a reasoning trace stream.',
-    schema: {
-        type: 'object',
-        required: ['type', 'messageId', 'delta'],
-        properties: {
-            type: { type: 'string', const: 'REASONING_MESSAGE_CONTENT' },
-            messageId: { type: 'string' },
-            delta: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiReasoningMessageEnd = {
-    name: 'ag-ui.REASONING_MESSAGE_END',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Closes a reasoning trace message stream.',
-    schema: {
-        type: 'object',
-        required: ['type', 'messageId'],
-        properties: {
-            type: { type: 'string', const: 'REASONING_MESSAGE_END' },
-            messageId: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiReasoningMessageChunk = {
-    name: 'ag-ui.REASONING_MESSAGE_CHUNK',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Single-frame reasoning trace message.',
-    schema: {
-        type: 'object',
-        required: ['type', 'messageId', 'delta'],
-        properties: {
-            type: { type: 'string', const: 'REASONING_MESSAGE_CHUNK' },
-            messageId: { type: 'string' },
-            delta: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiReasoningStart = {
-    name: 'ag-ui.REASONING_START',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Signals that the agent has entered a reasoning phase.',
-    schema: {
-        type: 'object',
-        required: ['type'],
-        properties: {
-            type: { type: 'string', const: 'REASONING_START' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiReasoningEnd = {
-    name: 'ag-ui.REASONING_END',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Signals that the agent has exited the reasoning phase.',
-    schema: {
-        type: 'object',
-        required: ['type'],
-        properties: {
-            type: { type: 'string', const: 'REASONING_END' },
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiReasoningEncryptedValue = {
-    name: 'ag-ui.REASONING_ENCRYPTED_VALUE',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Carries an encrypted reasoning payload (provider-specific format).',
-    schema: {
-        type: 'object',
-        required: ['type', 'value'],
-        properties: {
-            type: { type: 'string', const: 'REASONING_ENCRYPTED_VALUE' },
-            value: { type: 'string', description: 'Opaque encrypted bytes.' },
-        },
-        additionalProperties: true,
-    },
-};
-// ---------------------------------------------------------------------------
-// Extension events
-// ---------------------------------------------------------------------------
-exports.agUiRaw = {
-    name: 'ag-ui.RAW',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Escape hatch for unstructured provider-native payloads.',
-    schema: {
-        type: 'object',
-        required: ['type', 'event'],
-        properties: {
-            type: { type: 'string', const: 'RAW' },
-            event: {},
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiCustom = {
-    name: 'ag-ui.CUSTOM',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Application-specific custom event with arbitrary structured payload.',
-    schema: {
-        type: 'object',
-        required: ['type', 'name'],
-        properties: {
-            type: { type: 'string', const: 'CUSTOM' },
-            name: { type: 'string' },
-            value: {},
-        },
-        additionalProperties: true,
-    },
-};
-exports.agUiMetaEvent = {
-    name: 'ag-ui.META_EVENT',
-    namespace: NAMESPACE,
-    transport: 'signal',
-    producer: PRODUCER,
-    tags: TAGS,
-    description: 'Protocol metadata event (e.g. heartbeats, version negotiation).',
-    schema: {
-        type: 'object',
-        required: ['type', 'name'],
-        properties: {
-            type: { type: 'string', const: 'META_EVENT' },
-            name: { type: 'string' },
-        },
-        additionalProperties: true,
-    },
-};
-// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 /** All 29 AG-UI v0.1.x event declarations. */
 exports.agUiDeclarations = [
     // Lifecycle
-    exports.agUiRunStarted,
-    exports.agUiRunFinished,
-    exports.agUiRunError,
-    exports.agUiStepStarted,
-    exports.agUiStepFinished,
+    lifecycle_1.agUiRunStarted,
+    lifecycle_1.agUiRunFinished,
+    lifecycle_1.agUiRunError,
+    lifecycle_1.agUiStepStarted,
+    lifecycle_1.agUiStepFinished,
     // Text streaming
-    exports.agUiTextMessageStart,
-    exports.agUiTextMessageContent,
-    exports.agUiTextMessageEnd,
-    exports.agUiTextMessageChunk,
+    text_1.agUiTextMessageStart,
+    text_1.agUiTextMessageContent,
+    text_1.agUiTextMessageEnd,
+    text_1.agUiTextMessageChunk,
     // Tool calls
-    exports.agUiToolCallStart,
-    exports.agUiToolCallArgs,
-    exports.agUiToolCallEnd,
-    exports.agUiToolCallResult,
-    exports.agUiToolCallChunk,
+    tool_calls_1.agUiToolCallStart,
+    tool_calls_1.agUiToolCallArgs,
+    tool_calls_1.agUiToolCallEnd,
+    tool_calls_1.agUiToolCallResult,
+    tool_calls_1.agUiToolCallChunk,
     // State
-    exports.agUiStateSnapshot,
-    exports.agUiStateDelta,
-    exports.agUiMessagesSnapshot,
+    state_1.agUiStateSnapshot,
+    state_1.agUiStateDelta,
+    state_1.agUiMessagesSnapshot,
     // Activity
-    exports.agUiActivitySnapshot,
-    exports.agUiActivityDelta,
+    activity_1.agUiActivitySnapshot,
+    activity_1.agUiActivityDelta,
     // Reasoning
-    exports.agUiReasoningMessageStart,
-    exports.agUiReasoningMessageContent,
-    exports.agUiReasoningMessageEnd,
-    exports.agUiReasoningMessageChunk,
-    exports.agUiReasoningStart,
-    exports.agUiReasoningEnd,
-    exports.agUiReasoningEncryptedValue,
+    reasoning_1.agUiReasoningMessageStart,
+    reasoning_1.agUiReasoningMessageContent,
+    reasoning_1.agUiReasoningMessageEnd,
+    reasoning_1.agUiReasoningMessageChunk,
+    reasoning_1.agUiReasoningStart,
+    reasoning_1.agUiReasoningEnd,
+    reasoning_1.agUiReasoningEncryptedValue,
     // Extensions
-    exports.agUiRaw,
-    exports.agUiCustom,
-    exports.agUiMetaEvent,
+    extensions_1.agUiRaw,
+    extensions_1.agUiCustom,
+    extensions_1.agUiMetaEvent,
 ];
 // Stamp the shared field vocabulary onto every schema above (additive —
 // fills absent property descriptions only). See ./field-glossary.ts.

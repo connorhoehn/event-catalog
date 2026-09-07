@@ -1,4 +1,5 @@
 import { MetricsRegistry } from 'distributed-core';
+import type { MetricSample } from 'distributed-core';
 /**
  * Prom-formatted metrics surface for the event-catalog service.
  *
@@ -242,4 +243,29 @@ export declare class PromMetrics {
     /** Expose the underlying registry (for tests / advanced wiring). */
     getRegistry(): MetricsRegistry;
 }
+/**
+ * Render a registry snapshot as Prometheus text exposition format
+ * (0.0.4), byte-for-byte identical to distributed-core's
+ * `formatPrometheus` — see `tests/prom-render-equivalence.test.ts`,
+ * which asserts exactly that against a populated registry so an
+ * upstream format change cannot silently diverge from this copy.
+ *
+ * The only reason it is not just a call to `formatPrometheus` is the
+ * per-series prefix cache above. Everything else is the same walk:
+ * group samples by metric name so all label-variants share one
+ * `# TYPE` header, emit an optional `# HELP`, then one line per series
+ * carrying the scrape timestamp.
+ *
+ * Histograms are NOT reimplemented here — `PromMetrics` registers only
+ * counters and gauges, and the histogram branch involves an
+ * interpolated bucket estimate that is not worth duplicating. A
+ * snapshot containing one falls straight through to `formatPrometheus`,
+ * so a future histogram is a performance regression rather than a
+ * correctness bug.
+ */
+export declare function renderExposition(snapshot: {
+    timestamp: number;
+    nodeId: string;
+    metrics: MetricSample[];
+}): string;
 //# sourceMappingURL=prom-metrics.d.ts.map

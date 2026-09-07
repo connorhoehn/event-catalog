@@ -30,6 +30,11 @@ export interface TapFilter {
  * uses the same predicate.
  */
 export declare function matchesTapFilter(event: TapEvent, filter: TapFilter): boolean;
+/**
+ * The SSE `data:` frame for a tap event, serialized at most once per
+ * `tapEmitter.publish()` no matter how many streams ask for it.
+ */
+export declare function tapFrame(event: TapEvent): string;
 declare class TapEmitter extends EventEmitter {
     publish(event: TapEvent): void;
 }

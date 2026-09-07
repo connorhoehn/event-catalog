@@ -32,6 +32,17 @@ export interface FlowTapState {
   error: string | null;
 }
 
+/**
+ * Called synchronously for every well-formed frame, inside the same React
+ * batch as the buffer update.
+ *
+ * The pulse used to be driven by an effect watching `lastEvent`, which cost
+ * a second commit for every single frame: 500 frames arriving one per
+ * event-loop turn produced 1000 graph commits. Handing the caller the frame
+ * here folds the pulse into the one commit the buffer update already causes.
+ */
+export type TapListener = (event: TapEvent) => void;
+
 export interface FlowTapHandle extends FlowTapState {
   pause(): void;
   resume(): void;
@@ -65,13 +76,22 @@ function isTapEvent(value: unknown): value is TapEvent {
  * keeps a ring buffer of the most recent N tap events. Re-attaches
  * when filters change.
  */
-export function useFlowTap(filters: FlowTapFilters, initiallyLive = true): FlowTapHandle {
+export function useFlowTap(
+  filters: FlowTapFilters,
+  initiallyLive = true,
+  onEvent?: TapListener,
+): FlowTapHandle {
   const [events, setEvents] = useState<TapEvent[]>([]);
   const [lastEvent, setLastEvent] = useState<TapEvent | null>(null);
   const [isLive, setIsLive] = useState(initiallyLive);
   const [error, setError] = useState<string | null>(null);
 
   const sourceRef = useRef<EventSource | null>(null);
+  // Held in a ref so a caller can pass an inline closure without the
+  // subscription effect tearing down and re-opening the SSE stream on every
+  // render — which, on a view that re-renders per frame, is a reconnect loop.
+  const listenerRef = useRef<TapListener | undefined>(onEvent);
+  listenerRef.current = onEvent;
 
   useEffect(() => {
     if (!isLive) {
@@ -92,18 +112,28 @@ export function useFlowTap(filters: FlowTapFilters, initiallyLive = true): FlowT
     setError(null);
 
     es.onmessage = (msg) => {
+      let ev: TapEvent;
       try {
         const parsed: unknown = JSON.parse(msg.data);
         if (!isTapEvent(parsed)) return;
-        const ev = parsed;
-        setLastEvent(ev);
-        setEvents((prev) => {
-          const next = [...prev, ev];
-          return next.length > MAX_BUFFER ? next.slice(-MAX_BUFFER) : next;
-        });
+        ev = parsed;
       } catch {
         // Drop malformed frames silently.
+        return;
       }
+      setLastEvent(ev);
+      setEvents((prev) => {
+        if (prev.length < MAX_BUFFER) return [...prev, ev];
+        // At the cap, drop the oldest and append in one pass rather than
+        // building a MAX_BUFFER+1 array and immediately slicing it.
+        const next = prev.slice(1);
+        next.push(ev);
+        return next;
+      });
+      // Outside the parse guard on purpose: a listener that throws is a bug
+      // in the caller, not a malformed frame, and swallowing it here is how
+      // that bug stays invisible.
+      listenerRef.current?.(ev);
     };
 
     es.onerror = () => {

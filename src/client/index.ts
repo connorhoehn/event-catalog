@@ -21,7 +21,19 @@ import type { ResolveResult, ValidationResult } from '../registry/types';
 import type { RegistryEntry } from '../types/index';
 import { resolveNamespace } from '../registry/namespace';
 import { eventId, nowIso } from '../utils/hot-path';
+import { BoundedCounter, LogThrottle } from '../utils/bounded';
 import type { EventPayloadMap } from '../generated/event-types';
+
+/**
+ * Cap on per-event-name bookkeeping.
+ *
+ * `publishSignal()` takes an event name straight from the caller and does
+ * not require it to be declared — the websocket-gateway forwards client
+ * frame types through it. That key space is bounded by nothing: a typo in
+ * a retry loop, or a client sending unknown frame types, grows these maps
+ * for the life of the process.
+ */
+const MAX_TRACKED_EVENT_NAMES = 1000;
 
 /**
  * Payload type for a declared event name, or `unknown` for a name the
@@ -294,6 +306,26 @@ export interface EventCatalogClientOptions extends EventCatalogConfig {
    * request.
    */
   strictTransport?: boolean;
+
+  /**
+   * Shared secret presented as `Authorization: Bearer <token>` on the
+   * mutating registry calls this client makes (`syncToRemoteRegistry`,
+   * the subscriber heartbeat, subscriber registration, `pinManifest`).
+   *
+   * v0.5.0 added optional bearer auth to the *server*
+   * (`EVENT_CATALOG_AUTH_TOKEN`, see `src/server/auth.ts`) which challenges
+   * every non-GET on `/api`. Without a matching credential here, switching
+   * that on would 401 every producer's boot-time sync and heartbeat — and
+   * because the library never blocks on the registry, each service would
+   * still report healthy while the inventory silently emptied out. This is
+   * the client half of that feature.
+   *
+   * Defaults to `process.env.EVENT_CATALOG_AUTH_TOKEN`. Unset — the
+   * default, and what an unauthenticated server expects — means no
+   * `Authorization` header is sent and the requests are byte-for-byte what
+   * they were before v0.5.0.
+   */
+  authToken?: string;
 }
 
 /**
@@ -320,15 +352,46 @@ export class EventCatalog {
   private readonly durable: DurableTransport;
   private readonly syncRetryManager: RetryManager;
   private connected = false;
+  /** Shared by concurrent `connect()` callers so a race starts one re-sync loop. */
+  private connectInFlight: Promise<void> | null = null;
   private resyncInterval: ReturnType<typeof setInterval> | null = null;
-  /** Phase E3.5 — dedupe deprecation log to one line per alias per process. */
+  /**
+   * The pending background-sync retry. Tracked so `disconnect()` can clear
+   * it: an untracked chained `setTimeout` keeps the event loop alive after
+   * SIGTERM, and a reconnect used to resume every chain a previous failed
+   * connect had left behind.
+   */
+  private backgroundSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Heartbeat interval, so `disconnect()` releases it even if `stop()` is never called. */
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  /**
+   * Phase E3.5 — dedupe deprecation log to one line per alias per process.
+   * Keyed by a *declared* alias, so this is bounded by the declaration set.
+   */
   private readonly warnedAliases = new Set<string>();
-  /** wave25-a — track which deprecated event names we've already warned about. */
+  /**
+   * wave25-a — deprecated event names already warned about. Keyed by a
+   * declared canonical name, so bounded by the declaration set.
+   */
   private readonly warnedDeprecated = new Set<string>();
-  /** Undeclared names already warned about on the publishSignal path. */
-  private readonly warnedUndeclaredSignal = new Set<string>();
-  /** Publishes discarded because a transport was down, keyed by event name. */
-  private readonly droppedPublishes = new Map<string, number>();
+  /**
+   * Undeclared names already warned about on the publishSignal path.
+   * Bounded and rate-limited: the key is caller-controlled, and "warn once
+   * per key" over an unbounded key space is still unbounded logging.
+   */
+  private readonly undeclaredSignalWarnings = new LogThrottle({
+    maxKeys: MAX_TRACKED_EVENT_NAMES,
+    maxPerWindow: 10,
+  });
+  /** Throttle for the per-publish hook/callback failure warnings. */
+  private readonly hookWarnings = new LogThrottle({ keyIntervalMs: 60_000, maxPerWindow: 5 });
+  private hookFailures = 0;
+  /**
+   * Publishes discarded because a transport was down, keyed by event name.
+   * Bounded per key with an exact lifetime total — see
+   * {@link getDroppedPublishTotal}.
+   */
+  private readonly droppedPublishes = new BoundedCounter(MAX_TRACKED_EVENT_NAMES);
 
   /**
    * @param config transport URLs, service identity, and optional
@@ -371,11 +434,32 @@ export class EventCatalog {
    */
   async connect(): Promise<void> {
     if (this.connected) return;
+    // Two callers awaiting connect() concurrently used to get past the
+    // `connected` guard together and each install a 60s re-sync interval;
+    // the second one's handle overwrote the first, which then survived
+    // disconnect() forever.
+    if (this.connectInFlight) return this.connectInFlight;
 
-    await Promise.all([
-      this.signal.connect(),
-      this.durable.connect(),
-    ]);
+    this.connectInFlight = this.doConnect().finally(() => {
+      this.connectInFlight = null;
+    });
+    return this.connectInFlight;
+  }
+
+  private async doConnect(): Promise<void> {
+    try {
+      await Promise.all([
+        this.signal.connect(),
+        this.durable.connect(),
+      ]);
+    } catch (err) {
+      // A rejected connect() must leave nothing running: the signal
+      // transport may have failed while the durable one succeeded, and a
+      // half-connected catalog with live transports is how a process keeps
+      // itself alive after a boot failure.
+      await this.releaseResources();
+      throw err;
+    }
 
     this.connected = true;
 
@@ -387,6 +471,9 @@ export class EventCatalog {
         this.scheduleBackgroundSync();
       }
 
+      // Defensive: a caller that reconnects without disconnecting cleanly
+      // would otherwise orphan the previous interval.
+      if (this.resyncInterval) clearInterval(this.resyncInterval);
       this.resyncInterval = setInterval(() => {
         this.syncToRemoteRegistry().catch(err => {
           console.warn('[event-catalog] periodic re-sync failed:', (err as Error).message);
@@ -404,19 +491,38 @@ export class EventCatalog {
    * in-flight durable messages.
    */
   async disconnect(): Promise<void> {
-    if (!this.connected) return;
+    await this.releaseResources();
+    this.connected = false;
+  }
 
+  /**
+   * Clear every timer this catalog owns and disconnect both transports.
+   *
+   * Deliberately unconditional rather than gated on `connected`: a
+   * heartbeat can be started before connect, a background-sync chain can
+   * outlive a failed connect, and a transport can be left half-open by a
+   * partial connect. Any one of those surviving `disconnect()` keeps the
+   * event loop alive after SIGTERM — the classic container that will not
+   * stop. Idempotent; safe to call twice, and safe after a failed connect.
+   */
+  private async releaseResources(): Promise<void> {
     if (this.resyncInterval) {
       clearInterval(this.resyncInterval);
       this.resyncInterval = null;
+    }
+    if (this.backgroundSyncTimer) {
+      clearTimeout(this.backgroundSyncTimer);
+      this.backgroundSyncTimer = null;
+    }
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
     }
 
     await Promise.all([
       this.signal.disconnect(),
       this.durable.disconnect(),
     ]);
-
-    this.connected = false;
   }
 
   /**
@@ -492,7 +598,7 @@ export class EventCatalog {
       try {
         const res = await fetch(`${this.config.registryUrl!.replace(/\/$/, '')}/api/heartbeat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this.registryHeaders(),
           body: JSON.stringify({ serviceName: this.config.serviceName, events: subscribed }),
         });
         // A non-2xx here is not harmless: the server sweeps subscribers that
@@ -510,8 +616,17 @@ export class EventCatalog {
     };
     // Fire one immediately so the first tick doesn't wait `intervalMs`.
     void tick();
+    // BEHAVIOUR CHANGE (v0.5): a second call replaces the first loop
+    // instead of adding one. Previously two calls meant two intervals,
+    // only the second of which the caller could stop — and neither of
+    // which disconnect() knew about.
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
     const handle = setInterval(() => { void tick(); }, intervalMs);
-    return () => clearInterval(handle);
+    this.heartbeatInterval = handle;
+    return () => {
+      clearInterval(handle);
+      if (this.heartbeatInterval === handle) this.heartbeatInterval = null;
+    };
   }
 
   /**
@@ -545,7 +660,7 @@ export class EventCatalog {
     const url = `${this.config.registryUrl.replace(/\/$/, '')}/api/manifests/${encodeURIComponent(consumer)}`;
     const res = await fetch(url, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.registryHeaders(),
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -625,6 +740,20 @@ export class EventCatalog {
     }
     const body = await res.json() as { schemaFingerprint?: string };
     return body.schemaFingerprint ?? null;
+  }
+
+  /**
+   * Headers for a mutating registry call. Adds `Authorization: Bearer` only
+   * when a token is configured, so an unauthenticated server sees exactly
+   * the request shape it saw before v0.5.0.
+   */
+  private registryHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const token = this.config.authToken ?? process.env.EVENT_CATALOG_AUTH_TOKEN;
+    if (typeof token === 'string' && token.trim() !== '') {
+      headers.Authorization = `Bearer ${token.trim()}`;
+    }
+    return headers;
   }
 
   private isStrict(): boolean {
@@ -815,9 +944,11 @@ export class EventCatalog {
         try {
           await hook.afterPublish?.(envelope as EventEnvelope, entry);
         } catch (hookErr) {
-          console.warn(
-            `[event-catalog] afterPublish hook threw on "${eventName}":`,
-            (hookErr as Error).message,
+          // Per-publish path: a hook that throws once throws every time.
+          this.warnOnHotPath(
+            `afterPublish:${eventName}`,
+            `[event-catalog] afterPublish hook threw on "${eventName}"`,
+            hookErr as Error,
           );
         }
       }
@@ -910,20 +1041,28 @@ export class EventCatalog {
           );
         }
       }
-    } else if (!this.warnedUndeclaredSignal.has(eventName)) {
-      // One warning per event name per process. This is the gateway's
-      // broadcast hot path; warning on every call turns a missing
-      // declaration into a log flood.
-      this.warnedUndeclaredSignal.add(eventName);
-      const suggestions = suggestNames(eventName, this.registry.list().map((e) => e.name));
-      const didYouMean = suggestions.length > 0
-        ? ` Did you mean ${suggestions.map((s) => `"${s}"`).join(' or ')}?`
-        : '';
-      console.warn(
-        `[event-catalog] publishSignal called with undeclared event "${eventName}" — `
-        + `emitting without schema validation. Declare it via catalog.declare() to enforce schema.`
-        + `${didYouMean} (further occurrences of this event name are not logged)`,
-      );
+    } else {
+      // One warning per event name per process, with a global ceiling.
+      // This is the gateway's broadcast hot path and the event name comes
+      // from the caller, so warn-once-per-name alone bounds nothing: an
+      // unbounded name space means unbounded log lines. The ceiling is
+      // what holds. Suppressed occurrences stay counted on
+      // `getDroppedPublishStats().suppressedWarnings`.
+      const suppressed = this.undeclaredSignalWarnings.attempt(eventName);
+      if (suppressed !== null) {
+        // `suggestNames` walks the whole registry, so it must run only on
+        // the line we actually emit — not on every suppressed occurrence.
+        const suggestions = suggestNames(eventName, this.registry.list().map((e) => e.name));
+        const didYouMean = suggestions.length > 0
+          ? ` Did you mean ${suggestions.map((s) => `"${s}"`).join(' or ')}?`
+          : '';
+        console.warn(
+          `[event-catalog] publishSignal called with undeclared event "${eventName}" — `
+          + `emitting without schema validation. Declare it via catalog.declare() to enforce schema.`
+          + `${didYouMean} (further occurrences of this event name are not logged)`
+          + LogThrottle.suffix(suppressed),
+        );
+      }
     }
 
     let dropped = false;
@@ -1159,24 +1298,71 @@ export class EventCatalog {
   getDroppedPublishCount(eventName: string): number;
   getDroppedPublishCount(): Map<string, number>;
   getDroppedPublishCount(eventName?: string): number | Map<string, number> {
-    if (eventName !== undefined) return this.droppedPublishes.get(eventName) ?? 0;
-    return new Map(this.droppedPublishes);
+    if (eventName !== undefined) return this.droppedPublishes.get(eventName);
+    return this.droppedPublishes.snapshot();
+  }
+
+  /**
+   * Every publish this catalog has dropped, and how much per-event detail
+   * has been evicted for capacity.
+   *
+   * `getDroppedPublishCount()`'s map holds at most 1000 event names —
+   * `publishSignal()` accepts undeclared names, so its key space is
+   * caller-controlled. `total` here never evicts and is the number to
+   * alert on. `suppressedWarnings` counts log lines withheld by the
+   * per-publish throttles, so a quiet log is not mistaken for a quiet
+   * system.
+   */
+  getDroppedPublishStats(): {
+    total: number;
+    trackedEvents: number;
+    evictedEvents: number;
+    evictedTotal: number;
+    hookFailures: number;
+    suppressedWarnings: number;
+  } {
+    return {
+      total: this.droppedPublishes.total,
+      trackedEvents: this.droppedPublishes.size,
+      evictedEvents: this.droppedPublishes.evictedKeys,
+      evictedTotal: this.droppedPublishes.evictedTotal,
+      hookFailures: this.hookFailures,
+      suppressedWarnings:
+        this.undeclaredSignalWarnings.suppressedTotal + this.hookWarnings.suppressedTotal,
+    };
   }
 
   /** Count a dropped publish and notify the configured observer. */
   private recordDroppedPublish(drop: DroppedPublish): void {
-    this.droppedPublishes.set(
-      drop.eventName,
-      (this.droppedPublishes.get(drop.eventName) ?? 0) + 1,
-    );
+    this.droppedPublishes.increment(drop.eventName);
     try {
       this.config.onPublishDropped?.(drop);
     } catch (err) {
-      console.warn(
-        `[event-catalog] onPublishDropped threw for "${drop.eventName}":`,
-        (err as Error).message,
+      // A callback that throws throws on *every* drop, and drops arrive at
+      // the full publish rate while a transport is down.
+      this.warnOnHotPath(
+        `onPublishDropped:${drop.eventName}`,
+        `[event-catalog] onPublishDropped threw for "${drop.eventName}"`,
+        err as Error,
       );
     }
+  }
+
+  /**
+   * Warn about a failure that recurs at the publish rate: counted every
+   * time, logged at most once a minute per key and ten times a minute
+   * overall. Without this a throwing hook turns a dependency outage into
+   * a log-volume outage.
+   */
+  private warnOnHotPath(key: string, message: string, err: Error): void {
+    this.hookFailures++;
+    const suppressed = this.hookWarnings.attempt(key);
+    if (suppressed === null) return;
+    console.warn(
+      `${message} (${this.hookFailures} such failures this process)`
+      + LogThrottle.suffix(suppressed) + ':',
+      err.message,
+    );
   }
 
   /**
@@ -1210,9 +1396,20 @@ export class EventCatalog {
     );
   }
 
+  /**
+   * Retry the declaration sync in the background with exponential back-off.
+   *
+   * At most one chain is ever pending: the handle is tracked so
+   * `disconnect()` can clear it, and a second `scheduleBackgroundSync()`
+   * replaces the first rather than running two chains. Before this, a
+   * connect/disconnect/connect cycle after repeated sync failures left one
+   * live chain per cycle, all re-syncing forever.
+   */
   private scheduleBackgroundSync(): void {
     const attempt = (delay: number): void => {
-      setTimeout(() => {
+      if (this.backgroundSyncTimer) clearTimeout(this.backgroundSyncTimer);
+      this.backgroundSyncTimer = setTimeout(() => {
+        this.backgroundSyncTimer = null;
         if (!this.connected || !this.config.registryUrl) return;
         this.syncToRemoteRegistry().catch(() => {
           const nextDelay = Math.min(delay * 2, 60_000);
@@ -1232,7 +1429,7 @@ export class EventCatalog {
 
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.registryHeaders(),
       body: JSON.stringify({
         serviceName: this.config.serviceName,
         events: entries.map(e => ({
@@ -1264,7 +1461,7 @@ export class EventCatalog {
 
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.registryHeaders(),
       body: JSON.stringify({ serviceName: this.config.serviceName }),
     });
 

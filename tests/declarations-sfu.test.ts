@@ -21,9 +21,34 @@ import {
     sfuChatMessage,
     sfuChatUserBanned,
     sfuChannelDeleted,
+    sfuProducerStateChanged,
+    sfuParticipantDisconnected,
+    sfuMemberOwnerChanged,
+    sfuChatEvent,
+    sfuRecordingComposeQueued,
+    sfuRecordingComposeStarted,
+    sfuRecordingComposeProgress,
+    sfuRecordingComposeFailed,
+    sfuRecordingComposeCompleted,
 } from '../src/declarations/sfu';
 import { gatewaySignalDeclarations } from '../src/declarations/gateway-signal';
 import { pipelineDeclarations } from '../src/declarations/pipeline';
+
+/**
+ * The five frames that ride the Redis channel `chat-bus:<arn>`.
+ *
+ * Listed explicitly rather than matched on the `sfu.chat.` prefix: since
+ * 2026-09-07 `sfu.chat.event` also starts with that prefix but is a
+ * stream-events control-plane event, so a prefix match would assert the
+ * chat-bus invariants against an event that legitimately breaks them.
+ */
+const CHAT_BUS_EVENTS = [
+    'sfu.chat.message',
+    'sfu.chat.message_deleted',
+    'sfu.chat.user_disconnected',
+    'sfu.chat.user.banned',
+    'sfu.chat.user.unbanned',
+];
 
 function registryWith(decl: Parameters<Registry['declare']>[0]): Registry {
     const registry = new Registry();
@@ -32,12 +57,12 @@ function registryWith(decl: Parameters<Registry['declare']>[0]): Registry {
 }
 
 describe('sfu declarations — bulk registration', () => {
-    it('registers all 20 SFU events in a fresh registry without error', () => {
+    it('registers all 29 SFU events in a fresh registry without error', () => {
         const registry = new Registry();
         for (const decl of sfuDeclarations) {
             expect(registry.declare(decl).compatible, decl.name).toBe(true);
         }
-        expect(registry.size()).toBe(20);
+        expect(registry.size()).toBe(29);
     });
 
     it('has no duplicate event names', () => {
@@ -53,11 +78,11 @@ describe('sfu declarations — bulk registration', () => {
         }
     });
 
-    it('splits 12 durable webhook events from 8 signal events', () => {
+    it('splits 12 durable webhook events from 17 signal events', () => {
         const durable = sfuDeclarations.filter((d) => d.transport === 'durable');
         const signal = sfuDeclarations.filter((d) => d.transport === 'signal');
         expect(durable).toHaveLength(12);
-        expect(signal).toHaveLength(8);
+        expect(signal).toHaveLength(17);
     });
 
     it('every durable event names the queue it lands on and a retention', () => {
@@ -67,15 +92,18 @@ describe('sfu declarations — bulk registration', () => {
         }
     });
 
-    it('every control-plane signal event names the stream-events bus', () => {
-        for (const name of ['sfu.producer.added', 'sfu.producer.removed', 'sfu.recording.state.changed']) {
-            const decl = sfuDeclarations.find((d) => d.name === name)!;
-            expect(decl.channel, name).toBe('stream-events');
+    it('every signal event that is not on the chat-bus names the stream-events bus', () => {
+        const onTheHub = sfuDeclarations.filter(
+            (d) => d.transport === 'signal' && !CHAT_BUS_EVENTS.includes(d.name),
+        );
+        expect(onTheHub).toHaveLength(12);
+        for (const decl of onTheHub) {
+            expect(decl.channel, decl.name).toBe('stream-events');
         }
     });
 
     it('the chat-bus events carry no channel — the arn is the Redis channel name', () => {
-        for (const decl of sfuDeclarations.filter((d) => d.name.startsWith('sfu.chat.'))) {
+        for (const decl of sfuDeclarations.filter((d) => CHAT_BUS_EVENTS.includes(d.name))) {
             expect(decl.channel, decl.name).toBeUndefined();
             expect(
                 Object.keys(decl.schema.properties as object).includes('channelArn'),
@@ -84,8 +112,8 @@ describe('sfu declarations — bulk registration', () => {
         }
     });
 
-    it('every non-chat event carries channelArn as a required field', () => {
-        for (const decl of sfuDeclarations.filter((d) => !d.name.startsWith('sfu.chat.'))) {
+    it('every event off the chat-bus carries channelArn as a required field', () => {
+        for (const decl of sfuDeclarations.filter((d) => !CHAT_BUS_EVENTS.includes(d.name))) {
             expect(decl.schema.required as string[], decl.name).toContain('channelArn');
         }
     });
@@ -374,5 +402,295 @@ describe('sfu.channel.deleted', () => {
             registryWith(sfuChannelDeleted)
                 .validate('sfu.channel.deleted', { channelArn: 'arn:sfu:channel/abc' }).valid,
         ).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// The nine events added 2026-09-07. Each `REAL` object below is the producer's
+// own literal, transcribed from the construction site named in the comment and
+// joined to the envelope's channelArn — the same convention the webhook tests
+// above use.
+// ---------------------------------------------------------------------------
+
+describe('sfu.producer.state-changed', () => {
+    /** api/channels/producerState.js:215 verbatim. */
+    const REAL = {
+        channelArn: 'arn:sfu:channel/abc',
+        producerId: 'prod_1',
+        participantId: 'p_1',
+        kind: 'audio',
+        state: { muted: true },
+    };
+
+    it('accepts the patch payload the emit site builds', () => {
+        expect(
+            registryWith(sfuProducerStateChanged).validate('sfu.producer.state-changed', REAL).valid,
+        ).toBe(true);
+    });
+
+    it('accepts a null kind — the room index may hold no kind for the producer', () => {
+        expect(
+            registryWith(sfuProducerStateChanged)
+                .validate('sfu.producer.state-changed', { ...REAL, kind: null }).valid,
+        ).toBe(true);
+    });
+
+    it('leaves state open — muted is only the first mutable field', () => {
+        expect(
+            registryWith(sfuProducerStateChanged).validate('sfu.producer.state-changed', {
+                ...REAL,
+                state: { muted: false, paused: true },
+            }).valid,
+        ).toBe(true);
+    });
+});
+
+describe('sfu.participant.disconnected — two sites, different fields', () => {
+    /** api/admin/disconnect-session.js:104 verbatim. */
+    it('accepts the admin-disconnect payload, which carries transportId', () => {
+        expect(
+            registryWith(sfuParticipantDisconnected).validate('sfu.participant.disconnected', {
+                channelArn: 'arn:sfu:channel/abc',
+                participantId: 'p_1',
+                transportId: 'transport_1',
+                reason: 'admin disconnect',
+                source: 'admin-disconnect',
+            }).valid,
+        ).toBe(true);
+    });
+
+    /** workers/denyListWatcher.js:102 verbatim — no transportId at all. */
+    it('accepts the denylist payload, which has no transportId', () => {
+        expect(
+            registryWith(sfuParticipantDisconnected).validate('sfu.participant.disconnected', {
+                channelArn: 'arn:sfu:channel/abc',
+                participantId: 'p_1',
+                reason: 'denylist',
+                source: 'denylist',
+            }).valid,
+        ).toBe(true);
+    });
+
+    it('pins source to the two subsystems that emit', () => {
+        expect(
+            registryWith(sfuParticipantDisconnected).validate('sfu.participant.disconnected', {
+                channelArn: 'arn:sfu:channel/abc',
+                participantId: 'p_1',
+                reason: 'whatever',
+                source: 'made-up',
+            }).valid,
+        ).toBe(false);
+    });
+});
+
+describe('sfu.member.owner.changed', () => {
+    /** ws/stageWsServer.js:478 verbatim, token carrying a sub claim. */
+    const REAL = {
+        channelArn: 'arn:sfu:channel/abc',
+        memberId: 'm_1',
+        userId: 'u_1',
+        ownerClientId: 'p_1::abc::def',
+        participantId: 'p_1',
+    };
+
+    it('accepts the owner-assignment payload', () => {
+        expect(registryWith(sfuMemberOwnerChanged).validate('sfu.member.owner.changed', REAL).valid).toBe(true);
+    });
+
+    it('accepts a token with no sub claim — userId is spread in conditionally', () => {
+        const { userId: _dropped, ...withoutUserId } = REAL;
+        expect(
+            registryWith(sfuMemberOwnerChanged).validate('sfu.member.owner.changed', withoutUserId).valid,
+        ).toBe(true);
+    });
+
+    it('accepts a null ownerClientId — no session store means nobody arbitrated', () => {
+        expect(
+            registryWith(sfuMemberOwnerChanged)
+                .validate('sfu.member.owner.changed', { ...REAL, ownerClientId: null, participantId: null }).valid,
+        ).toBe(true);
+    });
+});
+
+describe('sfu.chat.event — a stream-events frame, not a chat-bus one', () => {
+    /** api/channels/chat-events.js:184 verbatim. */
+    const REAL = {
+        channelArn: 'arn:sfu:channel/abc',
+        eventName: 'poll.opened',
+        attributes: { pollId: 'poll_1' },
+        publishedAt: '2026-09-07T10:00:00.000Z',
+    };
+
+    it('accepts the published custom event', () => {
+        expect(registryWith(sfuChatEvent).validate('sfu.chat.event', REAL).valid).toBe(true);
+    });
+
+    it('accepts the empty attributes the endpoint substitutes when the caller omits them', () => {
+        expect(
+            registryWith(sfuChatEvent).validate('sfu.chat.event', { ...REAL, attributes: {} }).valid,
+        ).toBe(true);
+    });
+
+    it('rejects an eventName past the endpoint\'s 64-character limit', () => {
+        expect(
+            registryWith(sfuChatEvent)
+                .validate('sfu.chat.event', { ...REAL, eventName: 'x'.repeat(65) }).valid,
+        ).toBe(false);
+    });
+
+    it('carries channelArn and names the stream-events bus, unlike the chat-bus frames', () => {
+        expect(sfuChatEvent.channel).toBe('stream-events');
+        expect(sfuChatEvent.schema.required as string[]).toContain('channelArn');
+    });
+});
+
+describe('sfu.recording.compose.* — the background job lifecycle', () => {
+    const arn = 'arn:sfu:channel/abc';
+
+    /** RecordingManager.js:1668 verbatim. */
+    it('queued: accepts the finalize-time enqueue payload', () => {
+        expect(
+            registryWith(sfuRecordingComposeQueued).validate('sfu.recording.compose.queued', {
+                channelArn: arn,
+                recordingId: 'rec_1',
+                legCount: 3,
+                durationMs: 60000,
+                recordingStartedAt: '2026-09-07T10:00:00.000Z',
+            }).valid,
+        ).toBe(true);
+    });
+
+    it('queued: rejects a zero legCount — the emit is gated on at least one leg', () => {
+        expect(
+            registryWith(sfuRecordingComposeQueued).validate('sfu.recording.compose.queued', {
+                channelArn: arn,
+                recordingId: 'rec_1',
+                legCount: 0,
+                durationMs: 60000,
+                recordingStartedAt: '2026-09-07T10:00:00.000Z',
+            }).valid,
+        ).toBe(false);
+    });
+
+    /** RecordingManager.js:3754 verbatim. */
+    it('started: accepts the job-open payload', () => {
+        expect(
+            registryWith(sfuRecordingComposeStarted).validate('sfu.recording.compose.started', {
+                channelArn: arn, recordingId: 'rec_1', jobId: 'job_1',
+            }).valid,
+        ).toBe(true);
+    });
+
+    it('started: accepts a direct invocation with no jobId — the producer guards on it', () => {
+        expect(
+            registryWith(sfuRecordingComposeStarted)
+                .validate('sfu.recording.compose.started', { channelArn: arn, recordingId: 'rec_1' }).valid,
+        ).toBe(true);
+    });
+
+    /** RecordingManager.js:3965 verbatim. */
+    it('progress: accepts a bucket crossing', () => {
+        expect(
+            registryWith(sfuRecordingComposeProgress).validate('sfu.recording.compose.progress', {
+                channelArn: arn, recordingId: 'rec_1', jobId: 'job_1', progressPct: 40,
+            }).valid,
+        ).toBe(true);
+    });
+
+    it('progress: rejects 100 — the producer caps at 99 and never reports completion here', () => {
+        expect(
+            registryWith(sfuRecordingComposeProgress).validate('sfu.recording.compose.progress', {
+                channelArn: arn, recordingId: 'rec_1', jobId: 'job_1', progressPct: 100,
+            }).valid,
+        ).toBe(false);
+    });
+
+    /** RecordingManager.js:3897 verbatim — the pre-pass site sets `stage`. */
+    it('failed: accepts the windowed pre-pass failure, which has stage and no exitCode', () => {
+        expect(
+            registryWith(sfuRecordingComposeFailed).validate('sfu.recording.compose.failed', {
+                channelArn: arn,
+                recordingId: 'rec_1',
+                jobId: 'job_1',
+                wallMs: 1200,
+                stage: 'prepass',
+                reason: 'window probe failed',
+            }).valid,
+        ).toBe(true);
+    });
+
+    /** RecordingManager.js:4011 verbatim — the ffmpeg site sets `exitCode`. */
+    it('failed: accepts the ffmpeg failure, which has exitCode and no stage', () => {
+        expect(
+            registryWith(sfuRecordingComposeFailed).validate('sfu.recording.compose.failed', {
+                channelArn: arn,
+                recordingId: 'rec_1',
+                jobId: 'job_1',
+                wallMs: 8000,
+                exitCode: 1,
+                reason: 'ffmpeg exit=1',
+            }).valid,
+        ).toBe(true);
+    });
+
+    it('failed: accepts exitCode -1 — the spawn-error sentinel', () => {
+        expect(
+            registryWith(sfuRecordingComposeFailed).validate('sfu.recording.compose.failed', {
+                channelArn: arn,
+                recordingId: 'rec_1',
+                jobId: 'job_1',
+                wallMs: 5,
+                exitCode: -1,
+                reason: 'spawn ENOENT',
+            }).valid,
+        ).toBe(true);
+    });
+
+    /** RecordingManager.js:4093 verbatim. */
+    const COMPLETED = {
+        channelArn: arn,
+        recordingId: 'rec_1',
+        jobId: 'job_1',
+        wallMs: 12000,
+        composeStatus: 'ok',
+        composedSegment: {
+            key: 'arn_abc/rec_1/composed.mp4',
+            url: 'https://cdn/arn_abc/rec_1/composed.mp4',
+            size: 2048,
+            legCount: 2,
+            composedAt: '2026-09-07T10:05:00.000Z',
+        },
+        outputProbedDurationMs: 59980,
+    };
+
+    it('completed: accepts the successful compose payload', () => {
+        expect(
+            registryWith(sfuRecordingComposeCompleted)
+                .validate('sfu.recording.compose.completed', COMPLETED).valid,
+        ).toBe(true);
+    });
+
+    it('completed: accepts the degraded grade and a file:// url from an unwired backend', () => {
+        expect(
+            registryWith(sfuRecordingComposeCompleted).validate('sfu.recording.compose.completed', {
+                ...COMPLETED,
+                composeStatus: 'degraded',
+                composedSegment: { ...COMPLETED.composedSegment, url: 'file:///var/rec/composed.mp4' },
+            }).valid,
+        ).toBe(true);
+    });
+
+    it('completed: accepts a null probed duration — ffprobe may be absent', () => {
+        expect(
+            registryWith(sfuRecordingComposeCompleted)
+                .validate('sfu.recording.compose.completed', { ...COMPLETED, outputProbedDurationMs: null }).valid,
+        ).toBe(true);
+    });
+
+    it('completed: never grades `failed` — that is a separate event', () => {
+        expect(
+            registryWith(sfuRecordingComposeCompleted)
+                .validate('sfu.recording.compose.completed', { ...COMPLETED, composeStatus: 'failed' }).valid,
+        ).toBe(false);
     });
 });

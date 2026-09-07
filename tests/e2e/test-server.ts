@@ -55,39 +55,77 @@ export const FIXTURE = {
 } as const;
 
 const registry = new Registry();
-registry.declare({
-  name: 'test.alpha',
-  schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
-  transport: 'signal',
-  producer: 'test-svc',
-});
-registry.declare({
-  name: 'test.beta',
-  schema: { type: 'object', properties: { count: { type: 'number' } } },
-  transport: 'durable',
-  producer: 'test-svc',
-});
-registry.declare({
-  name: 'test.gamma',
-  schema: { type: 'object', properties: { active: { type: 'boolean' } } },
-  transport: 'signal',
-  producer: 'other-svc',
-});
-registry.declare({
-  name: 'billing.invoice.paid',
-  schema: {
-    type: 'object',
-    properties: { invoiceId: { type: 'string' }, amountCents: { type: 'number' } },
-    required: ['invoiceId'],
-  },
-  transport: 'durable',
-  producer: 'billing-svc',
-});
-registry.addSubscriber('test.alpha', 'consumer-svc');
-registry.addSubscriber('test.gamma', 'consumer-svc');
-registry.addSubscriber('test.gamma', 'audit-svc');
-registry.addSubscriber('billing.invoice.paid', 'ledger-svc');
-// test.beta deliberately has no subscribers (orphan rollup on the Dashboard).
+
+/** The four-event fixture above. Every spec but the scale ones runs on it. */
+function seedSmall(): void {
+  registry.clear();
+  registry.declare({
+    name: 'test.alpha',
+    schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    transport: 'signal',
+    producer: 'test-svc',
+  });
+  registry.declare({
+    name: 'test.beta',
+    schema: { type: 'object', properties: { count: { type: 'number' } } },
+    transport: 'durable',
+    producer: 'test-svc',
+  });
+  registry.declare({
+    name: 'test.gamma',
+    schema: { type: 'object', properties: { active: { type: 'boolean' } } },
+    transport: 'signal',
+    producer: 'other-svc',
+  });
+  registry.declare({
+    name: 'billing.invoice.paid',
+    schema: {
+      type: 'object',
+      properties: { invoiceId: { type: 'string' }, amountCents: { type: 'number' } },
+      required: ['invoiceId'],
+    },
+    transport: 'durable',
+    producer: 'billing-svc',
+  });
+  registry.addSubscriber('test.alpha', 'consumer-svc');
+  registry.addSubscriber('test.gamma', 'consumer-svc');
+  registry.addSubscriber('test.gamma', 'audit-svc');
+  registry.addSubscriber('billing.invoice.paid', 'ledger-svc');
+  // test.beta deliberately has no subscribers (orphan rollup on the Dashboard).
+}
+
+/**
+ * The REAL registry — every declaration in `src/declarations`, with the same
+ * derived namespaces and the same deterministic synthetic subscribers the
+ * admin component tests use, because both read the one fixture module.
+ *
+ * Four events is what every other spec runs on, and four events is where the
+ * admin's scale bugs hid: a namespace <select> that erased its own options, a
+ * graph `fitView` could not fit, a cluster overlay that turned into nine
+ * overlapping slabs. Seeding the real thing is the only way a spec sees them.
+ *
+ * Loaded lazily so the small-fixture specs never pay for parsing 200-odd
+ * declaration modules.
+ */
+async function seedScale(): Promise<number> {
+  const { realEvents } = await import('../../src/admin/src/test/fixtures/registry.js');
+  registry.clear();
+  for (const e of realEvents) {
+    registry.declare({
+      name: e.name,
+      namespace: e.namespace,
+      schema: e.schema,
+      transport: e.transport,
+      producer: e.producer,
+      description: e.description,
+      tags: e.tags,
+    });
+    for (const s of e.subscribers) registry.addSubscriber(e.name, s);
+  }
+  return realEvents.length;
+}
+
+seedSmall();
 
 const metrics = new MetricsCollector(60);
 const prom = new PromMetrics();
@@ -319,11 +357,27 @@ async function controlPlane(req: http.IncomingMessage, res: http.ServerResponse,
     return json(res, 200, { published });
   }
 
-  // Per-spec isolation: wipe mutable state, leave the registry fixture alone.
+  // Swap the registry between the small fixture and the real 200-odd
+  // declarations. The specs share one server process, so a scale spec MUST
+  // put the small fixture back — but reset does it too, so a crashed scale
+  // spec cannot leave the rest of the suite asserting against the wrong
+  // registry.
+  if (path === '/__e2e__/registry' && method === 'POST') {
+    const body = (await readBody(req)) as Record<string, unknown>;
+    if (body.mode === 'scale') {
+      const count = await seedScale();
+      return json(res, 200, { mode: 'scale', events: count });
+    }
+    seedSmall();
+    return json(res, 200, { mode: 'small', events: registry.size() });
+  }
+
+  // Per-spec isolation: wipe mutable state and restore the small fixture.
   if (path === '/__e2e__/reset' && method === 'POST') {
     dlqStore.reset();
     published = [];
     nextPublishError = null;
+    seedSmall();
     return json(res, 200, { reset: true });
   }
 

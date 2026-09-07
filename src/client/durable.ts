@@ -1,8 +1,20 @@
 import { RetryManager } from 'distributed-core/transport';
 import type { EventEnvelope } from '../types/index';
+import { BoundedCounter, LogThrottle, rememberBounded } from '../utils/bounded';
 
 /** Max wait enforced on a server-driven Retry-After (5 minutes). */
 const BACKPRESSURE_MAX_WAIT_MS = 300_000;
+
+/** Cap on per-queue bookkeeping (metrics, ensure-cache, backpressure). */
+const MAX_TRACKED_QUEUES = 1000;
+
+/**
+ * Cap on per-message delivery-attempt counters. Keyed by a message id the
+ * *queue* chooses, and only cleared on success or dead-letter — a message
+ * that fails once and is never redelivered (queue purged, retention
+ * expiry, visibility change) otherwise leaves its counter behind forever.
+ */
+const MAX_TRACKED_MESSAGE_ATTEMPTS = 10_000;
 
 /**
  * Parse an RFC 7231 Retry-After header value.
@@ -31,8 +43,12 @@ function parseRetryAfterMs(header: string | null): number | undefined {
   return undefined;
 }
 
-/** Simple in-memory counter for backpressure observations. */
-const backpressureCounter: Map<string, number> = new Map();
+/**
+ * Process-wide counter for backpressure observations, shared by every
+ * `DurableTransport` in the process. Bounded per-queue with an exact
+ * lifetime total, because it is never cleared outside tests.
+ */
+const backpressureCounter = new BoundedCounter(MAX_TRACKED_QUEUES);
 
 export interface DurableTransportConfig {
   /**
@@ -135,12 +151,38 @@ export class DurableTransport {
   private readonly dlqCapacity: number;
   private readonly pollRetryManager: RetryManager;
   private connected = false;
-  private activePollers = new Map<string, AbortController>();
+  /**
+   * Keyed by a monotonic id, not by queue name: two `subscribe()` calls on
+   * the same queue used to overwrite each other's AbortController, which
+   * orphaned the first poll loop for the life of the process and made
+   * `disconnect()` unable to stop it.
+   */
+  private activePollers = new Map<number, AbortController>();
+  private nextPollerId = 1;
   private queueMetrics = new Map<string, QueueMetrics>();
+  private evictedQueueMetrics = 0;
   private ensuredQueues = new Set<string>();
   private readonly deadLetterMessages: DeadLetteredMessage[] = [];
   private readonly messageAttempts = new Map<string, number>();
+  private evictedMessageAttempts = 0;
   private deadLetterCallbacks: DeadLetterCallback[] = [];
+  /** Publishes currently awaiting message-queue. See {@link getInFlightPublishCount}. */
+  private inFlightPublishes = 0;
+  private peakInFlightPublishes = 0;
+  /**
+   * Every log line below runs per-publish or per-message, which is exactly
+   * the rate at which a dependency outage executes. Counted always,
+   * logged at a bounded rate.
+   */
+  private readonly backpressureWarnings: LogThrottle;
+  private readonly ensureQueueWarnings: LogThrottle;
+  private readonly pollWarnings: LogThrottle;
+  private readonly handlerWarnings: LogThrottle;
+  private readonly deadLetterWarnings: LogThrottle;
+  private handlerFailures = 0;
+  private ensureQueueFailures = 0;
+  private pollFailures = 0;
+  private deadLetteredTotal = 0;
 
   constructor(config: DurableTransportConfig) {
     this.url = config.url.replace(/\/$/, '');
@@ -154,6 +196,13 @@ export class DurableTransport {
     this.publishTimeoutMs = config.publishTimeoutMs ?? 10_000;
     this.maxProcessingAttempts = config.maxProcessingAttempts ?? 3;
     this.dlqCapacity = config.dlqCapacity ?? 10_000;
+    // keyIntervalMs: a queue that is still failing an hour later deserves a
+    // fresh line; what it must not do is emit one per publish.
+    this.backpressureWarnings = new LogThrottle({ keyIntervalMs: 60_000, maxPerWindow: 5 });
+    this.ensureQueueWarnings = new LogThrottle({ keyIntervalMs: 60_000, maxPerWindow: 5 });
+    this.pollWarnings = new LogThrottle({ keyIntervalMs: 60_000, maxPerWindow: 5 });
+    this.handlerWarnings = new LogThrottle({ keyIntervalMs: 60_000, maxPerWindow: 5 });
+    this.deadLetterWarnings = new LogThrottle({ keyIntervalMs: 60_000, maxPerWindow: 5 });
     this.pollRetryManager = new RetryManager({
       maxRetries: 2, // 3 total attempts (1 initial + 2 retries)
       baseDelay: 1000,
@@ -203,6 +252,62 @@ export class DurableTransport {
     this.connected = false;
   }
 
+  /** Poll loops still running. Should be 0 after `disconnect()`. */
+  getActivePollerCount(): number {
+    return this.activePollers.size;
+  }
+
+  /**
+   * Publishes currently awaiting message-queue, and the high-water mark.
+   *
+   * **This transport applies no backpressure of its own.** `publish()` has
+   * no internal queue and no concurrency limit: every concurrent caller
+   * holds its own fetch, and on 429/5xx its own retry sleep — which a
+   * server `Retry-After` can stretch to 5 minutes per attempt. A producer
+   * that publishes faster than message-queue drains therefore accumulates
+   * in-flight promises without limit, bounded only by the caller's own
+   * concurrency. Watch this gauge and rate-limit upstream.
+   */
+  getInFlightPublishCount(): { current: number; peak: number } {
+    return { current: this.inFlightPublishes, peak: this.peakInFlightPublishes };
+  }
+
+  /**
+   * Aggregates that survive per-key eviction and log suppression.
+   *
+   * `getMetrics()` and `getBackpressureCount()` hold at most
+   * {@link MAX_TRACKED_QUEUES} entries each; these totals do not evict, so
+   * they remain the truthful answer to "did anything fail?".
+   */
+  getOverflowStats(): {
+    trackedQueues: number;
+    evictedQueueMetrics: number;
+    trackedMessageAttempts: number;
+    evictedMessageAttempts: number;
+    handlerFailures: number;
+    ensureQueueFailures: number;
+    pollFailures: number;
+    deadLetteredTotal: number;
+    suppressedWarnings: number;
+  } {
+    return {
+      trackedQueues: this.queueMetrics.size,
+      evictedQueueMetrics: this.evictedQueueMetrics,
+      trackedMessageAttempts: this.messageAttempts.size,
+      evictedMessageAttempts: this.evictedMessageAttempts,
+      handlerFailures: this.handlerFailures,
+      ensureQueueFailures: this.ensureQueueFailures,
+      pollFailures: this.pollFailures,
+      deadLetteredTotal: this.deadLetteredTotal,
+      suppressedWarnings:
+        this.backpressureWarnings.suppressedTotal
+        + this.ensureQueueWarnings.suppressedTotal
+        + this.pollWarnings.suppressedTotal
+        + this.handlerWarnings.suppressedTotal
+        + this.deadLetterWarnings.suppressedTotal,
+    };
+  }
+
   /**
    * Idempotent queue ensure via PUT (message-queue Phase 4.1 contract).
    * Maps event-catalog's declared queue config (retention/fifo/dlqAfterAttempts)
@@ -235,7 +340,8 @@ export class DurableTransport {
       if (dlqOk) {
         dlqArn = `arn:message-queue:queue:${dlqName}`;
       } else {
-        console.warn(
+        this.warnEnsureQueue(
+          `dlq:${dlqName}`,
           `[durable-transport] DLQ ensure for "${dlqName}" failed; main queue "${queueName}" will be created WITHOUT redrive_policy`,
         );
       }
@@ -245,7 +351,31 @@ export class DurableTransport {
     const configuration = this.buildQueueConfig(options, dlqArn);
 
     const ok = await this.putQueue(queueName, configuration);
-    if (ok) this.ensuredQueues.add(queueName);
+    // Bounded: a caller publishing to an unbounded queue-name space would
+    // otherwise grow this Set forever. Eviction only costs a redundant
+    // (idempotent) PUT the next time that queue is published to.
+    if (ok) this.rememberEnsuredQueue(queueName);
+  }
+
+  private rememberEnsuredQueue(queueName: string): void {
+    if (this.ensuredQueues.has(queueName)) return;
+    if (this.ensuredQueues.size >= MAX_TRACKED_QUEUES) {
+      const oldest = this.ensuredQueues.values().next();
+      if (!oldest.done) this.ensuredQueues.delete(oldest.value);
+    }
+    this.ensuredQueues.add(queueName);
+  }
+
+  /**
+   * `ensureQueue` runs on every publish until it succeeds, so a
+   * message-queue outage puts these warnings on the per-publish path.
+   * Count every failure; log a bounded sample.
+   */
+  private warnEnsureQueue(key: string, message: string, ...rest: unknown[]): void {
+    this.ensureQueueFailures++;
+    const suppressed = this.ensureQueueWarnings.attempt(key);
+    if (suppressed === null) return;
+    console.warn(message + LogThrottle.suffix(suppressed), ...rest);
   }
 
   /**
@@ -292,18 +422,32 @@ export class DurableTransport {
       }
       if (res.status === 409) {
         const body = await res.json().catch(() => ({})) as { conflicts?: unknown };
-        console.warn(
-          `[durable-transport] queue "${queueName}" exists with differing config — accepting drift:`,
-          JSON.stringify(body.conflicts ?? body),
-        );
+        // 409 still counts as ensured, so this fires once per queue — but
+        // route it through the throttle anyway in case the queue-name space
+        // is caller-controlled.
+        const suppressed = this.ensureQueueWarnings.attempt(`conflict:${queueName}`);
+        if (suppressed !== null) {
+          console.warn(
+            `[durable-transport] queue "${queueName}" exists with differing config — accepting drift:`
+            + LogThrottle.suffix(suppressed),
+            JSON.stringify(body.conflicts ?? body),
+          );
+        }
         // Drift is not a fatal error; the queue exists and we can publish.
         return true;
       }
       const text = await res.text().catch(() => 'unknown');
-      console.warn(`[durable-transport] ensureQueue "${queueName}" failed: ${res.status} ${text}`);
+      this.warnEnsureQueue(
+        `status:${queueName}`,
+        `[durable-transport] ensureQueue "${queueName}" failed: ${res.status} ${text}`,
+      );
       return false;
     } catch (err) {
-      console.warn(`[durable-transport] ensureQueue "${queueName}" error:`, (err as Error).message);
+      this.warnEnsureQueue(
+        `error:${queueName}`,
+        `[durable-transport] ensureQueue "${queueName}" error:`,
+        (err as Error).message,
+      );
       return false;
     }
   }
@@ -313,22 +457,30 @@ export class DurableTransport {
    * Exposed via `DurableTransport.getBackpressureCount()` for tests/metrics.
    */
   private recordBackpressure(queueName: string): number {
-    const prev = backpressureCounter.get(queueName) ?? 0;
-    backpressureCounter.set(queueName, prev + 1);
-    return prev + 1;
+    return backpressureCounter.increment(queueName);
   }
 
-  /** Return total backpressure events observed for a queue (or all queues). */
+  /**
+   * Return total backpressure events observed for a queue (or all queues).
+   *
+   * The no-argument map holds at most {@link MAX_TRACKED_QUEUES} queues;
+   * `getBackpressureTotal()` is the number that never loses an observation.
+   */
   static getBackpressureCount(queueName?: string): number | Map<string, number> {
     if (queueName !== undefined) {
-      return backpressureCounter.get(queueName) ?? 0;
+      return backpressureCounter.get(queueName);
     }
-    return new Map(backpressureCounter);
+    return backpressureCounter.snapshot();
+  }
+
+  /** Lifetime backpressure observations, unaffected by per-queue eviction. */
+  static getBackpressureTotal(): number {
+    return backpressureCounter.total;
   }
 
   /** Reset backpressure counters (useful in tests). */
   static resetBackpressureCounters(): void {
-    backpressureCounter.clear();
+    backpressureCounter.reset();
   }
 
   /**
@@ -356,6 +508,22 @@ export class DurableTransport {
       );
     }
 
+    this.inFlightPublishes++;
+    if (this.inFlightPublishes > this.peakInFlightPublishes) {
+      this.peakInFlightPublishes = this.inFlightPublishes;
+    }
+    try {
+      await this.publishInner(queueName, envelope, queueOptions);
+    } finally {
+      this.inFlightPublishes--;
+    }
+  }
+
+  private async publishInner(
+    queueName: string,
+    envelope: EventEnvelope,
+    queueOptions?: EnsureQueueOptions,
+  ): Promise<void> {
     await this.ensureQueue(queueName, queueOptions);
 
     const body = JSON.stringify({
@@ -400,17 +568,29 @@ export class DurableTransport {
           waitMs = retryManagerDefault;
         }
         if (waitMs > BACKPRESSURE_MAX_WAIT_MS) {
-          console.warn(
-            `[durable-transport] backpressure on "${queueName}": Retry-After ${waitMs}ms exceeds cap ${BACKPRESSURE_MAX_WAIT_MS}ms; clamping`,
-          );
+          const clampSuppressed = this.backpressureWarnings.attempt(`clamp:${queueName}`);
+          if (clampSuppressed !== null) {
+            console.warn(
+              `[durable-transport] backpressure on "${queueName}": Retry-After ${waitMs}ms exceeds cap ${BACKPRESSURE_MAX_WAIT_MS}ms; clamping`
+              + LogThrottle.suffix(clampSuppressed),
+            );
+          }
           waitMs = BACKPRESSURE_MAX_WAIT_MS;
         }
         // Apply jitter: multiply by random in [0.5, 1.0)
         const jittered = Math.round(waitMs * (0.5 + Math.random() * 0.5));
-        console.warn(
-          `[durable-transport] mq_backpressure_observed_total{queue="${queueName}"} ${count} — ` +
-          `retry-after ${Math.round(waitMs / 1000)}s jittered=${jittered}ms attempt=${attempt}/${maxAttempts}`,
-        );
+        // Sustained backpressure means this line runs on every attempt of
+        // every publish — the full request rate of the service. The count
+        // in the message is the un-suppressed truth; the line itself is a
+        // once-a-minute-per-queue sample.
+        const suppressed = this.backpressureWarnings.attempt(queueName);
+        if (suppressed !== null) {
+          console.warn(
+            `[durable-transport] mq_backpressure_observed_total{queue="${queueName}"} ${count} — ` +
+            `retry-after ${Math.round(waitMs / 1000)}s jittered=${jittered}ms attempt=${attempt}/${maxAttempts}`
+            + LogThrottle.suffix(suppressed),
+          );
+        }
         if (attempt >= maxAttempts) {
           this.incrementMetric(queueName, 'failed');
           throw new Error(`[durable-transport] publish to "${queueName}" failed after ${maxAttempts} attempts: message-queue returned 429`);
@@ -465,20 +645,25 @@ export class DurableTransport {
     } = options;
 
     const controller = new AbortController();
-    this.activePollers.set(queueName, controller);
+    const pollerId = this.nextPollerId++;
+    this.activePollers.set(pollerId, controller);
 
-    this.ensureQueue(queueName).then(() => {
-      this.pollLoop(queueName, handler, {
+    // `.catch` matters: ensureQueue never rejects today, but an unhandled
+    // rejection here would take the process down instead of leaving the
+    // poller unstarted.
+    void this.ensureQueue(queueName).then(() => {
+      if (controller.signal.aborted) return;
+      void this.pollLoop(queueName, handler, {
         pollingInterval,
         batchSize,
         visibilityTimeout,
         signal: controller.signal,
       });
-    });
+    }).catch(() => { /* ensureQueue already logged */ });
 
     return () => {
       controller.abort();
-      this.activePollers.delete(queueName);
+      this.activePollers.delete(pollerId);
     };
   }
 
@@ -614,7 +799,19 @@ export class DurableTransport {
           });
         } catch (pollErr) {
           if (signal.aborted) return;
-          console.error(`[durable-transport] poll failed for "${queueName}" after retries:`, (pollErr as Error).message);
+          // A down message-queue fails this every `pollingInterval` (1s by
+          // default) for as long as the outage lasts — ~86k lines a day
+          // per queue if left unthrottled.
+          this.pollFailures++;
+          const suppressed = this.pollWarnings.attempt(`poll:${queueName}`);
+          if (suppressed !== null) {
+            console.error(
+              `[durable-transport] poll failed for "${queueName}" after retries `
+              + `(${this.pollFailures} failures this process)`
+              + LogThrottle.suffix(suppressed) + ':',
+              (pollErr as Error).message,
+            );
+          }
           await this.sleep(pollingInterval, signal);
           continue;
         }
@@ -639,8 +836,20 @@ export class DurableTransport {
             // Clear attempt counter on success
             this.messageAttempts.delete(msg.message_id);
           } catch (err) {
+            this.handlerFailures++;
             const attemptCount = (this.messageAttempts.get(msg.message_id) ?? 0) + 1;
-            this.messageAttempts.set(msg.message_id, attemptCount);
+            // Bounded: message ids are chosen by the queue, and an entry is
+            // only removed on success or dead-letter. A message that fails
+            // once and is never redelivered would otherwise leak its counter.
+            // Eviction only means the message gets a fresh attempt budget.
+            if (rememberBounded(
+              this.messageAttempts,
+              msg.message_id,
+              attemptCount,
+              MAX_TRACKED_MESSAGE_ATTEMPTS,
+            ) !== undefined) {
+              this.evictedMessageAttempts++;
+            }
 
             if (attemptCount >= this.maxProcessingAttempts) {
               // Dead-letter this message
@@ -667,9 +876,28 @@ export class DurableTransport {
                 { method: 'DELETE' },
               ).catch(() => { /* best-effort cleanup */ });
               this.messageAttempts.delete(msg.message_id);
-              console.error(`[durable-transport] message ${msg.message_id} dead-lettered after ${attemptCount} attempts in "${queueName}"`);
+              this.deadLetteredTotal++;
+              // Keyed by queue, not message id: a poison batch dead-letters
+              // at the drain rate, and the useful signal is "this queue is
+              // dead-lettering", not each id.
+              const dlSuppressed = this.deadLetterWarnings.attempt(`dlq:${queueName}`);
+              if (dlSuppressed !== null) {
+                console.error(
+                  `[durable-transport] message ${msg.message_id} dead-lettered after ${attemptCount} attempts in "${queueName}" `
+                  + `(${this.deadLetteredTotal} dead-lettered this process)`
+                  + LogThrottle.suffix(dlSuppressed),
+                );
+              }
             } else {
-              console.warn(`[durable-transport] handler error for "${queueName}" (attempt ${attemptCount}/${this.maxProcessingAttempts}):`, (err as Error).message);
+              const hSuppressed = this.handlerWarnings.attempt(`handler:${queueName}`);
+              if (hSuppressed !== null) {
+                console.warn(
+                  `[durable-transport] handler error for "${queueName}" (attempt ${attemptCount}/${this.maxProcessingAttempts}) `
+                  + `(${this.handlerFailures} handler failures this process)`
+                  + LogThrottle.suffix(hSuppressed) + ':',
+                  (err as Error).message,
+                );
+              }
             }
 
             this.decrementInFlight(queueName);
@@ -682,7 +910,14 @@ export class DurableTransport {
         }
       } catch (err) {
         if (signal.aborted) return;
-        console.warn(`[durable-transport] poll error for "${queueName}":`, (err as Error).message);
+        this.pollFailures++;
+        const suppressed = this.pollWarnings.attempt(`loop:${queueName}`);
+        if (suppressed !== null) {
+          console.warn(
+            `[durable-transport] poll error for "${queueName}"` + LogThrottle.suffix(suppressed) + ':',
+            (err as Error).message,
+          );
+        }
         await this.sleep(pollingInterval, signal);
       }
     }
@@ -715,7 +950,11 @@ export class DurableTransport {
     let metrics = this.queueMetrics.get(queueName);
     if (!metrics) {
       metrics = { sent: 0, received: 0, failed: 0, inFlight: 0 };
-      this.queueMetrics.set(queueName, metrics);
+      // Bounded, because `publish()` is public and its queue name is
+      // derived from a caller-supplied event name.
+      if (rememberBounded(this.queueMetrics, queueName, metrics, MAX_TRACKED_QUEUES) !== undefined) {
+        this.evictedQueueMetrics++;
+      }
     }
     metrics[field]++;
   }

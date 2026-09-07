@@ -244,6 +244,51 @@ describe('FlowView — sampling and filters', () => {
     expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['all', 'call']);
   });
 
+  it('keeps every namespace in the list after one of them narrows the graph', async () => {
+    // The regression: options were derived from the CURRENT topology
+    // response, and choosing a namespace refetches `?namespace=<it>` — whose
+    // nodes mention only that one. So picking "call" deleted "pipeline" from
+    // the list that had just been used to pick it, and the only way to
+    // another namespace was back through "all". TopologyView was fixed for
+    // this; the flow view, which shares the control, was not.
+    const twoNamespaces = {
+      nodes: [
+        { id: 'platform-api', type: 'service', metadata: {} },
+        { id: 'call:caption:line', type: 'event', metadata: { transport: 'signal', namespace: 'call' } },
+        { id: 'pipeline:run:started', type: 'event', metadata: { transport: 'durable', namespace: 'pipeline' } },
+      ],
+      edges: [{ from: 'platform-api', to: 'call:caption:line', relation: 'publishes' }],
+    };
+    const callOnly = {
+      nodes: [
+        { id: 'platform-api', type: 'service', metadata: {} },
+        { id: 'call:caption:line', type: 'event', metadata: { transport: 'signal', namespace: 'call' } },
+      ],
+      edges: [{ from: 'platform-api', to: 'call:caption:line', relation: 'publishes' }],
+    };
+    let call = 0;
+    mockFetch({ '/api/topology': () => (call++ === 0 ? { body: twoNamespaces } : { body: callOnly }) });
+    installMockEventSource();
+    const user = userEvent.setup();
+    renderWithRouter(<FlowView />);
+    await screen.findByTestId('graph');
+
+    const select = screen.getByLabelText('namespace');
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'all',
+      'call',
+      'pipeline',
+    ]);
+
+    await user.selectOptions(select, 'call');
+    await waitFor(() => expect(MockEventSource.latest.url).toContain('namespace=call'));
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'all',
+      'call',
+      'pipeline',
+    ]);
+  });
+
   it('refetches the topology and reopens the stream when a namespace is chosen', async () => {
     const user = userEvent.setup();
     mount();

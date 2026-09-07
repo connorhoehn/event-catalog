@@ -40,8 +40,10 @@ function createFlowHandlers(_deps) {
             counter += 1;
             if (counter % sampleN !== 0)
                 return;
-            // SSE frame; one event per data line.
-            stream.write(`data: ${JSON.stringify(event)}\n\n`);
+            // SSE frame; one event per data line. `tapFrame` serializes once
+            // per publish and hands the identical string to every stream that
+            // passes its filter — the frame has no per-stream content.
+            stream.write((0, tap_emitter_js_1.tapFrame)(event));
         };
         // The registry answers 503 itself when the process is at its
         // concurrent-stream ceiling, and detaches the listener below on

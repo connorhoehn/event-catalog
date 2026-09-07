@@ -8,6 +8,12 @@ export interface SignalTransportConfig {
     url: string;
     /** Per-channel history ring-buffer depth (Redis Stream MAXLEN). Default 100. */
     ringBufferSize?: number;
+    /**
+     * Cap on how many distinct channels keep per-channel metrics and drop
+     * counters. Oldest-first eviction past this; aggregate totals are never
+     * evicted. Default 1000.
+     */
+    maxTrackedChannels?: number;
 }
 interface ChannelMetrics {
     publishCount: number;
@@ -39,18 +45,37 @@ export declare class SignalTransport {
     private readonly url;
     private readonly ringBufferSize;
     private connected;
+    /** Shared by concurrent `connect()` callers so a race opens one pair of clients. */
+    private connectInFlight;
     private subscriptions;
     private channelMetrics;
+    private readonly maxTrackedChannels;
+    /** Channels whose metrics were evicted for capacity. */
+    private evictedChannelMetrics;
     private readonly circuitBreaker;
     /**
      * Publishes discarded because the transport was not connected. Keyed by
      * channel. A dropped publish is otherwise invisible — it neither throws
      * nor increments publishCount — so this counter is the only durable
-     * evidence it happened.
+     * evidence it happened. Bounded: per-channel detail evicts, the total
+     * does not.
      */
     private readonly droppedCounts;
-    /** Channels we've already warned about, so a hot path can't flood logs. */
-    private readonly warnedDisconnectedChannels;
+    /**
+     * Rate limit for the disconnected-publish warning. Warn-once-per-channel
+     * on its own does not bound anything when channels are per-document: the
+     * window ceiling does.
+     */
+    private readonly dropWarnings;
+    /** Ring-buffer write failures: counted always, logged at most once a minute. */
+    private readonly ringBufferWarnings;
+    private ringBufferFailures;
+    /**
+     * node-redis emits `error` on every reconnect attempt, so a Redis outage
+     * emits these at the reconnect cadence for as long as it lasts.
+     */
+    private readonly clientErrorWarnings;
+    private clientErrors;
     constructor(config: SignalTransportConfig);
     /**
      * Open the publish + subscribe Redis clients. Idempotent — a second call
@@ -62,10 +87,31 @@ export declare class SignalTransport {
      *   connect retry indefinitely.
      */
     connect(): Promise<void>;
+    private openClients;
+    /**
+     * Warn about a Redis client error at most once a minute per client role.
+     * node-redis fires this on every reconnect attempt, so an outage would
+     * otherwise emit one line per attempt for the whole outage.
+     */
+    private warnClientError;
+    /**
+     * Tear both clients down without regard for `connected`. Never throws.
+     *
+     * `graceful` picks the teardown: `quit()` drains pending commands and is
+     * right for a live client, but on a client that never finished
+     * connecting it *queues* the QUIT and waits — which is why a failed
+     * connect must use the forced `disconnect()` instead of hanging boot.
+     */
+    private destroyClients;
     /**
      * Unsubscribe every channel and quit both Redis clients. Idempotent and
      * best-effort: errors during teardown are swallowed so shutdown always
      * completes. After this, publishes are dropped rather than thrown.
+     *
+     * Safe to call twice, and safe to call after a *failed* `connect()` —
+     * it tears down whatever clients exist rather than checking `connected`,
+     * so a half-open connect cannot leave a reconnect timer holding the
+     * process open past SIGTERM.
      */
     disconnect(): Promise<void>;
     /**
@@ -145,6 +191,25 @@ export declare class SignalTransport {
      */
     getDroppedCount(channel: string): number;
     getDroppedCount(): Map<string, number>;
+    /**
+     * Aggregates that survive eviction and log suppression.
+     *
+     * `getDroppedCount()`'s map holds at most `maxTrackedChannels` entries,
+     * so on a per-document channel scheme the map is a *sample*, not the
+     * total. `droppedTotal` here is exact for the life of the process, and
+     * `suppressedWarnings` says how many log lines were withheld. Read these
+     * before concluding from the map that nothing was lost.
+     */
+    getOverflowStats(): {
+        droppedTotal: number;
+        droppedEvictedChannels: number;
+        droppedEvictedTotal: number;
+        trackedChannels: number;
+        evictedChannelMetrics: number;
+        ringBufferFailures: number;
+        clientErrors: number;
+        suppressedWarnings: number;
+    };
     /** True once `connect()` has resolved and before `disconnect()` is called. */
     isConnected(): boolean;
     /**
@@ -163,6 +228,12 @@ export declare class SignalTransport {
      * flight; the counter keeps the drop visible for the whole process life.
      */
     private recordDrop;
+    /**
+     * Fetch (or create) a channel's metrics row, evicting the oldest row when
+     * the tracked-channel cap is reached. Publishing to a hostile or
+     * per-document channel space therefore costs a bounded amount of memory.
+     */
+    private metricsFor;
     private incrementMetrics;
     private updateSubscriberCount;
 }

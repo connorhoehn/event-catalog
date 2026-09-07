@@ -6,7 +6,7 @@
 // volume namespaces; default is unfiltered.
 
 import type { Request, Response } from '../http-router.js';
-import { tapEmitter, matchesTapFilter, type TapEvent, type TapFilter } from '../tap-emitter.js';
+import { tapEmitter, matchesTapFilter, tapFrame, type TapEvent, type TapFilter } from '../tap-emitter.js';
 import { sseRegistry, type SseStream } from '../sse.js';
 import { stringParam, type RoutesDeps } from './_shared.js';
 
@@ -39,8 +39,10 @@ export function createFlowHandlers(_deps: RoutesDeps) {
       if (!matchesTapFilter(event, filter)) return;
       counter += 1;
       if (counter % sampleN !== 0) return;
-      // SSE frame; one event per data line.
-      stream.write(`data: ${JSON.stringify(event)}\n\n`);
+      // SSE frame; one event per data line. `tapFrame` serializes once
+      // per publish and hands the identical string to every stream that
+      // passes its filter — the frame has no per-stream content.
+      stream.write(tapFrame(event));
     };
 
     // The registry answers 503 itself when the process is at its

@@ -1,4 +1,5 @@
 import { MetricsRegistry, formatPrometheus } from 'distributed-core';
+import type { MetricSample } from 'distributed-core';
 import type { Counter, Gauge } from 'distributed-core/monitoring';
 
 /**
@@ -535,11 +536,121 @@ export class PromMetrics {
         console.warn('[prom-metrics] collector failed:', (err as Error).message);
       }
     }
-    return formatPrometheus(this.registry.getSnapshot());
+    return renderExposition(this.registry.getSnapshot());
   }
 
   /** Expose the underlying registry (for tests / advanced wiring). */
   getRegistry(): MetricsRegistry {
     return this.registry;
   }
+}
+
+// -------------------------------------------------------------------
+// Exposition rendering
+// -------------------------------------------------------------------
+
+/**
+ * Cached `name{label="value",…}` prefix for one series.
+ *
+ * Keyed on the labels object rather than a string, because
+ * `MetricsRegistry` builds that object exactly once — at
+ * `counter()`/`gauge()` registration time, as
+ * `{...defaultLabels, ...labels}` — stores it on the series, and hands
+ * back that same reference in every subsequent `getSnapshot()`. So:
+ *
+ *   - a new series is a new object, therefore a guaranteed cache miss;
+ *   - an existing series' labels never change, so an entry can never
+ *     go stale (only the metric's numeric VALUE moves between scrapes,
+ *     and that is read fresh every time — it is not part of the key or
+ *     the cached string);
+ *   - a WeakMap means a dropped registry is collected with its cache.
+ *
+ * One labels object belongs to exactly one series, so the metric name
+ * does not need to be part of the key.
+ *
+ * This exists because `labelStr` inside distributed-core's
+ * `formatPrometheus` is 42% of the whole `/metrics` render: it does an
+ * `Object.keys().sort().map().join()` for all ~470 series on every
+ * single scrape, to rebuild strings that are byte-identical to the
+ * ones it built on the previous scrape. Nothing about the scrape can
+ * change them.
+ */
+const seriesPrefixes = new WeakMap<object, string>();
+
+/** Mangled (`.` → `_`) metric names, also invariant per series name. */
+const mangledNames = new Map<string, string>();
+
+function mangleName(name: string): string {
+  let mangled = mangledNames.get(name);
+  if (mangled === undefined) {
+    mangled = name.replace(/\./g, '_');
+    mangledNames.set(name, mangled);
+  }
+  return mangled;
+}
+
+/** `mangled_name{a="1",b="2"}` — computed once per series, then cached. */
+function seriesPrefix(sample: MetricSample): string {
+  const cached = seriesPrefixes.get(sample.labels);
+  if (cached !== undefined) return cached;
+  const keys = Object.keys(sample.labels).sort();
+  const mangled = mangleName(sample.name);
+  const prefix = keys.length === 0
+    ? mangled
+    : `${mangled}{${keys.map((k) => `${k}="${sample.labels[k]}"`).join(',')}}`;
+  seriesPrefixes.set(sample.labels, prefix);
+  return prefix;
+}
+
+/**
+ * Render a registry snapshot as Prometheus text exposition format
+ * (0.0.4), byte-for-byte identical to distributed-core's
+ * `formatPrometheus` — see `tests/prom-render-equivalence.test.ts`,
+ * which asserts exactly that against a populated registry so an
+ * upstream format change cannot silently diverge from this copy.
+ *
+ * The only reason it is not just a call to `formatPrometheus` is the
+ * per-series prefix cache above. Everything else is the same walk:
+ * group samples by metric name so all label-variants share one
+ * `# TYPE` header, emit an optional `# HELP`, then one line per series
+ * carrying the scrape timestamp.
+ *
+ * Histograms are NOT reimplemented here — `PromMetrics` registers only
+ * counters and gauges, and the histogram branch involves an
+ * interpolated bucket estimate that is not worth duplicating. A
+ * snapshot containing one falls straight through to `formatPrometheus`,
+ * so a future histogram is a performance regression rather than a
+ * correctness bug.
+ */
+export function renderExposition(snapshot: {
+  timestamp: number;
+  nodeId: string;
+  metrics: MetricSample[];
+}): string {
+  const { metrics, timestamp } = snapshot;
+  if (metrics.length === 0) return '';
+
+  const groups = new Map<string, MetricSample[]>();
+  for (const sample of metrics) {
+    if (sample.type === 'histogram') return formatPrometheus(snapshot);
+    const existing = groups.get(sample.name);
+    if (existing) existing.push(sample);
+    else groups.set(sample.name, [sample]);
+  }
+
+  const lines: string[] = [];
+  for (const [baseName, samples] of groups) {
+    const mangled = mangleName(baseName);
+    const help = samples[0].help;
+    if (help !== undefined) lines.push(`# HELP ${mangled} ${help}`);
+    lines.push(`# TYPE ${mangled} ${samples[0].type}`);
+    for (const sample of samples) {
+      lines.push(`${seriesPrefix(sample)} ${sample.value as number} ${timestamp}`);
+    }
+    lines.push('');
+  }
+
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  lines.push('');
+  return lines.join('\n');
 }

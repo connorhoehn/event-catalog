@@ -93,12 +93,38 @@ export declare class DurableTransport {
     private readonly dlqCapacity;
     private readonly pollRetryManager;
     private connected;
+    /**
+     * Keyed by a monotonic id, not by queue name: two `subscribe()` calls on
+     * the same queue used to overwrite each other's AbortController, which
+     * orphaned the first poll loop for the life of the process and made
+     * `disconnect()` unable to stop it.
+     */
     private activePollers;
+    private nextPollerId;
     private queueMetrics;
+    private evictedQueueMetrics;
     private ensuredQueues;
     private readonly deadLetterMessages;
     private readonly messageAttempts;
+    private evictedMessageAttempts;
     private deadLetterCallbacks;
+    /** Publishes currently awaiting message-queue. See {@link getInFlightPublishCount}. */
+    private inFlightPublishes;
+    private peakInFlightPublishes;
+    /**
+     * Every log line below runs per-publish or per-message, which is exactly
+     * the rate at which a dependency outage executes. Counted always,
+     * logged at a bounded rate.
+     */
+    private readonly backpressureWarnings;
+    private readonly ensureQueueWarnings;
+    private readonly pollWarnings;
+    private readonly handlerWarnings;
+    private readonly deadLetterWarnings;
+    private handlerFailures;
+    private ensureQueueFailures;
+    private pollFailures;
+    private deadLetteredTotal;
     constructor(config: DurableTransportConfig);
     /**
      * Probe `GET {url}/health` and mark the transport connected.
@@ -115,6 +141,41 @@ export declare class DurableTransport {
      * left for the queue's visibility timeout to redeliver.
      */
     disconnect(): Promise<void>;
+    /** Poll loops still running. Should be 0 after `disconnect()`. */
+    getActivePollerCount(): number;
+    /**
+     * Publishes currently awaiting message-queue, and the high-water mark.
+     *
+     * **This transport applies no backpressure of its own.** `publish()` has
+     * no internal queue and no concurrency limit: every concurrent caller
+     * holds its own fetch, and on 429/5xx its own retry sleep — which a
+     * server `Retry-After` can stretch to 5 minutes per attempt. A producer
+     * that publishes faster than message-queue drains therefore accumulates
+     * in-flight promises without limit, bounded only by the caller's own
+     * concurrency. Watch this gauge and rate-limit upstream.
+     */
+    getInFlightPublishCount(): {
+        current: number;
+        peak: number;
+    };
+    /**
+     * Aggregates that survive per-key eviction and log suppression.
+     *
+     * `getMetrics()` and `getBackpressureCount()` hold at most
+     * {@link MAX_TRACKED_QUEUES} entries each; these totals do not evict, so
+     * they remain the truthful answer to "did anything fail?".
+     */
+    getOverflowStats(): {
+        trackedQueues: number;
+        evictedQueueMetrics: number;
+        trackedMessageAttempts: number;
+        evictedMessageAttempts: number;
+        handlerFailures: number;
+        ensureQueueFailures: number;
+        pollFailures: number;
+        deadLetteredTotal: number;
+        suppressedWarnings: number;
+    };
     /**
      * Idempotent queue ensure via PUT (message-queue Phase 4.1 contract).
      * Maps event-catalog's declared queue config (retention/fifo/dlqAfterAttempts)
@@ -135,6 +196,13 @@ export declare class DurableTransport {
      * messages on the live queue than to refuse delivery.
      */
     ensureQueue(queueName: string, options?: EnsureQueueOptions): Promise<void>;
+    private rememberEnsuredQueue;
+    /**
+     * `ensureQueue` runs on every publish until it succeeds, so a
+     * message-queue outage puts these warnings on the per-publish path.
+     * Count every failure; log a bounded sample.
+     */
+    private warnEnsureQueue;
     /**
      * Map an event-catalog declaration's queue-config fields to
      * message-queue's snake_case QueueConfiguration shape.
@@ -150,8 +218,15 @@ export declare class DurableTransport {
      * Exposed via `DurableTransport.getBackpressureCount()` for tests/metrics.
      */
     private recordBackpressure;
-    /** Return total backpressure events observed for a queue (or all queues). */
+    /**
+     * Return total backpressure events observed for a queue (or all queues).
+     *
+     * The no-argument map holds at most {@link MAX_TRACKED_QUEUES} queues;
+     * `getBackpressureTotal()` is the number that never loses an observation.
+     */
     static getBackpressureCount(queueName?: string): number | Map<string, number>;
+    /** Lifetime backpressure observations, unaffected by per-queue eviction. */
+    static getBackpressureTotal(): number;
     /** Reset backpressure counters (useful in tests). */
     static resetBackpressureCounters(): void;
     /**
@@ -168,6 +243,7 @@ export declare class DurableTransport {
      *   count, and the underlying status or network error.
      */
     publish(queueName: string, envelope: EventEnvelope, queueOptions?: EnsureQueueOptions): Promise<void>;
+    private publishInner;
     /**
      * Start a long-poll loop against a queue. Synchronous and non-throwing:
      * the queue ensure and the loop itself start in the background, so a
