@@ -20,6 +20,13 @@ export interface ResolvedServerConfig {
     readonly alertWebhookUrl: string | undefined;
     /** Optional DynamoDB override (LocalStack / DynamoDB Local). */
     readonly dynamoEndpoint: string | undefined;
+    /**
+     * Shared secret gating mutating admin-API requests, from
+     * `EVENT_CATALOG_AUTH_TOKEN`. `undefined` — the default, and what an
+     * unset variable produces — means the API is unauthenticated exactly as
+     * it has always been. See `src/server/auth.ts`.
+     */
+    readonly authToken: string | undefined;
 }
 export type ConfigResult = {
     readonly ok: true;

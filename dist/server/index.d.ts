@@ -131,6 +131,10 @@ export interface ServerConfig {
      * (deliberately, for local dev); operators can inject a JWT / API-key
      * check here without forking startServer. Call `next()` to admit the
      * request; respond on `res` without calling next to reject it.
+     *
+     * Leave it unset and set `EVENT_CATALOG_AUTH_TOKEN` instead to get the
+     * built-in shared-secret bearer scheme (`src/server/auth.ts`). An
+     * explicit middleware here always wins over the environment variable.
      */
     authMiddleware?: Middleware;
     /**

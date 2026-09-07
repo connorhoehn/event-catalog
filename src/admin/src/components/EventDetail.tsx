@@ -23,14 +23,24 @@ export function EventDetail() {
   const [stats, setStats] = useState<EventStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [observedProducers, setObservedProducers] = useState<ObservedProducers | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!name) return;
     const decoded = decodeURIComponent(name);
 
+    // Only the event itself is fatal. `/history` reads through the transport,
+    // so it 500s whenever Redis or the message queue is down — and because it
+    // shared this `Promise.all`'s rejection path, a sick transport replaced
+    // the entire detail page (schema, fingerprint, subscribers, all of it,
+    // none of which depends on the transport) with "Error loading this
+    // event". Its failure is now reported inside the section it belongs to.
     Promise.all([
       api.getEvent(decoded),
-      api.getEventHistory(decoded, 20),
+      api.getEventHistory(decoded, 20).catch((err: Error) => {
+        setHistoryError(err.message);
+        return { messages: [] as unknown[], transport: '' };
+      }),
       api.getObservedProducers(decoded).catch(() => null),
     ]).then(([eventRes, historyRes, observedRes]) => {
       setEvent(eventRes);
@@ -235,7 +245,12 @@ export function EventDetail() {
 
         <section className="detail-section full-width">
           <h3>Recent Messages ({history.length})</h3>
-          {history.length === 0 ? (
+          {historyError ? (
+            <ErrorState
+              title="Couldn't load recent messages"
+              description={historyError}
+            />
+          ) : history.length === 0 ? (
             <div className="empty-state">No recent messages captured.</div>
           ) : (
             <div className="message-list">

@@ -79,6 +79,28 @@ export function useAuditTap(filters: AuditFilters, initiallyLive = true): AuditT
   const [error, setError] = useState<string | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
 
+  // The server does the filtering — a new filter means a new SSE connection.
+  // What it cannot do is retract what it already sent, so the rows received
+  // under the previous filter stayed in the buffer and kept rendering:
+  // selecting namespace "ws" left every "pipeline" row on screen, which reads
+  // as "the filter is broken" or, worse, as a ws event that isn't one.
+  //
+  // Keyed on the filters only, NOT on `isLive` — pause/resume must keep the
+  // history the operator is looking at; Clear is a separate, deliberate act.
+  const filterKey = [
+    filters.kind ?? '',
+    filters.eventName ?? '',
+    filters.namespace ?? '',
+    filters.serviceName ?? '',
+  ].join('|');
+  const lastFilterKey = useRef(filterKey);
+  useEffect(() => {
+    if (lastFilterKey.current === filterKey) return;
+    lastFilterKey.current = filterKey;
+    setEvents([]);
+    setLastEvent(null);
+  }, [filterKey]);
+
   useEffect(() => {
     if (!isLive) {
       sourceRef.current?.close();

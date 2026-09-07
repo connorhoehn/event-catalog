@@ -221,34 +221,49 @@ export class DLQStore {
     let ExclusiveStartKey: Record<string, unknown> | undefined;
     let deleted = 0;
 
-    do {
-      const result = eventName
-        ? await this.client.send(new QueryCommand({
-            TableName: this.tableName,
-            KeyConditionExpression: 'pk = :pk',
-            ExpressionAttributeValues: { ':pk': `DLQ#${eventName}` },
-            ExclusiveStartKey,
-          }))
-        : await this.client.send(new ScanCommand({
-            TableName: this.tableName,
-            ExclusiveStartKey,
-          }));
+    // A throw from a later page used to discard the count of everything
+    // already deleted, so the caller was told "0 cleared" after thousands
+    // of real deletions and could not tell what remained. The count travels
+    // on the error instead.
+    try {
+      do {
+        const result = eventName
+          ? await this.client.send(new QueryCommand({
+              TableName: this.tableName,
+              KeyConditionExpression: 'pk = :pk',
+              ExpressionAttributeValues: { ':pk': `DLQ#${eventName}` },
+              ExclusiveStartKey,
+            }))
+          : await this.client.send(new ScanCommand({
+              TableName: this.tableName,
+              ExclusiveStartKey,
+            }));
 
-      const entries = (result.Items ?? []) as DLQEntry[];
+        const entries = (result.Items ?? []) as DLQEntry[];
 
-      for (let i = 0; i < entries.length; i += 25) {
-        const batch = entries.slice(i, i + 25);
-        deleted += await this.batchDeleteWithRetry(
-          batch.map(entry => ({
-            DeleteRequest: { Key: { pk: entry.pk, sk: entry.sk } },
-          })),
-        );
-      }
+        for (let i = 0; i < entries.length; i += 25) {
+          const batch = entries.slice(i, i + 25);
+          deleted += await this.batchDeleteWithRetry(
+            batch.map(entry => ({
+              DeleteRequest: { Key: { pk: entry.pk, sk: entry.sk } },
+            })),
+          );
+        }
 
-      ExclusiveStartKey = result.LastEvaluatedKey as
-        | Record<string, unknown>
-        | undefined;
-    } while (ExclusiveStartKey);
+        ExclusiveStartKey = result.LastEvaluatedKey as
+          | Record<string, unknown>
+          | undefined;
+      } while (ExclusiveStartKey);
+    } catch (err) {
+      throw Object.assign(
+        new Error(
+          `DLQ clear stopped after deleting ${deleted} entr${deleted === 1 ? 'y' : 'ies'}: `
+          + (err instanceof Error ? err.message : String(err)),
+          { cause: err },
+        ),
+        { deleted },
+      );
+    }
 
     return deleted;
   }

@@ -248,8 +248,22 @@ export function createEventHandlers(deps: RoutesDeps) {
     const count = parseInt(countParam.value ?? '', 10) || 50;
 
     if (entry.transport === 'signal') {
-      const messages = await signal.getHistory(entry.name, count);
-      res.json({ messages, transport: 'signal' });
+      try {
+        const messages = await signal.getHistory(entry.name, count);
+        res.json({ messages, transport: 'signal' });
+      } catch (err) {
+        // Same distinction as the audit and DLQ reads: an empty ring buffer
+        // and an unreachable Redis are different facts and must not share a
+        // response shape.
+        console.warn(
+          `[event-catalog] history read failed for "${entry.name}":`,
+          err instanceof Error ? err.message : String(err),
+        );
+        res.status(503).json({
+          error: 'Message history is unavailable — the signal transport did not answer. '
+            + 'This is not the same as an empty history; see the server logs.',
+        });
+      }
     } else {
       // For durable, we don't have a peek — return empty for now
       res.json({ messages: [], transport: 'durable', note: 'Durable history via message-queue peek not yet implemented' });

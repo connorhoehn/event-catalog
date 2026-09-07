@@ -30,6 +30,7 @@ exports.DEFAULT_REDIS_BOOT_CONNECT_ATTEMPTS = exports.DEFAULT_SUBSCRIBER_TTL_SEC
 exports.resolveServerConfig = resolveServerConfig;
 exports.describeConfig = describeConfig;
 exports.redactUrl = redactUrl;
+const auth_js_1 = require("../server/auth.js");
 exports.DEFAULT_PORT = 3010;
 exports.DEFAULT_HOSTNAME = '0.0.0.0';
 exports.DEFAULT_MESSAGE_QUEUE_URL = 'http://localhost:3004';
@@ -201,6 +202,17 @@ function resolveServerConfig(env, flags = {}) {
                 + `"${rawDynamo}" — it ${problem}`);
         }
     }
+    // --- admin API auth -----------------------------------------------------
+    // Read straight off `env`, NOT through read(): read() maps "" to
+    // undefined, and for this one variable "set but empty" must be a boot
+    // error rather than "auth is off". Everything else about the shape (too
+    // short, whitespace, control characters) is decided by resolveAuthToken
+    // so the rule lives next to the code that enforces it.
+    const auth = (0, auth_js_1.resolveAuthToken)(env[auth_js_1.AUTH_TOKEN_ENV_VAR]);
+    if (!auth.ok) {
+        errors.push(`invalid $${auth_js_1.AUTH_TOKEN_ENV_VAR} — it ${auth.error}`);
+    }
+    const authToken = auth.ok ? auth.token : undefined;
     if (errors.length > 0)
         return { ok: false, errors };
     return {
@@ -217,6 +229,7 @@ function resolveServerConfig(env, flags = {}) {
             strict,
             alertWebhookUrl: rawAlert,
             dynamoEndpoint: rawDynamo,
+            authToken,
         },
     };
 }
@@ -231,6 +244,10 @@ function describeConfig(config) {
         `subscriber ttl (s)          ${config.subscriberTtlSeconds || 'disabled'}`,
         `redis boot attempts         ${config.redisBootConnectAttempts}`,
         `strict declarations         ${config.strict}`,
+        // The value is a secret; only its presence is ever printed.
+        `api auth                    ${config.authToken !== undefined
+            ? 'bearer token (mutating requests gated)'
+            : 'disabled'}`,
     ];
 }
 /**

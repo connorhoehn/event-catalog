@@ -1,0 +1,1 @@
+{"version":3,"file":"inbound-notification.d.ts","sourceRoot":"","sources":["../../../src/declarations/client-frames/inbound-notification.ts"],"names":[],"mappings":"AAQA,OAAO,KAAK,EAAE,gBAAgB,EAAE,MAAM,mBAAmB,CAAC;AA+B1D,4EAA4E;AAC5E,eAAO,MAAM,iBAAiB,EAAE,gBAW/B,CAAC;AAEF,mGAAmG;AACnG,eAAO,MAAM,kBAAkB,EAAE,gBAkBhC,CAAC;AAEF,iFAAiF;AACjF,eAAO,MAAM,wBAAwB,EAAE,gBAkBtC,CAAC"}

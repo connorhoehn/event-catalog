@@ -403,11 +403,12 @@ describe('SignalTransport', () => {
       expect(history[2].eventName).toBe('event.9');
     });
 
-    it('returns empty array when xRange throws', async () => {
+    it('rejects when xRange throws rather than reporting an empty ring buffer', async () => {
+      // "no recent messages" and "Redis did not answer" are different facts
+      // and must not share a return value.
       await transport.connect();
       mockPublishClient.xRange.mockRejectedValueOnce(new Error('Stream unavailable'));
-      const history = await transport.getHistory('events:broken');
-      expect(history).toEqual([]);
+      await expect(transport.getHistory('events:broken')).rejects.toThrow(/history unavailable/i);
     });
 
     it('silently drops entries with malformed JSON payload', async () => {

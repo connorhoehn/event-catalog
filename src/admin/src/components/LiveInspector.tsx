@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import Chip from '@ui/components/shared/Chip';
 import EmptyState from '@ui/components/shared/EmptyState';
 import ErrorState from '@ui/components/shared/ErrorState';
+import LoadingState from '@ui/components/shared/LoadingState';
 import { Button } from '@ui/components/ui/Button';
 import { api, type EventEntry, type EventStats } from '../api';
 
@@ -21,7 +22,14 @@ export function LiveInspector() {
   const [paused, setPaused] = useState(false);
   const [maxMessages, setMaxMessages] = useState(100);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadingEvents, setLoadingEvents] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // `/history` returns the last N messages, not the ones since we last asked,
+  // so re-polling it every second re-appended the SAME five rows every second
+  // — the stream filled with duplicates of one message and the "N messages"
+  // counter climbed on a catalog that was completely idle. Remembering what
+  // we've already shown per event turns the poll back into a tail.
+  const seenRef = useRef<Map<string, Set<string>>>(new Map());
   const capId = useId();
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
@@ -32,7 +40,8 @@ export function LiveInspector() {
   useEffect(() => {
     api.getEvents()
       .then(res => { setEvents(res.events); setLoadError(null); })
-      .catch(err => setLoadError((err as Error).message));
+      .catch(err => setLoadError((err as Error).message))
+      .finally(() => setLoadingEvents(false));
   }, []);
 
   useEffect(() => {
@@ -47,13 +56,30 @@ export function LiveInspector() {
 
         for (const eventName of selectedEvents) {
           const historyRes = await api.getEventHistory(eventName, 5);
-          const newMsgs: LiveMessage[] = historyRes.messages.map((msg, i) => ({
-            eventName,
-            transport: historyRes.transport,
-            timestamp: Date.now() - i * 10,
-            payload: msg,
-            id: `${eventName}-${Date.now()}-${i}`,
-          }));
+          let seen = seenRef.current.get(eventName);
+          if (!seen) {
+            seen = new Set<string>();
+            seenRef.current.set(eventName, seen);
+          }
+          const newMsgs: LiveMessage[] = [];
+          historyRes.messages.forEach((msg, i) => {
+            const signature = JSON.stringify(msg);
+            if (seen!.has(signature)) return;
+            seen!.add(signature);
+            newMsgs.push({
+              eventName,
+              transport: historyRes.transport,
+              timestamp: Date.now() - i * 10,
+              payload: msg,
+              id: `${eventName}-${Date.now()}-${i}`,
+            });
+          });
+          if (newMsgs.length === 0) continue;
+          // Bounded so a high-rate event can't grow the signature set without
+          // limit; the window only has to outlive one /history page.
+          if (seen.size > 500) {
+            seenRef.current.set(eventName, new Set([...seen].slice(-250)));
+          }
 
           setMessages(prev => {
             const combined = [...prev, ...newMsgs].slice(-maxMessages);
@@ -77,8 +103,12 @@ export function LiveInspector() {
   const toggleEvent = (name: string) => {
     setSelectedEvents(prev => {
       const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
+      if (next.has(name)) {
+        next.delete(name);
+        // Forget what we showed, so re-selecting an event replays its current
+        // history rather than waiting for the next brand-new message.
+        seenRef.current.delete(name);
+      } else next.add(name);
       return next;
     });
   };
@@ -117,6 +147,7 @@ export function LiveInspector() {
       <div className="inspector-layout">
         {/* Two checkbox groups, each named by its own heading. */}
         <div className="event-selector">
+          {loadingEvents && <LoadingState label="Loading events…" />}
           <h3 id="li-signal">Signal Events (Ephemeral)</h3>
           <div className="event-checkboxes" role="group" aria-labelledby="li-signal">
             {signalEvents.map(e => (
@@ -134,7 +165,9 @@ export function LiveInspector() {
                 </span>
               </label>
             ))}
-            {signalEvents.length === 0 && <div className="empty-state">No signal events registered</div>}
+            {!loadingEvents && !loadError && signalEvents.length === 0 && (
+              <div className="empty-state">No signal events registered</div>
+            )}
           </div>
 
           <h3 id="li-durable">Durable Events</h3>
@@ -154,7 +187,9 @@ export function LiveInspector() {
                 </span>
               </label>
             ))}
-            {durableEvents.length === 0 && <div className="empty-state">No durable events registered</div>}
+            {!loadingEvents && !loadError && durableEvents.length === 0 && (
+              <div className="empty-state">No durable events registered</div>
+            )}
           </div>
         </div>
 

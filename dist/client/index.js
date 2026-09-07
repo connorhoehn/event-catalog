@@ -8,6 +8,141 @@ const durable_1 = require("./durable");
 const envelopes_1 = require("../types/envelopes");
 const namespace_1 = require("../registry/namespace");
 const hot_path_1 = require("../utils/hot-path");
+/** Cap on how much of an offending value we splice into an error message. */
+const MAX_VALUE_PREVIEW = 120;
+/**
+ * Render the value that failed validation, short enough to sit in a log
+ * line. Undefined renders as `undefined` (not omitted) because "the field
+ * is missing" is the single most common cause.
+ */
+function previewValue(value) {
+    if (value === undefined)
+        return 'undefined';
+    let text;
+    try {
+        text = JSON.stringify(value) ?? String(value);
+    }
+    catch {
+        text = String(value);
+    }
+    return text.length > MAX_VALUE_PREVIEW
+        ? `${text.slice(0, MAX_VALUE_PREVIEW)}…`
+        : text;
+}
+/** Read `payload.a.b[0]` from a dotted/bracketed validator path. */
+function valueAtPath(payload, path) {
+    if (!path)
+        return payload;
+    let current = payload;
+    for (const segment of path.split('.')) {
+        // Split trailing array indices: `items[2]` → `items`, `2`.
+        const parts = segment.split('[');
+        for (const raw of parts) {
+            const key = raw.endsWith(']') ? raw.slice(0, -1) : raw;
+            if (current === null || typeof current !== 'object')
+                return undefined;
+            current = current[key];
+        }
+    }
+    return current;
+}
+/**
+ * Turn a `ValidationResult` into a message a human can act on without
+ * opening the schema: which event, which field, what was wrong, and what
+ * was actually there.
+ *
+ * Bad:  `payload validation failed for "orders:created": expected type number, got string`
+ * Good: `payload validation failed for "orders:created" (1 problem):
+ *        payload.total — expected type number, got string (was "12")`
+ */
+function formatValidationFailure(prefix, eventName, validation, payload, entry) {
+    const errors = validation.errors ?? [];
+    const details = errors.length === 0
+        ? 'unknown error (the validator reported a failure with no details)'
+        : errors
+            .map((e) => {
+            const where = e.path ? `payload.${e.path}` : 'payload';
+            const actual = e.path !== undefined
+                ? ` (was ${previewValue(valueAtPath(payload, e.path))})`
+                : '';
+            return `${where} — ${e.message}${actual}`;
+        })
+            .join('; ');
+    const problems = errors.length === 1 ? '1 problem' : `${errors.length} problems`;
+    const context = entry
+        ? ` [schema v${entry.version}, fingerprint ${entry.schemaFingerprint.slice(0, 12)}, `
+            + `declared by ${Array.isArray(entry.producer) ? entry.producer.join('/') : entry.producer}]`
+        : '';
+    return `[event-catalog] ${prefix} for "${eventName}" (${problems}): ${details}.${context}`;
+}
+/**
+ * Cheap edit-distance-ish scorer for "did you mean…?". Only ever runs on
+ * an error path, and only over the local registry, so the O(n·m) cost is
+ * irrelevant. Bounded so a pathological name can't blow up.
+ */
+function similarity(a, b) {
+    if (a === b)
+        return 1;
+    const s = a.toLowerCase();
+    const t = b.toLowerCase();
+    if (s.length > 200 || t.length > 200)
+        return 0;
+    // Normalizing separators makes `pipeline.run.started` a near-match for
+    // `pipeline:run:started` — the single most common mistake in this repo.
+    const ns = s.replace(/[.:_-]/g, '');
+    const nt = t.replace(/[.:_-]/g, '');
+    if (ns === nt)
+        return 0.99;
+    const rows = ns.length + 1;
+    const cols = nt.length + 1;
+    let prev = new Array(cols);
+    let curr = new Array(cols);
+    for (let j = 0; j < cols; j++)
+        prev[j] = j;
+    for (let i = 1; i < rows; i++) {
+        curr[0] = i;
+        for (let j = 1; j < cols; j++) {
+            const cost = ns[i - 1] === nt[j - 1] ? 0 : 1;
+            curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+        }
+        [prev, curr] = [curr, prev];
+    }
+    const distance = prev[cols - 1];
+    return 1 - distance / Math.max(ns.length, nt.length, 1);
+}
+/**
+ * Suggest up to two declared names close to `name`. Colon/dot confusion
+ * and typos are the usual cause of an "is not declared" at 3am, and the
+ * registry already knows the right answer.
+ */
+/** Human-readable runtime type, for "expected a string, got …" messages. */
+function describeType(value) {
+    if (value === null)
+        return 'null';
+    if (Array.isArray(value))
+        return 'array';
+    return typeof value;
+}
+/**
+ * Fail fast on a blank transport URL. A missing env var otherwise shows up
+ * as `redis://undefined` or a fetch to `/api/v1/queues` on the current
+ * host, minutes later and nowhere near the cause.
+ */
+function requireConfigValue(value, field, envVar) {
+    if (typeof value === 'string' && value.trim() !== '')
+        return;
+    const from = envVar ? ` (normally read from the ${envVar} env var)` : '';
+    throw new Error(`[event-catalog] EventCatalog config is missing "${field}"${from}. `
+        + `Received ${previewValue(value)}.`);
+}
+function suggestNames(name, candidates) {
+    return candidates
+        .map((candidate) => ({ candidate, score: similarity(name, candidate) }))
+        .filter((s) => s.score >= 0.75)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 2)
+        .map((s) => s.candidate);
+}
 /**
  * Phase E3.3 — resolve the Redis channel an event publishes on.
  *
@@ -74,6 +209,23 @@ function applyNamespacePolicy(event, policies) {
     }
     return merged;
 }
+/**
+ * The library half of event-catalog: declare events, publish them with
+ * local schema validation, and subscribe to them.
+ *
+ * Failure semantics at a glance:
+ *   - Programming errors (undeclared event, bad payload, bad discriminator,
+ *     a throwing `beforePublish` hook) **reject**.
+ *   - Registry-server failures (declaration sync, subscriber registration,
+ *     heartbeat) are **swallowed and warned** — publishing never blocks on
+ *     the registry.
+ *   - Durable transport failures **reject** after retries.
+ *   - Signal transport failures **reject**, except a publish issued while
+ *     disconnected, which is **dropped**. Dropped publishes are counted
+ *     ({@link getDroppedPublishCount}), reported to `onPublishDropped`, and
+ *     can be made to reject with `strictTransport: true`. They never count
+ *     toward `publishCount`.
+ */
 class EventCatalog {
     config;
     registry;
@@ -86,7 +238,23 @@ class EventCatalog {
     warnedAliases = new Set();
     /** wave25-a — track which deprecated event names we've already warned about. */
     warnedDeprecated = new Set();
+    /** Undeclared names already warned about on the publishSignal path. */
+    warnedUndeclaredSignal = new Set();
+    /** Publishes discarded because a transport was down, keyed by event name. */
+    droppedPublishes = new Map();
+    /**
+     * @param config transport URLs, service identity, and optional
+     *   validation/observability knobs. `redis.url` and `messageQueue.url`
+     *   must be non-empty — the constructor throws otherwise, naming the
+     *   env var each is normally read from, because an empty URL otherwise
+     *   surfaces much later as a confusing connection failure.
+     * @throws when `redis.url`, `messageQueue.url` or `serviceName` is
+     *   missing or blank.
+     */
     constructor(config) {
+        requireConfigValue(config.redis?.url, 'redis.url', 'REDIS_URL');
+        requireConfigValue(config.messageQueue?.url, 'messageQueue.url', 'MESSAGE_QUEUE_URL');
+        requireConfigValue(config.serviceName, 'serviceName');
         this.config = config;
         this.registry = new index_1.Registry();
         this.signal = new signal_1.SignalTransport({ url: config.redis.url });
@@ -100,6 +268,18 @@ class EventCatalog {
             name: 'catalog-registry-sync',
         });
     }
+    /**
+     * Connect both transports, then push local declarations to the remote
+     * registry if `registryUrl` is set. Idempotent.
+     *
+     * Publish before this resolves and the event is dropped (signal) or
+     * rejected (durable) — always await it during boot.
+     *
+     * @throws when Redis cannot be reached. An unreachable message-queue or
+     *   registry does **not** throw: the registry sync retries twice, then
+     *   falls back to a background retry loop, and a 60s periodic re-sync
+     *   starts regardless. Publishing never blocks on the registry.
+     */
     async connect() {
         if (this.connected)
             return;
@@ -123,6 +303,14 @@ class EventCatalog {
             }, 60_000);
         }
     }
+    /**
+     * Stop the periodic registry re-sync and disconnect both transports.
+     * Idempotent and best-effort — safe to call from a SIGTERM handler.
+     *
+     * Does not deregister this service's subscriptions from the remote
+     * registry (they age out via the heartbeat TTL), and does not drain
+     * in-flight durable messages.
+     */
     async disconnect() {
         if (!this.connected)
             return;
@@ -143,6 +331,15 @@ class EventCatalog {
      * history. Otherwise the violation is non-fatal — callers may inspect
      * the catalog's logs or the server's `GET /api/events/:name/schema/check`
      * endpoint.
+     *
+     * Purely local and synchronous — it does not reach the registry server.
+     * Declarations are pushed on `connect()` and by the 60s re-sync, so an
+     * event declared after connect is publishable immediately but visible to
+     * the server only on the next sync.
+     *
+     * @throws when the schema shape itself is invalid (e.g. `type: 'objct'`),
+     *   and — in strict mode only — when the new schema breaks compatibility
+     *   with the registered history.
      */
     declare(event) {
         // Phase 20-h — apply namespace policy defaults to fields the
@@ -194,11 +391,18 @@ class EventCatalog {
             if (subscribed.length === 0)
                 return;
             try {
-                await fetch(`${this.config.registryUrl.replace(/\/$/, '')}/api/heartbeat`, {
+                const res = await fetch(`${this.config.registryUrl.replace(/\/$/, '')}/api/heartbeat`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ serviceName: this.config.serviceName, events: subscribed }),
                 });
+                // A non-2xx here is not harmless: the server sweeps subscribers that
+                // stop heartbeating, so a silently-failing heartbeat ends with this
+                // service disappearing from the registry at TTL.
+                if (!res.ok) {
+                    console.warn(`[event-catalog] heartbeat rejected: HTTP ${res.status} — `
+                        + 'this service will be swept from the registry if this persists');
+                }
             }
             catch (err) {
                 console.warn('[event-catalog] heartbeat failed:', err.message);
@@ -325,7 +529,7 @@ class EventCatalog {
         // warning per process per alias keeps log noise bounded.
         const resolved = this.registry.resolve(eventName);
         if (!resolved) {
-            throw new Error(`[event-catalog] event "${eventName}" is not declared. Call declare() first.`);
+            throw new Error(this.undeclaredEventMessage(eventName, 'publish'));
         }
         const entry = resolved.entry;
         if (resolved.viaAlias) {
@@ -345,8 +549,7 @@ class EventCatalog {
         // Validate payload against schema
         const validation = this.registry.validate(eventName, payload);
         if (!validation.valid) {
-            const msgs = validation.errors?.map(e => e.message).join(', ') ?? 'unknown error';
-            throw new Error(`[event-catalog] payload validation failed for "${eventName}": ${msgs}`);
+            throw new Error(formatValidationFailure('payload validation failed', eventName, validation, payload, entry));
         }
         // Discriminator validation (Phase E3.6) — when a declaration carries
         // `discriminator: { field, values }`, the payload's value at `field`
@@ -358,7 +561,10 @@ class EventCatalog {
             const actual = payload?.[field];
             if (typeof actual !== 'string' || !values.includes(actual)) {
                 throw new Error(`[event-catalog] discriminator validation failed for "${eventName}": `
-                    + `payload.${field}=${JSON.stringify(actual)} is not in declared values [${values.join(', ')}]`);
+                    + `payload.${field}=${JSON.stringify(actual)} is not in declared values [${values.join(', ')}]`
+                    + (typeof actual === 'string'
+                        ? ''
+                        : ` — the discriminator must be a string, got ${describeType(actual)}`));
             }
         }
         const metadata = {
@@ -385,11 +591,36 @@ class EventCatalog {
             // parallel. Failure of either propagates after both are attempted so
             // partial deliveries are not silently masked.
             const sends = [];
+            // A signal publish issued while Redis is disconnected is discarded by
+            // SignalTransport rather than thrown. Detect that here so the drop is
+            // accounted for as an error rather than counted as a publish — the
+            // alternative (a rising publishCount for events nobody received) is
+            // the single most misleading state this library can report.
+            let signalDropped = false;
             if (entry.transport === 'signal' || entry.transport === 'both') {
                 // Phase E3.3 — resolve declared `channel` (string, function of
                 // payload, or fall back to event name).
                 const signalChannel = resolveSignalChannel(entry.channel, eventName, payload);
-                sends.push(this.signal.publish(signalChannel, envelope));
+                if (this.signal.isConnected()) {
+                    sends.push(this.signal.publish(signalChannel, envelope));
+                }
+                else if (this.config.strictTransport) {
+                    throw new Error(`[event-catalog] publish("${eventName}"): the signal transport is not connected, `
+                        + 'so the event would be silently lost (strictTransport is on). '
+                        + 'Await catalog.connect() before publishing.');
+                }
+                else {
+                    signalDropped = true;
+                    this.recordDroppedPublish({
+                        eventName,
+                        transport: 'signal',
+                        reason: 'transport-not-connected',
+                        envelope: envelope,
+                    });
+                    // Still call through so SignalTransport records the drop on its
+                    // own per-channel counter and emits its one-shot warning.
+                    sends.push(this.signal.publish(signalChannel, envelope));
+                }
             }
             if (entry.transport === 'durable' || entry.transport === 'both') {
                 // Derived here rather than above the branch: the two regex passes in
@@ -409,6 +640,14 @@ class EventCatalog {
             const rejection = results.find((r) => r.status === 'rejected');
             if (rejection && rejection.status === 'rejected') {
                 throw rejection.reason;
+            }
+            if (signalDropped) {
+                // Nothing was delivered on the signal leg. Count it as an error,
+                // not a publish, and leave lastPublishedAt alone.
+                this.registry.updateStats(eventName, {
+                    errorCount: (entry.metadata.errorCount ?? 0) + 1,
+                });
+                return;
             }
             this.registry.updateStats(eventName, {
                 lastPublishedAt: (0, hot_path_1.nowIso)(),
@@ -455,29 +694,81 @@ class EventCatalog {
      *     publish proceeds. Strict-mode rejection of undeclared events is
      *     deferred to a later wave (MQ-7 / EC-7 strict mode).
      *
-     * @returns number of gateway nodes the envelope was addressed to (0
-     *   when no listeners are registered).
+     * Not interchangeable with `publish()`: this one takes a channel, skips
+     * the registry's transport routing (always signal), does not run
+     * `beforePublish`/`afterPublish` hooks, and — because the gateway's wire
+     * envelope has nowhere to carry them — **ignores `options.headers` and
+     * `options.correlationId`**. Only `options.timestamp` is honoured. Use
+     * `publish()` for anything that isn't a gateway channel broadcast.
+     *
+     * @returns number of gateway nodes the envelope was addressed to.
+     *   **`0` is ambiguous** — it means "no gateway node is registered for
+     *   this channel" *or* "the signal transport is disconnected and the
+     *   message was dropped". {@link getDroppedPublishCount} distinguishes
+     *   them.
+     * @throws when a declared payload fails schema or discriminator
+     *   validation, when Redis rejects the publish, or — with
+     *   `strictTransport: true` — when the transport is disconnected.
+     * @remarks An undeclared event publishes anyway, with a one-time warning
+     *   per event name and no schema enforcement.
      */
     async publishSignal(channelId, eventName, payload, options) {
         const entry = this.registry.get(eventName);
         if (entry) {
             const validation = this.registry.validate(eventName, payload);
             if (!validation.valid) {
-                const msgs = validation.errors?.map((e) => e.message).join(', ') ?? 'unknown error';
-                throw new Error(`[event-catalog] publishSignal payload validation failed for "${eventName}": ${msgs}`);
+                this.registry.updateStats(eventName, {
+                    errorCount: (entry.metadata.errorCount ?? 0) + 1,
+                });
+                throw new Error(formatValidationFailure('publishSignal payload validation failed', eventName, validation, payload, entry));
             }
             if (entry.discriminator) {
                 const { field, values } = entry.discriminator;
                 const actual = payload?.[field];
                 if (typeof actual !== 'string' || !values.includes(actual)) {
+                    this.registry.updateStats(eventName, {
+                        errorCount: (entry.metadata.errorCount ?? 0) + 1,
+                    });
                     throw new Error(`[event-catalog] publishSignal discriminator validation failed for "${eventName}": `
-                        + `payload.${field}=${JSON.stringify(actual)} is not in declared values [${values.join(', ')}]`);
+                        + `payload.${field}=${JSON.stringify(actual)} is not in declared values [${values.join(', ')}]`
+                        + (typeof actual === 'string'
+                            ? ''
+                            : ` — the discriminator must be a string, got ${describeType(actual)}`));
                 }
             }
         }
-        else {
+        else if (!this.warnedUndeclaredSignal.has(eventName)) {
+            // One warning per event name per process. This is the gateway's
+            // broadcast hot path; warning on every call turns a missing
+            // declaration into a log flood.
+            this.warnedUndeclaredSignal.add(eventName);
+            const suggestions = suggestNames(eventName, this.registry.list().map((e) => e.name));
+            const didYouMean = suggestions.length > 0
+                ? ` Did you mean ${suggestions.map((s) => `"${s}"`).join(' or ')}?`
+                : '';
             console.warn(`[event-catalog] publishSignal called with undeclared event "${eventName}" — `
-                + `emitting without schema validation. Declare it via catalog.declare() to enforce schema.`);
+                + `emitting without schema validation. Declare it via catalog.declare() to enforce schema.`
+                + `${didYouMean} (further occurrences of this event name are not logged)`);
+        }
+        let dropped = false;
+        if (!this.signal.isConnected()) {
+            dropped = true;
+            if (this.config.strictTransport) {
+                throw new Error(`[event-catalog] publishSignal("${channelId}", "${eventName}"): the signal transport `
+                    + 'is not connected, so the message would be silently lost (strictTransport is on). '
+                    + 'Await catalog.connect() before publishing.');
+            }
+            this.recordDroppedPublish({
+                eventName,
+                transport: 'signal',
+                reason: 'transport-not-connected',
+                channelId,
+                envelope: {
+                    eventName,
+                    payload,
+                    metadata: { id: (0, hot_path_1.eventId)(), producer: this.config.serviceName, timestamp: Date.now() },
+                },
+            });
         }
         const timestamp = options?.timestamp !== undefined
             ? new Date(options.timestamp).toISOString()
@@ -493,15 +784,52 @@ class EventCatalog {
             fromNode: this.config.serviceName,
             timestamp,
         });
-        const delivered = await this.signal.publishChannelMessage(channelId, envelope);
+        let delivered;
+        try {
+            delivered = await this.signal.publishChannelMessage(channelId, envelope);
+        }
+        catch (err) {
+            if (entry) {
+                this.registry.updateStats(eventName, {
+                    errorCount: (entry.metadata.errorCount ?? 0) + 1,
+                });
+            }
+            throw err;
+        }
         if (entry) {
-            this.registry.updateStats(eventName, {
-                lastPublishedAt: (0, hot_path_1.nowIso)(),
-                publishCount: (entry.metadata.publishCount ?? 0) + 1,
-            });
+            if (dropped) {
+                // Nothing left the process — record it as an error, not a publish.
+                this.registry.updateStats(eventName, {
+                    errorCount: (entry.metadata.errorCount ?? 0) + 1,
+                });
+            }
+            else {
+                this.registry.updateStats(eventName, {
+                    lastPublishedAt: (0, hot_path_1.nowIso)(),
+                    publishCount: (entry.metadata.publishCount ?? 0) + 1,
+                });
+            }
         }
         return delivered;
     }
+    /**
+     * Subscribe to a declared event, routed to Redis pub/sub or message-queue
+     * polling by the declaration's `transport`. Synchronous — the returned
+     * handle is usable immediately, while the underlying attach completes in
+     * the background (`unsubscribe()` awaits it).
+     *
+     * `options` (`pollingInterval`, `batchSize`, `visibilityTimeout`) apply
+     * to durable events only and are ignored for signal events.
+     *
+     * @throws synchronously when the event is not declared, or when a signal
+     *   event's declared `channel` is a function (per-payload channels can't
+     *   be resolved without a payload).
+     * @remarks Registration with the remote registry is fire-and-forget: a
+     *   failure warns and leaves the local subscription working, so "who
+     *   consumes X?" on the server may be incomplete. Handler exceptions are
+     *   swallowed and logged on the signal path; on the durable path they
+     *   trigger redelivery and eventual dead-lettering.
+     */
     subscribe(eventName, handler, options) {
         // Phase E3.5 — alias-aware subscribe. If the caller supplied a deprecated
         // alias, resolve to the canonical and subscribe there. No warning on the
@@ -509,7 +837,7 @@ class EventCatalog {
         // story belongs on the emission side).
         const resolved = this.registry.resolve(eventName);
         if (!resolved) {
-            throw new Error(`[event-catalog] event "${eventName}" is not declared. Call declare() first.`);
+            throw new Error(this.undeclaredEventMessage(eventName, 'subscribe'));
         }
         const entry = resolved.entry;
         if (resolved.viaAlias) {
@@ -577,6 +905,11 @@ class EventCatalog {
             };
         }
     }
+    /**
+     * The live local registry. Returned by reference — mutating it changes
+     * this catalog's behaviour, so treat it as read-only unless you mean
+     * otherwise. Prefer {@link resolveEvent} for name lookups.
+     */
     getRegistry() {
         return this.registry;
     }
@@ -589,14 +922,63 @@ class EventCatalog {
     resolveEvent(name) {
         return this.registry.resolve(name);
     }
+    /**
+     * The underlying Redis transport, for health checks, per-channel metrics
+     * and drop counters. Publishing through it directly bypasses schema
+     * validation, alias resolution and hooks — use {@link publish} instead.
+     */
     getSignalTransport() {
         return this.signal;
     }
+    /**
+     * The underlying message-queue transport, for health checks, queue
+     * metrics and the in-memory DLQ. Publishing through it directly bypasses
+     * schema validation, alias resolution and hooks — use {@link publish}.
+     */
     getDurableTransport() {
         return this.durable;
     }
+    /**
+     * True once `connect()` has resolved. Says nothing about whether Redis
+     * or message-queue are currently healthy — ask the transports'
+     * `healthCheck()` for that.
+     */
     isConnected() {
         return this.connected;
+    }
+    getDroppedPublishCount(eventName) {
+        if (eventName !== undefined)
+            return this.droppedPublishes.get(eventName) ?? 0;
+        return new Map(this.droppedPublishes);
+    }
+    /** Count a dropped publish and notify the configured observer. */
+    recordDroppedPublish(drop) {
+        this.droppedPublishes.set(drop.eventName, (this.droppedPublishes.get(drop.eventName) ?? 0) + 1);
+        try {
+            this.config.onPublishDropped?.(drop);
+        }
+        catch (err) {
+            console.warn(`[event-catalog] onPublishDropped threw for "${drop.eventName}":`, err.message);
+        }
+    }
+    /**
+     * Message for "you referenced an event nobody declared". Includes what
+     * to do next and the closest declared names — colon/dot confusion
+     * (`pipeline.run.started` vs `pipeline:run:started`) is the usual cause.
+     */
+    undeclaredEventMessage(eventName, action) {
+        const declared = this.registry.list().map((e) => e.name);
+        const suggestions = suggestNames(eventName, declared);
+        const didYouMean = suggestions.length > 0
+            ? ` Did you mean ${suggestions.map((s) => `"${s}"`).join(' or ')}?`
+            : '';
+        const scale = declared.length === 0
+            ? ' No events are declared on this catalog instance at all — declarations may not have '
+                + 'been registered before this call.'
+            : ` (${declared.length} events are declared on this instance by "${this.config.serviceName}".)`;
+        return `[event-catalog] event "${eventName}" is not declared, so ${action}() cannot use it. `
+            + `Call catalog.declare({ name: "${eventName}", schema, transport, producer }) first, or `
+            + `declareAll() with the shared declaration array for this domain.${didYouMean}${scale}`;
     }
     warnDeprecatedAlias(aliasName, canonicalName, until) {
         if (this.warnedAliases.has(aliasName))
@@ -626,7 +1008,7 @@ class EventCatalog {
         if (entries.length === 0)
             return;
         const url = `${this.config.registryUrl}/api/events/bulk`;
-        await fetch(url, {
+        const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -641,6 +1023,13 @@ class EventCatalog {
                 })),
             }),
         });
+        // Without this a registry answering 500 produced one POST, no retry, no
+        // background re-sync and no log — the service believed it had registered
+        // its declarations. The caller wraps this in a RetryManager and falls back
+        // to a background re-sync, but only if it is told the attempt failed.
+        if (!res.ok) {
+            throw new Error(`[event-catalog] registry sync rejected by ${this.config.registryUrl}: HTTP ${res.status}`);
+        }
     }
     async registerSubscriberRemote(eventName) {
         if (!this.config.registryUrl)

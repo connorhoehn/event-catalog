@@ -79,23 +79,35 @@ class AlertManager {
             return 'pending';
         }
         this.pendingHealth.delete(component);
-        this.previousHealthState.set(component, status);
+        // previousHealthState advances ONLY once the transition has actually
+        // been reported. Advancing it first meant a single failed webhook lost
+        // the incident forever: the next probe saw status === previous, took
+        // the steady-state branch, and no alert was ever sent for a dependency
+        // that stayed down. Leaving it un-advanced re-detects the transition on
+        // the following probe (re-confirming first, so a flap still cannot page).
         if (status === HEALTHY) {
             // Only resolve an incident we actually opened. Otherwise a service
             // that boots with Redis still connecting sends a "recovered" for a
             // failure nobody was ever told about.
-            if (!this.alertedDown.delete(component))
+            if (!this.alertedDown.has(component)) {
+                this.previousHealthState.set(component, status);
                 return 'ignored';
-            await this.onRecovery(component);
+            }
+            if (!await this.onRecovery(component))
+                return 'pending';
+            this.alertedDown.delete(component);
+            this.previousHealthState.set(component, status);
             return 'recovered';
         }
+        if (!await this.onHealthChange(component, previous, status))
+            return 'pending';
         this.alertedDown.add(component);
-        await this.onHealthChange(component, previous, status);
+        this.previousHealthState.set(component, status);
         return 'alerted';
     }
     async onHealthChange(component, from, to) {
         if (!this.enabled)
-            return;
+            return true;
         const severity = to === 'disconnected' ? 'critical' : 'warning';
         const title = `${capitalize(component)} transport ${to}`;
         const message = `${capitalize(component)} health transitioned from "${from}" to "${to}"`;
@@ -105,7 +117,7 @@ class AlertManager {
         // "resolved" and swallowed the second failure, leaving the operator
         // with a green page over a broken dependency.
         this.clearCooldown(`health:${component}:recovered`);
-        await this.fire(`health:${component}:${to}`, {
+        return this.fire(`health:${component}:${to}`, {
             service: 'event-catalog',
             severity,
             title,
@@ -149,13 +161,13 @@ class AlertManager {
     }
     async onRecovery(component) {
         if (!this.enabled)
-            return;
+            return true;
         // Symmetric to onHealthChange: once recovered, a subsequent failure
         // must not be suppressed by the cooldown left over from the previous
         // failure alert.
         this.clearCooldown(`health:${component}:disconnected`);
         this.clearCooldown(`health:${component}:degraded`);
-        await this.fire(`health:${component}:recovered`, {
+        return this.fire(`health:${component}:recovered`, {
             service: 'event-catalog',
             severity: 'resolved',
             title: `${capitalize(component)} transport recovered`,
@@ -176,11 +188,17 @@ class AlertManager {
         }
         map.set(key, value);
     }
+    /**
+     * @returns true when the incident is settled — delivered, suppressed by
+     * cooldown, or alerting disabled. false ONLY when delivery was attempted
+     * and failed, which means the caller must not treat the transition as
+     * reported.
+     */
     async fire(key, payload) {
         const now = Date.now();
         const lastTime = this.lastAlerted.get(key);
         if (lastTime && now - lastTime < this.cooldownMs)
-            return;
+            return true;
         // Cooldown is intentionally NOT applied until we confirm the webhook
         // accepted the alert (2xx). A transient failure — network error,
         // timeout/abort, or non-2xx response — leaves the cooldown unset so
@@ -198,12 +216,14 @@ class AlertManager {
             });
             if (!res.ok) {
                 console.warn(`[alerting] webhook returned ${res.status} — alert not delivered, cooldown NOT applied`);
-                return;
+                return false;
             }
             this.remember(this.lastAlerted, key, now);
+            return true;
         }
         catch (err) {
             console.warn('[alerting] webhook delivery failed:', err.message);
+            return false;
         }
         finally {
             clearTimeout(timeout);

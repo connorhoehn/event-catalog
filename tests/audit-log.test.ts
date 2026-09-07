@@ -104,10 +104,11 @@ describe('startAuditLog (wave23-a)', () => {
     await new Promise((r) => setImmediate(r));
   });
 
-  it('recent() returns [] on Redis read failure', async () => {
+  it('recent() rejects on a Redis read failure rather than reporting an empty history', async () => {
+    // [] would be indistinguishable from "nothing has been audited", which
+    // is the answer an operator is least able to act on during an incident.
     redis.lRange.mockRejectedValueOnce(new Error('redis down'));
-    const out = await log.recent(5);
-    expect(out).toEqual([]);
+    await expect(log.recent(5)).rejects.toThrow(/audit history unavailable/i);
   });
 
   it('stop() detaches the listener so later emits do not push', async () => {

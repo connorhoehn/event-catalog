@@ -76,850 +76,90 @@
 //   GatewaySocketProvider.tsx
 // Gateway emissions cross-checked against
 //   websocket-gateway/src/observability/gateway-event-declarations.js
+//
+// FILE LAYOUT (2026-09-07 decomposition — declarations unchanged, fingerprints
+// identical): the frames now live under `./client-frames/`, split first by
+// direction and then by whether the addressed service is a verified gateway
+// fan-out service or a client-hook-only contract:
+//   outbound-fanout.ts        chat / presence / reaction / activity / crdt
+//                             + the generic `subscribe` multiplexer
+//   outbound-media.ts         fileupload / videohangout (no gateway service)
+//   inbound-fanout.ts         presence joined-left + the divergence-note-b
+//                             reaction / crdt send-back envelopes
+//   inbound-media.ts          fileupload / videohangout push frames
+//   inbound-notification.ts   user-scoped notification push frames
+//   inbound-control-plane.ts  capability / feature-flag push frames
+// This module stays the single public entry point: it re-exports every
+// declaration under its original name, owns the three aggregate arrays in
+// their original order, and — critically — owns the ONE
+// `annotateDeclarations()` call and the local field glossary it applies.
+// Keeping both here is what guarantees the split cannot silently change which
+// description lands on which property. Never call `annotateDeclarations` from
+// a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsCrdtAwareness = exports.wsReactionAvailable = exports.wsReactionUnsubscribed = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
+exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsCrdtAwareness = exports.wsReactionAvailable = exports.wsReactionUnsubscribed = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
 const field_glossary_1 = require("./field-glossary");
-const CLIENT_PRODUCER = 'realtime-modules-client';
-const CLIENT_BASE_TAGS = ['gateway', 'signal', 'client-frame', `producer:${CLIENT_PRODUCER}`];
-const GATEWAY_PRODUCER = 'websocket-gateway';
-const GATEWAY_BASE_TAGS = ['gateway', 'signal', `producer:${GATEWAY_PRODUCER}`];
+const outbound_fanout_1 = require("./client-frames/outbound-fanout");
+const outbound_media_1 = require("./client-frames/outbound-media");
+const inbound_fanout_1 = require("./client-frames/inbound-fanout");
+const inbound_media_1 = require("./client-frames/inbound-media");
+const inbound_notification_1 = require("./client-frames/inbound-notification");
+const inbound_control_plane_1 = require("./client-frames/inbound-control-plane");
 // ---------------------------------------------------------------------------
-// Helpers
+// Public surface — every declaration, under the name it has always had.
 // ---------------------------------------------------------------------------
-/**
- * Build an outbound client→gateway frame schema. Every outbound frame is a
- * JSON object with `service` + `action` literals plus per-action fields.
- * additionalProperties: true — the gateway's MessageValidator only enforces
- * service/action/channel structure, so extra fields pass through.
- */
-function clientFrameSchema(service, action, extra = {}, required = []) {
-    return {
-        type: 'object',
-        properties: {
-            service: { type: 'string', const: service },
-            action: { type: 'string', const: action },
-            channel: { type: 'string' },
-            ...extra,
-        },
-        required: ['service', 'action', ...required],
-        additionalProperties: true,
-    };
-}
-/** Build an inbound gateway→client frame schema keyed by a colon-form `type`. */
-function inboundSchema(typeLiteral, extra = {}, required = []) {
-    return {
-        type: 'object',
-        properties: {
-            type: { type: 'string', const: typeLiteral },
-            timestamp: { type: 'string', description: 'ISO-8601 timestamp at which the producer emitted this frame.' },
-            ...extra,
-        },
-        required: ['type', ...required],
-        additionalProperties: true,
-    };
-}
-// ===========================================================================
-// OUTBOUND — chat (useChat.ts + GatewaySocketProvider.tsx)
-//
-// GROUND TRUTH (hub#1497 re-audit): gateway ChatService.handleAction accepts
-// join | leave | send | history. The previously declared `subscribe` action
-// was never accepted ("Unknown chat action: subscribe") — corrected to `join`.
-// ===========================================================================
-/** Sent by GatewaySocketProvider when the 'chat' feature is active. */
-exports.clientChatJoin = {
-    namespace: 'client',
-    name: 'client.chat.join',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to join a chat channel and start receiving its messages. Sent by GatewaySocketProvider on connect when the chat feature is declared. GROUND TRUTH (hub#1497): the gateway ChatService verb is "join" — the previously declared "subscribe" was never accepted. channel is required; on success the gateway replies chat/joined and auto-pushes recent channel history.',
-    tags: [...CLIENT_BASE_TAGS, 'chat'],
-    schema: clientFrameSchema('chat', 'join', {}, ['channel']),
-};
-/** Sent by useChat cleanup (channel change / unmount) as of realtime-modules 0.14.0. */
-exports.clientChatLeave = {
-    namespace: 'client',
-    name: 'client.chat.leave',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to leave a chat channel and stop receiving its messages. Sent by useChat cleanup on channel change/unmount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ChatService.handleLeaveChannel requires channel ("Channel name is required") and replies with a chat/left action frame; in distributed mode it also drops the message-router channel subscription.',
-    tags: [...CLIENT_BASE_TAGS, 'chat'],
-    schema: clientFrameSchema('chat', 'leave', {}, ['channel']),
-};
-/** Sent by useChat.sendMessage(). */
-exports.clientChatSend = {
-    namespace: 'client',
-    name: 'client.chat.send',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to post a text chat message to a channel (useChat.sendMessage). The gateway ChatService requires a prior join on the channel ("You must join the channel before sending messages"). metadata is optional and size-validated server-side.',
-    tags: [...CLIENT_BASE_TAGS, 'chat'],
-    schema: clientFrameSchema('chat', 'send', {
-        message: { type: 'string' },
-        metadata: { type: 'object', additionalProperties: true },
-    }, ['channel', 'message']),
-};
-/** Sent by useChat.loadHistory(). */
-exports.clientChatHistory = {
-    namespace: 'client',
-    name: 'client.chat.history',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request for recent chat message history for a channel (useChat.loadHistory). limit is optional — the gateway ChatService falls back to its configured default history limit when omitted (hub#1497 re-audit: limit was wrongly declared required).',
-    tags: [...CLIENT_BASE_TAGS, 'chat'],
-    schema: clientFrameSchema('chat', 'history', {
-        limit: { type: 'number' },
-    }, ['channel']),
-};
-// ===========================================================================
-// OUTBOUND — presence (usePresence.ts + GatewaySocketProvider.tsx)
-// ===========================================================================
-/** Sent by usePresence on mount and by GatewaySocketProvider on connect. */
-exports.clientPresenceSubscribe = {
-    namespace: 'client',
-    name: 'client.presence.subscribe',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to receive presence events for a channel. Sent by usePresence on mount and by GatewaySocketProvider on connect when the presence feature is declared. GROUND TRUTH (hub#1497): the gateway PresenceService rejects the frame without channel ("Channel is required") — channel is REQUIRED, not optional as previously declared.',
-    tags: [...CLIENT_BASE_TAGS, 'presence'],
-    schema: clientFrameSchema('presence', 'subscribe', {}, ['channel']),
-};
-/** Sent by usePresence on unmount/channel change. */
-exports.clientPresenceUnsubscribe = {
-    namespace: 'client',
-    name: 'client.presence.unsubscribe',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to stop receiving presence events for a channel (usePresence cleanup).',
-    tags: [...CLIENT_BASE_TAGS, 'presence'],
-    schema: clientFrameSchema('presence', 'unsubscribe', {}, ['channel']),
-};
-/** No hook sender today — gateway-verified verb declared for contract completeness. */
-exports.clientPresenceGet = {
-    namespace: 'client',
-    name: 'client.presence.get',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to read presence data for a single client (targetClientId) or a whole channel (channel). GROUND TRUTH (v0.3.57 backfill): gateway PresenceService.handleGetPresence requires AT LEAST ONE of targetClientId or channel ("Either targetClientId or channel is required" — an either-or constraint JSON-schema-encodable only via anyOf, which the type generator does not support, so both fields are declared optional here). targetClientId wins when both are present; unknown targetClientId yields "Client not found". Replies with a presence/presence action frame carrying the data. PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 — declared as the gateway-verified verb for any WS client.',
-    tags: [...CLIENT_BASE_TAGS, 'presence'],
-    schema: clientFrameSchema('presence', 'get', {
-        targetClientId: {
-            type: 'string',
-            description: 'client id to fetch a single PresenceEntry for — takes precedence over channel',
-        },
-        channel: {
-            type: 'string',
-            description: 'channel to fetch the full channel-presence list for (used when targetClientId is absent)',
-        },
-    }),
-};
-/** No hook sender today — gateway-verified verb declared for contract completeness. */
-exports.clientPresenceHeartbeat = {
-    namespace: 'client',
-    name: 'client.presence.heartbeat',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client keep-alive that refreshes lastSeen/lastHeartbeat on its existing presence entry so the stale-presence sweep does not reap it. GROUND TRUTH (v0.3.57 backfill): gateway PresenceService.handleHeartbeat reads NO payload fields beyond service/action (data is ignored) and sends no reply; it is a silent no-op when the client has no presence entry (set first). PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 — declared as the gateway-verified verb for any WS client.',
-    tags: [...CLIENT_BASE_TAGS, 'presence'],
-    schema: clientFrameSchema('presence', 'heartbeat'),
-};
-/** Sent by usePresence.setStatus() / updateMetadata(). */
-exports.clientPresenceSet = {
-    namespace: 'client',
-    name: 'client.presence.set',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to set its presence entry (usePresence setStatus / updateMetadata). GROUND TRUTH (hub#1497): the gateway PresenceService requires status ("Status is required") and reads only { status, metadata, channels } — the channel field is sent by the hook but IGNORED by the service (presence pinning uses the channels array). Previously declared with channel required + status optional; both were wrong.',
-    tags: [...CLIENT_BASE_TAGS, 'presence'],
-    schema: clientFrameSchema('presence', 'set', {
-        channel: {
-            type: 'string',
-            description: 'DEPRECATED: sent by usePresence but ignored by the gateway PresenceService — channel pinning uses the channels array',
-            deprecated: true,
-        },
-        status: { type: 'string', description: 'PresenceStatus, e.g. "online" | "away" | "busy"' },
-        metadata: { type: 'object', additionalProperties: true },
-        channels: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'channels to pin this presence entry to (defaults to [] server-side)',
-        },
-    }, ['status']),
-};
-// ===========================================================================
-// OUTBOUND — reaction (useReactions.ts)
-//
-// GROUND TRUTH (hub#1497 re-audit): gateway ReactionService.handleAction
-// accepts subscribe | unsubscribe | send | getAvailable. The previously
-// declared `react` action was never accepted ("Unknown reaction action:
-// react") — corrected to `send`. The useReactions header comment's outbound
-// `{ action: 'history' }` frame remains unsent by any code path.
-// ===========================================================================
-/** Sent by useReactions on mount (channel subscribe) as of realtime-modules 0.14.0. */
-exports.clientReactionSubscribe = {
-    namespace: 'client',
-    name: 'client.reaction.subscribe',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to receive emoji reactions for a channel. Sent by useReactions on mount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleSubscribeToReactions requires channel ("Channel name is required", length-validated 1..maxChannelNameLength) and runs the consumer authz hook; on success it replies with a reaction/reaction_subscribed success frame whose data includes the availableReactions emoji list.',
-    tags: [...CLIENT_BASE_TAGS, 'reaction'],
-    schema: clientFrameSchema('reaction', 'subscribe', {}, ['channel']),
-};
-/** Sent by useReactions cleanup (channel change / unmount) as of realtime-modules 0.14.0. */
-exports.clientReactionUnsubscribe = {
-    namespace: 'client',
-    name: 'client.reaction.unsubscribe',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to stop receiving emoji reactions for a channel. Sent by useReactions cleanup on channel change/unmount as of realtime-modules 0.14.0. GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleUnsubscribeFromReactions requires channel ("Channel name is required") and replies with a reaction/reaction_unsubscribed success frame.',
-    tags: [...CLIENT_BASE_TAGS, 'reaction'],
-    schema: clientFrameSchema('reaction', 'unsubscribe', {}, ['channel']),
-};
-/** Sent by useReactions.react() — the gateway verb is `send`. */
-exports.clientReactionSend = {
-    namespace: 'client',
-    name: 'client.reaction.send',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to send an emoji reaction to a channel (useReactions.react). GROUND TRUTH (hub#1497): the gateway ReactionService verb is "send" — the previously declared "react" was never accepted. emoji must be in the gateway\'s available-reactions catalog; position is optional overlay placement; metadata passes through. NOTE: targetId is sent by useReactions for entity-scoped reactions but the current gateway ReactionService does NOT forward it to subscribers.',
-    tags: [...CLIENT_BASE_TAGS, 'reaction'],
-    schema: clientFrameSchema('reaction', 'send', {
-        emoji: { type: 'string' },
-        position: {
-            type: 'object',
-            additionalProperties: true,
-            description: 'optional overlay placement, forwarded verbatim to subscribers',
-        },
-        targetId: {
-            type: 'string',
-            description: 'DEPRECATED: sent by useReactions but dropped by the current gateway ReactionService (not forwarded to subscribers)',
-            deprecated: true,
-        },
-        metadata: { type: 'object', additionalProperties: true },
-    }, ['channel', 'emoji']),
-};
-/** No hook sender today — gateway-verified verb declared for contract completeness. */
-exports.clientReactionGetAvailable = {
-    namespace: 'client',
-    name: 'client.reaction.getAvailable',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request for the gateway\'s available-reactions catalog (emoji → effect map). GROUND TRUTH (v0.3.57 backfill): gateway ReactionService.handleGetAvailableReactions reads NO payload fields beyond service/action (channel is ignored) and replies with a reaction/available_reactions success frame carrying the full reactions catalog. PRODUCER NOTE: no realtime-modules hook sends this frame as of 0.14.0 (subscribers get the emoji list in the reaction_subscribed reply instead) — declared as the gateway-verified verb for any WS client.',
-    tags: [...CLIENT_BASE_TAGS, 'reaction'],
-    schema: clientFrameSchema('reaction', 'getAvailable'),
-};
-// ===========================================================================
-// OUTBOUND — activity (useActivity.ts)
-//
-// GROUND TRUTH (hub#1497, verified against realtime-modules a295f13 + the
-// gateway-instantiated ActivityService): subscribe / unsubscribe / getHistory
-// all key on `channelId` (NOT `channel`), the history verb is `getHistory`
-// (NOT `history`), and there is NO auto-history-on-subscribe. The fixed
-// useActivity hook still sends a legacy `channel` field alongside channelId
-// for tolerance — declared optional + deprecated below.
-// ===========================================================================
-/** Legacy `channel` field the fixed useActivity hook still sends for tolerance. */
-const activityLegacyChannelField = {
-    channel: {
-        type: 'string',
-        description: 'DEPRECATED: legacy alias still sent by useActivity for old-server tolerance; the gateway ActivityService reads channelId only',
-        deprecated: true,
-    },
-    channelId: { type: 'string', description: 'activity feed channel id — the field the gateway ActivityService reads' },
-};
-/** Sent by useActivity on mount. */
-exports.clientActivitySubscribe = {
-    namespace: 'client',
-    name: 'client.activity.subscribe',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to subscribe to the activity feed for a channel (useActivity mount). GROUND TRUTH (hub#1497): the gateway ActivityService requires channelId — the previously declared channel field was never read. No history is auto-pushed on subscribe; clients request it explicitly via client.activity.getHistory.',
-    tags: [...CLIENT_BASE_TAGS, 'activity'],
-    schema: clientFrameSchema('activity', 'subscribe', { ...activityLegacyChannelField }, ['channelId']),
-};
-/** Sent by useActivity on unmount/channel change. */
-exports.clientActivityUnsubscribe = {
-    namespace: 'client',
-    name: 'client.activity.unsubscribe',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to unsubscribe from the activity feed for a channel (useActivity cleanup). GROUND TRUTH (hub#1497): the gateway ActivityService requires channelId — the previously declared channel field was never read.',
-    tags: [...CLIENT_BASE_TAGS, 'activity'],
-    schema: clientFrameSchema('activity', 'unsubscribe', { ...activityLegacyChannelField }, ['channelId']),
-};
-/** Sent by useActivity.loadHistory() — the gateway verb is `getHistory`. */
-exports.clientActivityGetHistory = {
-    namespace: 'client',
-    name: 'client.activity.getHistory',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request for prior activity events for a channel (useActivity.loadHistory). GROUND TRUTH (hub#1497): the gateway verb is "getHistory" — the previously declared "history" action was rejected ("Unknown activity action"). Keys on channelId; limit is optional (server clamps to 1..maxHistoryItems, default 50).',
-    tags: [...CLIENT_BASE_TAGS, 'activity'],
-    schema: clientFrameSchema('activity', 'getHistory', {
-        ...activityLegacyChannelField,
-        limit: { type: 'number', description: 'optional — server default 50, clamped to 1..maxHistoryItems' },
-    }, ['channelId']),
-};
-// ===========================================================================
-// OUTBOUND — crdt (useCRDT.ts, useYjsDoc.ts, GatewayProvider.ts)
-// ===========================================================================
-/** Sent by useCRDT/useYjsDoc when (re)connecting to a CRDT channel. */
-exports.clientCrdtSubscribe = {
-    namespace: 'client',
-    name: 'client.crdt.subscribe',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to subscribe to a CRDT document channel (useCRDT/useYjsDoc). Gateway replies with crdt:subscribed and pushes the latest crdt:snapshot when one exists.',
-    tags: [...CLIENT_BASE_TAGS, 'crdt'],
-    schema: clientFrameSchema('crdt', 'subscribe', {}, ['channel']),
-};
-/** Sent by useCRDT/useYjsDoc on unmount/channel change. */
-exports.clientCrdtUnsubscribe = {
-    namespace: 'client',
-    name: 'client.crdt.unsubscribe',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to unsubscribe from a CRDT document channel (useCRDT/useYjsDoc cleanup).',
-    tags: [...CLIENT_BASE_TAGS, 'crdt'],
-    schema: clientFrameSchema('crdt', 'unsubscribe', {}, ['channel']),
-};
-/** Sent by GatewayProvider doc-update handler and useCRDT.applyLocalEdit(). */
-exports.clientCrdtUpdate = {
-    namespace: 'client',
-    name: 'client.crdt.update',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client broadcast of a local Y.js document update, base64-encoded (GatewayProvider update handler / useCRDT.applyLocalEdit).',
-    tags: [...CLIENT_BASE_TAGS, 'crdt'],
-    schema: clientFrameSchema('crdt', 'update', {
-        update: { type: 'string', description: 'base64-encoded Y.js update' },
-    }, ['channel', 'update']),
-};
-/** Sent (debounced 50ms) by GatewayProvider awareness handler. */
-exports.clientCrdtAwareness = {
-    namespace: 'client',
-    name: 'client.crdt.awareness',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client broadcast of local Y.js awareness state, base64-encoded and debounced (GatewayProvider). `mode` and `idle` are lifted out of awareness local state as top-level fields so the gateway DocumentPresenceService can update without decoding the Y.js binary.',
-    tags: [...CLIENT_BASE_TAGS, 'crdt', 'awareness'],
-    schema: clientFrameSchema('crdt', 'awareness', {
-        update: { type: 'string', description: 'base64-encoded Y.js awareness update' },
-        mode: { type: 'string', enum: ['editor', 'reviewer', 'reader'] },
-        idle: { type: 'boolean' },
-    }, ['channel', 'update']),
-};
-// ===========================================================================
-// OUTBOUND — fileupload (useFileUpload.ts)
-//
-// NOTE: the websocket-gateway MessageValidator allow-list does not currently
-// include the 'fileupload' service — these frames are the client-hook
-// contract; the gateway-side service is pending (the gateway's own upload
-// lifecycle is declared as ws.upload.* in gateway-signal.ts).
-// ===========================================================================
-/** Sent by useFileUpload.upload() step 1. */
-exports.clientFileuploadRequestUpload = {
-    namespace: 'client',
-    name: 'client.fileupload.request-upload',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request for a presigned upload URL (useFileUpload.upload step 1). `id` is a client-generated upload identifier echoed back on all subsequent fileupload:* frames.',
-    tags: [...CLIENT_BASE_TAGS, 'fileupload'],
-    schema: clientFrameSchema('fileupload', 'request-upload', {
-        id: { type: 'string', description: 'client-generated upload id' },
-        filename: { type: 'string' },
-        size: { type: 'number', description: 'file size in bytes' },
-        metadata: { type: 'object', additionalProperties: true },
-    }, ['channel', 'id', 'filename', 'size']),
-};
-/** Sent by useFileUpload after the XHR PUT to the presigned URL completes. */
-exports.clientFileuploadComplete = {
-    namespace: 'client',
-    name: 'client.fileupload.complete',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client notification that the presigned-URL PUT finished (useFileUpload.upload step 4). Gateway replies with fileupload:complete / fileupload:scanning depending on scan policy.',
-    tags: [...CLIENT_BASE_TAGS, 'fileupload'],
-    schema: clientFrameSchema('fileupload', 'complete', {
-        id: { type: 'string' },
-    }, ['channel', 'id']),
-};
-/** Sent by useFileUpload.cancel(). */
-exports.clientFileuploadCancel = {
-    namespace: 'client',
-    name: 'client.fileupload.cancel',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to cancel an in-flight upload (useFileUpload.cancel). Gateway acknowledges with fileupload:cancelled.',
-    tags: [...CLIENT_BASE_TAGS, 'fileupload'],
-    schema: clientFrameSchema('fileupload', 'cancel', {
-        id: { type: 'string' },
-    }, ['channel', 'id']),
-};
-// ===========================================================================
-// OUTBOUND — videohangout (useVideoHangout.ts)
-//
-// NOTE: the websocket-gateway routes hangout/call invite signaling through
-// the 'call' service (ws.call.* frames) and has no 'videohangout' service in
-// its MessageValidator allow-list. The videohangout:* service is the
-// client-hook (LVS session signaling) contract — naming tension documented
-// here per Wave A2; no renames in this wave.
-// ===========================================================================
-/** Sent by useVideoHangout.start(). */
-exports.clientVideohangoutStart = {
-    namespace: 'client',
-    name: 'client.videohangout.start',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to start a video hangout/call session on a channel (useVideoHangout.start). Gateway replies with videohangout:created.',
-    tags: [...CLIENT_BASE_TAGS, 'videohangout'],
-    schema: clientFrameSchema('videohangout', 'start', {
-        type: { type: 'string', enum: ['hangout', 'call'] },
-        metadata: { type: 'object', additionalProperties: true },
-    }, ['channel']),
-};
-/** Sent by useVideoHangout.join(). */
-exports.clientVideohangoutJoin = {
-    namespace: 'client',
-    name: 'client.videohangout.join',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client request to join an existing hangout session (useVideoHangout.join). Gateway replies with videohangout:joined.',
-    tags: [...CLIENT_BASE_TAGS, 'videohangout'],
-    schema: clientFrameSchema('videohangout', 'join', {
-        sessionId: { type: 'string' },
-    }, ['channel', 'sessionId']),
-};
-/** Sent by useVideoHangout.leave(). */
-exports.clientVideohangoutLeave = {
-    namespace: 'client',
-    name: 'client.videohangout.leave',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client notification that it is leaving the hangout session (useVideoHangout.leave).',
-    tags: [...CLIENT_BASE_TAGS, 'videohangout'],
-    schema: clientFrameSchema('videohangout', 'leave', {
-        sessionId: { type: 'string' },
-    }, ['channel', 'sessionId']),
-};
-/** Sent by useVideoHangout.end(). */
-exports.clientVideohangoutEnd = {
-    namespace: 'client',
-    name: 'client.videohangout.end',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client (host) request to end the hangout session for all participants (useVideoHangout.end).',
-    tags: [...CLIENT_BASE_TAGS, 'videohangout'],
-    schema: clientFrameSchema('videohangout', 'end', {
-        sessionId: { type: 'string' },
-    }, ['channel', 'sessionId']),
-};
-/** Sent by useVideoHangout.toggleVideo(). */
-exports.clientVideohangoutToggleVideo = {
-    namespace: 'client',
-    name: 'client.videohangout.toggle-video',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client notification that it toggled its video feed on/off (useVideoHangout.toggleVideo). Gateway fans out videohangout:media.',
-    tags: [...CLIENT_BASE_TAGS, 'videohangout'],
-    schema: clientFrameSchema('videohangout', 'toggle-video', {
-        sessionId: { type: 'string' },
-        videoOn: { type: 'boolean' },
-    }, ['channel', 'sessionId', 'videoOn']),
-};
-/** Sent by useVideoHangout.toggleAudio(). */
-exports.clientVideohangoutToggleAudio = {
-    namespace: 'client',
-    name: 'client.videohangout.toggle-audio',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Client notification that it toggled its audio feed on/off (useVideoHangout.toggleAudio). Gateway fans out videohangout:media.',
-    tags: [...CLIENT_BASE_TAGS, 'videohangout'],
-    schema: clientFrameSchema('videohangout', 'toggle-audio', {
-        sessionId: { type: 'string' },
-        audioOn: { type: 'boolean' },
-    }, ['channel', 'sessionId', 'audioOn']),
-};
-// ===========================================================================
-// OUTBOUND — generic channel subscribe multiplexer (useWebSocket.ts)
-//
-// NOTE: service is literally 'subscribe' on the wire. Not in the gateway
-// MessageValidator allow-list today — declared as the client-hook contract.
-// ===========================================================================
-/** Sent by useWebSocket.subscribe() and the auto-resubscribe-on-reconnect path. */
-exports.clientSubscribeSubscribe = {
-    namespace: 'client',
-    name: 'client.subscribe.subscribe',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Generic channel subscribe frame from the useWebSocket channel multiplexer (also re-sent on reconnect when autoResubscribe is enabled). Wire service is literally "subscribe".',
-    tags: [...CLIENT_BASE_TAGS, 'subscribe'],
-    schema: clientFrameSchema('subscribe', 'subscribe', {}, ['channel']),
-};
-/** Sent by useWebSocket.unsubscribe(). */
-exports.clientSubscribeUnsubscribe = {
-    namespace: 'client',
-    name: 'client.subscribe.unsubscribe',
-    transport: 'signal',
-    producer: CLIENT_PRODUCER,
-    description: 'Generic channel unsubscribe frame from the useWebSocket channel multiplexer. Wire service is literally "subscribe".',
-    tags: [...CLIENT_BASE_TAGS, 'subscribe'],
-    schema: clientFrameSchema('subscribe', 'unsubscribe', {}, ['channel']),
-};
-// ===========================================================================
-// INBOUND additions (Wave A1, GAP 2) — gateway → client push frames the
-// client hooks consume that were missing from gateway-signal.ts.
-// ===========================================================================
-// --- presence ---------------------------------------------------------------
-/** Consumed by usePresence: a client joined the presence channel. */
-exports.wsPresenceJoined = {
-    namespace: 'ws',
-    name: 'ws.presence.joined',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Broadcast when a client joins a presence channel, carrying the joining client\'s PresenceEntry. NOTE: the gateway presence service currently emits type:"presence" action frames (ws.presence.update / ws.presence.offline); presence:joined is the usePresence hook contract — naming tension documented per Wave A2, not renamed.',
-    tags: [...GATEWAY_BASE_TAGS, 'presence', 'client-contract'],
-    schema: inboundSchema('presence:joined', {
-        channel: { type: 'string' },
-        client: {
-            type: 'object',
-            properties: {
-                clientId: { type: 'string' },
-                status: { type: 'string' },
-                metadata: { type: 'object', additionalProperties: true },
-                channels: { type: 'array', items: { type: 'string' } },
-                nodeId: { type: 'string' },
-                timestamp: { type: 'string' },
-                lastSeen: { type: 'string' },
-                lastHeartbeat: { type: 'number' },
-            },
-            required: ['clientId', 'status'],
-            additionalProperties: true,
-        },
-    }, ['channel', 'client']),
-};
-/** Consumed by usePresence: a client left the presence channel. */
-exports.wsPresenceLeft = {
-    namespace: 'ws',
-    name: 'ws.presence.left',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Broadcast when a client leaves a presence channel. NOTE: the gateway presence service currently emits type:"presence" action frames; presence:left is the usePresence hook contract — naming tension documented per Wave A2, not renamed.',
-    tags: [...GATEWAY_BASE_TAGS, 'presence', 'client-contract'],
-    schema: inboundSchema('presence:left', {
-        channel: { type: 'string' },
-        clientId: { type: 'string' },
-    }, ['channel', 'clientId']),
-};
-// --- fileupload --------------------------------------------------------------
-/** Consumed by useFileUpload: optional server-side upload progress. */
-exports.wsFileuploadProgress = {
-    namespace: 'ws',
-    name: 'ws.fileupload.progress',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Server-side upload progress (0-100) for an in-flight file upload. Part of the fileupload:* hook contract (useFileUpload); the gateway\'s own upload lifecycle is declared as ws.upload.* with type:"upload" frames — naming tension documented per Wave A2, not renamed.',
-    tags: [...GATEWAY_BASE_TAGS, 'fileupload', 'client-contract'],
-    schema: inboundSchema('fileupload:progress', {
-        channel: { type: 'string' },
-        id: { type: 'string', description: 'client-generated upload id' },
-        progress: { type: 'number', description: 'Upload progress as a percentage, 0-100.' },
-    }, ['channel', 'id', 'progress']),
-};
-/** Consumed by useFileUpload: antivirus scan in progress. */
-exports.wsFileuploadScanning = {
-    namespace: 'ws',
-    name: 'ws.fileupload.scanning',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Antivirus scan is IN PROGRESS for an uploaded file — distinct from the existing ws.upload.scanned declaration, which reports the scan OUTCOME (clean/infected). The scanning-vs-scanned naming tension is documented per Wave A2, not renamed.',
-    tags: [...GATEWAY_BASE_TAGS, 'fileupload', 'client-contract'],
-    schema: inboundSchema('fileupload:scanning', {
-        channel: { type: 'string' },
-        id: { type: 'string', description: 'client-generated upload id' },
-    }, ['channel', 'id']),
-};
-/** Consumed by useFileUpload: cancel acknowledged. */
-exports.wsFileuploadCancelled = {
-    namespace: 'ws',
-    name: 'ws.fileupload.cancelled',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Acknowledgement that a client-requested upload cancellation completed (useFileUpload.cancel round-trip). Part of the fileupload:* hook contract — see ws.fileupload.progress for the upload-vs-fileupload naming note.',
-    tags: [...GATEWAY_BASE_TAGS, 'fileupload', 'client-contract'],
-    schema: inboundSchema('fileupload:cancelled', {
-        channel: { type: 'string' },
-        id: { type: 'string', description: 'client-generated upload id' },
-    }, ['channel', 'id']),
-};
-// --- videohangout ------------------------------------------------------------
-/** Consumed by useVideoHangout: a participant joined or updated. */
-exports.wsVideohangoutParticipant = {
-    namespace: 'ws',
-    name: 'ws.videohangout.participant',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Participant joined or updated in a hangout session, carrying the full HangoutParticipant. NOTE: the gateway currently signals hangout/call invites via type:"call" frames (ws.call.*); videohangout:* is the useVideoHangout hook contract — naming tension documented per Wave A2, not renamed.',
-    tags: [...GATEWAY_BASE_TAGS, 'videohangout', 'client-contract'],
-    schema: inboundSchema('videohangout:participant', {
-        channel: { type: 'string' },
-        participant: {
-            type: 'object',
-            properties: {
-                clientId: { type: 'string' },
-                displayName: { type: 'string' },
-                role: { type: 'string', enum: ['host', 'participant', 'viewer'] },
-                videoOn: { type: 'boolean' },
-                audioOn: { type: 'boolean' },
-                joinedAt: { type: 'string' },
-            },
-            required: ['clientId', 'role'],
-            additionalProperties: true,
-        },
-    }, ['channel', 'participant']),
-};
-/** Consumed by useVideoHangout: a participant toggled video/audio. */
-exports.wsVideohangoutMedia = {
-    namespace: 'ws',
-    name: 'ws.videohangout.media',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Media-state change for a hangout participant (video/audio toggled). Part of the videohangout:* hook contract — see ws.videohangout.participant for the videohangout-vs-ws.call.* naming note.',
-    tags: [...GATEWAY_BASE_TAGS, 'videohangout', 'client-contract'],
-    schema: inboundSchema('videohangout:media', {
-        channel: { type: 'string' },
-        clientId: { type: 'string' },
-        videoOn: { type: 'boolean' },
-        audioOn: { type: 'boolean' },
-    }, ['channel', 'clientId', 'videoOn', 'audioOn']),
-};
-// --- notification (user-scoped, not channel-scoped) ---------------------------
-const notificationPayloadSchema = {
-    type: 'object',
-    properties: {
-        id: { type: 'string' },
-        type: { type: 'string', description: 'NotificationType — semantic category' },
-        title: { type: 'string' },
-        body: { type: 'string' },
-        timestamp: { type: 'string', description: 'ISO-8601 timestamp at which the producer emitted this frame.' },
-        read: { type: 'boolean' },
-        channel: { type: 'string', description: 'origin channel for click-to-navigate' },
-        payload: { type: 'object', additionalProperties: true },
-        action: {
-            type: 'object',
-            properties: {
-                label: { type: 'string' },
-                href: { type: 'string' },
-                onClickEvent: { type: 'string' },
-            },
-            required: ['label'],
-            additionalProperties: true,
-        },
-    },
-    required: ['id', 'type', 'title', 'timestamp'],
-    additionalProperties: true,
-};
-/** Consumed by useNotifications: a new user-scoped notification arrived. */
-exports.wsNotificationNew = {
-    namespace: 'ws',
-    name: 'ws.notification.new',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'New USER-scoped notification pushed to the client inbox — delivered regardless of which channel is open (useNotifications). NOTE: gateway-side emission is deferred (M3+ per the hook header); declared now so the client contract is in the catalog.',
-    tags: [...GATEWAY_BASE_TAGS, 'notification', 'client-contract'],
-    schema: inboundSchema('notification:new', {
-        service: { type: 'string', const: 'notification' },
-        payload: notificationPayloadSchema,
-    }, ['payload']),
-};
-/** Consumed by useNotifications: a notification was marked read (e.g. from another tab/device). */
-exports.wsNotificationRead = {
-    namespace: 'ws',
-    name: 'ws.notification.read',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Server push that a notification was marked read, so other tabs/devices converge (useNotifications). Gateway-side emission deferred (M3+); declared as the client contract.',
-    tags: [...GATEWAY_BASE_TAGS, 'notification', 'client-contract'],
-    schema: inboundSchema('notification:read', {
-        service: { type: 'string', const: 'notification' },
-        payload: {
-            type: 'object',
-            properties: {
-                id: { type: 'string' },
-            },
-            required: ['id'],
-            additionalProperties: true,
-        },
-    }, ['payload']),
-};
-/** Consumed by useNotifications: bulk replace/merge of the notification list. */
-exports.wsNotificationBulkUpdate = {
-    namespace: 'ws',
-    name: 'ws.notification.bulk-update',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Bulk notification list update (e.g. inbox sync on reconnect) carrying an array of Notification objects (useNotifications). Gateway-side emission deferred (M3+); declared as the client contract.',
-    tags: [...GATEWAY_BASE_TAGS, 'notification', 'client-contract'],
-    schema: inboundSchema('notification:bulk-update', {
-        service: { type: 'string', const: 'notification' },
-        payload: {
-            type: 'object',
-            properties: {
-                notifications: { type: 'array', items: notificationPayloadSchema },
-            },
-            required: ['notifications'],
-            additionalProperties: true,
-        },
-    }, ['payload']),
-};
-// --- gateway send-back envelopes (divergence note b) -------------------------
-//
-// GROUND TRUTH (2026-06-12): re-audited against the gateway-instantiated
-// service dist the gateway actually runs — websocket-gateway/node_modules/
-// @connorhoehn/realtime-modules/dist/{chat,presence,reactions,cursor,activity,
-// crdt}/. These are the type:'<service>' / type:'<service>:<variant>' action-
-// frame envelopes the gateway services emit to the client, which the 0.15.x
-// realtime-modules hooks parse payload-first (useChat/usePresence/useReactions
-// per divergence note b in the contract test). Most send-backs were ALREADY
-// declared in gateway-signal.ts (ws.chat.*, ws.presence.*, ws.reaction.*,
-// ws.cursor.*, ws.activity.*, ws.crdt.*) and those declarations were verified
-// against the dist and RECONCILED there (see the correction notes in
-// gateway-signal.ts). The three declarations below are the send-back frames
-// the dist emits that had NO ws.* declaration anywhere — added here so the
-// inbound unions + EventPayloadMap are complete and the contract test can
-// assert the hooks' parsers against the full send-back set.
-/**
- * Consumed by useReactions: confirmation that an unsubscribe was accepted.
- * GROUND TRUTH: ReactionService.handleUnsubscribeFromReactions →
- * sendSuccess('reaction_unsubscribed', { channel, message }) which wraps as
- * { type:'reaction', action:'reaction_unsubscribed', success:true, data }.
- * The sibling reaction_subscribed frame is declared as ws.reaction.subscribed
- * in gateway-signal.ts (reconciled there to add success + data.message).
- */
-exports.wsReactionUnsubscribed = {
-    namespace: 'ws',
-    name: 'ws.reaction.unsubscribed',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Confirmation sent to a client when their reaction unsubscribe is accepted. GROUND TRUTH (gateway dist ReactionService.handleUnsubscribeFromReactions → sendSuccess): wire frame is { type:"reaction", action:"reaction_unsubscribed", success:true, data:{ channel, message } }. No ws.* declaration existed for this verified send-back before — added per divergence note (b).',
-    tags: [...GATEWAY_BASE_TAGS, 'reaction', 'send-back', 'client-contract'],
-    schema: inboundSchema('reaction', {
-        action: { type: 'string', const: 'reaction_unsubscribed' },
-        success: { type: 'boolean', const: true },
-        data: {
-            type: 'object',
-            properties: {
-                channel: { type: 'string' },
-                message: { type: 'string' },
-            },
-            required: ['channel'],
-            additionalProperties: true,
-        },
-    }, ['action', 'data']),
-};
-/**
- * Consumed by clients that send client.reaction.getAvailable: the emoji →
- * effect catalog. GROUND TRUTH: ReactionService.handleGetAvailableReactions →
- * sendSuccess('available_reactions', { reactions }) wrapping as
- * { type:'reaction', action:'available_reactions', success:true, data }.
- */
-exports.wsReactionAvailable = {
-    namespace: 'ws',
-    name: 'ws.reaction.available',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'The gateway\'s available-reactions catalog (emoji → effect map), sent in reply to a getAvailable request. GROUND TRUTH (gateway dist ReactionService.handleGetAvailableReactions → sendSuccess): wire frame is { type:"reaction", action:"available_reactions", success:true, data:{ reactions } } where reactions maps each emoji to its { effect } config. No ws.* declaration existed before — added per divergence note (b).',
-    tags: [...GATEWAY_BASE_TAGS, 'reaction', 'send-back', 'client-contract'],
-    schema: inboundSchema('reaction', {
-        action: { type: 'string', const: 'available_reactions' },
-        success: { type: 'boolean', const: true },
-        data: {
-            type: 'object',
-            properties: {
-                reactions: { type: 'object', additionalProperties: true, description: 'emoji → { effect } map' },
-            },
-            required: ['reactions'],
-            additionalProperties: true,
-        },
-    }, ['action', 'data']),
-};
-/**
- * Broadcast to CRDT channel subscribers: coalesced Y.js awareness updates.
- * GROUND TRUTH: server/AwarenessCoalescer._broadcast → sendToChannel(channel,
- * { type:'crdt:awareness', channel, updates:[{ clientId, update }] }). This is
- * the frame the dist actually emits — distinct from the historical
- * ws.crdt.awareness-batch declaration in gateway-signal.ts (different type
- * literal `crdt:awareness-batch` and different per-entry shape
- * { clientId, awareness }), which the current dist does NOT emit (noted there).
- */
-exports.wsCrdtAwareness = {
-    namespace: 'ws',
-    name: 'ws.crdt.awareness',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Coalesced Y.js awareness updates broadcast to all CRDT channel subscribers. GROUND TRUTH (gateway dist server/AwarenessCoalescer._broadcast): wire frame is { type:"crdt:awareness", channel, updates:[{ clientId, update }] } where each update is a base64-encoded Y.js awareness delta. This is the frame the running dist emits — distinct from the historical ws.crdt.awareness-batch (type "crdt:awareness-batch", per-entry { clientId, awareness }) which the current dist does NOT emit. Added per divergence note (b).',
-    tags: [...GATEWAY_BASE_TAGS, 'crdt', 'awareness', 'send-back', 'client-contract'],
-    schema: inboundSchema('crdt:awareness', {
-        channel: { type: 'string' },
-        updates: {
-            type: 'array',
-            items: {
-                type: 'object',
-                properties: {
-                    clientId: { type: 'string' },
-                    update: { type: 'string', description: 'base64-encoded Y.js awareness delta' },
-                },
-                required: ['clientId', 'update'],
-                additionalProperties: true,
-            },
-        },
-    }, ['channel', 'updates']),
-};
-// --- capability / feature-flag (control-plane push) ----------------------------
-/** Consumed by useCapability: a CRD-derived capability changed. */
-exports.wsCapabilityUpdated = {
-    namespace: 'ws',
-    name: 'ws.capability.updated',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Control-plane push that a CRD-derived capability changed state, so useCapability consumers update without a remount. Payload mirrors CapabilityUpdatedPayload in useCapability.ts.',
-    tags: [...GATEWAY_BASE_TAGS, 'capability', 'control-plane', 'client-contract'],
-    schema: inboundSchema('capability:updated', {
-        payload: {
-            type: 'object',
-            properties: {
-                name: { type: 'string' },
-                enabled: { type: 'boolean' },
-                channel: { type: 'string', description: 'optional channel scope' },
-                version: { type: 'string', description: 'bundle version from the CRD' },
-                metadata: { type: 'object', additionalProperties: true },
-            },
-            required: ['name', 'enabled'],
-            additionalProperties: true,
-        },
-    }, ['payload']),
-};
-/** Consumed by useFeatureFlag: an app-level feature flag changed. */
-exports.wsFeatureFlagUpdated = {
-    namespace: 'ws',
-    name: 'ws.feature-flag.updated',
-    transport: 'signal',
-    producer: GATEWAY_PRODUCER,
-    description: 'Gateway push that an app-level feature flag changed (kill-switch / A-B variant), so useFeatureFlag consumers update reactively. Payload mirrors FeatureFlagUpdatedPayload in useFeatureFlag.ts.',
-    tags: [...GATEWAY_BASE_TAGS, 'feature-flag', 'control-plane', 'client-contract'],
-    schema: inboundSchema('feature-flag:updated', {
-        payload: {
-            type: 'object',
-            properties: {
-                name: { type: 'string' },
-                enabled: { type: 'boolean' },
-                variant: { type: 'string', description: 'variant id for multi-variant flags' },
-                metadata: { type: 'object', additionalProperties: true },
-            },
-            required: ['name', 'enabled'],
-            additionalProperties: true,
-        },
-    }, ['payload']),
-};
+var outbound_fanout_2 = require("./client-frames/outbound-fanout");
+Object.defineProperty(exports, "clientChatJoin", { enumerable: true, get: function () { return outbound_fanout_2.clientChatJoin; } });
+Object.defineProperty(exports, "clientChatLeave", { enumerable: true, get: function () { return outbound_fanout_2.clientChatLeave; } });
+Object.defineProperty(exports, "clientChatSend", { enumerable: true, get: function () { return outbound_fanout_2.clientChatSend; } });
+Object.defineProperty(exports, "clientChatHistory", { enumerable: true, get: function () { return outbound_fanout_2.clientChatHistory; } });
+Object.defineProperty(exports, "clientPresenceSubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientPresenceSubscribe; } });
+Object.defineProperty(exports, "clientPresenceUnsubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientPresenceUnsubscribe; } });
+Object.defineProperty(exports, "clientPresenceGet", { enumerable: true, get: function () { return outbound_fanout_2.clientPresenceGet; } });
+Object.defineProperty(exports, "clientPresenceHeartbeat", { enumerable: true, get: function () { return outbound_fanout_2.clientPresenceHeartbeat; } });
+Object.defineProperty(exports, "clientPresenceSet", { enumerable: true, get: function () { return outbound_fanout_2.clientPresenceSet; } });
+Object.defineProperty(exports, "clientReactionSubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientReactionSubscribe; } });
+Object.defineProperty(exports, "clientReactionUnsubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientReactionUnsubscribe; } });
+Object.defineProperty(exports, "clientReactionSend", { enumerable: true, get: function () { return outbound_fanout_2.clientReactionSend; } });
+Object.defineProperty(exports, "clientReactionGetAvailable", { enumerable: true, get: function () { return outbound_fanout_2.clientReactionGetAvailable; } });
+Object.defineProperty(exports, "clientActivitySubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientActivitySubscribe; } });
+Object.defineProperty(exports, "clientActivityUnsubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientActivityUnsubscribe; } });
+Object.defineProperty(exports, "clientActivityGetHistory", { enumerable: true, get: function () { return outbound_fanout_2.clientActivityGetHistory; } });
+Object.defineProperty(exports, "clientCrdtSubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientCrdtSubscribe; } });
+Object.defineProperty(exports, "clientCrdtUnsubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientCrdtUnsubscribe; } });
+Object.defineProperty(exports, "clientCrdtUpdate", { enumerable: true, get: function () { return outbound_fanout_2.clientCrdtUpdate; } });
+Object.defineProperty(exports, "clientCrdtAwareness", { enumerable: true, get: function () { return outbound_fanout_2.clientCrdtAwareness; } });
+Object.defineProperty(exports, "clientSubscribeSubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientSubscribeSubscribe; } });
+Object.defineProperty(exports, "clientSubscribeUnsubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientSubscribeUnsubscribe; } });
+var outbound_media_2 = require("./client-frames/outbound-media");
+Object.defineProperty(exports, "clientFileuploadRequestUpload", { enumerable: true, get: function () { return outbound_media_2.clientFileuploadRequestUpload; } });
+Object.defineProperty(exports, "clientFileuploadComplete", { enumerable: true, get: function () { return outbound_media_2.clientFileuploadComplete; } });
+Object.defineProperty(exports, "clientFileuploadCancel", { enumerable: true, get: function () { return outbound_media_2.clientFileuploadCancel; } });
+Object.defineProperty(exports, "clientVideohangoutStart", { enumerable: true, get: function () { return outbound_media_2.clientVideohangoutStart; } });
+Object.defineProperty(exports, "clientVideohangoutJoin", { enumerable: true, get: function () { return outbound_media_2.clientVideohangoutJoin; } });
+Object.defineProperty(exports, "clientVideohangoutLeave", { enumerable: true, get: function () { return outbound_media_2.clientVideohangoutLeave; } });
+Object.defineProperty(exports, "clientVideohangoutEnd", { enumerable: true, get: function () { return outbound_media_2.clientVideohangoutEnd; } });
+Object.defineProperty(exports, "clientVideohangoutToggleVideo", { enumerable: true, get: function () { return outbound_media_2.clientVideohangoutToggleVideo; } });
+Object.defineProperty(exports, "clientVideohangoutToggleAudio", { enumerable: true, get: function () { return outbound_media_2.clientVideohangoutToggleAudio; } });
+var inbound_fanout_2 = require("./client-frames/inbound-fanout");
+Object.defineProperty(exports, "wsPresenceJoined", { enumerable: true, get: function () { return inbound_fanout_2.wsPresenceJoined; } });
+Object.defineProperty(exports, "wsPresenceLeft", { enumerable: true, get: function () { return inbound_fanout_2.wsPresenceLeft; } });
+Object.defineProperty(exports, "wsReactionUnsubscribed", { enumerable: true, get: function () { return inbound_fanout_2.wsReactionUnsubscribed; } });
+Object.defineProperty(exports, "wsReactionAvailable", { enumerable: true, get: function () { return inbound_fanout_2.wsReactionAvailable; } });
+Object.defineProperty(exports, "wsCrdtAwareness", { enumerable: true, get: function () { return inbound_fanout_2.wsCrdtAwareness; } });
+var inbound_media_2 = require("./client-frames/inbound-media");
+Object.defineProperty(exports, "wsFileuploadProgress", { enumerable: true, get: function () { return inbound_media_2.wsFileuploadProgress; } });
+Object.defineProperty(exports, "wsFileuploadScanning", { enumerable: true, get: function () { return inbound_media_2.wsFileuploadScanning; } });
+Object.defineProperty(exports, "wsFileuploadCancelled", { enumerable: true, get: function () { return inbound_media_2.wsFileuploadCancelled; } });
+Object.defineProperty(exports, "wsVideohangoutParticipant", { enumerable: true, get: function () { return inbound_media_2.wsVideohangoutParticipant; } });
+Object.defineProperty(exports, "wsVideohangoutMedia", { enumerable: true, get: function () { return inbound_media_2.wsVideohangoutMedia; } });
+var inbound_notification_2 = require("./client-frames/inbound-notification");
+Object.defineProperty(exports, "wsNotificationNew", { enumerable: true, get: function () { return inbound_notification_2.wsNotificationNew; } });
+Object.defineProperty(exports, "wsNotificationRead", { enumerable: true, get: function () { return inbound_notification_2.wsNotificationRead; } });
+Object.defineProperty(exports, "wsNotificationBulkUpdate", { enumerable: true, get: function () { return inbound_notification_2.wsNotificationBulkUpdate; } });
+var inbound_control_plane_2 = require("./client-frames/inbound-control-plane");
+Object.defineProperty(exports, "wsCapabilityUpdated", { enumerable: true, get: function () { return inbound_control_plane_2.wsCapabilityUpdated; } });
+Object.defineProperty(exports, "wsFeatureFlagUpdated", { enumerable: true, get: function () { return inbound_control_plane_2.wsFeatureFlagUpdated; } });
 // ===========================================================================
 // Aggregate exports
 // ===========================================================================
@@ -929,44 +169,44 @@ exports.wsFeatureFlagUpdated = {
  */
 exports.clientFrameOutboundDeclarations = [
     // chat
-    exports.clientChatJoin,
-    exports.clientChatLeave,
-    exports.clientChatSend,
-    exports.clientChatHistory,
+    outbound_fanout_1.clientChatJoin,
+    outbound_fanout_1.clientChatLeave,
+    outbound_fanout_1.clientChatSend,
+    outbound_fanout_1.clientChatHistory,
     // presence
-    exports.clientPresenceSubscribe,
-    exports.clientPresenceUnsubscribe,
-    exports.clientPresenceSet,
-    exports.clientPresenceGet,
-    exports.clientPresenceHeartbeat,
+    outbound_fanout_1.clientPresenceSubscribe,
+    outbound_fanout_1.clientPresenceUnsubscribe,
+    outbound_fanout_1.clientPresenceSet,
+    outbound_fanout_1.clientPresenceGet,
+    outbound_fanout_1.clientPresenceHeartbeat,
     // reaction
-    exports.clientReactionSubscribe,
-    exports.clientReactionUnsubscribe,
-    exports.clientReactionSend,
-    exports.clientReactionGetAvailable,
+    outbound_fanout_1.clientReactionSubscribe,
+    outbound_fanout_1.clientReactionUnsubscribe,
+    outbound_fanout_1.clientReactionSend,
+    outbound_fanout_1.clientReactionGetAvailable,
     // activity
-    exports.clientActivitySubscribe,
-    exports.clientActivityUnsubscribe,
-    exports.clientActivityGetHistory,
+    outbound_fanout_1.clientActivitySubscribe,
+    outbound_fanout_1.clientActivityUnsubscribe,
+    outbound_fanout_1.clientActivityGetHistory,
     // crdt
-    exports.clientCrdtSubscribe,
-    exports.clientCrdtUnsubscribe,
-    exports.clientCrdtUpdate,
-    exports.clientCrdtAwareness,
+    outbound_fanout_1.clientCrdtSubscribe,
+    outbound_fanout_1.clientCrdtUnsubscribe,
+    outbound_fanout_1.clientCrdtUpdate,
+    outbound_fanout_1.clientCrdtAwareness,
     // fileupload
-    exports.clientFileuploadRequestUpload,
-    exports.clientFileuploadComplete,
-    exports.clientFileuploadCancel,
+    outbound_media_1.clientFileuploadRequestUpload,
+    outbound_media_1.clientFileuploadComplete,
+    outbound_media_1.clientFileuploadCancel,
     // videohangout
-    exports.clientVideohangoutStart,
-    exports.clientVideohangoutJoin,
-    exports.clientVideohangoutLeave,
-    exports.clientVideohangoutEnd,
-    exports.clientVideohangoutToggleVideo,
-    exports.clientVideohangoutToggleAudio,
+    outbound_media_1.clientVideohangoutStart,
+    outbound_media_1.clientVideohangoutJoin,
+    outbound_media_1.clientVideohangoutLeave,
+    outbound_media_1.clientVideohangoutEnd,
+    outbound_media_1.clientVideohangoutToggleVideo,
+    outbound_media_1.clientVideohangoutToggleAudio,
     // generic channel multiplexer
-    exports.clientSubscribeSubscribe,
-    exports.clientSubscribeUnsubscribe,
+    outbound_fanout_1.clientSubscribeSubscribe,
+    outbound_fanout_1.clientSubscribeUnsubscribe,
 ];
 /**
  * INBOUND gateway→client push-frame declarations added in Wave A2 (GAP 2) —
@@ -974,26 +214,26 @@ exports.clientFrameOutboundDeclarations = [
  */
 exports.clientContractInboundDeclarations = [
     // presence
-    exports.wsPresenceJoined,
-    exports.wsPresenceLeft,
+    inbound_fanout_1.wsPresenceJoined,
+    inbound_fanout_1.wsPresenceLeft,
     // fileupload
-    exports.wsFileuploadProgress,
-    exports.wsFileuploadScanning,
-    exports.wsFileuploadCancelled,
+    inbound_media_1.wsFileuploadProgress,
+    inbound_media_1.wsFileuploadScanning,
+    inbound_media_1.wsFileuploadCancelled,
     // videohangout
-    exports.wsVideohangoutParticipant,
-    exports.wsVideohangoutMedia,
+    inbound_media_1.wsVideohangoutParticipant,
+    inbound_media_1.wsVideohangoutMedia,
     // notification
-    exports.wsNotificationNew,
-    exports.wsNotificationRead,
-    exports.wsNotificationBulkUpdate,
+    inbound_notification_1.wsNotificationNew,
+    inbound_notification_1.wsNotificationRead,
+    inbound_notification_1.wsNotificationBulkUpdate,
     // capability / feature-flag
-    exports.wsCapabilityUpdated,
-    exports.wsFeatureFlagUpdated,
+    inbound_control_plane_1.wsCapabilityUpdated,
+    inbound_control_plane_1.wsFeatureFlagUpdated,
     // gateway send-back envelopes (divergence note b)
-    exports.wsReactionUnsubscribed,
-    exports.wsReactionAvailable,
-    exports.wsCrdtAwareness,
+    inbound_fanout_1.wsReactionUnsubscribed,
+    inbound_fanout_1.wsReactionAvailable,
+    inbound_fanout_1.wsCrdtAwareness,
 ];
 /** All Wave A2 client-frame contract declarations (outbound + inbound additions). */
 exports.clientFrameDeclarations = [

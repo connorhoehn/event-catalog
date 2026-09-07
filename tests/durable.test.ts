@@ -78,10 +78,14 @@ describe('DurableTransport', () => {
       const t = new DurableTransport({ url: 'http://mq:3004' });
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       await t.connect();
+      // One string, not (message, cause): the warning has to name the env
+      // var and the degraded-mode consequence, which only reads well inline.
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('message-queue not reachable at http://mq:3004'),
-        'ECONNREFUSED',
+        expect.stringContaining('message-queue not reachable at http://mq:3004/health'),
       );
+      const warned = warnSpy.mock.calls[0]![0] as string;
+      expect(warned).toContain('MESSAGE_QUEUE_URL');
+      expect(warned).toContain('ECONNREFUSED');
       warnSpy.mockRestore();
     });
 

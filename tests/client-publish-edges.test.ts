@@ -540,3 +540,258 @@ describe('EventCatalog.getSchemaFingerprint', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Dropped publishes.
+//
+// A signal publish issued before connect() (or during a reconnect window)
+// is discarded by SignalTransport rather than thrown. That is the library's
+// most dangerous failure mode, so it has to stay *observable*: counted, not
+// mistaken for a successful publish, and reported to a callback.
+// ---------------------------------------------------------------------------
+describe('EventCatalog.publish — dropped while the signal transport is down', () => {
+  const signalDecl: EventDeclaration = {
+    name: 'cursor:moved',
+    transport: 'signal',
+    producer: 'test-service',
+    schema: { type: 'object', properties: { x: { type: 'number' } }, required: ['x'] },
+  };
+
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    channels.clear();
+    fetchMock.mockReset();
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it('resolves but does NOT count as a publish, and bumps errorCount instead', async () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare(signalDecl);
+
+    // No connect() — this is the "published during boot" case.
+    await expect(catalog.publish('cursor:moved', { x: 1 })).resolves.toBeUndefined();
+
+    const meta = catalog.getRegistry().get('cursor:moved')!.metadata;
+    expect(meta.publishCount).toBe(0);
+    expect(meta.errorCount).toBe(1);
+    expect(meta.lastPublishedAt).toBeNull();
+  });
+
+  it('counts the drop on the catalog and on the transport', async () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare(signalDecl);
+
+    await catalog.publish('cursor:moved', { x: 1 });
+    await catalog.publish('cursor:moved', { x: 2 });
+
+    expect(catalog.getDroppedPublishCount('cursor:moved')).toBe(2);
+    expect(catalog.getDroppedPublishCount().get('cursor:moved')).toBe(2);
+    expect(catalog.getSignalTransport().getDroppedCount('cursor:moved')).toBe(2);
+  });
+
+  it('warns once per channel, not once per publish', async () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare(signalDecl);
+
+    for (let i = 0; i < 5; i++) await catalog.publish('cursor:moved', { x: i });
+
+    const dropWarns = warnSpy.mock.calls.filter(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('skipping publish to cursor:moved'),
+    );
+    expect(dropWarns).toHaveLength(1);
+    expect(dropWarns[0]![0] as string).toContain('LOST');
+  });
+
+  it('reports every drop to onPublishDropped with the lost envelope', async () => {
+    const drops: Array<{ eventName: string; payload: unknown }> = [];
+    const catalog = new EventCatalog({
+      ...baseConfig(),
+      onPublishDropped: (d: { eventName: string; envelope: { payload: unknown } }) => {
+        drops.push({ eventName: d.eventName, payload: d.envelope.payload });
+      },
+    } as never);
+    catalog.declare(signalDecl);
+
+    await catalog.publish('cursor:moved', { x: 7 });
+
+    expect(drops).toEqual([{ eventName: 'cursor:moved', payload: { x: 7 } }]);
+  });
+
+  it('a throwing onPublishDropped cannot fail the publish', async () => {
+    const catalog = new EventCatalog({
+      ...baseConfig(),
+      onPublishDropped: () => { throw new Error('metric sink down'); },
+    } as never);
+    catalog.declare(signalDecl);
+
+    await expect(catalog.publish('cursor:moved', { x: 1 })).resolves.toBeUndefined();
+  });
+
+  it('strictTransport turns the drop into a rejection', async () => {
+    const catalog = new EventCatalog({ ...baseConfig(), strictTransport: true } as never);
+    catalog.declare(signalDecl);
+
+    await expect(catalog.publish('cursor:moved', { x: 1 })).rejects.toThrow(
+      /signal transport is not connected.*strictTransport/s,
+    );
+    expect(catalog.getRegistry().get('cursor:moved')!.metadata.publishCount).toBe(0);
+  });
+
+  it('once connected, publishes count normally and nothing is recorded as dropped', async () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare(signalDecl);
+    await catalog.connect();
+
+    await catalog.publish('cursor:moved', { x: 1 });
+
+    expect(catalog.getDroppedPublishCount('cursor:moved')).toBe(0);
+    expect(catalog.getRegistry().get('cursor:moved')!.metadata.publishCount).toBe(1);
+    await catalog.disconnect();
+  });
+
+  it('publishSignal drops are counted too — a 0 return is otherwise ambiguous', async () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare(signalDecl);
+
+    const delivered = await catalog.publishSignal('room:1', 'cursor:moved', { x: 1 });
+
+    expect(delivered).toBe(0);
+    expect(catalog.getDroppedPublishCount('cursor:moved')).toBe(1);
+    expect(catalog.getRegistry().get('cursor:moved')!.metadata.publishCount).toBe(0);
+    expect(catalog.getRegistry().get('cursor:moved')!.metadata.errorCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error quality — what a consumer actually reads at 3am.
+// ---------------------------------------------------------------------------
+describe('EventCatalog — actionable error messages', () => {
+  const decl: EventDeclaration = {
+    name: 'orders:created',
+    transport: 'signal',
+    producer: 'orders-service',
+    schema: {
+      type: 'object',
+      properties: { orderId: { type: 'string' }, total: { type: 'number' } },
+      required: ['orderId', 'total'],
+    },
+  };
+
+  it('validation failures name the field, the rule and the offending value', async () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare(decl);
+    await catalog.connect();
+
+    const err = await catalog
+      .publish('orders:created', { orderId: 'o-1', total: '12' } as never)
+      .catch((e: Error) => e);
+
+    const message = (err as Error).message;
+    expect(message).toContain('payload validation failed for "orders:created"');
+    expect(message).toContain('payload.total');
+    expect(message).toContain('expected type number');
+    expect(message).toContain('was "12"');
+    // Enough context to know *which* schema rejected it.
+    expect(message).toContain('declared by orders-service');
+    await catalog.disconnect();
+  });
+
+  it('a missing required field reports the field, not just "validation failed"', async () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare(decl);
+    await catalog.connect();
+
+    await expect(catalog.publish('orders:created', { total: 5 } as never)).rejects.toThrow(
+      /payload\.orderId — required property 'orderId' missing \(was undefined\)/,
+    );
+    await catalog.disconnect();
+  });
+
+  it('reports every problem at once, with a count', async () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare(decl);
+    await catalog.connect();
+
+    const err = await catalog.publish('orders:created', {} as never).catch((e: Error) => e);
+    expect((err as Error).message).toContain('(2 problems)');
+    await catalog.disconnect();
+  });
+
+  it('an undeclared name suggests the closest declared name', async () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare(decl);
+
+    // Dot-vs-colon confusion is the usual cause in this repo.
+    await expect(catalog.publish('orders.created', {} as never)).rejects.toThrow(
+      /Did you mean "orders:created"\?/,
+    );
+  });
+
+  it('an undeclared name says what to do and how many events are declared', async () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare(decl);
+
+    const err = await catalog.publish('totally:unrelated', {} as never).catch((e: Error) => e);
+    const message = (err as Error).message;
+    expect(message).toContain('publish() cannot use it');
+    expect(message).toContain('catalog.declare({ name: "totally:unrelated"');
+    expect(message).toContain('1 events are declared on this instance by "test-service"');
+  });
+
+  it('subscribe() to an undeclared name gets the same guidance', () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare(decl);
+
+    expect(() => catalog.subscribe('orders.created', async () => {})).toThrow(
+      /subscribe\(\) cannot use it.*Did you mean "orders:created"\?/s,
+    );
+  });
+
+  it('a non-string discriminator says so instead of printing undefined', async () => {
+    const catalog = new EventCatalog(baseConfig() as never);
+    catalog.declare({
+      name: 'ingest:progress',
+      transport: 'signal',
+      producer: 'test-service',
+      schema: { type: 'object' },
+      discriminator: { field: 'type', values: ['started', 'done'] },
+    });
+    await catalog.connect();
+
+    await expect(catalog.publish('ingest:progress', { type: 3 } as never)).rejects.toThrow(
+      /discriminator must be a string, got number/,
+    );
+    await catalog.disconnect();
+  });
+
+  it('publishSignal warns once per undeclared event, not once per call', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const catalog = new EventCatalog(baseConfig() as never);
+    await catalog.connect();
+
+    for (let i = 0; i < 4; i++) {
+      await catalog.publishSignal('room:1', 'never:declared', { i });
+    }
+
+    const undeclaredWarns = warnSpy.mock.calls.filter(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('undeclared event "never:declared"'),
+    );
+    expect(undeclaredWarns).toHaveLength(1);
+    warnSpy.mockRestore();
+    await catalog.disconnect();
+  });
+
+  it('a blank transport URL fails at construction, naming the env var', () => {
+    expect(() => new EventCatalog({ ...baseConfig(), redis: { url: '' } } as never)).toThrow(
+      /missing "redis\.url" \(normally read from the REDIS_URL env var\)/,
+    );
+    expect(() => new EventCatalog({ ...baseConfig(), messageQueue: {} } as never)).toThrow(
+      /missing "messageQueue\.url" \(normally read from the MESSAGE_QUEUE_URL env var\)/,
+    );
+  });
+});

@@ -22,6 +22,7 @@ import { ensureTable } from './dynamo-setup.js';
 import { startAuditLog } from './audit-log.js';
 import { RedisManifestStore } from './manifest-store.js';
 import { createRoutes } from './routes.js';
+import { resolveAuthMiddleware } from './auth.js';
 import { createBundleRoutes } from './bundle-routes.js';
 import {
   Router,
@@ -242,6 +243,10 @@ export interface ServerConfig {
    * (deliberately, for local dev); operators can inject a JWT / API-key
    * check here without forking startServer. Call `next()` to admit the
    * request; respond on `res` without calling next to reject it.
+   *
+   * Leave it unset and set `EVENT_CATALOG_AUTH_TOKEN` instead to get the
+   * built-in shared-secret bearer scheme (`src/server/auth.ts`). An
+   * explicit middleware here always wins over the environment variable.
    */
   authMiddleware?: Middleware;
   /**
@@ -279,9 +284,17 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     messageQueueUrl = resolved.config.messageQueueUrl,
     corsOrigin = resolveCorsOrigin(process.env.EVENT_CATALOG_CORS_ORIGIN),
     onDeadLetter = [],
-    authMiddleware,
     shutdownDrainMs,
   } = config;
+
+  // Auth is opt-in and off unless configured. With no explicit middleware
+  // and no $EVENT_CATALOG_AUTH_TOKEN this is `undefined`, the `if
+  // (authMiddleware)` gate below is never entered, and the request path is
+  // exactly what it was before src/server/auth.ts existed.
+  const authMiddleware = resolveAuthMiddleware(
+    config.authMiddleware,
+    resolved.config.authToken,
+  );
 
   const drainMs = shutdownDrainMs
     ?? (Number(process.env.EVENT_CATALOG_SHUTDOWN_DRAIN_MS) || SHUTDOWN_DRAIN_MS);
@@ -516,11 +529,16 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     const res = makeRouteResponse(nodeRes);
 
     if (req.path === '/api' || req.path.startsWith('/api/')) {
-      // Phase 20-d — auth middleware injection (optional). Runs before
-      // the /api routers so it gates every admin endpoint. The catalog
-      // itself ships with no auth on purpose (local dev / in-cluster
-      // private surface) but operators deploying outside that envelope
-      // pass their JWT / API-key middleware here.
+      // Auth gate (optional). Runs before the /api routers, so gating is
+      // decided in ONE place for all ~45 admin endpoints rather than per
+      // route. Two ways to get one: set $EVENT_CATALOG_AUTH_TOKEN for the
+      // built-in shared-secret bearer scheme (src/server/auth.ts — gates
+      // non-GET requests only, so the admin UI and the SSE streams are
+      // untouched), or pass your own JWT / API-key middleware as
+      // `authMiddleware`. Neither is on by default: the catalog ships
+      // unauthenticated on purpose (local dev / in-cluster private
+      // surface) and an upgrade must not start rejecting the producers
+      // that sync declarations at boot.
       if (authMiddleware) {
         const admitted = await runMiddleware(authMiddleware, req, res);
         if (!admitted) {

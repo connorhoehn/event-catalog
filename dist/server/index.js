@@ -23,6 +23,7 @@ const dynamo_setup_js_1 = require("./dynamo-setup.js");
 const audit_log_js_1 = require("./audit-log.js");
 const manifest_store_js_1 = require("./manifest-store.js");
 const routes_js_1 = require("./routes.js");
+const auth_js_1 = require("./auth.js");
 const bundle_routes_js_1 = require("./bundle-routes.js");
 const http_router_js_1 = require("./http-router.js");
 const FeatureBundle_js_1 = require("../bundles/FeatureBundle.js");
@@ -192,7 +193,12 @@ async function startServer(config = {}) {
     if (!resolved.ok) {
         throw new Error(`event-catalog: invalid configuration\n  - ${resolved.errors.join('\n  - ')}`);
     }
-    const { port = resolved.config.port, redisUrl = resolved.config.redisUrl, messageQueueUrl = resolved.config.messageQueueUrl, corsOrigin = resolveCorsOrigin(process.env.EVENT_CATALOG_CORS_ORIGIN), onDeadLetter = [], authMiddleware, shutdownDrainMs, } = config;
+    const { port = resolved.config.port, redisUrl = resolved.config.redisUrl, messageQueueUrl = resolved.config.messageQueueUrl, corsOrigin = resolveCorsOrigin(process.env.EVENT_CATALOG_CORS_ORIGIN), onDeadLetter = [], shutdownDrainMs, } = config;
+    // Auth is opt-in and off unless configured. With no explicit middleware
+    // and no $EVENT_CATALOG_AUTH_TOKEN this is `undefined`, the `if
+    // (authMiddleware)` gate below is never entered, and the request path is
+    // exactly what it was before src/server/auth.ts existed.
+    const authMiddleware = (0, auth_js_1.resolveAuthMiddleware)(config.authMiddleware, resolved.config.authToken);
     const drainMs = shutdownDrainMs
         ?? (Number(process.env.EVENT_CATALOG_SHUTDOWN_DRAIN_MS) || exports.SHUTDOWN_DRAIN_MS);
     // Boot-bounded reconnect: without this, a down Redis makes connect() retry
@@ -395,11 +401,16 @@ async function startServer(config = {}) {
         const req = (0, http_router_js_1.makeRouteRequest)(nodeReq, body);
         const res = (0, http_router_js_1.makeRouteResponse)(nodeRes);
         if (req.path === '/api' || req.path.startsWith('/api/')) {
-            // Phase 20-d — auth middleware injection (optional). Runs before
-            // the /api routers so it gates every admin endpoint. The catalog
-            // itself ships with no auth on purpose (local dev / in-cluster
-            // private surface) but operators deploying outside that envelope
-            // pass their JWT / API-key middleware here.
+            // Auth gate (optional). Runs before the /api routers, so gating is
+            // decided in ONE place for all ~45 admin endpoints rather than per
+            // route. Two ways to get one: set $EVENT_CATALOG_AUTH_TOKEN for the
+            // built-in shared-secret bearer scheme (src/server/auth.ts — gates
+            // non-GET requests only, so the admin UI and the SSE streams are
+            // untouched), or pass your own JWT / API-key middleware as
+            // `authMiddleware`. Neither is on by default: the catalog ships
+            // unauthenticated on purpose (local dev / in-cluster private
+            // surface) and an upgrade must not start rejecting the producers
+            // that sync declarations at boot.
             if (authMiddleware) {
                 const admitted = await runMiddleware(authMiddleware, req, res);
                 if (!admitted) {

@@ -127,6 +127,131 @@ describe('api query building', () => {
   });
 });
 
+describe('api — the endpoints the views call, and how they fail', () => {
+  it('reads the ROOT /metrics for Prometheus text, not /api/metrics', async () => {
+    // Two different endpoints with the same last path segment: /api/metrics is
+    // the per-event JSON rollup, / metrics is the Prometheus exposition. Asking
+    // the wrong one hands the transport-health view a JSON blob to parse as
+    // text and it silently renders nothing.
+    const { calls } = mockFetch({ '/metrics': { text: 'catalog_events_total 4' } });
+    await expect(api.getPromMetrics()).resolves.toContain('catalog_events_total');
+    expect(calls[0]).toBe('/metrics');
+  });
+
+  it('throws on a non-2xx Prometheus scrape instead of returning an error page as metrics', async () => {
+    mockFetch({ '/metrics': { status: 502, text: '<html>bad gateway</html>' } });
+    await expect(api.getPromMetrics()).rejects.toThrow('API 502');
+  });
+
+  it.each([
+    ['getEvents', () => api.getEvents()],
+    ['getEvent', () => api.getEvent('a:b')],
+    ['getTopology', () => api.getTopology()],
+    ['getNamespaces', () => api.getNamespaces()],
+    ['getNamespacesSummary', () => api.getNamespacesSummary('full')],
+    ['getSubscribers', () => api.getSubscribers()],
+    ['getMetrics', () => api.getMetrics()],
+    ['getRegistryHealth', () => api.getRegistryHealth()],
+    ['getDLQ', () => api.getDLQ()],
+    ['getPoisonedEvents', () => api.getPoisonedEvents()],
+    ['listDeprecated', () => api.listDeprecated()],
+    ['getSignalChannels', () => api.getSignalChannels()],
+    ['getDurableQueues', () => api.getDurableQueues()],
+  ])('%s rejects on a 500 rather than resolving to an empty result', async (_name, call) => {
+    // The one shape a view must never see from a broken server is a
+    // well-formed empty payload — that is what renders as "nothing declared".
+    mockFetch({ '/api': { status: 500, text: 'boom' } });
+    await expect(call()).rejects.toThrow('API 500: boom');
+  });
+
+  it.each([
+    ['declareEvent', () => api.declareEvent({ name: 'a:b', transport: 'signal', producer: 'svc' })],
+    ['deleteEvent', () => api.deleteEvent('a:b')],
+    ['deprecateEvent', () => api.deprecateEvent('a:b', { reason: 'x' })],
+    ['undeprecateEvent', () => api.undeprecateEvent('a:b')],
+    ['replayDLQ', () => api.replayDLQ('id-1')],
+    ['batchReplayDLQ', () => api.batchReplayDLQ(['id-1'])],
+    ['deleteDLQ', () => api.deleteDLQ('id-1')],
+    ['clearDLQ', () => api.clearDLQ()],
+    ['bulkDeprecate', () => api.bulkDeprecate(['a:b'])],
+    ['clearPoison', () => api.clearPoison('a:b')],
+  ])('%s surfaces a rejected write instead of reporting success', async (_name, call) => {
+    mockFetch({ '/api': { status: 409, text: 'incompatible schema change' } });
+    await expect(call()).rejects.toThrow('API 409: incompatible schema change');
+  });
+
+  it('omits the staleAfter filter unless one was asked for', async () => {
+    const { calls } = mockFetch({ '/api/subscribers': { body: { subscribers: [], total: 0 } } });
+    await api.getSubscribers();
+    await api.getSubscribers(0);
+    await api.getSubscribers(600);
+    expect(calls).toEqual(['/api/subscribers', '/api/subscribers', '/api/subscribers?staleAfter=600']);
+  });
+
+  it('asks for the full namespace payload only when the caller wants events', async () => {
+    const { calls } = mockFetch({ '/api/namespaces/summary': { body: { count: 0, items: [] } } });
+    await api.getNamespacesSummary();
+    await api.getNamespacesSummary('full');
+    expect(calls).toEqual(['/api/namespaces/summary', '/api/namespaces/summary?detail=full']);
+  });
+
+  it('always sends a DLQ limit, and scopes to one event when asked', async () => {
+    const { calls } = mockFetch({ '/api/transports/durable/dlq': { body: { messages: [], total: 0 } } });
+    await api.getDLQ();
+    await api.getDLQ('call:caption:line', 10);
+    expect(calls[0]).toBe('/api/transports/durable/dlq?limit=100');
+    expect(calls[1]).toBe('/api/transports/durable/dlq?eventName=call%3Acaption%3Aline&limit=10');
+  });
+
+  it('encodes the event name in every per-event path', async () => {
+    const { calls } = mockFetch({ '/api': { body: {} } });
+    const name = 'pipeline:step/agent:tool';
+    await api.getEventStats(name);
+    await api.getEventHistory(name);
+    await api.deprecateEvent(name);
+    await api.clearPoison(name);
+    await api.getObservedProducers(name);
+    await api.getMetricsHistory(name);
+    expect(calls.every((c) => !c.includes('pipeline:step'))).toBe(true);
+    expect(calls[0]).toBe('/api/events/pipeline%3Astep%2Fagent%3Atool/stats');
+    expect(calls[5]).toBe('/api/metrics/history?eventName=pipeline%3Astep%2Fagent%3Atool');
+  });
+
+  it('sends the ids a batch redrive was asked for', async () => {
+    const { fn } = mockFetch({ '/api/transports/durable/dlq/replay': { body: { replayed: [], failed: [], total: 0 } } });
+    await api.batchReplayDLQ(['a', 'b']);
+    expect(JSON.parse(String((fn.mock.calls[0]![1] as RequestInit).body))).toEqual({ ids: ['a', 'b'] });
+  });
+
+  it('scopes a DLQ clear to one event when given one', async () => {
+    const { calls } = mockFetch({ '/api/transports/durable/dlq/clear': { body: { cleared: 0 } } });
+    await api.clearDLQ();
+    await api.clearDLQ('a:b');
+    expect(calls).toEqual([
+      '/api/transports/durable/dlq/clear',
+      '/api/transports/durable/dlq/clear?eventName=a%3Ab',
+    ]);
+  });
+
+  it('asks for the whole metrics history when no event is named', async () => {
+    const { calls } = mockFetch({ '/api/metrics/history': { body: {} } });
+    await api.getMetricsHistory();
+    expect(calls[0]).toBe('/api/metrics/history');
+  });
+
+  it('passes topology filters through, and omits the ones not set', async () => {
+    const { calls } = mockFetch({ '/api/topology': { body: { nodes: [], edges: [] } } });
+    await api.getTopology({ namespace: 'call' });
+    await api.getTopology({ producer: 'platform-api', transport: 'durable' });
+    await api.getTopology({});
+    expect(calls).toEqual([
+      '/api/topology?namespace=call',
+      '/api/topology?producer=platform-api&transport=durable',
+      '/api/topology',
+    ]);
+  });
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });

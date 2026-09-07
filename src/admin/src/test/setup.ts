@@ -25,6 +25,12 @@ if (!('DOMMatrixReadOnly' in globalThis)) {
   };
 }
 
+// jsdom has no layout, so it implements no scrolling either. LiveInspector
+// pins its message pane to the bottom with it on every new message.
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function scrollIntoView(): void {};
+}
+
 if (!globalThis.navigator.clipboard) {
   Object.defineProperty(globalThis.navigator, 'clipboard', {
     value: { writeText: vi.fn(async () => {}) },

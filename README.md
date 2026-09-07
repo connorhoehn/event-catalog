@@ -43,6 +43,7 @@ problem naming the variable; the service never boots half-configured.
 | `SUBSCRIBER_TTL_SECONDS` | `1800` | Heartbeat sweep window; `0` disables the sweeper. |
 | `REDIS_BOOT_CONNECT_ATTEMPTS` | `3` | Connect attempts before boot gives up on Redis and continues degraded. |
 | `EVENT_CATALOG_STRICT` | `false` | Reject publishes of undeclared events instead of warning. |
+| `EVENT_CATALOG_AUTH_TOKEN` | — (**auth off**) | Shared secret gating mutating admin-API requests. See below. |
 | `ALERT_WEBHOOK_URL` | — | Optional; health transitions are POSTed here. |
 | `DYNAMODB_ENDPOINT` / `LOCALSTACK_ENDPOINT` | — | Optional DynamoDB override. Without one (and without AWS credentials) DLQ reads and writes fail; nothing else does. |
 
@@ -58,6 +59,40 @@ are not validated at boot:
 `redis://localhost:6379` is right on a laptop and silently wrong in every
 container: the service came up, reported itself healthy, ran an empty in-memory
 registry, and said nothing about why.
+
+## Admin API authentication
+
+**Off by default.** With `EVENT_CATALOG_AUTH_TOKEN` unset, no middleware is
+installed and every endpoint answers exactly as it always has — producers
+syncing declarations at boot, CI jobs, curl and the admin UI all keep working
+with no credential. Setting the variable is the only thing that turns this on.
+
+Set it to require `Authorization: Bearer <token>` on **every mutating (non-GET)
+`/api` request** — declare, delete, deprecate, subscriber add/remove, manifest
+put/delete, DLQ replay/clear. GET is never challenged, so the admin UI, the
+read endpoints and the `/api/flow` and `/api/audit` SSE streams are unaffected,
+and `/health` and `/metrics` stay open regardless: a liveness probe and a
+Prometheus scrape can never be locked out by a token rotation.
+
+```bash
+EVENT_CATALOG_AUTH_TOKEN=$(openssl rand -hex 32)
+
+curl -X POST localhost:3010/api/events \
+  -H "Authorization: Bearer $EVENT_CATALOG_AUTH_TOKEN" \
+  -H 'Content-Type: application/json' -d @declaration.json
+```
+
+Comparison is constant-time over sha256 digests, so neither the value nor its
+length leaks through timing. A rejection is a bare `401 {"error":"Unauthorized"}`
+— identical for an absent, malformed or wrong token — and is logged server-side
+with source, method and path, never the presented token.
+
+The token must be at least 16 characters with no whitespace; anything shorter,
+empty or malformed exits `2` at boot rather than starting a server that looks
+authenticated and is not. Set it *and* leave it empty (a broken `${VAR}`
+interpolation) and the server refuses to start — that case is an error, not
+"off". A library consumer calling `startServer()` directly can pass their own
+`authMiddleware` instead; an explicit one wins over the variable.
 
 ## Boot behaviour
 

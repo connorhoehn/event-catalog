@@ -67,8 +67,15 @@ export function startAuditLog(opts: AuditLogOptions): {
           }
         }
         return parsed.reverse();
-      } catch {
-        return [];
+      } catch (err) {
+        // Do NOT return [] here. An empty array is indistinguishable from
+        // "no audit history", so a Redis failure rendered as a confident
+        // "nothing has happened" — the same lie the DLQ list used to tell
+        // during a DynamoDB outage. Let the caller decide how to surface it.
+        throw new Error(
+          `audit history unavailable: ${err instanceof Error ? err.message : String(err)}`,
+          { cause: err },
+        );
       }
     },
     stop(): void {

@@ -23,7 +23,15 @@ function filterWireEntries(
   const matched = eventName === undefined
     ? entries
     : entries.filter((entry) => entry.eventName === eventName);
-  return matched.slice(0, limit);
+  // The store queries DynamoDB with ScanIndexForward:false, i.e. newest-first,
+  // and `?limit=2` there means "the 2 most recent". The in-memory mirror is
+  // append-ordered (oldest-first), so slicing its head returned the 2 OLDEST
+  // during an outage — same request, same shape, silently inverted meaning.
+  // Sort newest-first so degraded reads answer the question that was asked.
+  const newestFirst = [...matched].sort(
+    (a, b) => Date.parse(b.deadAt) - Date.parse(a.deadAt),
+  );
+  return newestFirst.slice(0, limit);
 }
 
 // ─── Error redaction ─────────────────────────────────────────────────────────
@@ -171,7 +179,20 @@ export function createDlqHandlers(deps: RoutesDeps) {
     const failed: Array<{ id: string; error: string }> = [];
 
     for (const id of ids as string[]) {
-      const entry = await dlqStore.findById(id);
+      // findById belongs INSIDE the try: it is a DynamoDB read, and a single
+      // throttled lookup used to abort the whole batch with a bare 500 —
+      // losing the per-id breakdown for every other id in the request, and
+      // giving the caller no way to know which ones actually replayed.
+      let entry: Awaited<ReturnType<typeof dlqStore.findById>>;
+      try {
+        entry = await dlqStore.findById(id);
+      } catch (err) {
+        failed.push({
+          id,
+          error: redact(`DLQ replay lookup failed for "${id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
+        });
+        continue;
+      }
       if (!entry) {
         failed.push({ id, error: 'not found' });
         continue;

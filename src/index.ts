@@ -1,4 +1,7 @@
 export { EventCatalog } from './client/index';
+// Consumers configuring a catalog or handling dropped publishes need these
+// by name; without the re-export they had to reach into the subpath.
+export type { EventCatalogClientOptions, DroppedPublish } from './client/index';
 export { Registry } from './registry/index';
 export { SignalTransport } from './client/signal';
 export { DurableTransport } from './client/durable';

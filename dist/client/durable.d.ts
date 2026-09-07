@@ -1,8 +1,21 @@
 import type { EventEnvelope } from '../types/index';
 export interface DurableTransportConfig {
+    /**
+     * Base URL of the `message-queue` service (no trailing slash required).
+     * Usually sourced from the `MESSAGE_QUEUE_URL` env var by the owning
+     * service; the platform default is `http://localhost:3004`.
+     */
     url: string;
+    /** Total publish attempts before giving up (not *extra* retries). Default 3. */
     retryAttempts?: number;
+    /** Base for the exponential publish back-off, in ms. Default 100. */
     retryBaseMs?: number;
+    /**
+     * Per-attempt ceiling on a publish POST, in ms. Default 10000. A queue
+     * that accepts the connection and never responds is treated as a network
+     * failure and retried, rather than hanging the caller indefinitely.
+     */
+    publishTimeoutMs?: number;
     /** Max processing attempts before a message is dead-lettered. Default: 3 */
     maxProcessingAttempts?: number;
     /** Maximum number of dead-lettered messages to retain in memory. Default: 10000 */
@@ -49,12 +62,33 @@ interface QueueMetrics {
 }
 type MessageHandler = (envelope: EventEnvelope) => Promise<void>;
 export type DeadLetterCallback = (message: DeadLetteredMessage) => void;
+/**
+ * HTTP transport to the `message-queue` service for `transport: 'durable'`
+ * events.
+ *
+ * Failure semantics (the mirror image of {@link SignalTransport}):
+ *   - **`publish()` throws on every failure** — not connected, network
+ *     error, non-2xx, or sustained 429 backpressure — after exhausting
+ *     `retryAttempts`. Nothing is silently dropped on the publish path.
+ *   - **`connect()` never throws.** An unreachable message-queue is warned
+ *     and the transport still reports connected; the failure resurfaces on
+ *     the first publish. This is deliberate: a service should boot with a
+ *     degraded durable bus rather than crash-loop.
+ *   - **`ensureQueue()` never throws.** Queue-config drift (HTTP 409) is
+ *     warned and accepted; a failed ensure still lets the publish proceed.
+ *   - **`subscribe()` never throws.** Poll failures are retried with
+ *     back-off forever; a handler that fails `maxProcessingAttempts` times
+ *     moves the message to the in-memory DLQ ({@link getDLQ}) and deletes
+ *     it from the source queue.
+ */
 export declare class DurableTransport {
     private readonly url;
     /** message-queue's canonical versioned queue surface (Roadmap 4.1). */
     private readonly queuesBase;
     private readonly retryAttempts;
     private readonly retryBaseMs;
+    /** Per-attempt ceiling on a publish POST. See the constructor note. */
+    private readonly publishTimeoutMs;
     private readonly maxProcessingAttempts;
     private readonly dlqCapacity;
     private readonly pollRetryManager;
@@ -66,7 +100,20 @@ export declare class DurableTransport {
     private readonly messageAttempts;
     private deadLetterCallbacks;
     constructor(config: DurableTransportConfig);
+    /**
+     * Probe `GET {url}/health` and mark the transport connected.
+     *
+     * Never throws, and marks itself connected **even when the probe fails**
+     * — the warning names the URL so an operator can check
+     * `MESSAGE_QUEUE_URL`, and publishes will surface the real error with
+     * their own retries. Idempotent.
+     */
     connect(): Promise<void>;
+    /**
+     * Abort every active poll loop and mark the transport disconnected.
+     * Never throws. In-memory DLQ contents survive; in-flight messages are
+     * left for the queue's visibility timeout to redeliver.
+     */
     disconnect(): Promise<void>;
     /**
      * Idempotent queue ensure via PUT (message-queue Phase 4.1 contract).
@@ -107,15 +154,74 @@ export declare class DurableTransport {
     static getBackpressureCount(queueName?: string): number | Map<string, number>;
     /** Reset backpressure counters (useful in tests). */
     static resetBackpressureCounters(): void;
+    /**
+     * POST an envelope to a message-queue queue, ensuring the queue exists
+     * first. Retries up to `retryAttempts` times with exponential back-off,
+     * honouring a server `Retry-After` on HTTP 429 (clamped to 5 minutes and
+     * jittered).
+     *
+     * Nothing is dropped: if this resolves, message-queue accepted the
+     * message; if it rejects, it did not.
+     *
+     * @throws when the transport is not connected, or after the final
+     *   attempt fails — the message contains the queue name, the attempt
+     *   count, and the underlying status or network error.
+     */
     publish(queueName: string, envelope: EventEnvelope, queueOptions?: EnsureQueueOptions): Promise<void>;
+    /**
+     * Start a long-poll loop against a queue. Synchronous and non-throwing:
+     * the queue ensure and the loop itself start in the background, so a
+     * message-queue outage at subscribe time is not an error here.
+     *
+     * A handler rejection causes redelivery. After `maxProcessingAttempts`
+     * rejections for the same message it is dead-lettered (see
+     * {@link getDLQ} / {@link onDeadLetter}) and deleted from the queue.
+     * Attempt counts are process-local, so a restart resets them.
+     *
+     * @returns a cancel function that aborts the poll loop. It does not wait
+     *   for an in-flight handler to finish.
+     */
     subscribe(queueName: string, handler: MessageHandler, options?: DurableSubscribeOptions): () => void;
+    /**
+     * Fetch a queue's attributes from message-queue. Never throws — returns
+     * `null` on any non-2xx or network error, so `null` does not distinguish
+     * "no such queue" from "message-queue is down".
+     */
     getQueueAttributes(queueName: string): Promise<Record<string, unknown> | null>;
+    /**
+     * Per-queue sent/received/failed/in-flight counters. Process-local and
+     * reset on restart; not a substitute for message-queue's own metrics.
+     */
     getMetrics(queueName?: string): Map<string, QueueMetrics> | QueueMetrics | undefined;
+    /** Same as `getMetrics()` with no argument, but narrowly typed to the map. */
     getAllMetrics(): Map<string, QueueMetrics>;
+    /**
+     * Snapshot of the in-memory dead-letter buffer (a copy — mutating it
+     * does not affect the transport).
+     *
+     * This buffer is **not durable**: it is capped at `dlqCapacity`, evicts
+     * oldest-first when full, and is lost on restart. Use `onDeadLetter` to
+     * forward records somewhere persistent if you need them to survive.
+     */
     getDLQ(): DeadLetteredMessage[];
+    /** Return and clear the in-memory dead-letter buffer. */
     drainDLQ(): DeadLetteredMessage[];
+    /**
+     * Register a callback fired synchronously whenever a message is
+     * dead-lettered. Callback exceptions are swallowed. Returns an
+     * unregister function.
+     */
     onDeadLetter(callback: DeadLetterCallback): () => void;
+    /**
+     * True once `connect()` has run. Says nothing about whether
+     * message-queue is actually reachable — use {@link healthCheck} for that.
+     */
     isConnected(): boolean;
+    /**
+     * Probe `GET {url}/health` with a 2s timeout. Never throws.
+     * `'degraded'` = timed out or non-2xx; `'disconnected'` = not connected
+     * or the request errored.
+     */
     healthCheck(): Promise<{
         status: 'connected' | 'degraded' | 'disconnected';
         latencyMs: number;
@@ -126,6 +232,13 @@ export declare class DurableTransport {
     private sleep;
     private incrementMetric;
     private decrementInFlight;
+    /**
+     * Default event-name → queue-name derivation: `:` and `.` become `-`,
+     * runs of `-` collapse. `pipeline:run:started` → `pipeline-run-started`.
+     *
+     * Note the mapping is lossy — `a:b` and `a.b` derive the same queue. Set
+     * `queue` on the declaration when you need them kept apart.
+     */
     static eventNameToQueueName(eventName: string): string;
 }
 export {};

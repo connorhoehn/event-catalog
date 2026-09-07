@@ -1,0 +1,1 @@
+{"version":3,"file":"_shared.d.ts","sourceRoot":"","sources":["../../../src/declarations/gateway-signal/_shared.ts"],"names":[],"mappings":"AAWA,eAAO,MAAM,QAAQ,sBAAsB,CAAC;AAC5C,eAAO,MAAM,SAAS,UAAgD,CAAC;AAEvE,mEAAmE;AACnE,wBAAgB,QAAQ,CACpB,WAAW,EAAE,MAAM,EACnB,KAAK,GAAE,MAAM,CAAC,MAAM,EAAE,OAAO,CAAM,EACnC,QAAQ,GAAE,MAAM,EAAO,GACxB,MAAM,CAAC,MAAM,EAAE,OAAO,CAAC,CAWzB"}

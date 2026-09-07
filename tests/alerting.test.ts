@@ -130,7 +130,9 @@ describe('AlertManager', () => {
       vi.stubGlobal('fetch', fetchSpy);
       const mgr = new AlertManager({ webhookUrl: 'http://hook/alert' });
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      await expect(mgr.onHealthChange('redis', 'connected', 'disconnected')).resolves.toBeUndefined();
+      // Still must not throw — but it now REPORTS the failed delivery so the
+      // caller can avoid marking the transition as reported.
+      await expect(mgr.onHealthChange('redis', 'connected', 'disconnected')).resolves.toBe(false);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('webhook delivery failed'),
         'network error',

@@ -68,7 +68,7 @@ export declare class AlertManager {
      * Returns what it did, which is what makes the transitions testable.
      */
     observeHealth(component: string, status: string): Promise<'ignored' | 'pending' | 'alerted' | 'recovered'>;
-    onHealthChange(component: string, from: string, to: string): Promise<void>;
+    onHealthChange(component: string, from: string, to: string): Promise<boolean>;
     /**
      * Alert when an event accrues `errorRateThreshold` NEW errors between
      * two evaluations.
@@ -83,10 +83,16 @@ export declare class AlertManager {
      * errors do.
      */
     onErrorThreshold(eventName: string, errorCount: number): Promise<void>;
-    onRecovery(component: string): Promise<void>;
+    onRecovery(component: string): Promise<boolean>;
     private clearCooldown;
     /** Insertion-ordered eviction so an unbounded key source cannot grow the map. */
     private remember;
+    /**
+     * @returns true when the incident is settled — delivered, suppressed by
+     * cooldown, or alerting disabled. false ONLY when delivery was attempted
+     * and failed, which means the caller must not treat the transition as
+     * reported.
+     */
     private fire;
 }
 //# sourceMappingURL=alerting.d.ts.map

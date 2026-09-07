@@ -25,6 +25,8 @@
 //     `MESSAGE_QUEUE_URL` keeps its default: the durable transport is
 //     genuinely optional and its absence is already visible on /health.
 
+import { AUTH_TOKEN_ENV_VAR, resolveAuthToken } from '../server/auth.js';
+
 /** Fully resolved, validated server configuration. */
 export interface ResolvedServerConfig {
   /** TCP port to bind. */
@@ -47,6 +49,13 @@ export interface ResolvedServerConfig {
   readonly alertWebhookUrl: string | undefined;
   /** Optional DynamoDB override (LocalStack / DynamoDB Local). */
   readonly dynamoEndpoint: string | undefined;
+  /**
+   * Shared secret gating mutating admin-API requests, from
+   * `EVENT_CATALOG_AUTH_TOKEN`. `undefined` — the default, and what an
+   * unset variable produces — means the API is unauthenticated exactly as
+   * it has always been. See `src/server/auth.ts`.
+   */
+  readonly authToken: string | undefined;
 }
 
 export type ConfigResult =
@@ -258,6 +267,18 @@ export function resolveServerConfig(
     }
   }
 
+  // --- admin API auth -----------------------------------------------------
+  // Read straight off `env`, NOT through read(): read() maps "" to
+  // undefined, and for this one variable "set but empty" must be a boot
+  // error rather than "auth is off". Everything else about the shape (too
+  // short, whitespace, control characters) is decided by resolveAuthToken
+  // so the rule lives next to the code that enforces it.
+  const auth = resolveAuthToken(env[AUTH_TOKEN_ENV_VAR]);
+  if (!auth.ok) {
+    errors.push(`invalid $${AUTH_TOKEN_ENV_VAR} — it ${auth.error}`);
+  }
+  const authToken = auth.ok ? auth.token : undefined;
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -274,6 +295,7 @@ export function resolveServerConfig(
       strict,
       alertWebhookUrl: rawAlert,
       dynamoEndpoint: rawDynamo,
+      authToken,
     },
   };
 }
@@ -289,6 +311,10 @@ export function describeConfig(config: ResolvedServerConfig): string[] {
     `subscriber ttl (s)          ${config.subscriberTtlSeconds || 'disabled'}`,
     `redis boot attempts         ${config.redisBootConnectAttempts}`,
     `strict declarations         ${config.strict}`,
+    // The value is a secret; only its presence is ever printed.
+    `api auth                    ${config.authToken !== undefined
+      ? 'bearer token (mutating requests gated)'
+      : 'disabled'}`,
   ];
 }
 

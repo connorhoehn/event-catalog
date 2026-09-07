@@ -14,6 +14,7 @@ import { Link } from 'react-router-dom';
 import Chip from '@ui/components/shared/Chip';
 import EmptyState from '@ui/components/shared/EmptyState';
 import ErrorState from '@ui/components/shared/ErrorState';
+import LoadingState from '@ui/components/shared/LoadingState';
 import { Button } from '@ui/components/ui/Button';
 import { api } from '../api';
 
@@ -32,6 +33,10 @@ export function NamespacesView() {
   const [rows, setRows] = useState<NamespaceRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Third state. `rows` starts empty, so the first paint used to be the
+  // "No namespaces — declare an event to populate the catalog" card: a
+  // request still in flight was reported to the operator as a finding.
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   // wave26-f — per-namespace bulk action state
   const [bulkNs, setBulkNs] = useState<string | null>(null);
@@ -41,12 +46,14 @@ export function NamespacesView() {
   const bulkReasonId = useId();
 
   const load = useCallback(() => {
+    setLoading(true);
     api.getNamespacesSummary('full')
       .then(res => {
         setRows(res.items);
         setError(null);
       })
-      .catch(err => setError((err as Error).message));
+      .catch(err => setError((err as Error).message))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -81,6 +88,8 @@ export function NamespacesView() {
           description={error}
           action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
         />
+      ) : loading && rows.length === 0 ? (
+        <LoadingState label="Loading namespaces…" />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon="📂"

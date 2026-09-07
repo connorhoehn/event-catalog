@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 import Chip from '@ui/components/shared/Chip';
 import EmptyState from '@ui/components/shared/EmptyState';
 import ErrorState from '@ui/components/shared/ErrorState';
+import LoadingState from '@ui/components/shared/LoadingState';
 import { Button } from '@ui/components/ui/Button';
 import { api } from '../api';
 
@@ -50,15 +51,21 @@ export function SubscribersView() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [now, setNow] = useState(Date.now());
+  // Without this the first paint is "No subscribers in this view" — an empty
+  // catalog and an in-flight request looked identical, and the first is a
+  // conclusion an operator acts on.
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(() => {
+    setLoading(true);
     api.getSubscribers()
       .then((res) => {
         const t = Date.now();
         setRows(res.subscribers.map((s) => ({ ...s, ageSeconds: ageOf(s.lastSeenAt, t) })));
         setError(null);
       })
-      .catch((err) => setError((err as Error).message));
+      .catch((err) => setError((err as Error).message))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -74,7 +81,12 @@ export function SubscribersView() {
   const filtered = useMemo(() => {
     if (filter === 'all') return liveRows;
     if (filter === 'fresh') return liveRows.filter((r) => r.ageSeconds <= FRESH_THRESHOLD_S);
-    return liveRows.filter((r) => r.ageSeconds > FRESH_THRESHOLD_S);
+    // Must match what `statusChip` calls stale, and therefore the "N stale"
+    // count in the toolbar. This was `> FRESH_THRESHOLD_S`, i.e. "not fresh",
+    // so the stale filter also listed every aging row: the chip said 2 stale
+    // and the table under it showed 9 — an operator chasing dead consumers
+    // was handed seven live ones.
+    return liveRows.filter((r) => r.ageSeconds > STALE_THRESHOLD_S);
   }, [liveRows, filter]);
 
   const counts = useMemo(() => {
@@ -112,6 +124,8 @@ export function SubscribersView() {
           description={error}
           action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
         />
+      ) : loading && rows.length === 0 ? (
+        <LoadingState label="Loading subscribers…" />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon="👥"

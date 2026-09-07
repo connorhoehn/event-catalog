@@ -98,8 +98,19 @@ function createAuditHandlers(deps) {
             (0, _shared_js_1.badRequest)(res, `limit must be ≤ ${limits_js_1.MAX_AUDIT_QUERY_LIMIT}`);
             return;
         }
-        const events = await auditLog.recent(Math.max(1, raw));
-        res.json({ events });
+        try {
+            const events = await auditLog.recent(Math.max(1, raw));
+            res.json({ events });
+        }
+        catch (err) {
+            // 503, not `{events: []}` — an operator reading the audit trail during
+            // an incident must not be told "nothing happened" because Redis is down.
+            console.warn('[event-catalog] audit history read failed:', err instanceof Error ? err.message : String(err));
+            res.status(503).json({
+                error: 'Audit history is unavailable — the audit log store did not answer. '
+                    + 'This is not the same as an empty history; see the server logs.',
+            });
+        }
     }
     return { stream, recent };
 }

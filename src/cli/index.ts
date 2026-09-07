@@ -7,6 +7,7 @@
 // keep working unchanged.
 
 import { startServer } from '../server/index.js';
+import { createBearerAuthMiddleware } from '../server/auth.js';
 import { lint } from './commands/lint.js';
 import { snapshot } from './commands/snapshot.js';
 import { drift } from './commands/drift.js';
@@ -56,6 +57,10 @@ SERVER ENVIRONMENT
   SUBSCRIBER_TTL_SECONDS       default 1800 (0 disables the sweeper)
   REDIS_BOOT_CONNECT_ATTEMPTS  default 3
   EVENT_CATALOG_STRICT         default false
+  EVENT_CATALOG_AUTH_TOKEN     unset = admin API unauthenticated (default).
+                               Set it to require "Authorization: Bearer
+                               <token>" on every mutating (non-GET) /api
+                               request. Min 16 chars, no whitespace.
   ALERT_WEBHOOK_URL            optional http(s) webhook
   DYNAMODB_ENDPOINT            optional; LocalStack / DynamoDB Local
 
@@ -126,14 +131,25 @@ async function runServer(args: string[]): Promise<number> {
   }
   for (const warning of resolved.warnings) console.warn(`${BIN}: ${warning}`);
 
-  const { port, redisUrl, messageQueueUrl } = resolved.config;
+  const { port, redisUrl, messageQueueUrl, authToken } = resolved.config;
 
   console.log('╔══════════════════════════════════════╗');
   console.log('║         event-catalog server         ║');
   console.log('╚══════════════════════════════════════╝');
   for (const line of describeConfig(resolved.config)) console.log(`  ${line}`);
 
-  const { shutdown } = await startServer({ port, redisUrl, messageQueueUrl });
+  // The bearer gate is built from the ALREADY-VALIDATED token, and only
+  // when one is configured. With $EVENT_CATALOG_AUTH_TOKEN unset this
+  // spreads nothing into the options object and startServer runs exactly
+  // the unauthenticated path it always has.
+  const { shutdown } = await startServer({
+    port,
+    redisUrl,
+    messageQueueUrl,
+    ...(authToken !== undefined
+      ? { authMiddleware: createBearerAuthMiddleware({ token: authToken }) }
+      : {}),
+  });
   process.on('SIGINT', () => { void shutdown().then(() => process.exit(0)); });
   process.on('SIGTERM', () => { void shutdown().then(() => process.exit(0)); });
 
