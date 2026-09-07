@@ -1,5 +1,8 @@
 import type { EventEnvelope } from '../types/index';
 import { type ChannelMessageEnvelope } from '../types/envelopes';
+import { type CatalogLogger } from '../utils/logger';
+/** Re-exported so consumers can type a logger without reaching into a subpath. */
+export type { CatalogLogger, LogFields } from '../utils/logger';
 export interface SignalTransportConfig {
     /**
      * Redis connection string (`redis://host:port`). Usually sourced from
@@ -14,6 +17,11 @@ export interface SignalTransportConfig {
      * evicted. Default 1000.
      */
     maxTrackedChannels?: number;
+    /**
+     * Sink for this transport's diagnostics. Defaults to `console.warn` /
+     * `console.error` — byte-identical to the pre-logger behaviour.
+     */
+    logger?: CatalogLogger;
 }
 interface ChannelMetrics {
     publishCount: number;
@@ -76,6 +84,7 @@ export declare class SignalTransport {
      */
     private readonly clientErrorWarnings;
     private clientErrors;
+    private readonly log;
     constructor(config: SignalTransportConfig);
     /**
      * Open the publish + subscribe Redis clients. Idempotent — a second call
@@ -237,5 +246,4 @@ export declare class SignalTransport {
     private incrementMetrics;
     private updateSubscriberCount;
 }
-export {};
 //# sourceMappingURL=signal.d.ts.map

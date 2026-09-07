@@ -60,6 +60,28 @@ are not validated at boot:
 container: the service came up, reported itself healthy, ran an empty in-memory
 registry, and said nothing about why.
 
+## Library logging
+
+The client library logs to `console.warn`/`console.error` by default. Pass a
+`logger` to route it into the host service's own pipeline instead:
+
+```ts
+new EventCatalog({
+  ...config,
+  logger: {
+    warn:  (msg, fields) => log.warn(fields ?? {}, msg),
+    error: (msg, fields) => log.error(fields ?? {}, msg),
+  },
+});
+```
+
+`fields` carries the structured half — `eventName`, `channel`, `queue`,
+`attempt`, `status`, `suppressed` — so a sink never has to regex the message.
+
+Rate limiting stays inside the library: some of these lines sit on the publish
+path, and an adapter has no way to know which. Forward every call you receive.
+Omitting `logger` leaves output byte-identical to before.
+
 ## Admin API authentication
 
 **Off by default.** With `EVENT_CATALOG_AUTH_TOKEN` unset, no middleware is

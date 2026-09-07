@@ -18,6 +18,16 @@ export declare class Registry implements IRegistry {
     constructor(redis?: RedisClientType);
     load(): Promise<void>;
     /**
+     * Full-state resync from the shared Redis hash — delete-aware, unlike
+     * `load()`, which only overlays. This is the repair path for a replica
+     * that missed pub/sub broadcasts: Redis pub/sub offers no replay, so
+     * the persisted hash is the only shared record of current truth.
+     *
+     * Returns false when the registry has no Redis backing (single-process
+     * mode), so the caller can tell "resynced" from "cannot resync".
+     */
+    reload(): Promise<boolean>;
+    /**
      * Phase E6.5 — backfill `fingerprint` on `schemaHistory` entries that
      * lack it (entries persisted before wave19-h, when the field was
      * introduced). Idempotent: returns 0 when every history entry already

@@ -9,6 +9,7 @@ const envelopes_1 = require("../types/envelopes");
 const namespace_1 = require("../registry/namespace");
 const hot_path_1 = require("../utils/hot-path");
 const bounded_1 = require("../utils/bounded");
+const logger_1 = require("../utils/logger");
 /**
  * Cap on per-event-name bookkeeping.
  *
@@ -284,6 +285,8 @@ class EventCatalog {
      * {@link getDroppedPublishTotal}.
      */
     droppedPublishes = new bounded_1.BoundedCounter(MAX_TRACKED_EVENT_NAMES);
+    /** Diagnostics sink — `console` unless the caller supplied one. */
+    log;
     /**
      * @param config transport URLs, service identity, and optional
      *   validation/observability knobs. `redis.url` and `messageQueue.url`
@@ -298,9 +301,10 @@ class EventCatalog {
         requireConfigValue(config.messageQueue?.url, 'messageQueue.url', 'MESSAGE_QUEUE_URL');
         requireConfigValue(config.serviceName, 'serviceName');
         this.config = config;
+        this.log = new logger_1.LogWriter(config.logger);
         this.registry = new index_1.Registry();
-        this.signal = new signal_1.SignalTransport({ url: config.redis.url });
-        this.durable = new durable_1.DurableTransport({ url: config.messageQueue.url });
+        this.signal = new signal_1.SignalTransport({ url: config.redis.url, logger: config.logger });
+        this.durable = new durable_1.DurableTransport({ url: config.messageQueue.url, logger: config.logger });
         this.syncRetryManager = new transport_1.RetryManager({
             maxRetries: 2,
             baseDelay: 1000,
@@ -357,7 +361,7 @@ class EventCatalog {
                 await this.syncRetryManager.execute(() => this.syncToRemoteRegistry());
             }
             catch {
-                console.warn('[event-catalog] registry sync failed after retries, scheduling background retry');
+                this.log.warn('[event-catalog] registry sync failed after retries, scheduling background retry', { registryUrl: this.config.registryUrl, serviceName: this.config.serviceName });
                 this.scheduleBackgroundSync();
             }
             // Defensive: a caller that reconnects without disconnecting cleanly
@@ -366,7 +370,11 @@ class EventCatalog {
                 clearInterval(this.resyncInterval);
             this.resyncInterval = setInterval(() => {
                 this.syncToRemoteRegistry().catch(err => {
-                    console.warn('[event-catalog] periodic re-sync failed:', err.message);
+                    this.log.warn('[event-catalog] periodic re-sync failed:', {
+                        registryUrl: this.config.registryUrl,
+                        serviceName: this.config.serviceName,
+                        error: (0, logger_1.errorMessage)(err),
+                    }, err.message);
                 });
             }, 60_000);
         }
@@ -487,12 +495,16 @@ class EventCatalog {
                 // stop heartbeating, so a silently-failing heartbeat ends with this
                 // service disappearing from the registry at TTL.
                 if (!res.ok) {
-                    console.warn(`[event-catalog] heartbeat rejected: HTTP ${res.status} — `
-                        + 'this service will be swept from the registry if this persists');
+                    this.log.warn(`[event-catalog] heartbeat rejected: HTTP ${res.status} — `
+                        + 'this service will be swept from the registry if this persists', {
+                        status: res.status,
+                        serviceName: this.config.serviceName,
+                        events: subscribed.length,
+                    });
                 }
             }
             catch (err) {
-                console.warn('[event-catalog] heartbeat failed:', err.message);
+                this.log.warn('[event-catalog] heartbeat failed:', { serviceName: this.config.serviceName, error: (0, logger_1.errorMessage)(err) }, err.message);
             }
         };
         // Fire one immediately so the first tick doesn't wait `intervalMs`.
@@ -654,8 +666,13 @@ class EventCatalog {
             this.warnedDeprecated.add(entry.name);
             const reason = entry.deprecation.reason ? ` reason: ${entry.deprecation.reason}` : '';
             const by = entry.deprecation.by ? ` (by ${entry.deprecation.by})` : '';
-            console.warn(`[event-catalog] publish("${entry.name}") — event is DEPRECATED `
-                + `as of ${entry.deprecation.deprecatedAt}${by}.${reason}`);
+            this.log.warn(`[event-catalog] publish("${entry.name}") — event is DEPRECATED `
+                + `as of ${entry.deprecation.deprecatedAt}${by}.${reason}`, {
+                eventName: entry.name,
+                deprecatedAt: entry.deprecation.deprecatedAt,
+                deprecatedBy: entry.deprecation.by,
+                deprecationReason: entry.deprecation.reason,
+            });
         }
         // Validate payload against schema
         const validation = this.registry.validate(eventName, payload);
@@ -773,7 +790,7 @@ class EventCatalog {
                 }
                 catch (hookErr) {
                     // Per-publish path: a hook that throws once throws every time.
-                    this.warnOnHotPath(`afterPublish:${eventName}`, `[event-catalog] afterPublish hook threw on "${eventName}"`, hookErr);
+                    this.warnOnHotPath(`afterPublish:${eventName}`, `[event-catalog] afterPublish hook threw on "${eventName}"`, hookErr, { eventName, hook: 'afterPublish' });
                 }
             }
         }
@@ -864,10 +881,10 @@ class EventCatalog {
                 const didYouMean = suggestions.length > 0
                     ? ` Did you mean ${suggestions.map((s) => `"${s}"`).join(' or ')}?`
                     : '';
-                console.warn(`[event-catalog] publishSignal called with undeclared event "${eventName}" — `
+                this.log.warn(`[event-catalog] publishSignal called with undeclared event "${eventName}" — `
                     + `emitting without schema validation. Declare it via catalog.declare() to enforce schema.`
                     + `${didYouMean} (further occurrences of this event name are not logged)`
-                    + bounded_1.LogThrottle.suffix(suppressed));
+                    + bounded_1.LogThrottle.suffix(suppressed), { eventName, channelId, suggestions, suppressed });
             }
         }
         let dropped = false;
@@ -966,7 +983,7 @@ class EventCatalog {
         this.registry.addSubscriber(eventName, this.config.serviceName);
         // Notify remote catalog (non-blocking, fault-tolerant)
         this.registerSubscriberRemote(eventName).catch(err => {
-            console.warn(`[event-catalog] failed to register subscriber with remote registry for "${eventName}":`, err.message);
+            this.log.warn(`[event-catalog] failed to register subscriber with remote registry for "${eventName}":`, { eventName, serviceName: this.config.serviceName, error: (0, logger_1.errorMessage)(err) }, err.message);
         });
         // Phase 20-b — shared paused-state for the Subscription handle.
         // The handler wrapper consults this flag; transports keep
@@ -995,7 +1012,7 @@ class EventCatalog {
                     if (unsubFn)
                         await unsubFn();
                     this.deregisterSubscriberRemote(eventName).catch(err => {
-                        console.warn(`[event-catalog] failed to deregister subscriber from remote registry for "${eventName}":`, err.message);
+                        this.log.warn(`[event-catalog] failed to deregister subscriber from remote registry for "${eventName}":`, { eventName, serviceName: this.config.serviceName, error: (0, logger_1.errorMessage)(err) }, err.message);
                     });
                 },
                 pause: () => { paused = true; },
@@ -1016,7 +1033,7 @@ class EventCatalog {
                 unsubscribe: async () => {
                     cancel();
                     this.deregisterSubscriberRemote(eventName).catch(err => {
-                        console.warn(`[event-catalog] failed to deregister subscriber from remote registry for "${eventName}":`, err.message);
+                        this.log.warn(`[event-catalog] failed to deregister subscriber from remote registry for "${eventName}":`, { eventName, serviceName: this.config.serviceName, error: (0, logger_1.errorMessage)(err) }, err.message);
                     });
                 },
                 pause: () => { paused = true; },
@@ -1101,7 +1118,7 @@ class EventCatalog {
         catch (err) {
             // A callback that throws throws on *every* drop, and drops arrive at
             // the full publish rate while a transport is down.
-            this.warnOnHotPath(`onPublishDropped:${drop.eventName}`, `[event-catalog] onPublishDropped threw for "${drop.eventName}"`, err);
+            this.warnOnHotPath(`onPublishDropped:${drop.eventName}`, `[event-catalog] onPublishDropped threw for "${drop.eventName}"`, err, { eventName: drop.eventName, callback: 'onPublishDropped' });
         }
     }
     /**
@@ -1110,13 +1127,13 @@ class EventCatalog {
      * overall. Without this a throwing hook turns a dependency outage into
      * a log-volume outage.
      */
-    warnOnHotPath(key, message, err) {
+    warnOnHotPath(key, message, err, fields) {
         this.hookFailures++;
         const suppressed = this.hookWarnings.attempt(key);
         if (suppressed === null)
             return;
-        console.warn(`${message} (${this.hookFailures} such failures this process)`
-            + bounded_1.LogThrottle.suffix(suppressed) + ':', err.message);
+        this.log.warn(`${message} (${this.hookFailures} such failures this process)`
+            + bounded_1.LogThrottle.suffix(suppressed) + ':', { ...fields, error: err.message, hookFailures: this.hookFailures, suppressed }, err.message);
     }
     /**
      * Message for "you referenced an event nobody declared". Includes what
@@ -1142,9 +1159,9 @@ class EventCatalog {
             return;
         this.warnedAliases.add(aliasName);
         const expiry = until ? ` (removal scheduled after ${until})` : '';
-        console.warn(`[event-catalog] publish("${aliasName}") routed via deprecated alias — `
+        this.log.warn(`[event-catalog] publish("${aliasName}") routed via deprecated alias — `
             + `canonical name is "${canonicalName}". Update producers to emit the `
-            + `canonical name${expiry}.`);
+            + `canonical name${expiry}.`, { alias: aliasName, eventName: canonicalName, until });
     }
     /**
      * Retry the declaration sync in the background with exponential back-off.
@@ -1165,7 +1182,11 @@ class EventCatalog {
                     return;
                 this.syncToRemoteRegistry().catch(() => {
                     const nextDelay = Math.min(delay * 2, 60_000);
-                    console.warn(`[event-catalog] background sync retry failed, next attempt in ${nextDelay}ms`);
+                    this.log.warn(`[event-catalog] background sync retry failed, next attempt in ${nextDelay}ms`, {
+                        registryUrl: this.config.registryUrl,
+                        serviceName: this.config.serviceName,
+                        nextAttemptInMs: nextDelay,
+                    });
                     attempt(nextDelay);
                 });
             }, delay);

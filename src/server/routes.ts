@@ -64,6 +64,12 @@ export function createRoutes(deps: RoutesDeps): HttpRouter {
 
   // ─── Deprecation lifecycle ────────────────────────────────────────────────
   router.post('/events/bulk/deprecate', deprecation.deprecateBulk);
+  // POST is the form for a registry-sized name list — a comma-joined
+  // `?names=` is already 5.8 KB URL-encoded at 225 declarations, past the
+  // 4–8 KB request-line ceiling common to proxies and CDNs. The GET stays:
+  // with no `?names=` it is the browser-download surface (an `<a href>` +
+  // `Content-Disposition`), which POST cannot be.
+  router.post('/events/bulk/export', events.exportBulkPost);
   router.get('/events/bulk/export', events.exportBulk);
   router.delete('/events/:name', events.remove);
   router.post('/events/:name/deprecate', deprecation.deprecate);

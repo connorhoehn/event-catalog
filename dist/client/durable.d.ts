@@ -1,4 +1,7 @@
 import type { EventEnvelope } from '../types/index';
+import { type CatalogLogger } from '../utils/logger';
+/** Re-exported so consumers can type a logger without reaching into a subpath. */
+export type { CatalogLogger, LogFields } from '../utils/logger';
 export interface DurableTransportConfig {
     /**
      * Base URL of the `message-queue` service (no trailing slash required).
@@ -20,6 +23,11 @@ export interface DurableTransportConfig {
     maxProcessingAttempts?: number;
     /** Maximum number of dead-lettered messages to retain in memory. Default: 10000 */
     dlqCapacity?: number;
+    /**
+     * Sink for this transport's diagnostics. Defaults to `console.warn` /
+     * `console.error` — byte-identical to the pre-logger behaviour.
+     */
+    logger?: CatalogLogger;
 }
 export interface DeadLetteredMessage {
     messageId: string;
@@ -125,6 +133,7 @@ export declare class DurableTransport {
     private ensureQueueFailures;
     private pollFailures;
     private deadLetteredTotal;
+    private readonly log;
     constructor(config: DurableTransportConfig);
     /**
      * Probe `GET {url}/health` and mark the transport connected.
@@ -317,5 +326,4 @@ export declare class DurableTransport {
      */
     static eventNameToQueueName(eventName: string): string;
 }
-export {};
 //# sourceMappingURL=durable.d.ts.map

@@ -207,7 +207,12 @@ describe('validateBundle — transport inference', () => {
     expect(validateBundle(bundle, registry).valid).toBe(true);
   });
 
-  it('rejects a bundle declaring "signal" when its events are transport:"both"', () => {
+  it('ACCEPTS a bundle narrowing to "signal" over transport:"both" events', () => {
+    // The transport check is satisfiability, not equality. A 'both' event is
+    // published on both buses, so a bundle may legitimately claim just one —
+    // which is exactly how agentic-pipeline-signal and -durable split the
+    // same approval events. The old equality rule made
+    // agentic-pipeline-durable@1.0.0 ship permanently INVALID.
     const registry = registryWith([{ name: 'p:approval:requested', transport: 'both' }]);
     const bundle: FeatureBundle = {
       name: 'understated',
@@ -217,12 +222,23 @@ describe('validateBundle — transport inference', () => {
       events: [{ name: 'p:approval:requested' }],
     };
 
-    const result = validateBundle(bundle, registry);
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toContain('inferred transport "both"');
+    expect(validateBundle(bundle, registry)).toEqual({ valid: true, errors: [] });
   });
 
-  it('infers "durable" from durable-only events', () => {
+  it('ACCEPTS a bundle narrowing to "durable" over transport:"both" events', () => {
+    const registry = registryWith([{ name: 'p:approval:requested', transport: 'both' }]);
+    const bundle: FeatureBundle = {
+      name: 'audit',
+      version: '1.0.0',
+      fingerprint: '',
+      transport: 'durable',
+      events: [{ name: 'p:approval:requested' }],
+    };
+
+    expect(validateBundle(bundle, registry)).toEqual({ valid: true, errors: [] });
+  });
+
+  it('rejects a "signal" bundle holding a durable-only event', () => {
     const registry = registryWith([{ name: 'job:queued', transport: 'durable' }]);
     const bundle: FeatureBundle = {
       name: 'jobs',
@@ -234,7 +250,59 @@ describe('validateBundle — transport inference', () => {
 
     const result = validateBundle(bundle, registry);
     expect(result.valid).toBe(false);
-    expect(result.errors[0]).toContain('inferred transport "durable"');
+    expect(result.errors[0]).toContain('not satisfiable');
+    // The message must name the offending event — "inferred transport"
+    // told an operator nothing about what to fix.
+    expect(result.errors[0]).toContain('job:queued');
+    expect(result.errors[0]).toContain('signal bus');
+  });
+
+  it('rejects a "durable" bundle holding a signal-only event', () => {
+    const registry = registryWith([
+      { name: 'p:approval:requested', transport: 'both' },
+      { name: 'ws:typing', transport: 'signal' },
+    ]);
+    const bundle: FeatureBundle = {
+      name: 'overreaching',
+      version: '1.0.0',
+      fingerprint: '',
+      transport: 'durable',
+      events: [{ name: 'p:approval:requested' }, { name: 'ws:typing' }],
+    };
+
+    const result = validateBundle(bundle, registry);
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain('ws:typing');
+  });
+
+  it('rejects a "both" bundle whose events never reach the durable bus', () => {
+    const registry = registryWith([{ name: 'ws:typing', transport: 'signal' }]);
+    const bundle: FeatureBundle = {
+      name: 'overclaimed',
+      version: '1.0.0',
+      fingerprint: '',
+      transport: 'both',
+      events: [{ name: 'ws:typing' }],
+    };
+
+    const result = validateBundle(bundle, registry);
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain('durable bus');
+  });
+
+  it('rejects a "both" bundle whose events never reach the signal bus', () => {
+    const registry = registryWith([{ name: 'job:queued', transport: 'durable' }]);
+    const bundle: FeatureBundle = {
+      name: 'overclaimed2',
+      version: '1.0.0',
+      fingerprint: '',
+      transport: 'both',
+      events: [{ name: 'job:queued' }],
+    };
+
+    const result = validateBundle(bundle, registry);
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain('signal bus');
   });
 
   it('infers "both" from a signal event plus a durable event', () => {

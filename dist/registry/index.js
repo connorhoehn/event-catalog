@@ -71,6 +71,28 @@ class Registry {
         this.migrateHistoryFingerprints();
     }
     /**
+     * Full-state resync from the shared Redis hash — delete-aware, unlike
+     * `load()`, which only overlays. This is the repair path for a replica
+     * that missed pub/sub broadcasts: Redis pub/sub offers no replay, so
+     * the persisted hash is the only shared record of current truth.
+     *
+     * Returns false when the registry has no Redis backing (single-process
+     * mode), so the caller can tell "resynced" from "cannot resync".
+     */
+    async reload() {
+        if (!this.redis)
+            return false;
+        const entries = await this.redis.hGetAll(REDIS_KEY);
+        const next = new Map();
+        for (const [name, json] of Object.entries(entries)) {
+            next.set(name, JSON.parse(json));
+        }
+        this.events = next;
+        this.aliasIndex = null;
+        this.migrateHistoryFingerprints();
+        return true;
+    }
+    /**
      * Phase E6.5 — backfill `fingerprint` on `schemaHistory` entries that
      * lack it (entries persisted before wave19-h, when the field was
      * introduced). Idempotent: returns 0 when every history entry already
@@ -264,6 +286,10 @@ class Registry {
         // wave24-b — also stamp a heartbeat so the sweeper has a baseline
         // for "when did we last hear from this consumer?"
         this.touchHeartbeat(eventName, serviceName);
+        // Subscribers used to live only in memory, so a restart — or a
+        // multi-replica resync, which reads this hash — silently lost
+        // "who consumes X?", the question the registry exists to answer.
+        this.persist(eventName, entry);
     }
     removeSubscriber(eventName, serviceName) {
         const entry = this.events.get(eventName);
@@ -271,6 +297,7 @@ class Registry {
             return;
         entry.subscribers = entry.subscribers.filter(s => s !== serviceName);
         this.subscriberHeartbeats.delete(heartbeatKey(eventName, serviceName));
+        this.persist(eventName, entry);
     }
     /**
      * wave24-b — refresh a subscriber's lastSeenAt for one event or all

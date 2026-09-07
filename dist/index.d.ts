@@ -1,5 +1,6 @@
 export { EventCatalog } from './client/index';
 export type { EventCatalogClientOptions, DroppedPublish } from './client/index';
+export type { CatalogLogger, LogFields } from './client/index';
 export { Registry } from './registry/index';
 export { SignalTransport } from './client/signal';
 export { DurableTransport } from './client/durable';

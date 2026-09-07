@@ -3,6 +3,9 @@ import { SignalTransport } from './signal';
 import { DurableTransport } from './durable';
 import type { EventCatalogConfig, EventDeclaration, EventEnvelope, EventHandler, NamespacePolicy, PublishOptions, Subscription, SubscribeOptions } from '../types/index';
 import type { ResolveResult } from '../registry/types';
+import { type CatalogLogger } from '../utils/logger';
+/** Re-exported so consumers can type a logger without reaching into a subpath. */
+export type { CatalogLogger, LogFields } from '../utils/logger';
 import type { EventPayloadMap } from '../generated/event-types';
 /**
  * Payload type for a declared event name, or `unknown` for a name the
@@ -73,6 +76,35 @@ export interface EventCatalogClientOptions extends EventCatalogConfig {
      * they were before v0.5.0.
      */
     authToken?: string;
+    /**
+     * Sink for the library's own diagnostics — the lines this client, the
+     * signal transport and the durable transport emit about dropped
+     * publishes, failed registry syncs, backpressure, poll errors and
+     * dead-lettered messages.
+     *
+     * Two required methods, one optional, all taking
+     * `(message, fields?)`, so adapting a host logger is a literal:
+     *
+     * ```ts
+     * new EventCatalog({
+     *   ...config,
+     *   logger: {
+     *     warn: (msg, fields) => log.warn(fields ?? {}, msg),
+     *     error: (msg, fields) => log.error(fields ?? {}, msg),
+     *   },
+     * });
+     * ```
+     *
+     * `fields` carries the structured half of the line — `eventName`,
+     * `channel`, `queue`, `attempt`, `status`, `suppressed` and friends —
+     * so a pino/bunyan sink never has to regex the message.
+     *
+     * Defaults to `console.warn` / `console.error`, byte-identical to the
+     * behaviour before this option existed. Rate limiting stays inside the
+     * library (a sink cannot know which lines sit on a per-publish path), so
+     * an adapter should forward every call it receives.
+     */
+    logger?: CatalogLogger;
 }
 /**
  * The library half of event-catalog: declare events, publish them with
@@ -135,6 +167,8 @@ export declare class EventCatalog {
      * {@link getDroppedPublishTotal}.
      */
     private readonly droppedPublishes;
+    /** Diagnostics sink — `console` unless the caller supplied one. */
+    private readonly log;
     /**
      * @param config transport URLs, service identity, and optional
      *   validation/observability knobs. `redis.url` and `messageQueue.url`
@@ -457,5 +491,4 @@ export declare class EventCatalog {
     private registerSubscriberRemote;
     private deregisterSubscriberRemote;
 }
-export {};
 //# sourceMappingURL=index.d.ts.map

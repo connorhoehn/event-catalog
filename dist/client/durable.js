@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DurableTransport = void 0;
 const transport_1 = require("distributed-core/transport");
 const bounded_1 = require("../utils/bounded");
+const logger_1 = require("../utils/logger");
 /** Max wait enforced on a server-driven Retry-After (5 minutes). */
 const BACKPRESSURE_MAX_WAIT_MS = 300_000;
 /** Cap on per-queue bookkeeping (metrics, ensure-cache, backpressure). */
@@ -107,8 +108,10 @@ class DurableTransport {
     ensureQueueFailures = 0;
     pollFailures = 0;
     deadLetteredTotal = 0;
+    log;
     constructor(config) {
         this.url = config.url.replace(/\/$/, '');
+        this.log = new logger_1.LogWriter(config.logger);
         this.queuesBase = `${this.url}/api/v1/queues`;
         this.retryAttempts = config.retryAttempts ?? 3;
         this.retryBaseMs = config.retryBaseMs ?? 100;
@@ -153,9 +156,9 @@ class DurableTransport {
                 throw new Error(`status ${res.status}`);
         }
         catch (err) {
-            console.warn(`[durable-transport] message-queue not reachable at ${this.url}/health `
+            this.log.warn(`[durable-transport] message-queue not reachable at ${this.url}/health `
                 + `(check MESSAGE_QUEUE_URL): ${err.message}. Continuing in degraded mode — `
-                + `durable publishes will retry and then throw until it recovers.`);
+                + `durable publishes will retry and then throw until it recovers.`, { url: `${this.url}/health`, error: (0, logger_1.errorMessage)(err) });
         }
         this.connected = true;
     }
@@ -246,7 +249,7 @@ class DurableTransport {
                 dlqArn = `arn:message-queue:queue:${dlqName}`;
             }
             else {
-                this.warnEnsureQueue(`dlq:${dlqName}`, `[durable-transport] DLQ ensure for "${dlqName}" failed; main queue "${queueName}" will be created WITHOUT redrive_policy`);
+                this.warnEnsureQueue(`dlq:${dlqName}`, `[durable-transport] DLQ ensure for "${dlqName}" failed; main queue "${queueName}" will be created WITHOUT redrive_policy`, { queue: queueName, dlqQueue: dlqName });
             }
         }
         // Step 2 — build the QueueConfiguration body from declared options.
@@ -273,12 +276,12 @@ class DurableTransport {
      * message-queue outage puts these warnings on the per-publish path.
      * Count every failure; log a bounded sample.
      */
-    warnEnsureQueue(key, message, ...rest) {
+    warnEnsureQueue(key, message, fields, ...rest) {
         this.ensureQueueFailures++;
         const suppressed = this.ensureQueueWarnings.attempt(key);
         if (suppressed === null)
             return;
-        console.warn(message + bounded_1.LogThrottle.suffix(suppressed), ...rest);
+        this.log.warn(message + bounded_1.LogThrottle.suffix(suppressed), { ...fields, ensureQueueFailures: this.ensureQueueFailures, suppressed }, ...rest);
     }
     /**
      * Map an event-catalog declaration's queue-config fields to
@@ -321,18 +324,19 @@ class DurableTransport {
                 // is caller-controlled.
                 const suppressed = this.ensureQueueWarnings.attempt(`conflict:${queueName}`);
                 if (suppressed !== null) {
-                    console.warn(`[durable-transport] queue "${queueName}" exists with differing config — accepting drift:`
-                        + bounded_1.LogThrottle.suffix(suppressed), JSON.stringify(body.conflicts ?? body));
+                    const conflicts = JSON.stringify(body.conflicts ?? body);
+                    this.log.warn(`[durable-transport] queue "${queueName}" exists with differing config — accepting drift:`
+                        + bounded_1.LogThrottle.suffix(suppressed), { queue: queueName, status: res.status, conflicts, suppressed }, conflicts);
                 }
                 // Drift is not a fatal error; the queue exists and we can publish.
                 return true;
             }
             const text = await res.text().catch(() => 'unknown');
-            this.warnEnsureQueue(`status:${queueName}`, `[durable-transport] ensureQueue "${queueName}" failed: ${res.status} ${text}`);
+            this.warnEnsureQueue(`status:${queueName}`, `[durable-transport] ensureQueue "${queueName}" failed: ${res.status} ${text}`, { queue: queueName, status: res.status, body: text });
             return false;
         }
         catch (err) {
-            this.warnEnsureQueue(`error:${queueName}`, `[durable-transport] ensureQueue "${queueName}" error:`, err.message);
+            this.warnEnsureQueue(`error:${queueName}`, `[durable-transport] ensureQueue "${queueName}" error:`, { queue: queueName, error: (0, logger_1.errorMessage)(err) }, err.message);
             return false;
         }
     }
@@ -437,8 +441,14 @@ class DurableTransport {
                 if (waitMs > BACKPRESSURE_MAX_WAIT_MS) {
                     const clampSuppressed = this.backpressureWarnings.attempt(`clamp:${queueName}`);
                     if (clampSuppressed !== null) {
-                        console.warn(`[durable-transport] backpressure on "${queueName}": Retry-After ${waitMs}ms exceeds cap ${BACKPRESSURE_MAX_WAIT_MS}ms; clamping`
-                            + bounded_1.LogThrottle.suffix(clampSuppressed));
+                        this.log.warn(`[durable-transport] backpressure on "${queueName}": Retry-After ${waitMs}ms exceeds cap ${BACKPRESSURE_MAX_WAIT_MS}ms; clamping`
+                            + bounded_1.LogThrottle.suffix(clampSuppressed), {
+                            queue: queueName,
+                            retryAfterMs: waitMs,
+                            capMs: BACKPRESSURE_MAX_WAIT_MS,
+                            attempt,
+                            suppressed: clampSuppressed,
+                        });
                     }
                     waitMs = BACKPRESSURE_MAX_WAIT_MS;
                 }
@@ -450,9 +460,18 @@ class DurableTransport {
                 // once-a-minute-per-queue sample.
                 const suppressed = this.backpressureWarnings.attempt(queueName);
                 if (suppressed !== null) {
-                    console.warn(`[durable-transport] mq_backpressure_observed_total{queue="${queueName}"} ${count} — ` +
+                    this.log.warn(`[durable-transport] mq_backpressure_observed_total{queue="${queueName}"} ${count} — ` +
                         `retry-after ${Math.round(waitMs / 1000)}s jittered=${jittered}ms attempt=${attempt}/${maxAttempts}`
-                        + bounded_1.LogThrottle.suffix(suppressed));
+                        + bounded_1.LogThrottle.suffix(suppressed), {
+                        queue: queueName,
+                        backpressureCount: count,
+                        status: res.status,
+                        retryAfterMs: waitMs,
+                        jitteredMs: jittered,
+                        attempt,
+                        maxAttempts,
+                        suppressed,
+                    });
                 }
                 if (attempt >= maxAttempts) {
                     this.incrementMetric(queueName, 'failed');
@@ -633,9 +652,14 @@ class DurableTransport {
                     this.pollFailures++;
                     const suppressed = this.pollWarnings.attempt(`poll:${queueName}`);
                     if (suppressed !== null) {
-                        console.error(`[durable-transport] poll failed for "${queueName}" after retries `
+                        this.log.error(`[durable-transport] poll failed for "${queueName}" after retries `
                             + `(${this.pollFailures} failures this process)`
-                            + bounded_1.LogThrottle.suffix(suppressed) + ':', pollErr.message);
+                            + bounded_1.LogThrottle.suffix(suppressed) + ':', {
+                            queue: queueName,
+                            error: (0, logger_1.errorMessage)(pollErr),
+                            pollFailures: this.pollFailures,
+                            suppressed,
+                        }, pollErr.message);
                     }
                     await this.sleep(pollingInterval, signal);
                     continue;
@@ -697,17 +721,33 @@ class DurableTransport {
                             // dead-lettering", not each id.
                             const dlSuppressed = this.deadLetterWarnings.attempt(`dlq:${queueName}`);
                             if (dlSuppressed !== null) {
-                                console.error(`[durable-transport] message ${msg.message_id} dead-lettered after ${attemptCount} attempts in "${queueName}" `
+                                this.log.error(`[durable-transport] message ${msg.message_id} dead-lettered after ${attemptCount} attempts in "${queueName}" `
                                     + `(${this.deadLetteredTotal} dead-lettered this process)`
-                                    + bounded_1.LogThrottle.suffix(dlSuppressed));
+                                    + bounded_1.LogThrottle.suffix(dlSuppressed), {
+                                    queue: queueName,
+                                    messageId: msg.message_id,
+                                    eventName: envelope?.eventName,
+                                    attempt: attemptCount,
+                                    error: (0, logger_1.errorMessage)(err),
+                                    deadLetteredTotal: this.deadLetteredTotal,
+                                    suppressed: dlSuppressed,
+                                });
                             }
                         }
                         else {
                             const hSuppressed = this.handlerWarnings.attempt(`handler:${queueName}`);
                             if (hSuppressed !== null) {
-                                console.warn(`[durable-transport] handler error for "${queueName}" (attempt ${attemptCount}/${this.maxProcessingAttempts}) `
+                                this.log.warn(`[durable-transport] handler error for "${queueName}" (attempt ${attemptCount}/${this.maxProcessingAttempts}) `
                                     + `(${this.handlerFailures} handler failures this process)`
-                                    + bounded_1.LogThrottle.suffix(hSuppressed) + ':', err.message);
+                                    + bounded_1.LogThrottle.suffix(hSuppressed) + ':', {
+                                    queue: queueName,
+                                    messageId: msg.message_id,
+                                    attempt: attemptCount,
+                                    maxAttempts: this.maxProcessingAttempts,
+                                    error: (0, logger_1.errorMessage)(err),
+                                    handlerFailures: this.handlerFailures,
+                                    suppressed: hSuppressed,
+                                }, err.message);
                             }
                         }
                         this.decrementInFlight(queueName);
@@ -724,7 +764,12 @@ class DurableTransport {
                 this.pollFailures++;
                 const suppressed = this.pollWarnings.attempt(`loop:${queueName}`);
                 if (suppressed !== null) {
-                    console.warn(`[durable-transport] poll error for "${queueName}"` + bounded_1.LogThrottle.suffix(suppressed) + ':', err.message);
+                    this.log.warn(`[durable-transport] poll error for "${queueName}"` + bounded_1.LogThrottle.suffix(suppressed) + ':', {
+                        queue: queueName,
+                        error: (0, logger_1.errorMessage)(err),
+                        pollFailures: this.pollFailures,
+                        suppressed,
+                    }, err.message);
                 }
                 await this.sleep(pollingInterval, signal);
             }

@@ -611,7 +611,63 @@ export function createEventHandlers(deps: RoutesDeps) {
     res.json({ cleared: req.params.name, wasPoison: cleared });
   }
 
-  // wave26-f — bulk export event schemas as JSON archive
+  // ─── Bulk export (wave26-f) ────────────────────────────────────────────────
+  //
+  // Two routes, one body of work. The name list is the whole input, and a
+  // registry-sized one does not fit in a URL:
+  //
+  //   225 declarations → `?names=` is 5157 raw / 5819 URL-encoded bytes
+  //   1000 declarations → ~22.9 KB raw / ~25.9 KB URL-encoded
+  //
+  // Request-line ceilings in the wild are 4–8 KB (nginx
+  // `large_client_header_buffers` defaults to 8k; several CDNs and ALBs sit
+  // at 8 KB; some proxies at 4 KB), and the failure is a 414 or a silent
+  // truncation that exports a SHORTER archive than was asked for — which
+  // looks like a successful export. At the platform's ~23.9 encoded bytes
+  // per name that is ~341 names at 8 KB and ~169 at 4 KB, i.e. the GET was
+  // already past the safe tier at 225 events.
+  //
+  // So POST takes the list in a JSON body under the same
+  // MAX_BULK_EXPORT_NAMES cap. The GET is NOT deprecated: with no `?names=`
+  // it is the browser-download surface (an `<a href>` plus the
+  // `Content-Disposition` header below), which a POST cannot be, and the
+  // admin UI's `bulkExportUrl()` uses it exactly that way. Its documented
+  // contract now names the practical limit instead.
+
+  /** Build the export archive for a name list; empty list ⇒ every event. */
+  function buildArchive(nameList: readonly string[]): {
+    exportedAt: string;
+    eventCount: number;
+    events: unknown[];
+  } {
+    const entries = nameList.length > 0
+      ? nameList.map(n => registry.get(n)).filter(e => e !== undefined)
+      : registry.list();
+
+    return {
+      exportedAt: new Date().toISOString(),
+      eventCount: entries.length,
+      events: entries.map(e => ({
+        name: e.name,
+        namespace: e.namespace,
+        transport: e.transport,
+        producer: e.producer,
+        version: e.version,
+        schemaFingerprint: e.schemaFingerprint,
+        schema: e.schema,
+        description: e.description,
+        tags: e.tags,
+        deprecation: e.deprecation,
+      })),
+    };
+  }
+
+  function sendArchive(res: Response, nameList: readonly string[]): void {
+    res.setHeader('Content-Disposition', 'attachment; filename="event-catalog-export.json"');
+    res.json(buildArchive(nameList));
+  }
+
+  // GET /api/events/bulk/export?names=a,b,c — convenience + browser download.
   function exportBulk(req: Request, res: Response): void {
     const namesParam = singleParam(req, 'names');
     if (!namesParam.ok) {
@@ -624,29 +680,35 @@ export function createEventHandlers(deps: RoutesDeps) {
       .filter(Boolean);
     if (!withinArrayLimit(res, nameList, MAX_BULK_EXPORT_NAMES, 'names')) return;
 
-    const entries = nameList.length > 0
-      ? nameList.map(n => registry.get(n)).filter(Boolean)
-      : registry.list();
+    sendArchive(res, nameList);
+  }
 
-    const archive = {
-      exportedAt: new Date().toISOString(),
-      eventCount: entries.length,
-      events: entries.map(e => ({
-        name: e!.name,
-        namespace: e!.namespace,
-        transport: e!.transport,
-        producer: e!.producer,
-        version: e!.version,
-        schemaFingerprint: e!.schemaFingerprint,
-        schema: e!.schema,
-        description: e!.description,
-        tags: e!.tags,
-        deprecation: e!.deprecation,
-      })),
-    };
+  // POST /api/events/bulk/export { names?: string[] } — the form that does
+  // not depend on how long a request line the path between the caller and
+  // this process tolerates.
+  function exportBulkPost(req: Request, res: Response): void {
+    const body = jsonBody(req);
+    const raw = body?.names;
 
-    res.setHeader('Content-Disposition', 'attachment; filename="event-catalog-export.json"');
-    res.json(archive);
+    // Omitted / null ⇒ "export everything", matching the GET with no
+    // `?names=`. Anything else must be an array of strings: silently
+    // treating a malformed value as "everything" would turn a client bug
+    // into a 261 KB download that looks like a successful narrow export.
+    if (raw !== undefined && raw !== null && !Array.isArray(raw)) {
+      badRequest(res, 'names must be an array of strings');
+      return;
+    }
+    const list = Array.isArray(raw) ? raw : [];
+    if (list.some(n => typeof n !== 'string')) {
+      badRequest(res, 'names must be an array of strings');
+      return;
+    }
+    // Cap BEFORE trimming/filtering, so the limit describes what the caller
+    // sent rather than what survived normalization.
+    if (!withinArrayLimit(res, list, MAX_BULK_EXPORT_NAMES, 'names')) return;
+
+    const nameList = (list as string[]).map(n => n.trim()).filter(Boolean);
+    sendArchive(res, nameList);
   }
 
   // Delete an event declaration
@@ -682,6 +744,7 @@ export function createEventHandlers(deps: RoutesDeps) {
     observedProducers,
     clearPoison,
     exportBulk,
+    exportBulkPost,
     remove,
   };
 }

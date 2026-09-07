@@ -12,6 +12,7 @@ export declare function createEventHandlers(deps: RoutesDeps): {
     observedProducers: (req: Request, res: Response) => void;
     clearPoison: (req: Request, res: Response) => void;
     exportBulk: (req: Request, res: Response) => void;
+    exportBulkPost: (req: Request, res: Response) => void;
     remove: (req: Request, res: Response) => void;
 };
 //# sourceMappingURL=events.d.ts.map

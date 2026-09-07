@@ -5,6 +5,7 @@ import { Registry } from '../src/registry/index.js';
 import { MetricsCollector } from '../src/server/metrics.js';
 import { createRoutes, type RoutesDeps } from '../src/server/routes.js';
 import { auditEmitter, type AuditEvent } from '../src/server/audit-emitter.js';
+import { MAX_BULK_EXPORT_NAMES } from '../src/server/routes/limits.js';
 
 function createApp() {
   const registry = new Registry();
@@ -124,6 +125,146 @@ describe('GET /api/events/bulk/export', () => {
     expect(res.status).toBe(200);
     expect(res.body.eventCount).toBe(0);
     expect(res.body.events).toHaveLength(0);
+  });
+
+  it('rejects a name list over MAX_BULK_EXPORT_NAMES', async () => {
+    const { app } = createApp();
+
+    const names = Array.from({ length: MAX_BULK_EXPORT_NAMES + 1 }, (_, i) => `e${i}`);
+    const res = await request(app).get(`/api/events/bulk/export?names=${names.join(',')}`);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/at most 1000/);
+  });
+
+  it('rejects a repeated ?names= key rather than silently widening', async () => {
+    const { app } = createApp();
+
+    const res = await request(app).get('/api/events/bulk/export?names=a&names=b');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/single value/);
+  });
+});
+
+// The GET carries the whole name list in the URL, which scales with the
+// registry: 225 declarations already produce a 5.8 KB URL-encoded query
+// string, past the 4–8 KB request-line ceiling common to proxies and CDNs.
+// The POST form moves it into the body under the same cap.
+describe('POST /api/events/bulk/export', () => {
+  it('exports only the named events', async () => {
+    const { app } = createApp();
+
+    const res = await request(app)
+      .post('/api/events/bulk/export')
+      .send({ names: ['user.signed-up', 'order.placed'] });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toMatch(/attachment/);
+    expect(res.body.eventCount).toBe(2);
+    expect(res.body.events.map((e: { name: string }) => e.name).sort())
+      .toEqual(['order.placed', 'user.signed-up']);
+  });
+
+  it('produces byte-identical archives to the GET for the same names', async () => {
+    const { app } = createApp();
+
+    const viaGet = await request(app).get('/api/events/bulk/export?names=user.signed-up,order.placed');
+    const viaPost = await request(app)
+      .post('/api/events/bulk/export')
+      .send({ names: ['user.signed-up', 'order.placed'] });
+
+    // `exportedAt` is a wall-clock stamp and may differ by a millisecond.
+    expect({ ...viaPost.body, exportedAt: null }).toEqual({ ...viaGet.body, exportedAt: null });
+  });
+
+  it('exports every event when names is omitted', async () => {
+    const { app } = createApp();
+
+    const res = await request(app).post('/api/events/bulk/export').send({});
+    expect(res.status).toBe(200);
+    expect(res.body.eventCount).toBe(3);
+  });
+
+  it('exports every event when names is an empty array', async () => {
+    const { app } = createApp();
+
+    const res = await request(app).post('/api/events/bulk/export').send({ names: [] });
+    expect(res.status).toBe(200);
+    expect(res.body.eventCount).toBe(3);
+  });
+
+  it('carries a name list far past what a URL would survive', async () => {
+    const { app, registry } = createApp();
+    // 400 names — beyond the ~341 that fit an 8 KB request line, and well
+    // beyond the ~169 that fit a 4 KB one.
+    const names: string[] = [];
+    for (let i = 0; i < 400; i++) {
+      const name = `scale.event.number-${i}`;
+      registry.declare({ name, transport: 'signal', producer: 'svc', schema: { type: 'object' } });
+      names.push(name);
+    }
+    expect(names.join(',').length).toBeGreaterThan(8192);
+
+    const res = await request(app).post('/api/events/bulk/export').send({ names });
+    expect(res.status).toBe(200);
+    expect(res.body.eventCount).toBe(400);
+  });
+
+  it('caps names at MAX_BULK_EXPORT_NAMES', async () => {
+    const { app } = createApp();
+
+    const names = Array.from({ length: MAX_BULK_EXPORT_NAMES + 1 }, (_, i) => `e${i}`);
+    const res = await request(app).post('/api/events/bulk/export').send({ names });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/names must contain at most 1000 entries \(got 1001\)/);
+  });
+
+  it('counts what was SENT against the cap, not what survives trimming', async () => {
+    const { app } = createApp();
+
+    // Blank entries are dropped during normalization; if the cap ran after
+    // that, this would slip through.
+    const names = Array.from({ length: MAX_BULK_EXPORT_NAMES + 1 }, () => '   ');
+    const res = await request(app).post('/api/events/bulk/export').send({ names });
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts exactly MAX_BULK_EXPORT_NAMES', async () => {
+    const { app } = createApp();
+
+    const names = Array.from({ length: MAX_BULK_EXPORT_NAMES }, (_, i) => `e${i}`);
+    const res = await request(app).post('/api/events/bulk/export').send({ names });
+    expect(res.status).toBe(200);
+    expect(res.body.eventCount).toBe(0);
+  });
+
+  it('rejects a non-array names rather than exporting the whole registry', async () => {
+    const { app } = createApp();
+
+    for (const names of ['user.signed-up', 42, { a: 1 }]) {
+      const res = await request(app).post('/api/events/bulk/export').send({ names });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/names must be an array of strings/);
+    }
+  });
+
+  it('rejects a names array holding a non-string', async () => {
+    const { app } = createApp();
+
+    const res = await request(app)
+      .post('/api/events/bulk/export')
+      .send({ names: ['user.signed-up', 7] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/names must be an array of strings/);
+  });
+
+  it('skips undeclared names rather than 404-ing', async () => {
+    const { app } = createApp();
+
+    const res = await request(app)
+      .post('/api/events/bulk/export')
+      .send({ names: ['user.signed-up', 'no.such.event'] });
+    expect(res.status).toBe(200);
+    expect(res.body.eventCount).toBe(1);
   });
 });
 

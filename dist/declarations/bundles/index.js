@@ -5,7 +5,7 @@
 // Importing this module at boot time registers the bundles in the
 // module-level singleton via registerFeatureBundle().
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.allBundles = exports.orgiqNewsroomBundle = exports.fileUploadBundle = exports.videoHangoutBundle = exports.crdtDocumentBundle = exports.agenticPipelineDurableBundle = exports.agenticPipelineSignalBundle = exports.agenticPipelineBundle = exports.activityBundle = exports.reactionsBundle = exports.cursorBundle = exports.presenceBundle = exports.chatBundle = void 0;
+exports.allBundles = exports.sfuChatBundle = exports.sfuControlPlaneBundle = exports.sfuWebhooksBundle = exports.callCaptionsBundle = exports.agUiStreamBundle = exports.orgiqNewsroomBundle = exports.notificationsBundle = exports.fileUploadBundle = exports.videoHangoutBundle = exports.crdtDocumentBundle = exports.agenticPipelineDurableBundle = exports.agenticPipelineSignalBundle = exports.agenticPipelineBundle = exports.activityBundle = exports.reactionsBundle = exports.cursorBundle = exports.presenceBundle = exports.chatBundle = void 0;
 var chat_js_1 = require("./chat.js");
 Object.defineProperty(exports, "chatBundle", { enumerable: true, get: function () { return chat_js_1.chatBundle; } });
 var presence_js_1 = require("./presence.js");
@@ -29,8 +29,20 @@ var video_hangout_js_1 = require("./video-hangout.js");
 Object.defineProperty(exports, "videoHangoutBundle", { enumerable: true, get: function () { return video_hangout_js_1.videoHangoutBundle; } });
 var file_upload_js_1 = require("./file-upload.js");
 Object.defineProperty(exports, "fileUploadBundle", { enumerable: true, get: function () { return file_upload_js_1.fileUploadBundle; } });
+var notifications_js_1 = require("./notifications.js");
+Object.defineProperty(exports, "notificationsBundle", { enumerable: true, get: function () { return notifications_js_1.notificationsBundle; } });
 var orgiq_newsroom_js_1 = require("./orgiq-newsroom.js");
 Object.defineProperty(exports, "orgiqNewsroomBundle", { enumerable: true, get: function () { return orgiq_newsroom_js_1.orgiqNewsroomBundle; } });
+var ag_ui_stream_js_1 = require("./ag-ui-stream.js");
+Object.defineProperty(exports, "agUiStreamBundle", { enumerable: true, get: function () { return ag_ui_stream_js_1.agUiStreamBundle; } });
+var call_captions_js_1 = require("./call-captions.js");
+Object.defineProperty(exports, "callCaptionsBundle", { enumerable: true, get: function () { return call_captions_js_1.callCaptionsBundle; } });
+var sfu_webhooks_js_1 = require("./sfu-webhooks.js");
+Object.defineProperty(exports, "sfuWebhooksBundle", { enumerable: true, get: function () { return sfu_webhooks_js_1.sfuWebhooksBundle; } });
+var sfu_control_plane_js_1 = require("./sfu-control-plane.js");
+Object.defineProperty(exports, "sfuControlPlaneBundle", { enumerable: true, get: function () { return sfu_control_plane_js_1.sfuControlPlaneBundle; } });
+var sfu_chat_js_1 = require("./sfu-chat.js");
+Object.defineProperty(exports, "sfuChatBundle", { enumerable: true, get: function () { return sfu_chat_js_1.sfuChatBundle; } });
 const FeatureBundle_js_1 = require("../../bundles/FeatureBundle.js");
 const chat_js_2 = require("./chat.js");
 const presence_js_2 = require("./presence.js");
@@ -43,7 +55,13 @@ const agentic_pipeline_durable_js_2 = require("./agentic-pipeline-durable.js");
 const crdt_document_js_2 = require("./crdt-document.js");
 const video_hangout_js_2 = require("./video-hangout.js");
 const file_upload_js_2 = require("./file-upload.js");
+const notifications_js_2 = require("./notifications.js");
 const orgiq_newsroom_js_2 = require("./orgiq-newsroom.js");
+const ag_ui_stream_js_2 = require("./ag-ui-stream.js");
+const call_captions_js_2 = require("./call-captions.js");
+const sfu_webhooks_js_2 = require("./sfu-webhooks.js");
+const sfu_control_plane_js_2 = require("./sfu-control-plane.js");
+const sfu_chat_js_2 = require("./sfu-chat.js");
 /** All v1 bundle definitions, in declaration order. */
 exports.allBundles = [
     chat_js_2.chatBundle,
@@ -57,7 +75,13 @@ exports.allBundles = [
     crdt_document_js_2.crdtDocumentBundle,
     video_hangout_js_2.videoHangoutBundle,
     file_upload_js_2.fileUploadBundle,
+    notifications_js_2.notificationsBundle,
     orgiq_newsroom_js_2.orgiqNewsroomBundle,
+    ag_ui_stream_js_2.agUiStreamBundle,
+    call_captions_js_2.callCaptionsBundle,
+    sfu_webhooks_js_2.sfuWebhooksBundle,
+    sfu_control_plane_js_2.sfuControlPlaneBundle,
+    sfu_chat_js_2.sfuChatBundle,
 ];
 // Register each bundle in the module-level singleton at import time.
 // Idempotent: re-importing this module after the first load is a no-op

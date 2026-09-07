@@ -11,6 +11,10 @@ import {
   type ChannelMessageEnvelope,
 } from '../types/envelopes';
 import { BoundedCounter, LogThrottle, rememberBounded } from '../utils/bounded';
+import { LogWriter, errorMessage, type CatalogLogger, type LogFields } from '../utils/logger';
+
+/** Re-exported so consumers can type a logger without reaching into a subpath. */
+export type { CatalogLogger, LogFields } from '../utils/logger';
 
 /**
  * Cap on per-channel bookkeeping (metrics, drop counts).
@@ -37,6 +41,11 @@ export interface SignalTransportConfig {
    * evicted. Default 1000.
    */
   maxTrackedChannels?: number;
+  /**
+   * Sink for this transport's diagnostics. Defaults to `console.warn` /
+   * `console.error` — byte-identical to the pre-logger behaviour.
+   */
+  logger?: CatalogLogger;
 }
 
 interface ChannelMetrics {
@@ -102,9 +111,11 @@ export class SignalTransport {
    */
   private readonly clientErrorWarnings: LogThrottle;
   private clientErrors = 0;
+  private readonly log: LogWriter;
 
   constructor(config: SignalTransportConfig) {
     this.url = config.url;
+    this.log = new LogWriter(config.logger);
     this.ringBufferSize = config.ringBufferSize ?? 100;
     this.maxTrackedChannels = Math.max(1, config.maxTrackedChannels ?? MAX_TRACKED_CHANNELS);
     this.droppedCounts = new BoundedCounter(this.maxTrackedChannels);
@@ -205,9 +216,11 @@ export class SignalTransport {
     this.clientErrors++;
     const suppressed = this.clientErrorWarnings.attempt(role);
     if (suppressed === null) return;
-    console.warn(
+    const detail = formatRedisError(err);
+    this.log.warn(
       `[signal-transport] ${role} client error:` + LogThrottle.suffix(suppressed),
-      formatRedisError(err),
+      { role, error: detail, clientErrors: this.clientErrors, suppressed },
+      detail,
     );
   }
 
@@ -287,6 +300,7 @@ export class SignalTransport {
         `[signal-transport] not connected, skipping publish to ${channel} — `
         + `the event is LOST. Call connect() (or EventCatalog.connect()) and wait for it `
         + `to resolve before publishing.`,
+        { eventName: envelope.eventName, kind: 'publish' },
       );
       return;
     }
@@ -308,10 +322,16 @@ export class SignalTransport {
         this.ringBufferFailures++;
         const suppressed = this.ringBufferWarnings.attempt('ring-buffer');
         if (suppressed === null) return;
-        console.warn(
+        this.log.warn(
           `[signal-transport] ring buffer write failed for ${channel} `
           + `(${this.ringBufferFailures} total this process)`
           + LogThrottle.suffix(suppressed) + ':',
+          {
+            channel,
+            error: err.message,
+            ringBufferFailures: this.ringBufferFailures,
+            suppressed,
+          },
           err.message,
         );
       });
@@ -351,6 +371,7 @@ export class SignalTransport {
         `[signal-transport] not connected, skipping channel-message publish to ${channelId} — `
         + `the message is LOST. Call connect() (or EventCatalog.connect()) and wait for it `
         + `to resolve before publishing.`,
+        { channelId, kind: 'channel-message' },
       );
       return 0;
     }
@@ -415,12 +436,20 @@ export class SignalTransport {
               try {
                 h(envelope);
               } catch (err) {
-                console.error(`[signal-transport] handler error on ${channel}:`, err);
+                this.log.error(
+                  `[signal-transport] handler error on ${channel}:`,
+                  { channel, error: errorMessage(err) },
+                  err,
+                );
               }
             }
           }
         } catch (err) {
-          console.error(`[signal-transport] deserialize error on ${channel}:`, err);
+          this.log.error(
+            `[signal-transport] deserialize error on ${channel}:`,
+            { channel, error: errorMessage(err) },
+            err,
+          );
         }
       });
     }
@@ -590,11 +619,16 @@ export class SignalTransport {
    * keeps a hot broadcast path from flooding logs while a reconnect is in
    * flight; the counter keeps the drop visible for the whole process life.
    */
-  private recordDrop(channel: string, message: string): void {
+  private recordDrop(channel: string, message: string, fields: LogFields): void {
     this.droppedCounts.increment(channel);
     const suppressed = this.dropWarnings.attempt(channel);
     if (suppressed === null) return;
-    console.warn(message + LogThrottle.suffix(suppressed));
+    this.log.warn(message + LogThrottle.suffix(suppressed), {
+      ...fields,
+      channel,
+      dropped: this.droppedCounts.get(channel),
+      suppressed,
+    });
   }
 
   /**

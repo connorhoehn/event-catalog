@@ -140,6 +140,26 @@ describe('agenticPipelineDurableBundle', () => {
     expect(missing).toHaveLength(0);
   });
 
+  it('validates successfully against the real event catalog', () => {
+    // This assertion was absent when the bundle shipped, and the bundle
+    // was in fact INVALID: its three approval events are declared
+    // transport:'both', and validateBundle used to demand that the bundle's
+    // declared transport equal the inferred aggregate. Narrowing a 'both'
+    // event set to one bus is the entire point of the signal/durable split,
+    // so the check is now satisfiability rather than equality.
+    const result = validateBundle(agenticPipelineDurableBundle, registry);
+    expect(result.errors).toEqual([]);
+    expect(result.valid).toBe(true);
+  });
+
+  it('every approval member really is a durable-capable event', () => {
+    for (const ref of agenticPipelineDurableBundle.events) {
+      const entry = registry.get(ref.name);
+      expect(entry, `${ref.name} not declared`).toBeDefined();
+      expect(['durable', 'both']).toContain(entry!.transport);
+    }
+  });
+
   it('is registered in the module-level bundle registry', () => {
     const found = getFeatureBundle('agentic-pipeline-durable', '1.0.0');
     expect(found).toBeDefined();

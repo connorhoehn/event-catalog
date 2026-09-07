@@ -161,7 +161,7 @@ const FIELDS = {
     totalSize: 'Sum of every written segment\'s encoded size, in bytes.',
     legCount: 'Number of per-participant recording legs opened. Present only on the per-peer recording path.',
     thumbnailUrl: 'Poster-frame URL for the finished recording. Absent when no thumbnail was captured.',
-    composedUrl: 'Playback URL of the composed single-file render. Absent when compose is disabled, not applicable, or failed.',
+    composedUrl: 'Playback URL of the composed single-file render. NEVER EMITTED as of 2026-09-07: LVS assigns it nowhere, because compose runs as a background job after this webhook fires and writes `composedSegment` instead. platform-api reads it and gets undefined. Kept because removing a property is a breaking schema change; the field should go once a compose-completion contract exists.',
     tracks: 'Per-participant raw track manifest — the download and transcription view, as opposed to the composed playback render. Absent on the single-file path.',
     'tracks.key': 'Storage key of this participant\'s track, relative to the recording bucket.',
     'tracks.url': 'Fetchable URL of this participant\'s track.',

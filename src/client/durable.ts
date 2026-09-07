@@ -1,6 +1,10 @@
 import { RetryManager } from 'distributed-core/transport';
 import type { EventEnvelope } from '../types/index';
 import { BoundedCounter, LogThrottle, rememberBounded } from '../utils/bounded';
+import { LogWriter, errorMessage, type CatalogLogger, type LogFields } from '../utils/logger';
+
+/** Re-exported so consumers can type a logger without reaching into a subpath. */
+export type { CatalogLogger, LogFields } from '../utils/logger';
 
 /** Max wait enforced on a server-driven Retry-After (5 minutes). */
 const BACKPRESSURE_MAX_WAIT_MS = 300_000;
@@ -71,6 +75,11 @@ export interface DurableTransportConfig {
   maxProcessingAttempts?: number;
   /** Maximum number of dead-lettered messages to retain in memory. Default: 10000 */
   dlqCapacity?: number;
+  /**
+   * Sink for this transport's diagnostics. Defaults to `console.warn` /
+   * `console.error` — byte-identical to the pre-logger behaviour.
+   */
+  logger?: CatalogLogger;
 }
 
 export interface DeadLetteredMessage {
@@ -183,9 +192,11 @@ export class DurableTransport {
   private ensureQueueFailures = 0;
   private pollFailures = 0;
   private deadLetteredTotal = 0;
+  private readonly log: LogWriter;
 
   constructor(config: DurableTransportConfig) {
     this.url = config.url.replace(/\/$/, '');
+    this.log = new LogWriter(config.logger);
     this.queuesBase = `${this.url}/api/v1/queues`;
     this.retryAttempts = config.retryAttempts ?? 3;
     this.retryBaseMs = config.retryBaseMs ?? 100;
@@ -229,10 +240,11 @@ export class DurableTransport {
       const res = await fetch(`${this.url}/health`);
       if (!res.ok) throw new Error(`status ${res.status}`);
     } catch (err) {
-      console.warn(
+      this.log.warn(
         `[durable-transport] message-queue not reachable at ${this.url}/health `
         + `(check MESSAGE_QUEUE_URL): ${(err as Error).message}. Continuing in degraded mode — `
         + `durable publishes will retry and then throw until it recovers.`,
+        { url: `${this.url}/health`, error: errorMessage(err) },
       );
     }
 
@@ -343,6 +355,7 @@ export class DurableTransport {
         this.warnEnsureQueue(
           `dlq:${dlqName}`,
           `[durable-transport] DLQ ensure for "${dlqName}" failed; main queue "${queueName}" will be created WITHOUT redrive_policy`,
+          { queue: queueName, dlqQueue: dlqName },
         );
       }
     }
@@ -371,11 +384,20 @@ export class DurableTransport {
    * message-queue outage puts these warnings on the per-publish path.
    * Count every failure; log a bounded sample.
    */
-  private warnEnsureQueue(key: string, message: string, ...rest: unknown[]): void {
+  private warnEnsureQueue(
+    key: string,
+    message: string,
+    fields: LogFields,
+    ...rest: unknown[]
+  ): void {
     this.ensureQueueFailures++;
     const suppressed = this.ensureQueueWarnings.attempt(key);
     if (suppressed === null) return;
-    console.warn(message + LogThrottle.suffix(suppressed), ...rest);
+    this.log.warn(
+      message + LogThrottle.suffix(suppressed),
+      { ...fields, ensureQueueFailures: this.ensureQueueFailures, suppressed },
+      ...rest,
+    );
   }
 
   /**
@@ -427,10 +449,12 @@ export class DurableTransport {
         // is caller-controlled.
         const suppressed = this.ensureQueueWarnings.attempt(`conflict:${queueName}`);
         if (suppressed !== null) {
-          console.warn(
+          const conflicts = JSON.stringify(body.conflicts ?? body);
+          this.log.warn(
             `[durable-transport] queue "${queueName}" exists with differing config — accepting drift:`
             + LogThrottle.suffix(suppressed),
-            JSON.stringify(body.conflicts ?? body),
+            { queue: queueName, status: res.status, conflicts, suppressed },
+            conflicts,
           );
         }
         // Drift is not a fatal error; the queue exists and we can publish.
@@ -440,12 +464,14 @@ export class DurableTransport {
       this.warnEnsureQueue(
         `status:${queueName}`,
         `[durable-transport] ensureQueue "${queueName}" failed: ${res.status} ${text}`,
+        { queue: queueName, status: res.status, body: text },
       );
       return false;
     } catch (err) {
       this.warnEnsureQueue(
         `error:${queueName}`,
         `[durable-transport] ensureQueue "${queueName}" error:`,
+        { queue: queueName, error: errorMessage(err) },
         (err as Error).message,
       );
       return false;
@@ -570,9 +596,16 @@ export class DurableTransport {
         if (waitMs > BACKPRESSURE_MAX_WAIT_MS) {
           const clampSuppressed = this.backpressureWarnings.attempt(`clamp:${queueName}`);
           if (clampSuppressed !== null) {
-            console.warn(
+            this.log.warn(
               `[durable-transport] backpressure on "${queueName}": Retry-After ${waitMs}ms exceeds cap ${BACKPRESSURE_MAX_WAIT_MS}ms; clamping`
               + LogThrottle.suffix(clampSuppressed),
+              {
+                queue: queueName,
+                retryAfterMs: waitMs,
+                capMs: BACKPRESSURE_MAX_WAIT_MS,
+                attempt,
+                suppressed: clampSuppressed,
+              },
             );
           }
           waitMs = BACKPRESSURE_MAX_WAIT_MS;
@@ -585,10 +618,20 @@ export class DurableTransport {
         // once-a-minute-per-queue sample.
         const suppressed = this.backpressureWarnings.attempt(queueName);
         if (suppressed !== null) {
-          console.warn(
+          this.log.warn(
             `[durable-transport] mq_backpressure_observed_total{queue="${queueName}"} ${count} — ` +
             `retry-after ${Math.round(waitMs / 1000)}s jittered=${jittered}ms attempt=${attempt}/${maxAttempts}`
             + LogThrottle.suffix(suppressed),
+            {
+              queue: queueName,
+              backpressureCount: count,
+              status: res.status,
+              retryAfterMs: waitMs,
+              jitteredMs: jittered,
+              attempt,
+              maxAttempts,
+              suppressed,
+            },
           );
         }
         if (attempt >= maxAttempts) {
@@ -805,10 +848,16 @@ export class DurableTransport {
           this.pollFailures++;
           const suppressed = this.pollWarnings.attempt(`poll:${queueName}`);
           if (suppressed !== null) {
-            console.error(
+            this.log.error(
               `[durable-transport] poll failed for "${queueName}" after retries `
               + `(${this.pollFailures} failures this process)`
               + LogThrottle.suffix(suppressed) + ':',
+              {
+                queue: queueName,
+                error: errorMessage(pollErr),
+                pollFailures: this.pollFailures,
+                suppressed,
+              },
               (pollErr as Error).message,
             );
           }
@@ -882,19 +931,37 @@ export class DurableTransport {
               // dead-lettering", not each id.
               const dlSuppressed = this.deadLetterWarnings.attempt(`dlq:${queueName}`);
               if (dlSuppressed !== null) {
-                console.error(
+                this.log.error(
                   `[durable-transport] message ${msg.message_id} dead-lettered after ${attemptCount} attempts in "${queueName}" `
                   + `(${this.deadLetteredTotal} dead-lettered this process)`
                   + LogThrottle.suffix(dlSuppressed),
+                  {
+                    queue: queueName,
+                    messageId: msg.message_id,
+                    eventName: envelope?.eventName,
+                    attempt: attemptCount,
+                    error: errorMessage(err),
+                    deadLetteredTotal: this.deadLetteredTotal,
+                    suppressed: dlSuppressed,
+                  },
                 );
               }
             } else {
               const hSuppressed = this.handlerWarnings.attempt(`handler:${queueName}`);
               if (hSuppressed !== null) {
-                console.warn(
+                this.log.warn(
                   `[durable-transport] handler error for "${queueName}" (attempt ${attemptCount}/${this.maxProcessingAttempts}) `
                   + `(${this.handlerFailures} handler failures this process)`
                   + LogThrottle.suffix(hSuppressed) + ':',
+                  {
+                    queue: queueName,
+                    messageId: msg.message_id,
+                    attempt: attemptCount,
+                    maxAttempts: this.maxProcessingAttempts,
+                    error: errorMessage(err),
+                    handlerFailures: this.handlerFailures,
+                    suppressed: hSuppressed,
+                  },
                   (err as Error).message,
                 );
               }
@@ -913,8 +980,14 @@ export class DurableTransport {
         this.pollFailures++;
         const suppressed = this.pollWarnings.attempt(`loop:${queueName}`);
         if (suppressed !== null) {
-          console.warn(
+          this.log.warn(
             `[durable-transport] poll error for "${queueName}"` + LogThrottle.suffix(suppressed) + ':',
+            {
+              queue: queueName,
+              error: errorMessage(err),
+              pollFailures: this.pollFailures,
+              suppressed,
+            },
             (err as Error).message,
           );
         }

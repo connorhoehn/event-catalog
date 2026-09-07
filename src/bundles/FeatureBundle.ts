@@ -163,8 +163,11 @@ export function listFeatureBundles(): FeatureBundle[] {
  * Validate that:
  *   1. Every required EventReference.name exists in the supplied registry.
  *   2. When EventReference.version is pinned, the registry entry's version matches.
- *   3. The declared transport is consistent with the registered events' transports
- *      (where the registry has transport information).
+ *   3. The declared transport is SATISFIABLE by the registered events'
+ *      transports — i.e. every member event is actually deliverable on the
+ *      bus the bundle claims. A bundle may legitimately narrow to one bus
+ *      over events declared `transport: 'both'`; it may not claim a bus that
+ *      one of its events never travels on.
  *
  * Returns a structured result so callers can surface errors gracefully
  * at boot rather than crashing.
@@ -194,37 +197,63 @@ export function validateBundle(
     }
   }
 
-  // Transport coherence check: infer aggregate transport from registered events.
-  const registeredTransports = new Set<string>();
+  // ---------------------------------------------------------------------
+  // Transport coherence check — SATISFIABILITY, not equality.
+  // ---------------------------------------------------------------------
+  //
+  // `bundle.transport` declares the bus (or buses) a consumer of this
+  // bundle subscribes to. An event registered `transport: 'both'` is
+  // published on BOTH buses, so it can satisfy a bundle that narrows to
+  // either one. That narrowing is the entire reason
+  // agentic-pipeline-signal / agentic-pipeline-durable exist as separate
+  // bundles over overlapping, `'both'`-transport events.
+  //
+  // So the rule is: every registered member event must actually be
+  // deliverable on the bus the bundle claims. Concretely —
+  //   declared 'signal'  → every member must be reachable on the signal bus
+  //   declared 'durable' → every member must be reachable on the durable bus
+  //   declared 'both'    → the members must between them span both buses
+  //                        (otherwise the bundle promises delivery on a bus
+  //                        that nothing in it uses)
+  //
+  // Unregistered members contribute nothing: an optional event that is not
+  // in this registry cannot make the bundle's transport claim false.
+  const supports = (
+    entryTransport: string,
+    bus: 'signal' | 'durable',
+  ): boolean => entryTransport === bus || entryTransport === 'both';
+
+  const registeredMembers: Array<{ name: string; transport: string }> = [];
   for (const ref of bundle.events) {
     const entry = registry.get(ref.name);
     if (entry && entry.transport) {
-      registeredTransports.add(entry.transport);
+      registeredMembers.push({ name: ref.name, transport: entry.transport });
     }
   }
 
-  if (registeredTransports.size > 0) {
-    // An event registered as 'both' contributes BOTH sides to the
-    // inference. Without this, a bundle whose events are all declared
-    // `transport: 'both'` infers 'signal' and is wrongly reported invalid.
-    const hasSignal =
-      registeredTransports.has('signal') || registeredTransports.has('both');
-    const hasDurable =
-      registeredTransports.has('durable') || registeredTransports.has('both');
-
-    let inferredTransport: 'signal' | 'durable' | 'both';
-    if (hasSignal && hasDurable) {
-      inferredTransport = 'both';
-    } else if (hasDurable) {
-      inferredTransport = 'durable';
+  if (registeredMembers.length > 0) {
+    if (bundle.transport === 'signal' || bundle.transport === 'durable') {
+      const bus = bundle.transport;
+      const unreachable = registeredMembers.filter((m) => !supports(m.transport, bus));
+      if (unreachable.length > 0) {
+        const detail = unreachable
+          .map((m) => `${m.name} (transport: "${m.transport}")`)
+          .join(', ');
+        errors.push(
+          `Bundle transport "${bundle.transport}" is not satisfiable: ` +
+            `${unreachable.length} event(s) are not delivered on the ${bus} bus — ${detail}.`,
+        );
+      }
     } else {
-      inferredTransport = 'signal';
-    }
-
-    if (bundle.transport !== inferredTransport) {
-      errors.push(
-        `Bundle transport "${bundle.transport}" does not match inferred transport "${inferredTransport}" from registered events.`,
-      );
+      // 'both' — the member set must actually span the two buses.
+      const anySignal = registeredMembers.some((m) => supports(m.transport, 'signal'));
+      const anyDurable = registeredMembers.some((m) => supports(m.transport, 'durable'));
+      if (!anySignal || !anyDurable) {
+        const missing = anySignal ? 'durable' : 'signal';
+        errors.push(
+          `Bundle transport "both" is not satisfiable: no registered event in this bundle is delivered on the ${missing} bus.`,
+        );
+      }
     }
   }
 

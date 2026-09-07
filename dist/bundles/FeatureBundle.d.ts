@@ -73,8 +73,11 @@ export declare function listFeatureBundles(): FeatureBundle[];
  * Validate that:
  *   1. Every required EventReference.name exists in the supplied registry.
  *   2. When EventReference.version is pinned, the registry entry's version matches.
- *   3. The declared transport is consistent with the registered events' transports
- *      (where the registry has transport information).
+ *   3. The declared transport is SATISFIABLE by the registered events'
+ *      transports — i.e. every member event is actually deliverable on the
+ *      bus the bundle claims. A bundle may legitimately narrow to one bus
+ *      over events declared `transport: 'both'`; it may not claim a bus that
+ *      one of its events never travels on.
  *
  * Returns a structured result so callers can surface errors gracefully
  * at boot rather than crashing.

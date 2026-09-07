@@ -97,6 +97,30 @@ paths:
     get:
       tags: [events]
       summary: List event declarations
+      description: |
+        Returns every declared event in one unpaginated response.
+
+        **This endpoint is deliberately not paginated and takes no
+        projection parameter.** At 225 declarations the body is ~302 KB,
+        of which the bulk is the embedded `schema` objects — but it
+        gzips to ~42 KB, an 86% reduction, because JSON Schema across a
+        registry is overwhelmingly repeated keys. A `fields=` projection
+        that dropped `schema` and `schemaHistory` would give ~53 KB
+        uncompressed, i.e. *worse than simply compressing the full body*,
+        and would add a parameter with no caller. Pagination is worse
+        still: the admin UI's list, topology and dashboard views all
+        filter and aggregate the complete registry client-side from a
+        single fetch, so paging this route would only make every consumer
+        loop to reassemble what it already asks for.
+
+        The lever that matters is transport compression, which is a server
+        config concern rather than an API shape. Callers that need only
+        fingerprints already have the cheap path: `GET /api/fingerprints`
+        is ~20 KB at the same registry size.
+
+        Every filter below is single-valued and does not scale with the
+        registry — the request-line cost of this endpoint is bounded by
+        `MAX_EVENT_NAME_LENGTH` (512), not by how many events exist.
       parameters:
         - in: query
           name: transport
@@ -430,12 +454,27 @@ paths:
         which browsers cannot send and many proxies and HTTP clients
         drop — the check was unreachable for those callers. Prefer
         `POST`; a request body is still honored here for back-compat.
+
+        **It also does not fit.** A URL-encoded JSON Schema is the other
+        query parameter here whose length is unbounded by anything the
+        server controls: the largest schema currently declared
+        (`sfu.recording.completed`) is 3503 bytes raw and **5183 bytes
+        URL-encoded**, already past the 4 KB request-line tier and closing
+        on the 8 KB one, while the average is ~1.1 KB. A schema that
+        exceeds the intermediary's ceiling is rejected with a 414 or
+        truncated into an unparseable `?schema=` — which this route
+        reports as a 400 "unparseable schema", pointing the caller at
+        their JSON rather than at the URL. `POST` has no such limit until
+        the 1 MiB body cap.
       parameters:
         - in: query
           name: schema
           required: true
           schema: { type: string }
-          description: URL-encoded JSON Schema (draft-07) object.
+          description: |
+            URL-encoded JSON Schema (draft-07) object. Practical ceiling is
+            the request-line limit of every hop between the caller and this
+            server (commonly 4–8 KB), not a server-side cap.
       responses:
         '200':
           description: Compat result
@@ -1501,6 +1540,64 @@ paths:
           $ref: '#/components/responses/PayloadTooLarge'
 
   /api/events/bulk/export:
+    post:
+      tags: [events]
+      summary: JSON export of N event declarations, name list in the body
+      description: |
+        Same archive as the GET, with the name list carried in a JSON body
+        instead of the URL. **This is the form to use for anything but a
+        handful of names.**
+
+        A comma-joined `?names=` scales with the registry and the URL runs
+        out first: 225 declarations produce a 5.8 KB URL-encoded query
+        string, and 1000 would produce ~25.9 KB. Request-line ceilings in
+        the wild are 4–8 KB (nginx's `large_client_header_buffers`
+        defaults to 8k; several CDNs and load balancers sit at the same
+        figure, some proxies at 4 KB). Over the line you get either a 414
+        or — worse — a silently truncated list, which exports a shorter
+        archive than you asked for and looks like it worked.
+
+        `names` is capped at 1000 entries (`MAX_BULK_EXPORT_NAMES`),
+        matching every other bulk surface. Omit it (or send `[]`) to
+        export the whole registry. Names that are not declared are skipped
+        silently rather than 404-ing, so `eventCount` can be lower than
+        the number of names requested.
+
+        `Content-Disposition: attachment` is set on this response too, so
+        a `fetch` caller can save the blob directly; a plain browser
+        download from an `<a href>` still needs the GET.
+
+        The archive entries are a **projection**, not full registry
+        entries: no `compatibilityMode`, `schemaHistory`, `subscribers`,
+        `metadata` or `stats`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                names:
+                  type: array
+                  maxItems: 1000
+                  items: { type: string }
+                  description: |
+                    Event names to export. Omit or send an empty array to
+                    export every declared event.
+      responses:
+        '200':
+          description: Export archive
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExportArchive' }
+        '400':
+          description: |
+            `names` is not an array of strings, or holds more than 1000
+            entries.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
     get:
       tags: [events]
       summary: JSON export of N event declarations (wave26-f)
@@ -1508,6 +1605,19 @@ paths:
         Returns a JSON archive with schema + fingerprint for each named event.
         Sets `Content-Disposition: attachment` so browsers download the file.
         When no `names` param is provided, exports all events.
+
+        **Practical limit — prefer `POST` for lists.** `?names=` is
+        comma-joined into the URL, so its length scales with the number of
+        names: at this platform's ~23.9 URL-encoded bytes per name, roughly
+        **341 names fit in an 8 KB request line and 169 in a 4 KB one**.
+        The server's own cap is 1000 names, which no proxy will deliver —
+        the URL fails first, and a truncating intermediary produces a
+        short archive rather than an error. Use this route for a browser
+        download (`<a href>` + `Content-Disposition`, which POST cannot
+        do) or for a handful of names; use `POST` for everything else.
+
+        Not deprecated: exporting the whole registry needs no `?names=` at
+        all, and that zero-length case is the admin UI's download button.
 
         The archive entries are a **projection**, not full registry
         entries: no `compatibilityMode`, `schemaHistory`, `subscribers`,
@@ -1520,23 +1630,17 @@ paths:
             Comma-separated list of event names; blank segments are
             dropped. Omit to export all. Names that are not declared are
             skipped silently rather than 404-ing, so `eventCount` can be
-            lower than the number of names requested.
+            lower than the number of names requested. Capped at 1000
+            entries, though the URL length ceiling above binds long before
+            that.
       responses:
         '200':
           description: Export archive
           content:
             application/json:
-              schema:
-                type: object
-                required: [eventCount, events, exportedAt]
-                properties:
-                  eventCount: { type: integer }
-                  events:
-                    type: array
-                    items: { $ref: '#/components/schemas/ExportedEvent' }
-                  exportedAt: { type: string, format: date-time }
+              schema: { $ref: '#/components/schemas/ExportArchive' }
         '400':
-          description: Repeated `?names=` key
+          description: Repeated `?names=` key, or more than 1000 names
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -2022,10 +2126,29 @@ components:
                 responses that enrich the entry — `GET /api/events` and
                 `GET /api/events/{name}`.
 
+    ExportArchive:
+      type: object
+      description: |
+        The bulk-export archive. Identical for the GET and POST forms of
+        `/api/events/bulk/export` — only how the name list reaches the
+        server differs.
+      required: [eventCount, events, exportedAt]
+      properties:
+        eventCount:
+          type: integer
+          description: |
+            Size of `events` — the number of names that RESOLVED, not the
+            number requested. Undeclared names are skipped silently.
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/ExportedEvent' }
+        exportedAt: { type: string, format: date-time }
+
     ExportedEvent:
       type: object
       description: |
-        The reduced entry shape emitted by `GET /api/events/bulk/export`.
+        The reduced entry shape emitted by the `/api/events/bulk/export`
+        routes.
         Deliberately not a `RegistryEntry`: subscribers, schema history,
         compatibility mode, metadata and stats are all omitted.
       required: [name, namespace, transport, producer, version, schemaFingerprint, schema]

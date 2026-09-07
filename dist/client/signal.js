@@ -6,6 +6,7 @@ const transport_1 = require("distributed-core/transport");
 const redis_boot_strategy_1 = require("../utils/redis-boot-strategy");
 const envelopes_1 = require("../types/envelopes");
 const bounded_1 = require("../utils/bounded");
+const logger_1 = require("../utils/logger");
 /**
  * Cap on per-channel bookkeeping (metrics, drop counts).
  *
@@ -71,8 +72,10 @@ class SignalTransport {
      */
     clientErrorWarnings;
     clientErrors = 0;
+    log;
     constructor(config) {
         this.url = config.url;
+        this.log = new logger_1.LogWriter(config.logger);
         this.ringBufferSize = config.ringBufferSize ?? 100;
         this.maxTrackedChannels = Math.max(1, config.maxTrackedChannels ?? MAX_TRACKED_CHANNELS);
         this.droppedCounts = new bounded_1.BoundedCounter(this.maxTrackedChannels);
@@ -167,7 +170,8 @@ class SignalTransport {
         const suppressed = this.clientErrorWarnings.attempt(role);
         if (suppressed === null)
             return;
-        console.warn(`[signal-transport] ${role} client error:` + bounded_1.LogThrottle.suffix(suppressed), (0, redis_boot_strategy_1.formatRedisError)(err));
+        const detail = (0, redis_boot_strategy_1.formatRedisError)(err);
+        this.log.warn(`[signal-transport] ${role} client error:` + bounded_1.LogThrottle.suffix(suppressed), { role, error: detail, clientErrors: this.clientErrors, suppressed }, detail);
     }
     /**
      * Tear both clients down without regard for `connected`. Never throws.
@@ -243,7 +247,7 @@ class SignalTransport {
         if (!this.connected || !this.publishClient) {
             this.recordDrop(channel, `[signal-transport] not connected, skipping publish to ${channel} — `
                 + `the event is LOST. Call connect() (or EventCatalog.connect()) and wait for it `
-                + `to resolve before publishing.`);
+                + `to resolve before publishing.`, { eventName: envelope.eventName, kind: 'publish' });
             return;
         }
         await this.circuitBreaker.execute(async () => {
@@ -257,9 +261,14 @@ class SignalTransport {
                 const suppressed = this.ringBufferWarnings.attempt('ring-buffer');
                 if (suppressed === null)
                     return;
-                console.warn(`[signal-transport] ring buffer write failed for ${channel} `
+                this.log.warn(`[signal-transport] ring buffer write failed for ${channel} `
                     + `(${this.ringBufferFailures} total this process)`
-                    + bounded_1.LogThrottle.suffix(suppressed) + ':', err.message);
+                    + bounded_1.LogThrottle.suffix(suppressed) + ':', {
+                    channel,
+                    error: err.message,
+                    ringBufferFailures: this.ringBufferFailures,
+                    suppressed,
+                }, err.message);
             });
         });
         this.incrementMetrics(channel);
@@ -289,7 +298,7 @@ class SignalTransport {
         if (!this.connected || !this.publishClient) {
             this.recordDrop(channelId, `[signal-transport] not connected, skipping channel-message publish to ${channelId} — `
                 + `the message is LOST. Call connect() (or EventCatalog.connect()) and wait for it `
-                + `to resolve before publishing.`);
+                + `to resolve before publishing.`, { channelId, kind: 'channel-message' });
             return 0;
         }
         return this.circuitBreaker.execute(async () => {
@@ -341,13 +350,13 @@ class SignalTransport {
                                 h(envelope);
                             }
                             catch (err) {
-                                console.error(`[signal-transport] handler error on ${channel}:`, err);
+                                this.log.error(`[signal-transport] handler error on ${channel}:`, { channel, error: (0, logger_1.errorMessage)(err) }, err);
                             }
                         }
                     }
                 }
                 catch (err) {
-                    console.error(`[signal-transport] deserialize error on ${channel}:`, err);
+                    this.log.error(`[signal-transport] deserialize error on ${channel}:`, { channel, error: (0, logger_1.errorMessage)(err) }, err);
                 }
             });
         }
@@ -485,12 +494,17 @@ class SignalTransport {
      * keeps a hot broadcast path from flooding logs while a reconnect is in
      * flight; the counter keeps the drop visible for the whole process life.
      */
-    recordDrop(channel, message) {
+    recordDrop(channel, message, fields) {
         this.droppedCounts.increment(channel);
         const suppressed = this.dropWarnings.attempt(channel);
         if (suppressed === null)
             return;
-        console.warn(message + bounded_1.LogThrottle.suffix(suppressed));
+        this.log.warn(message + bounded_1.LogThrottle.suffix(suppressed), {
+            ...fields,
+            channel,
+            dropped: this.droppedCounts.get(channel),
+            suppressed,
+        });
     }
     /**
      * Fetch (or create) a channel's metrics row, evicting the oldest row when

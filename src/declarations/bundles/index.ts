@@ -16,7 +16,13 @@ export { agenticPipelineDurableBundle } from './agentic-pipeline-durable.js';
 export { crdtDocumentBundle } from './crdt-document.js';
 export { videoHangoutBundle } from './video-hangout.js';
 export { fileUploadBundle } from './file-upload.js';
+export { notificationsBundle } from './notifications.js';
 export { orgiqNewsroomBundle } from './orgiq-newsroom.js';
+export { agUiStreamBundle } from './ag-ui-stream.js';
+export { callCaptionsBundle } from './call-captions.js';
+export { sfuWebhooksBundle } from './sfu-webhooks.js';
+export { sfuControlPlaneBundle } from './sfu-control-plane.js';
+export { sfuChatBundle } from './sfu-chat.js';
 
 import { registerFeatureBundle } from '../../bundles/FeatureBundle.js';
 import { chatBundle } from './chat.js';
@@ -30,7 +36,13 @@ import { agenticPipelineDurableBundle } from './agentic-pipeline-durable.js';
 import { crdtDocumentBundle } from './crdt-document.js';
 import { videoHangoutBundle } from './video-hangout.js';
 import { fileUploadBundle } from './file-upload.js';
+import { notificationsBundle } from './notifications.js';
 import { orgiqNewsroomBundle } from './orgiq-newsroom.js';
+import { agUiStreamBundle } from './ag-ui-stream.js';
+import { callCaptionsBundle } from './call-captions.js';
+import { sfuWebhooksBundle } from './sfu-webhooks.js';
+import { sfuControlPlaneBundle } from './sfu-control-plane.js';
+import { sfuChatBundle } from './sfu-chat.js';
 
 /** All v1 bundle definitions, in declaration order. */
 export const allBundles = [
@@ -45,7 +57,13 @@ export const allBundles = [
   crdtDocumentBundle,
   videoHangoutBundle,
   fileUploadBundle,
+  notificationsBundle,
   orgiqNewsroomBundle,
+  agUiStreamBundle,
+  callCaptionsBundle,
+  sfuWebhooksBundle,
+  sfuControlPlaneBundle,
+  sfuChatBundle,
 ] as const;
 
 // Register each bundle in the module-level singleton at import time.

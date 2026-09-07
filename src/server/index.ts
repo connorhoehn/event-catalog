@@ -429,6 +429,18 @@ export async function startServer(config: ServerConfig = {}): Promise<{
         id: 'registry',
         check: async () => ({ status: 'healthy', details: { eventCount: registry.size() } }),
       },
+      {
+        // A replica that missed broadcasts serves a truncated registry while
+        // every other check reports healthy — the failure mode that makes a
+        // multi-replica deployment quietly disagree with itself. Surface it
+        // as degraded (not unhealthy) so a stale replica is drained rather
+        // than restart-looped while it resyncs.
+        id: 'coordinator',
+        check: async () => ({
+          status: coordinator.isStale() ? 'degraded' : 'healthy',
+          details: coordinator.getStats(),
+        }),
+      },
     ],
   }));
 

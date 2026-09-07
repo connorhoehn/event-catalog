@@ -10,9 +10,16 @@
 //   invoke               presence             (InvokePage)
 //   newsroom-articles    reactions            (ArticleDetailPage)
 //
-// This bundle references the *generic* ws.* event names from gateway-signal.ts.
-// The channel-scoped orgiq.* declarations in orgiq-signal.ts carry the
-// per-channel metadata; together they give drift-detection full coverage.
+// This bundle references ONLY the *generic* ws.* event names from
+// gateway-signal.ts.
+//
+// The six channel-scoped `orgiq.*` declarations in orgiq-signal.ts are NOT
+// members. An earlier version of this comment claimed the two "together give
+// drift-detection full coverage" — nothing enforced that, and the orgiq.*
+// events belong to no bundle at all today. Adding them would change this
+// bundle's fingerprint and break CRDs pinned to orgiq-newsroom@1.0.0, so it
+// is an orgiq-newsroom@2.0.0 decision, not a silent edit. Flagged in the
+// bundle-layer audit; awaiting an operator call.
 //
 // Transport: 'signal' — all frames are ephemeral WS push via websocket-gateway.
 // Version bump policy: bump whenever OrgIQ adopts a new gateway channel or
