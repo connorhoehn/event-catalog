@@ -7,15 +7,46 @@
 // panels and live audit dashboards.
 
 import type { Request, Response } from '../http-router.js';
-import { auditEmitter, matchesAuditFilter, type AuditEvent } from '../audit-emitter.js';
+import {
+  auditEmitter,
+  matchesAuditFilter,
+  type AuditEvent,
+  type AuditEventKind,
+  type AuditFilter,
+} from '../audit-emitter.js';
 import { openSseStream, startSseHeartbeat, stringParam, type RoutesDeps } from './_shared.js';
+
+/** The full AuditEventKind union, as a runtime value for `?kind=` narrowing. */
+const AUDIT_KINDS: readonly AuditEventKind[] = [
+  'event.declared',
+  'event.version.bumped',
+  'event.removed',
+  'event.deprecated',
+  'event.undeprecated',
+  'event.poisoned',
+  'event.poison.cleared',
+  'subscriber.added',
+  'subscriber.removed',
+  'event.manifest.drift',
+];
+
+/**
+ * Narrow a raw `?kind=` value to AuditEventKind. Previously this was a bare
+ * `as` cast, so `?kind=typo` produced a filter matching nothing and the
+ * stream looked permanently idle. An unrecognized kind is now no filter at
+ * all — same "an SSE client should get a stream, not a 400" call as
+ * /api/flow's transport filter.
+ */
+function auditKind(raw: string | string[] | undefined): AuditEventKind | undefined {
+  return AUDIT_KINDS.find(k => k === raw);
+}
 
 export function createAuditHandlers(deps: RoutesDeps) {
   const { auditLog } = deps;
 
   async function stream(req: Request, res: Response): Promise<void> {
-    const filter = {
-      kind: typeof req.query.kind === 'string' ? (req.query.kind as AuditEvent['kind']) : undefined,
+    const filter: AuditFilter = {
+      kind: auditKind(req.query.kind),
       eventName: stringParam(req, 'eventName'),
       namespace: stringParam(req, 'namespace'),
       serviceName: stringParam(req, 'serviceName'),
@@ -23,7 +54,7 @@ export function createAuditHandlers(deps: RoutesDeps) {
     // wave23-a — replay-on-connect knob. ?replay=N reads the last N
     // events from the persistent log and writes them as SSE frames
     // before streaming live. Default 0 (no replay) for back-compat.
-    const replayN = Math.max(0, parseInt(String(req.query.replay ?? '0'), 10) || 0);
+    const replayN = Math.max(0, parseInt(stringParam(req, 'replay') ?? '0', 10) || 0);
 
     openSseStream(res);
     res.write(`: connected; filter=${JSON.stringify(filter)}; replay=${replayN}\n\n`);
@@ -65,7 +96,7 @@ export function createAuditHandlers(deps: RoutesDeps) {
       res.json({ events: [], note: 'no persistent audit log wired' });
       return;
     }
-    const limit = Math.max(1, parseInt(String(req.query.limit ?? '50'), 10) || 50);
+    const limit = Math.max(1, parseInt(stringParam(req, 'limit') ?? '50', 10) || 50);
     const events = await auditLog.recent(limit);
     res.json({ events });
   }

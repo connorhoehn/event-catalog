@@ -49,8 +49,47 @@ export declare function badRequest(res: Response, message: string): void;
  * Coerce a query param to a single string, dropping the repeated-key
  * array form. Mirrors the `typeof x === 'string' ? x : undefined`
  * guard the handlers were written with.
+ *
+ * Use this only where silently ignoring a malformed param is the
+ * documented contract (the SSE filters). Everywhere else prefer
+ * {@link singleParam}, which reports the array form instead of
+ * quietly widening the result set.
  */
 export declare function stringParam(req: Request, key: string): string | undefined;
+/** True for a plain JSON object (not null, not an array). */
+export declare function isJsonObject(value: unknown): value is Record<string, unknown>;
+/** The parsed JSON body when it is an object, else undefined. */
+export declare function jsonBody(req: Request): Record<string, unknown> | undefined;
+/** Discriminated result returned by the query-param guards. */
+export type ParamResult<T> = {
+    ok: true;
+    value: T;
+} | {
+    ok: false;
+    error: string;
+};
+/**
+ * Read a query param as a single string. Repeated keys are rejected;
+ * a present-but-empty value is treated as absent (a bare `?tag=` should
+ * not filter on the empty string).
+ */
+export declare function singleParam(req: Request, key: string): ParamResult<string | undefined>;
+/**
+ * Read a query param constrained to a fixed set of values, narrowing the
+ * result to the union type rather than casting. Rejects both the repeated
+ * key form and out-of-set values.
+ */
+export declare function enumParam<T extends string>(req: Request, key: string, allowed: readonly T[]): ParamResult<T | undefined>;
+/**
+ * Resolve a set of guards, writing a 400 and returning null on the first
+ * failure. Lets a handler collapse five guards into one early return:
+ *
+ *   const q = resolveParams(res, { transport: enumParam(...), tag: singleParam(...) });
+ *   if (!q) return;
+ */
+export declare function resolveParams<T extends Record<string, ParamResult<unknown>>>(res: Response, guards: T): {
+    [K in keyof T]: T[K] extends ParamResult<infer V> ? V : never;
+} | null;
 /**
  * Write the SSE preamble headers and flush them. Shared by /api/flow
  * and /api/audit; the `X-Accel-Buffering` header defeats nginx /

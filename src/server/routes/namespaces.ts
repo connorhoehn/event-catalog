@@ -4,7 +4,7 @@
 // plus the topology subgraph they share filter semantics with.
 
 import type { Request, Response } from '../http-router.js';
-import { stringParam, type RoutesDeps } from './_shared.js';
+import { resolveParams, singleParam, stringParam, type RoutesDeps } from './_shared.js';
 
 export function createNamespaceHandlers(deps: RoutesDeps) {
   const { registry } = deps;
@@ -29,7 +29,7 @@ export function createNamespaceHandlers(deps: RoutesDeps) {
   // transport + deprecated bool) so a single round-trip powers the
   // drill-down view.
   function summary(req: Request, res: Response): void {
-    const detail = req.query.detail === 'full';
+    const detail = stringParam(req, 'detail') === 'full';
     type Row = {
       namespace: string;
       eventCount: number;
@@ -98,14 +98,17 @@ export function createNamespaceHandlers(deps: RoutesDeps) {
   // filters AND-combine to restrict which events (and induced services) appear
   // in the returned subgraph. No filter ⇒ full topology.
   function topology(req: Request, res: Response): void {
-    const filter = {
-      producer: stringParam(req, 'producer'),
-      consumer: stringParam(req, 'consumer'),
-      eventType: stringParam(req, 'eventType'),
-      transport: stringParam(req, 'transport'),
+    // A repeated key used to collapse to `undefined` here, which silently
+    // widened the subgraph back to the full topology instead of erroring.
+    const filter = resolveParams(res, {
+      producer: singleParam(req, 'producer'),
+      consumer: singleParam(req, 'consumer'),
+      eventType: singleParam(req, 'eventType'),
+      transport: singleParam(req, 'transport'),
       // Phase E7 — namespace filter on the topology subgraph.
-      namespace: stringParam(req, 'namespace'),
-    };
+      namespace: singleParam(req, 'namespace'),
+    });
+    if (!filter) return;
     const anyFilter =
       filter.producer || filter.consumer || filter.eventType || filter.transport || filter.namespace;
     res.json(registry.getTopology(anyFilter ? filter : undefined));

@@ -4,7 +4,7 @@
 // in-process metrics snapshot + per-event rate history.
 
 import type { Request, Response } from '../http-router.js';
-import { stringParam, type RoutesDeps } from './_shared.js';
+import { badRequest, singleParam, type RoutesDeps } from './_shared.js';
 
 export function createOpsHandlers(deps: RoutesDeps) {
   const { registry, metrics, signal, durable, startedAt, manifestStore } = deps;
@@ -73,8 +73,13 @@ export function createOpsHandlers(deps: RoutesDeps) {
   // wave26-a — per-event publish rate history for sparklines. Returns
   // the last 60 rate snapshots per event (one sample ~every 15s = ~15min
   // of coverage). Used by EventList to draw inline sparklines.
-  function history(_req: Request, res: Response): void {
-    res.json(metrics.getHistory(stringParam(_req, 'eventName')));
+  function history(req: Request, res: Response): void {
+    const eventName = singleParam(req, 'eventName');
+    if (!eventName.ok) {
+      badRequest(res, eventName.error);
+      return;
+    }
+    res.json(metrics.getHistory(eventName.value));
   }
 
   return { health, registryHealth, snapshot, history };

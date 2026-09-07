@@ -71,8 +71,13 @@ function createOpsHandlers(deps) {
     // wave26-a — per-event publish rate history for sparklines. Returns
     // the last 60 rate snapshots per event (one sample ~every 15s = ~15min
     // of coverage). Used by EventList to draw inline sparklines.
-    function history(_req, res) {
-        res.json(metrics.getHistory((0, _shared_js_1.stringParam)(_req, 'eventName')));
+    function history(req, res) {
+        const eventName = (0, _shared_js_1.singleParam)(req, 'eventName');
+        if (!eventName.ok) {
+            (0, _shared_js_1.badRequest)(res, eventName.error);
+            return;
+        }
+        res.json(metrics.getHistory(eventName.value));
     }
     return { health, registryHealth, snapshot, history };
 }

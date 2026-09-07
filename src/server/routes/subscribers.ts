@@ -6,7 +6,7 @@
 
 import type { Request, Response } from '../http-router.js';
 import { auditEmitter } from '../audit-emitter.js';
-import { badRequest, eventNotFound, type RoutesDeps } from './_shared.js';
+import { badRequest, eventNotFound, stringParam, type RoutesDeps } from './_shared.js';
 
 export function createSubscriberHandlers(deps: RoutesDeps) {
   const { registry, coordinator } = deps;
@@ -81,7 +81,7 @@ export function createSubscriberHandlers(deps: RoutesDeps) {
   // than the threshold (useful for "who's overdue?" dashboards).
   function list(req: Request, res: Response): void {
     const all = registry.listSubscriberHeartbeats();
-    const staleAfter = parseInt(String(req.query.staleAfter ?? ''), 10);
+    const staleAfter = parseInt(stringParam(req, 'staleAfter') ?? '', 10);
     if (Number.isFinite(staleAfter) && staleAfter > 0) {
       const cutoff = Date.now() - staleAfter * 1000;
       const stale = all.filter((s) => Date.parse(s.lastSeenAt) < cutoff);

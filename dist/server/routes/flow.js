@@ -9,17 +9,26 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createFlowHandlers = createFlowHandlers;
 const tap_emitter_js_1 = require("../tap-emitter.js");
 const _shared_js_1 = require("./_shared.js");
+/**
+ * Narrow a raw `?transport=` value to the tap's transport union. Anything
+ * else — an unknown value, or the repeated-key array form — yields
+ * `undefined`, i.e. "no transport filter". This route documents an
+ * unrecognized filter as ignored rather than rejected (unlike
+ * `GET /api/events`), because an SSE client that mistypes a filter is
+ * better served by an open stream than a 400 it never reads.
+ */
+function tapTransport(raw) {
+    return raw === 'signal' || raw === 'durable' ? raw : undefined;
+}
 function createFlowHandlers(_deps) {
     function stream(req, res) {
         const filter = {
             eventName: (0, _shared_js_1.stringParam)(req, 'eventName'),
-            transport: req.query.transport === 'signal' || req.query.transport === 'durable'
-                ? req.query.transport
-                : undefined,
+            transport: tapTransport(req.query.transport),
             producer: (0, _shared_js_1.stringParam)(req, 'producer'),
             namespace: (0, _shared_js_1.stringParam)(req, 'namespace'),
         };
-        const sampleN = Math.max(1, parseInt(String(req.query.sample ?? '1'), 10) || 1);
+        const sampleN = Math.max(1, parseInt((0, _shared_js_1.stringParam)(req, 'sample') ?? '1', 10) || 1);
         (0, _shared_js_1.openSseStream)(res);
         // Opening comment lets clients know the stream is live even before
         // the first event arrives.

@@ -7,8 +7,21 @@
 import type { Request, Response } from '../http-router.js';
 import { computeSchemaFingerprint } from '../../registry/fingerprint.js';
 import { auditEmitter } from '../audit-emitter.js';
-import type { EventDeclaration } from '../../types/index.js';
-import { badRequest, eventNotFound, type RoutesDeps } from './_shared.js';
+import type { EventDeclaration, TransportType } from '../../types/index.js';
+import {
+  badRequest,
+  enumParam,
+  eventNotFound,
+  isJsonObject,
+  jsonBody,
+  resolveParams,
+  singleParam,
+  type ParamResult,
+  type RoutesDeps,
+} from './_shared.js';
+
+/** The transport values `?transport=` accepts, mirroring TransportType. */
+const TRANSPORTS: readonly TransportType[] = ['signal', 'durable', 'both'];
 
 /**
  * EC-7 — resolve the effective compat-gate enforcement level for a POST
@@ -40,21 +53,21 @@ export function createEventHandlers(deps: RoutesDeps) {
   } = deps;
 
   // List all events
-  function list(_req: Request, res: Response): void {
-    const transport = _req.query.transport as string | undefined;
-    const producer = _req.query.producer as string | undefined;
-    const subscriber = _req.query.subscriber as string | undefined;
-    const tag = _req.query.tag as string | undefined;
-    // Phase E7 — namespace filter.
-    const namespace = _req.query.namespace as string | undefined;
-
-    const entries = registry.list({
-      transport: transport as 'signal' | 'durable' | undefined,
-      producer,
-      subscriber,
-      tag,
-      namespace,
+  function list(req: Request, res: Response): void {
+    // Every filter is single-valued: a repeated key used to be cast
+    // straight through as `string`, so `?transport=a&transport=b` put an
+    // array into RegistryFilter and quietly returned an empty list.
+    const q = resolveParams(res, {
+      transport: enumParam(req, 'transport', TRANSPORTS),
+      producer: singleParam(req, 'producer'),
+      subscriber: singleParam(req, 'subscriber'),
+      tag: singleParam(req, 'tag'),
+      // Phase E7 — namespace filter.
+      namespace: singleParam(req, 'namespace'),
     });
+    if (!q) return;
+
+    const entries = registry.list(q);
 
     const enriched = entries.map(entry => ({
       ...entry,
@@ -90,7 +103,12 @@ export function createEventHandlers(deps: RoutesDeps) {
     // shouldn't bump the consumer-pull counter.
     let selectedVersion = entry.version;
     let selectedSchema = entry.schema;
-    const rawVersion = req.query.version;
+    const versionParam = singleParam(req, 'version');
+    if (!versionParam.ok) {
+      badRequest(res, versionParam.error);
+      return;
+    }
+    const rawVersion = versionParam.value;
     if (rawVersion !== undefined) {
       const parsed = Number(rawVersion);
       if (!Number.isInteger(parsed) || parsed < 1) {
@@ -130,6 +148,42 @@ export function createEventHandlers(deps: RoutesDeps) {
     });
   }
 
+  /**
+   * Resolve the proposed schema for a compat check from whichever
+   * transport the caller used.
+   *
+   * The route was originally GET-with-a-JSON-body, which browsers cannot
+   * send and many proxies and HTTP clients drop — the check was therefore
+   * unreachable for a large class of callers. POST-with-a-body is now the
+   * canonical form; the GET route stays for existing CI callers and takes
+   * the schema as a URL-encoded JSON `?schema=` param instead. A body is
+   * still honored on either method so nothing that works today breaks.
+   */
+  function readProposedSchema(req: Request): ParamResult<Record<string, unknown> | undefined> {
+    const fromBody = jsonBody(req)?.schema;
+    if (fromBody !== undefined) {
+      if (!isJsonObject(fromBody)) {
+        return { ok: false, error: 'schema must be a JSON object' };
+      }
+      return { ok: true, value: fromBody };
+    }
+
+    const fromQuery = singleParam(req, 'schema');
+    if (!fromQuery.ok) return fromQuery;
+    if (fromQuery.value === undefined) return { ok: true, value: undefined };
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fromQuery.value);
+    } catch {
+      return { ok: false, error: '?schema= must be a URL-encoded JSON object' };
+    }
+    if (!isJsonObject(parsed)) {
+      return { ok: false, error: 'schema must be a JSON object' };
+    }
+    return { ok: true, value: parsed };
+  }
+
   // Check schema compatibility without declaring
   function checkSchema(req: Request, res: Response): void {
     const entry = registry.get(req.params.name);
@@ -138,9 +192,18 @@ export function createEventHandlers(deps: RoutesDeps) {
       return;
     }
 
-    const schema = req.body?.schema as Record<string, unknown> | undefined;
+    const proposed = readProposedSchema(req);
+    if (!proposed.ok) {
+      badRequest(res, proposed.error);
+      return;
+    }
+    const schema = proposed.value;
     if (!schema) {
-      badRequest(res, 'schema is required in the request body');
+      badRequest(
+        res,
+        'schema is required — send it in the request body (POST) '
+        + 'or as a URL-encoded JSON ?schema= query param (GET)',
+      );
       return;
     }
 
@@ -171,7 +234,12 @@ export function createEventHandlers(deps: RoutesDeps) {
       return;
     }
 
-    const count = parseInt(req.query.count as string) || 50;
+    const countParam = singleParam(req, 'count');
+    if (!countParam.ok) {
+      badRequest(res, countParam.error);
+      return;
+    }
+    const count = parseInt(countParam.value ?? '', 10) || 50;
 
     if (entry.transport === 'signal') {
       const messages = await signal.getHistory(entry.name, count);
@@ -497,10 +565,15 @@ export function createEventHandlers(deps: RoutesDeps) {
 
   // wave26-f — bulk export event schemas as JSON archive
   function exportBulk(req: Request, res: Response): void {
-    const rawNames = req.query.names;
-    const nameList: string[] = typeof rawNames === 'string'
-      ? rawNames.split(',').map(n => n.trim()).filter(Boolean)
-      : [];
+    const namesParam = singleParam(req, 'names');
+    if (!namesParam.ok) {
+      badRequest(res, namesParam.error);
+      return;
+    }
+    const nameList: string[] = (namesParam.value ?? '')
+      .split(',')
+      .map(n => n.trim())
+      .filter(Boolean);
 
     const entries = nameList.length > 0
       ? nameList.map(n => registry.get(n)).filter(Boolean)

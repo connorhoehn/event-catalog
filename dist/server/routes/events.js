@@ -9,6 +9,8 @@ exports.createEventHandlers = createEventHandlers;
 const fingerprint_js_1 = require("../../registry/fingerprint.js");
 const audit_emitter_js_1 = require("../audit-emitter.js");
 const _shared_js_1 = require("./_shared.js");
+/** The transport values `?transport=` accepts, mirroring TransportType. */
+const TRANSPORTS = ['signal', 'durable', 'both'];
 /**
  * EC-7 — resolve the effective compat-gate enforcement level for a POST
  * /events request. Precedence:
@@ -33,20 +35,21 @@ function resolveCompatMode(incoming, existing, headerStrict, envStrict) {
 function createEventHandlers(deps) {
     const { registry, metrics, metricsObserver, signal, promMetrics, manifestStore, attribution, poisonDetector, coordinator, } = deps;
     // List all events
-    function list(_req, res) {
-        const transport = _req.query.transport;
-        const producer = _req.query.producer;
-        const subscriber = _req.query.subscriber;
-        const tag = _req.query.tag;
-        // Phase E7 — namespace filter.
-        const namespace = _req.query.namespace;
-        const entries = registry.list({
-            transport: transport,
-            producer,
-            subscriber,
-            tag,
-            namespace,
+    function list(req, res) {
+        // Every filter is single-valued: a repeated key used to be cast
+        // straight through as `string`, so `?transport=a&transport=b` put an
+        // array into RegistryFilter and quietly returned an empty list.
+        const q = (0, _shared_js_1.resolveParams)(res, {
+            transport: (0, _shared_js_1.enumParam)(req, 'transport', TRANSPORTS),
+            producer: (0, _shared_js_1.singleParam)(req, 'producer'),
+            subscriber: (0, _shared_js_1.singleParam)(req, 'subscriber'),
+            tag: (0, _shared_js_1.singleParam)(req, 'tag'),
+            // Phase E7 — namespace filter.
+            namespace: (0, _shared_js_1.singleParam)(req, 'namespace'),
         });
+        if (!q)
+            return;
+        const entries = registry.list(q);
         const enriched = entries.map(entry => ({
             ...entry,
             stats: metrics.getStats(entry.name),
@@ -77,7 +80,12 @@ function createEventHandlers(deps) {
         // shouldn't bump the consumer-pull counter.
         let selectedVersion = entry.version;
         let selectedSchema = entry.schema;
-        const rawVersion = req.query.version;
+        const versionParam = (0, _shared_js_1.singleParam)(req, 'version');
+        if (!versionParam.ok) {
+            (0, _shared_js_1.badRequest)(res, versionParam.error);
+            return;
+        }
+        const rawVersion = versionParam.value;
         if (rawVersion !== undefined) {
             const parsed = Number(rawVersion);
             if (!Number.isInteger(parsed) || parsed < 1) {
@@ -113,6 +121,42 @@ function createEventHandlers(deps) {
             stats: metrics.getStats(entry.name),
         });
     }
+    /**
+     * Resolve the proposed schema for a compat check from whichever
+     * transport the caller used.
+     *
+     * The route was originally GET-with-a-JSON-body, which browsers cannot
+     * send and many proxies and HTTP clients drop — the check was therefore
+     * unreachable for a large class of callers. POST-with-a-body is now the
+     * canonical form; the GET route stays for existing CI callers and takes
+     * the schema as a URL-encoded JSON `?schema=` param instead. A body is
+     * still honored on either method so nothing that works today breaks.
+     */
+    function readProposedSchema(req) {
+        const fromBody = (0, _shared_js_1.jsonBody)(req)?.schema;
+        if (fromBody !== undefined) {
+            if (!(0, _shared_js_1.isJsonObject)(fromBody)) {
+                return { ok: false, error: 'schema must be a JSON object' };
+            }
+            return { ok: true, value: fromBody };
+        }
+        const fromQuery = (0, _shared_js_1.singleParam)(req, 'schema');
+        if (!fromQuery.ok)
+            return fromQuery;
+        if (fromQuery.value === undefined)
+            return { ok: true, value: undefined };
+        let parsed;
+        try {
+            parsed = JSON.parse(fromQuery.value);
+        }
+        catch {
+            return { ok: false, error: '?schema= must be a URL-encoded JSON object' };
+        }
+        if (!(0, _shared_js_1.isJsonObject)(parsed)) {
+            return { ok: false, error: 'schema must be a JSON object' };
+        }
+        return { ok: true, value: parsed };
+    }
     // Check schema compatibility without declaring
     function checkSchema(req, res) {
         const entry = registry.get(req.params.name);
@@ -120,9 +164,15 @@ function createEventHandlers(deps) {
             (0, _shared_js_1.eventNotFound)(res, req.params.name);
             return;
         }
-        const schema = req.body?.schema;
+        const proposed = readProposedSchema(req);
+        if (!proposed.ok) {
+            (0, _shared_js_1.badRequest)(res, proposed.error);
+            return;
+        }
+        const schema = proposed.value;
         if (!schema) {
-            (0, _shared_js_1.badRequest)(res, 'schema is required in the request body');
+            (0, _shared_js_1.badRequest)(res, 'schema is required — send it in the request body (POST) '
+                + 'or as a URL-encoded JSON ?schema= query param (GET)');
             return;
         }
         const result = registry.checkSchemaCompat(req.params.name, schema);
@@ -149,7 +199,12 @@ function createEventHandlers(deps) {
             (0, _shared_js_1.eventNotFound)(res, req.params.name);
             return;
         }
-        const count = parseInt(req.query.count) || 50;
+        const countParam = (0, _shared_js_1.singleParam)(req, 'count');
+        if (!countParam.ok) {
+            (0, _shared_js_1.badRequest)(res, countParam.error);
+            return;
+        }
+        const count = parseInt(countParam.value ?? '', 10) || 50;
         if (entry.transport === 'signal') {
             const messages = await signal.getHistory(entry.name, count);
             res.json({ messages, transport: 'signal' });
@@ -441,10 +496,15 @@ function createEventHandlers(deps) {
     }
     // wave26-f — bulk export event schemas as JSON archive
     function exportBulk(req, res) {
-        const rawNames = req.query.names;
-        const nameList = typeof rawNames === 'string'
-            ? rawNames.split(',').map(n => n.trim()).filter(Boolean)
-            : [];
+        const namesParam = (0, _shared_js_1.singleParam)(req, 'names');
+        if (!namesParam.ok) {
+            (0, _shared_js_1.badRequest)(res, namesParam.error);
+            return;
+        }
+        const nameList = (namesParam.value ?? '')
+            .split(',')
+            .map(n => n.trim())
+            .filter(Boolean);
         const entries = nameList.length > 0
             ? nameList.map(n => registry.get(n)).filter(Boolean)
             : registry.list();

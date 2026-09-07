@@ -40,6 +40,11 @@ function createRoutes(deps) {
     // wave26-e — MUST be before /events/:name to avoid clash.
     router.get('/events/poisoned', events.listPoisoned);
     router.get('/events/:name', events.get);
+    // POST is the canonical form: the compat check needs a proposed schema,
+    // and a JSON body on a GET is unreachable from a browser and dropped by
+    // plenty of proxies and HTTP clients. The GET route is kept for existing
+    // CI callers and takes the schema as a URL-encoded JSON ?schema= param.
+    router.post('/events/:name/schema/check', events.checkSchema);
     router.get('/events/:name/schema/check', events.checkSchema);
     router.get('/events/:name/stats', events.stats);
     router.get('/events/:name/history', events.history);

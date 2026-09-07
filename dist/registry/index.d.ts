@@ -8,6 +8,13 @@ export declare class Registry implements IRegistry {
     private readonly redis;
     /** wave24-b — map keyed by `${eventName}\x00${serviceName}` → epoch ms. */
     private subscriberHeartbeats;
+    /**
+     * alias name → canonical event name. Built lazily on the first alias
+     * lookup and dropped whenever the event map changes. `resolve()` sits on
+     * the publish hot path and used to walk every entry on the alias branch,
+     * which cost ~24µs on a 5k-event registry — 20x a whole publish.
+     */
+    private aliasIndex;
     constructor(redis?: RedisClientType);
     load(): Promise<void>;
     /**
@@ -29,6 +36,14 @@ export declare class Registry implements IRegistry {
      * record so callers can surface a deprecation warning.
      */
     resolve(name: string): ResolveResult | undefined;
+    /**
+     * Build (or reuse) the alias → canonical-name index. Invalidated by any
+     * change to the event map, so it can never outlive the declarations it
+     * was derived from. Insertion order is preserved, which keeps the
+     * first-declaration-wins behaviour of the old linear scan when two
+     * events declare the same alias.
+     */
+    private getAliasIndex;
     list(filter?: RegistryFilter): RegistryEntry[];
     addSubscriber(eventName: string, serviceName: string): void;
     removeSubscriber(eventName: string, serviceName: string): void;

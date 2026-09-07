@@ -12,15 +12,12 @@
 //   GET    /:name/crd-schema    -> JSON schema for a CRD referencing this bundle
 //   POST   /validate            -> validate a bundle against catalog, return errors[]
 
-import { Router, type Request, type Response } from './http-router.js';
+import { Router, type HttpRouter, type Request, type Response } from './http-router.js';
 import type {
   FeatureBundleRegistry,
   FeatureBundle,
 } from '../bundles/FeatureBundle.js';
-import {
-  validateBundle,
-  getCrdSchema,
-} from '../bundles/FeatureBundle.js';
+import { validateBundle } from '../bundles/FeatureBundle.js';
 import type { IRegistry } from '../registry/types.js';
 
 export interface BundleRoutesDeps {
@@ -30,7 +27,7 @@ export interface BundleRoutesDeps {
   registry: IRegistry;
 }
 
-export function createBundleRoutes(deps: BundleRoutesDeps): Router {
+export function createBundleRoutes(deps: BundleRoutesDeps): HttpRouter {
   const { bundleRegistry, registry } = deps;
   const router = Router();
 
@@ -84,9 +81,9 @@ export function createBundleRoutes(deps: BundleRoutesDeps): Router {
   // Must be registered before /:name to avoid Express matching "crd-schema"
   // as the version segment of /:name/:version.
   router.get('/:name/crd-schema', (req: Request, res: Response) => {
-    // Delegate to the module-level getCrdSchema which reads the same
-    // module-singleton store. For an isolated bundleRegistry we generate
-    // the schema directly from the instance lookup.
+    // Generated directly from the injected bundleRegistry rather than the
+    // module-singleton `getCrdSchema` helper, so an isolated registry
+    // (tests, multi-tenant callers) reports its own bundles.
     const bundle = bundleRegistry.get(req.params.name);
     if (!bundle) {
       res.status(404).json({ error: `Bundle "${req.params.name}" not found` });

@@ -9,7 +9,7 @@
 // `createRoutes` + `RoutesDeps` remain the module's entire public
 // surface — unchanged from when every handler lived inline here.
 
-import { Router } from './http-router.js';
+import { Router, type HttpRouter } from './http-router.js';
 import type { RoutesDeps } from './routes/_shared.js';
 import { createEventHandlers } from './routes/events.js';
 import { createSubscriberHandlers } from './routes/subscribers.js';
@@ -25,7 +25,7 @@ import { createDlqHandlers } from './routes/dlq.js';
 
 export type { RoutesDeps } from './routes/_shared.js';
 
-export function createRoutes(deps: RoutesDeps): Router {
+export function createRoutes(deps: RoutesDeps): HttpRouter {
   const router = Router();
 
   const events = createEventHandlers(deps);
@@ -44,6 +44,11 @@ export function createRoutes(deps: RoutesDeps): Router {
   // wave26-e — MUST be before /events/:name to avoid clash.
   router.get('/events/poisoned', events.listPoisoned);
   router.get('/events/:name', events.get);
+  // POST is the canonical form: the compat check needs a proposed schema,
+  // and a JSON body on a GET is unreachable from a browser and dropped by
+  // plenty of proxies and HTTP clients. The GET route is kept for existing
+  // CI callers and takes the schema as a URL-encoded JSON ?schema= param.
+  router.post('/events/:name/schema/check', events.checkSchema);
   router.get('/events/:name/schema/check', events.checkSchema);
   router.get('/events/:name/stats', events.stats);
   router.get('/events/:name/history', events.history);

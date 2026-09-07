@@ -1,4 +1,3 @@
-import { ulid } from 'ulid';
 import { RetryManager } from 'distributed-core/transport';
 import { Registry } from '../registry/index';
 import { SignalTransport } from './signal';
@@ -20,6 +19,7 @@ import type {
 } from '../types/index';
 import type { ResolveResult } from '../registry/types';
 import { resolveNamespace } from '../registry/namespace';
+import { eventId, nowIso } from '../utils/hot-path';
 
 /**
  * Phase E3.3 — resolve the Redis channel an event publishes on.
@@ -414,7 +414,7 @@ export class EventCatalog {
     }
 
     const metadata: EventMetadata = {
-      id: ulid(),
+      id: eventId(),
       producer: this.config.serviceName,
       timestamp: options?.timestamp ?? Date.now(),
       correlationId: options?.correlationId,
@@ -439,14 +439,6 @@ export class EventCatalog {
       // Phase E3.4 — 'both' fan-out: publish to signal AND durable in
       // parallel. Failure of either propagates after both are attempted so
       // partial deliveries are not silently masked.
-      const queueName = entry.queue ?? DurableTransport.eventNameToQueueName(eventName);
-      // Phase 4.2 — thread the declared durable-side config so
-      // DurableTransport.ensureQueue can PUT the right shape on first publish.
-      const queueOptions = {
-        retention: entry.retention,
-        fifo: entry.fifo,
-        dlqAfterAttempts: entry.dlqAfterAttempts,
-      };
       const sends: Array<Promise<void>> = [];
       if (entry.transport === 'signal' || entry.transport === 'both') {
         // Phase E3.3 — resolve declared `channel` (string, function of
@@ -455,6 +447,17 @@ export class EventCatalog {
         sends.push(this.signal.publish(signalChannel, envelope as EventEnvelope));
       }
       if (entry.transport === 'durable' || entry.transport === 'both') {
+        // Derived here rather than above the branch: the two regex passes in
+        // eventNameToQueueName cost ~7% of a signal-only publish, and the
+        // overwhelming majority of declared events never touch this branch.
+        const queueName = entry.queue ?? DurableTransport.eventNameToQueueName(eventName);
+        // Phase 4.2 — thread the declared durable-side config so
+        // DurableTransport.ensureQueue can PUT the right shape on first publish.
+        const queueOptions = {
+          retention: entry.retention,
+          fifo: entry.fifo,
+          dlqAfterAttempts: entry.dlqAfterAttempts,
+        };
         sends.push(this.durable.publish(queueName, envelope as EventEnvelope, queueOptions));
       }
       const results = await Promise.allSettled(sends);
@@ -464,7 +467,7 @@ export class EventCatalog {
       }
 
       this.registry.updateStats(eventName, {
-        lastPublishedAt: new Date().toISOString(),
+        lastPublishedAt: nowIso(),
         publishCount: (entry.metadata.publishCount ?? 0) + 1,
       });
 
@@ -550,7 +553,7 @@ export class EventCatalog {
 
     const timestamp = options?.timestamp !== undefined
       ? new Date(options.timestamp).toISOString()
-      : new Date().toISOString();
+      : nowIso();
 
     const envelope = buildChannelMessageEnvelope({
       channel: channelId,
@@ -568,7 +571,7 @@ export class EventCatalog {
 
     if (entry) {
       this.registry.updateStats(eventName, {
-        lastPublishedAt: new Date().toISOString(),
+        lastPublishedAt: nowIso(),
         publishCount: (entry.metadata.publishCount ?? 0) + 1,
       });
     }

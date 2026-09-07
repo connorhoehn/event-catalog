@@ -1,37 +1,92 @@
 import { test, expect } from '@playwright/test';
+import { trackPageErrors } from './helpers';
 
 /**
- * Admin UI smoke tests — 4 golden-path assertions:
- *  a) Dashboard shows 3 registered events
- *  b) Event detail view shows event name + Schema section
- *  c) Topology view renders ReactFlow nodes
- *  d) Transports page shows redis + message-queue headings
+ * Golden-path smoke over the real server + the real built admin bundle.
  *
- * The test server in tests/e2e/test-server.ts boots an in-memory
- * Express app (no Redis, no SQS) seeded with 3 events.
+ * Fixture (tests/e2e/test-server.ts): 4 events across 2 namespaces, 6
+ * services, one orphan event with no subscribers.
  */
 
-test('(a) dashboard shows 3 registered events', async ({ page }) => {
+test('dashboard rolls up the registry the server actually serves', async ({ page, request }) => {
+  const assertNoErrors = trackPageErrors(page);
   await page.goto('/');
-  const eventsCard = page.locator('.stat-card').filter({ hasText: 'Registered Events' });
-  await expect(eventsCard.locator('.stat-value')).toHaveText('3', { timeout: 10_000 });
+
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+
+  // The counts on the cards must agree with GET /api/events, not with a
+  // number hard-coded here — that keeps the assertion meaningful if the
+  // fixture grows.
+  const events = (await (await request.get('/api/events')).json()).events as Array<{
+    transport: string;
+    producer: string;
+  }>;
+  const signal = events.filter(e => e.transport === 'signal').length;
+  const durable = events.filter(e => e.transport === 'durable').length;
+  const producers = new Set(events.map(e => e.producer)).size;
+
+  await expect(page.getByText('Registered Events').locator('..')).toContainText(String(events.length));
+  await expect(page.getByText('Signal (Ephemeral)').locator('..')).toContainText(String(signal));
+  await expect(page.getByText('Durable (At-Least-Once)').locator('..')).toContainText(String(durable));
+  await expect(page.getByText('Services', { exact: true }).locator('..')).toContainText(String(producers));
+
+  // test.beta is the fixture's orphan; the lifecycle rollup must notice.
+  await expect(page.getByText('Orphans (no subscribers)')).toBeVisible();
+
+  assertNoErrors();
 });
 
-test('(b) event detail view shows event name and schema', async ({ page }) => {
-  await page.goto('/events/test.alpha');
-  await expect(page.locator('h2').filter({ hasText: 'test.alpha' })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('heading', { name: 'Schema' })).toBeVisible({ timeout: 10_000 });
+test('event detail deep-link survives the SPA fallback and shows the schema', async ({ page }) => {
+  const assertNoErrors = trackPageErrors(page);
+  // A hard navigation to a nested path — this only works if the server's
+  // SPA fallback serves index.html for unknown paths.
+  await page.goto('/events/billing.invoice.paid');
+
+  await expect(page.getByRole('heading', { name: 'billing.invoice.paid' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Schema' })).toBeVisible();
+  // The schema body is the real declaration served by GET /api/events/:name.
+  await expect(page.getByText('invoiceId')).toBeVisible();
+  await expect(page.getByText('amountCents')).toBeVisible();
+
+  assertNoErrors();
 });
 
-test('(c) topology view renders nodes for declared events', async ({ page }) => {
-  await page.goto('/topology');
-  // "Event Topology" heading + "3 events" chip confirm the topology data loaded.
-  await expect(page.getByRole('heading', { name: 'Event Topology' })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('3 events')).toBeVisible({ timeout: 15_000 });
-});
-
-test('(d) transports page shows redis and message-queue transport headings', async ({ page }) => {
+test('transports view reports both transport backends as connected', async ({ page }) => {
+  const assertNoErrors = trackPageErrors(page);
   await page.goto('/health');
-  await expect(page.getByText('Redis (Signal Transport)')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Message Queue (Durable Transport)')).toBeVisible({ timeout: 10_000 });
+
+  await expect(page.getByText('Redis (Signal Transport)')).toBeVisible();
+  await expect(page.getByText('Message Queue (Durable Transport)')).toBeVisible();
+
+  assertNoErrors();
+});
+
+test('every nav destination renders without an uncaught error', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', err => errors.push(`${page.url()} :: ${err.message}`));
+
+  const routes = [
+    '/',
+    '/events',
+    '/namespaces',
+    '/declarations',
+    '/topology',
+    '/flow',
+    '/audit',
+    '/subscribers',
+    '/live',
+    '/dlq',
+    '/health',
+  ];
+
+  for (const route of routes) {
+    await page.goto(route);
+    // The sidebar is the shell; if React tore the tree down it goes with it.
+    await expect(page.getByRole('heading', { name: 'Event Catalog' })).toBeVisible();
+    // Each view owns an <h2>; waiting on one proves the lazy chunk resolved
+    // and the route rendered rather than sitting on the Suspense skeleton.
+    await expect(page.locator('main h2').first()).toBeVisible();
+  }
+
+  expect(errors).toEqual([]);
 });

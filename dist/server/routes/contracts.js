@@ -50,7 +50,7 @@ function createContractHandlers(deps) {
     //       { "name": "missing.event",        "status": "unknown", "localFingerprint": "xyz...", "remoteFingerprint": null }
     //   ] }
     function freshness(req, res) {
-        const events = req.body?.events;
+        const events = (0, _shared_js_1.jsonBody)(req)?.events;
         if (!Array.isArray(events)) {
             (0, _shared_js_1.badRequest)(res, 'body.events must be an array of { name, fingerprint }');
             return;

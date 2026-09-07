@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-07T13:02:57.316Z
+// Generated at: 2026-09-07T13:28:22.584Z
 
 // prettier-ignore-file
 /* eslint-disable */

@@ -6,7 +6,7 @@
 
 import type { Request, Response } from '../http-router.js';
 import { buildAsyncApiSpec } from '../asyncapi.js';
-import { badRequest, stringParam, type RoutesDeps } from './_shared.js';
+import { badRequest, jsonBody, stringParam, type RoutesDeps } from './_shared.js';
 
 export function createContractHandlers(deps: RoutesDeps) {
   const { registry } = deps;
@@ -53,7 +53,7 @@ export function createContractHandlers(deps: RoutesDeps) {
   //       { "name": "missing.event",        "status": "unknown", "localFingerprint": "xyz...", "remoteFingerprint": null }
   //   ] }
   function freshness(req: Request, res: Response): void {
-    const events = req.body?.events;
+    const events = jsonBody(req)?.events;
     if (!Array.isArray(events)) {
       badRequest(res, 'body.events must be an array of { name, fingerprint }');
       return;

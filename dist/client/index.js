@@ -1,13 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventCatalog = void 0;
-const ulid_1 = require("ulid");
 const transport_1 = require("distributed-core/transport");
 const index_1 = require("../registry/index");
 const signal_1 = require("./signal");
 const durable_1 = require("./durable");
 const envelopes_1 = require("../types/envelopes");
 const namespace_1 = require("../registry/namespace");
+const hot_path_1 = require("../utils/hot-path");
 /**
  * Phase E3.3 — resolve the Redis channel an event publishes on.
  *
@@ -362,7 +362,7 @@ class EventCatalog {
             }
         }
         const metadata = {
-            id: (0, ulid_1.ulid)(),
+            id: (0, hot_path_1.eventId)(),
             producer: this.config.serviceName,
             timestamp: options?.timestamp ?? Date.now(),
             correlationId: options?.correlationId,
@@ -384,14 +384,6 @@ class EventCatalog {
             // Phase E3.4 — 'both' fan-out: publish to signal AND durable in
             // parallel. Failure of either propagates after both are attempted so
             // partial deliveries are not silently masked.
-            const queueName = entry.queue ?? durable_1.DurableTransport.eventNameToQueueName(eventName);
-            // Phase 4.2 — thread the declared durable-side config so
-            // DurableTransport.ensureQueue can PUT the right shape on first publish.
-            const queueOptions = {
-                retention: entry.retention,
-                fifo: entry.fifo,
-                dlqAfterAttempts: entry.dlqAfterAttempts,
-            };
             const sends = [];
             if (entry.transport === 'signal' || entry.transport === 'both') {
                 // Phase E3.3 — resolve declared `channel` (string, function of
@@ -400,6 +392,17 @@ class EventCatalog {
                 sends.push(this.signal.publish(signalChannel, envelope));
             }
             if (entry.transport === 'durable' || entry.transport === 'both') {
+                // Derived here rather than above the branch: the two regex passes in
+                // eventNameToQueueName cost ~7% of a signal-only publish, and the
+                // overwhelming majority of declared events never touch this branch.
+                const queueName = entry.queue ?? durable_1.DurableTransport.eventNameToQueueName(eventName);
+                // Phase 4.2 — thread the declared durable-side config so
+                // DurableTransport.ensureQueue can PUT the right shape on first publish.
+                const queueOptions = {
+                    retention: entry.retention,
+                    fifo: entry.fifo,
+                    dlqAfterAttempts: entry.dlqAfterAttempts,
+                };
                 sends.push(this.durable.publish(queueName, envelope, queueOptions));
             }
             const results = await Promise.allSettled(sends);
@@ -408,7 +411,7 @@ class EventCatalog {
                 throw rejection.reason;
             }
             this.registry.updateStats(eventName, {
-                lastPublishedAt: new Date().toISOString(),
+                lastPublishedAt: (0, hot_path_1.nowIso)(),
                 publishCount: (entry.metadata.publishCount ?? 0) + 1,
             });
             // Phase 20-c — afterPublish hooks. Informational. Exceptions are
@@ -478,7 +481,7 @@ class EventCatalog {
         }
         const timestamp = options?.timestamp !== undefined
             ? new Date(options.timestamp).toISOString()
-            : new Date().toISOString();
+            : (0, hot_path_1.nowIso)();
         const envelope = (0, envelopes_1.buildChannelMessageEnvelope)({
             channel: channelId,
             message: (0, envelopes_1.buildSignalMessage)({
@@ -493,7 +496,7 @@ class EventCatalog {
         const delivered = await this.signal.publishChannelMessage(channelId, envelope);
         if (entry) {
             this.registry.updateStats(eventName, {
-                lastPublishedAt: new Date().toISOString(),
+                lastPublishedAt: (0, hot_path_1.nowIso)(),
                 publishCount: (entry.metadata.publishCount ?? 0) + 1,
             });
         }

@@ -159,18 +159,99 @@ export const COMMON_FIELDS: FieldGlossary = {
   href: 'Destination URL the notification action navigates to.',
 };
 
+// ---------------------------------------------------------------------------
+// Formats
+// ---------------------------------------------------------------------------
+//
+// The same idea as COMMON_FIELDS, one level down: a recurring field name whose
+// STRING VALUES have a documented lexical shape gets that shape stated in the
+// schema instead of only in the prose. 137 `at`/`timestamp`/`…At` fields say
+// "ISO-8601 timestamp" in their description and then declare nothing but
+// `type: 'string'`; a generated AsyncAPI/OpenAPI doc, a codegen consumer, or a
+// human reading the contract has no way to act on the prose.
+//
+// IS THIS BREAKING?
+// -----------------
+// No, and that is established empirically rather than assumed — see
+// `tests/declaration-format-enforcement.test.ts`. The short version:
+// `Registry.validate()` (the publish gate, src/registry/index.ts) delegates to
+// distributed-core's `JsonSchemaValidator` with `mode: 'auto'`, which uses ajv
+// only when `ajv` resolves. `ajv` is not installed here, is not a dependency of
+// this repo, and distributed-core documents that it "MUST NOT depend on `ajv`
+// at runtime". The hand-rolled fallback that actually runs implements exactly
+// type / enum / properties / required / pattern / items / additionalProperties
+// / minimum / maximum / minLength / maxLength / minItems / maxItems. `format`
+// is not in that list, so stamping it cannot reject a payload that validates
+// today. The registry's own compat gate reasons only about `required`, so an
+// added `format` is also compatible under `full` mode.
+//
+// The corollary is the risk to watch: if someone installs `ajv` WITHOUT
+// `ajv-formats`, ajv v8 throws "unknown format" at compile time and
+// `validateWithAjv` turns that into a hard failure for EVERY payload of the
+// affected event. The enforcement test asserts ajv is absent so that day is
+// loud rather than silent.
+//
+// SCOPE
+// -----
+// Only names whose every occurrence is already documented as ISO-8601 or as a
+// URL are listed. Deliberately excluded:
+//   - `requestedAt` / `decidedAt` / `resolvedAt` — epoch milliseconds, `number`.
+//   - `emittedAt` / `lastHeartbeat` — typed `number` but described as ISO-8601.
+//     That contradiction is a real defect, but resolving it means changing a
+//     `type`, which IS breaking. Recorded in the hygiene test's known-gaps list.
+// Stamping is guarded on the property actually being a string, so a name that
+// later appears as a number is skipped rather than mislabelled.
+
+/** Field name (or dotted path) → the JSON Schema `format` its string values take. */
+export type FormatGlossary = Readonly<Record<string, string>>;
+
 /**
- * Recursively stamp glossary descriptions onto a JSON Schema, in place.
+ * Cross-namespace lexical formats. Same lookup rules as {@link COMMON_FIELDS}:
+ * dotted path beats bare name, a module-local glossary beats this one.
+ */
+export const COMMON_FORMATS: FormatGlossary = {
+  // --- ISO-8601 instants --------------------------------------------------
+  at: 'date-time',
+  timestamp: 'date-time',
+  startedAt: 'date-time',
+  openedAt: 'date-time',
+  expiresAt: 'date-time',
+  joinedAt: 'date-time',
+  lastEventAt: 'date-time',
+  lastSeen: 'date-time',
+  lastHeartbeatAt: 'date-time',
+
+  // --- URLs ---------------------------------------------------------------
+  transcriptUrl: 'uri',
+  downloadUrl: 'uri',
+  presignedUrl: 'uri',
+  href: 'uri',
+};
+
+/** True when a sub-schema's `type` admits a string (`'string'` or `['string','null']`). */
+function admitsString(sub: Record<string, unknown>): boolean {
+  const t = sub.type;
+  if (typeof t === 'string') return t === 'string';
+  if (Array.isArray(t)) return t.includes('string');
+  return false;
+}
+
+/**
+ * Recursively stamp glossary descriptions (and lexical formats) onto a JSON
+ * Schema, in place.
  *
- * Only fills a `description` that is absent — never overwrites. Descends
- * `properties`, `items`, and object-valued `additionalProperties`; array
- * hops do not add a path segment, so `payload.notifications[].title`
- * resolves as `payload.notifications.title`.
+ * Only fills a `description` or a `format` that is absent — never overwrites.
+ * A `format` is additionally guarded on the sub-schema admitting a string, so
+ * a name that is ISO-8601 in one event and epoch-millis in another is only
+ * stamped where it is actually a string. Descends `properties`, `items`, and
+ * object-valued `additionalProperties`; array hops do not add a path segment,
+ * so `payload.notifications[].title` resolves as `payload.notifications.title`.
  */
 export function annotateSchema(
   schema: unknown,
   glossary: FieldGlossary,
   path = '',
+  formats: FormatGlossary = {},
 ): void {
   if (schema === null || typeof schema !== 'object' || Array.isArray(schema)) return;
   const s = schema as Record<string, unknown>;
@@ -185,21 +266,25 @@ export function annotateSchema(
         const described = glossary[childPath] ?? glossary[key];
         if (described !== undefined) child.description = described;
       }
-      annotateSchema(child, glossary, childPath);
+      if (child.format === undefined && admitsString(child)) {
+        const format = formats[childPath] ?? formats[key];
+        if (format !== undefined) child.format = format;
+      }
+      annotateSchema(child, glossary, childPath, formats);
     }
   }
 
   // items — a single schema or a positional tuple. Neither adds a path hop.
   const items = s.items;
   if (Array.isArray(items)) {
-    for (const entry of items) annotateSchema(entry, glossary, path);
+    for (const entry of items) annotateSchema(entry, glossary, path, formats);
   } else if (items !== null && typeof items === 'object') {
-    annotateSchema(items, glossary, path);
+    annotateSchema(items, glossary, path, formats);
   }
 
   const addl = s.additionalProperties;
   if (addl !== null && typeof addl === 'object' && !Array.isArray(addl)) {
-    annotateSchema(addl, glossary, path);
+    annotateSchema(addl, glossary, path, formats);
   }
 }
 
@@ -218,8 +303,10 @@ export function annotateSchema(
 export function annotateDeclarations<T extends readonly EventDeclaration[]>(
   decls: T,
   glossary: FieldGlossary = {},
+  formats: FormatGlossary = {},
 ): T {
   const merged: FieldGlossary = { ...COMMON_FIELDS, ...glossary };
-  for (const decl of decls) annotateSchema(decl.schema, merged);
+  const mergedFormats: FormatGlossary = { ...COMMON_FORMATS, ...formats };
+  for (const decl of decls) annotateSchema(decl.schema, merged, '', mergedFormats);
   return decls;
 }

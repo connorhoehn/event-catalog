@@ -1,0 +1,20 @@
+{
+  // Typecheck-only config. The base tsconfig.json is the *emit* config:
+  // its `exclude` list is what keeps `npm run build` writing exactly the
+  // dist/ tree that is committed to this repo (src/server and src/cli are
+  // emitted by `npm run build:cli` instead, from its own entry-point graph,
+  // and src/admin has its own Vite build). Widening the base config would
+  // silently change dist/ — so the wider *check* lives here instead.
+  //
+  // This config covers ALL of src/** except src/admin (browser-targeted,
+  // own tsconfig + own build). Run via `npm run lint:all`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "src/admin", "**/*.test.ts"]
+}

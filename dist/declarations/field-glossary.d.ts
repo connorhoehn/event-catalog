@@ -7,15 +7,25 @@ export type FieldGlossary = Readonly<Record<string, string>>;
  * in that module's local glossary instead.
  */
 export declare const COMMON_FIELDS: FieldGlossary;
+/** Field name (or dotted path) → the JSON Schema `format` its string values take. */
+export type FormatGlossary = Readonly<Record<string, string>>;
 /**
- * Recursively stamp glossary descriptions onto a JSON Schema, in place.
- *
- * Only fills a `description` that is absent — never overwrites. Descends
- * `properties`, `items`, and object-valued `additionalProperties`; array
- * hops do not add a path segment, so `payload.notifications[].title`
- * resolves as `payload.notifications.title`.
+ * Cross-namespace lexical formats. Same lookup rules as {@link COMMON_FIELDS}:
+ * dotted path beats bare name, a module-local glossary beats this one.
  */
-export declare function annotateSchema(schema: unknown, glossary: FieldGlossary, path?: string): void;
+export declare const COMMON_FORMATS: FormatGlossary;
+/**
+ * Recursively stamp glossary descriptions (and lexical formats) onto a JSON
+ * Schema, in place.
+ *
+ * Only fills a `description` or a `format` that is absent — never overwrites.
+ * A `format` is additionally guarded on the sub-schema admitting a string, so
+ * a name that is ISO-8601 in one event and epoch-millis in another is only
+ * stamped where it is actually a string. Descends `properties`, `items`, and
+ * object-valued `additionalProperties`; array hops do not add a path segment,
+ * so `payload.notifications[].title` resolves as `payload.notifications.title`.
+ */
+export declare function annotateSchema(schema: unknown, glossary: FieldGlossary, path?: string, formats?: FormatGlossary): void;
 /**
  * Annotate every declaration in `decls` and return the same array.
  *
@@ -28,5 +38,5 @@ export declare function annotateSchema(schema: unknown, glossary: FieldGlossary,
  * so consumers importing either the array or an individual constant see the
  * annotated schema.
  */
-export declare function annotateDeclarations<T extends readonly EventDeclaration[]>(decls: T, glossary?: FieldGlossary): T;
+export declare function annotateDeclarations<T extends readonly EventDeclaration[]>(decls: T, glossary?: FieldGlossary, formats?: FormatGlossary): T;
 //# sourceMappingURL=field-glossary.d.ts.map

@@ -10,14 +10,14 @@
 
 import type { Request, Response } from '../http-router.js';
 import type { ManifestStore } from '../manifest-store.js';
-import { badRequest, type RoutesDeps } from './_shared.js';
+import { badRequest, jsonBody, type RoutesDeps } from './_shared.js';
 
 export function createManifestHandlers(deps: RoutesDeps, manifestStore: ManifestStore) {
   const { registry } = deps;
 
   async function put(req: Request, res: Response): Promise<void> {
     const consumerName = req.params.consumerName;
-    const events = req.body?.events;
+    const events = jsonBody(req)?.events;
     if (!Array.isArray(events)) {
       badRequest(res, 'body.events must be an array of { name, fingerprint }');
       return;

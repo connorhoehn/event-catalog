@@ -105,6 +105,15 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/RegistryEntry' }
                   total: { type: integer }
+        '400':
+          description: |
+            A filter was repeated (`?transport=a&transport=b`) or
+            `transport` was outside the enum. Every filter here is
+            single-valued; the repeated form used to be cast straight
+            through and silently returned an empty list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
     post:
       tags: [events]
       summary: Declare an event (with optional compat gate)
@@ -280,13 +289,16 @@ paths:
         name: name
         required: true
         schema: { type: string }
-    get:
+    post:
       tags: [events]
       summary: Dry-run schema compat check (no mutation)
       description: |
         Checks a proposed schema against the registered schema's
         `compatibilityMode` without applying. Useful for CI gates that
         want to fail before merge.
+
+        This is the canonical form of the check. The `get` variant below
+        exists only for callers that predate it.
       requestBody:
         required: true
         content:
@@ -303,7 +315,41 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/CompatCheckResponse' }
         '400':
-          description: Missing schema in body
+          description: Missing or non-object schema
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Event not declared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      tags: [events]
+      summary: Dry-run schema compat check (query-param form)
+      deprecated: true
+      description: |
+        Same check as `POST`, with the proposed schema supplied as a
+        URL-encoded JSON `?schema=` parameter.
+
+        This route originally required a JSON request body on a `GET`,
+        which browsers cannot send and many proxies and HTTP clients
+        drop — the check was unreachable for those callers. Prefer
+        `POST`; a request body is still honored here for back-compat.
+      parameters:
+        - in: query
+          name: schema
+          required: true
+          schema: { type: string }
+          description: URL-encoded JSON Schema (draft-07) object.
+      responses:
+        '200':
+          description: Compat result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompatCheckResponse' }
+        '400':
+          description: Missing, unparseable, or non-object schema
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }

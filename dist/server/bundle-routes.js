@@ -66,9 +66,9 @@ function createBundleRoutes(deps) {
     // Must be registered before /:name to avoid Express matching "crd-schema"
     // as the version segment of /:name/:version.
     router.get('/:name/crd-schema', (req, res) => {
-        // Delegate to the module-level getCrdSchema which reads the same
-        // module-singleton store. For an isolated bundleRegistry we generate
-        // the schema directly from the instance lookup.
+        // Generated directly from the injected bundleRegistry rather than the
+        // module-singleton `getCrdSchema` helper, so an isolated registry
+        // (tests, multi-tenant callers) reports its own bundles.
         const bundle = bundleRegistry.get(req.params.name);
         if (!bundle) {
             res.status(404).json({ error: `Bundle "${req.params.name}" not found` });

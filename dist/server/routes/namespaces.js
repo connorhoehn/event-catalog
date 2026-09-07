@@ -27,7 +27,7 @@ function createNamespaceHandlers(deps) {
     // transport + deprecated bool) so a single round-trip powers the
     // drill-down view.
     function summary(req, res) {
-        const detail = req.query.detail === 'full';
+        const detail = (0, _shared_js_1.stringParam)(req, 'detail') === 'full';
         const rows = new Map();
         for (const entry of registry.list()) {
             const ns = entry.namespace;
@@ -90,14 +90,18 @@ function createNamespaceHandlers(deps) {
     // filters AND-combine to restrict which events (and induced services) appear
     // in the returned subgraph. No filter ⇒ full topology.
     function topology(req, res) {
-        const filter = {
-            producer: (0, _shared_js_1.stringParam)(req, 'producer'),
-            consumer: (0, _shared_js_1.stringParam)(req, 'consumer'),
-            eventType: (0, _shared_js_1.stringParam)(req, 'eventType'),
-            transport: (0, _shared_js_1.stringParam)(req, 'transport'),
+        // A repeated key used to collapse to `undefined` here, which silently
+        // widened the subgraph back to the full topology instead of erroring.
+        const filter = (0, _shared_js_1.resolveParams)(res, {
+            producer: (0, _shared_js_1.singleParam)(req, 'producer'),
+            consumer: (0, _shared_js_1.singleParam)(req, 'consumer'),
+            eventType: (0, _shared_js_1.singleParam)(req, 'eventType'),
+            transport: (0, _shared_js_1.singleParam)(req, 'transport'),
             // Phase E7 — namespace filter on the topology subgraph.
-            namespace: (0, _shared_js_1.stringParam)(req, 'namespace'),
-        };
+            namespace: (0, _shared_js_1.singleParam)(req, 'namespace'),
+        });
+        if (!filter)
+            return;
         const anyFilter = filter.producer || filter.consumer || filter.eventType || filter.transport || filter.namespace;
         res.json(registry.getTopology(anyFilter ? filter : undefined));
     }

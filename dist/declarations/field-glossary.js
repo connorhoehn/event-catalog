@@ -41,7 +41,7 @@
 // discriminator" in ag-ui.ts and "WebSocket frame type" in gateway-signal.ts
 // without either module lying about the other.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.COMMON_FIELDS = void 0;
+exports.COMMON_FORMATS = exports.COMMON_FIELDS = void 0;
 exports.annotateSchema = annotateSchema;
 exports.annotateDeclarations = annotateDeclarations;
 /**
@@ -151,14 +151,47 @@ exports.COMMON_FIELDS = {
     href: 'Destination URL the notification action navigates to.',
 };
 /**
- * Recursively stamp glossary descriptions onto a JSON Schema, in place.
- *
- * Only fills a `description` that is absent — never overwrites. Descends
- * `properties`, `items`, and object-valued `additionalProperties`; array
- * hops do not add a path segment, so `payload.notifications[].title`
- * resolves as `payload.notifications.title`.
+ * Cross-namespace lexical formats. Same lookup rules as {@link COMMON_FIELDS}:
+ * dotted path beats bare name, a module-local glossary beats this one.
  */
-function annotateSchema(schema, glossary, path = '') {
+exports.COMMON_FORMATS = {
+    // --- ISO-8601 instants --------------------------------------------------
+    at: 'date-time',
+    timestamp: 'date-time',
+    startedAt: 'date-time',
+    openedAt: 'date-time',
+    expiresAt: 'date-time',
+    joinedAt: 'date-time',
+    lastEventAt: 'date-time',
+    lastSeen: 'date-time',
+    lastHeartbeatAt: 'date-time',
+    // --- URLs ---------------------------------------------------------------
+    transcriptUrl: 'uri',
+    downloadUrl: 'uri',
+    presignedUrl: 'uri',
+    href: 'uri',
+};
+/** True when a sub-schema's `type` admits a string (`'string'` or `['string','null']`). */
+function admitsString(sub) {
+    const t = sub.type;
+    if (typeof t === 'string')
+        return t === 'string';
+    if (Array.isArray(t))
+        return t.includes('string');
+    return false;
+}
+/**
+ * Recursively stamp glossary descriptions (and lexical formats) onto a JSON
+ * Schema, in place.
+ *
+ * Only fills a `description` or a `format` that is absent — never overwrites.
+ * A `format` is additionally guarded on the sub-schema admitting a string, so
+ * a name that is ISO-8601 in one event and epoch-millis in another is only
+ * stamped where it is actually a string. Descends `properties`, `items`, and
+ * object-valued `additionalProperties`; array hops do not add a path segment,
+ * so `payload.notifications[].title` resolves as `payload.notifications.title`.
+ */
+function annotateSchema(schema, glossary, path = '', formats = {}) {
     if (schema === null || typeof schema !== 'object' || Array.isArray(schema))
         return;
     const s = schema;
@@ -174,21 +207,26 @@ function annotateSchema(schema, glossary, path = '') {
                 if (described !== undefined)
                     child.description = described;
             }
-            annotateSchema(child, glossary, childPath);
+            if (child.format === undefined && admitsString(child)) {
+                const format = formats[childPath] ?? formats[key];
+                if (format !== undefined)
+                    child.format = format;
+            }
+            annotateSchema(child, glossary, childPath, formats);
         }
     }
     // items — a single schema or a positional tuple. Neither adds a path hop.
     const items = s.items;
     if (Array.isArray(items)) {
         for (const entry of items)
-            annotateSchema(entry, glossary, path);
+            annotateSchema(entry, glossary, path, formats);
     }
     else if (items !== null && typeof items === 'object') {
-        annotateSchema(items, glossary, path);
+        annotateSchema(items, glossary, path, formats);
     }
     const addl = s.additionalProperties;
     if (addl !== null && typeof addl === 'object' && !Array.isArray(addl)) {
-        annotateSchema(addl, glossary, path);
+        annotateSchema(addl, glossary, path, formats);
     }
 }
 /**
@@ -203,10 +241,11 @@ function annotateSchema(schema, glossary, path = '') {
  * so consumers importing either the array or an individual constant see the
  * annotated schema.
  */
-function annotateDeclarations(decls, glossary = {}) {
+function annotateDeclarations(decls, glossary = {}, formats = {}) {
     const merged = { ...exports.COMMON_FIELDS, ...glossary };
+    const mergedFormats = { ...exports.COMMON_FORMATS, ...formats };
     for (const decl of decls)
-        annotateSchema(decl.schema, merged);
+        annotateSchema(decl.schema, merged, '', mergedFormats);
     return decls;
 }
 //# sourceMappingURL=field-glossary.js.map

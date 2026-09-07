@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.REQUEST_BODY_LIMITS = exports.BODY_READ_TIMEOUT_MS = exports.MAX_REQUEST_BODY_BYTES = void 0;
 exports.buildDeadLetterCallback = buildDeadLetterCallback;
 exports.startServer = startServer;
 const server_1 = require("distributed-core/server");
@@ -29,9 +30,44 @@ const poison_detector_js_1 = require("./poison-detector.js");
 const registry_coordinator_js_1 = require("./registry-coordinator.js");
 const node_fs_1 = require("node:fs");
 const redis_boot_strategy_js_1 = require("../utils/redis-boot-strategy.js");
+/**
+ * Hard cap on a request body, in bytes. Matches the `express.json({ limit:
+ * '1mb' })` the server ran with before the AdmissionHttpServer move. Nothing
+ * this API accepts is close to 1 MiB — the largest legitimate body is a bulk
+ * declare — so the cap is purely an OOM guard.
+ *
+ * Exported so the test suite can drive a body of exactly this size + 1 and
+ * assert the rejection, rather than trusting the config key spelling. It was
+ * previously passed as `maxBodyBytes`, which is not a key of
+ * `BodyLimitsConfig`; it was silently dropped and the server ran on
+ * distributed-core's 16 MiB `DEFAULT_MAX_BODY_BYTES` instead.
+ */
+exports.MAX_REQUEST_BODY_BYTES = 1_048_576;
+/**
+ * Slow-loris cutoff for reading a request body. Pinned explicitly at the
+ * value distributed-core currently defaults to, so an upstream change to
+ * `DEFAULT_READ_TIMEOUT_MS` can't quietly move this server's threshold the
+ * way the dropped body cap did.
+ */
+exports.BODY_READ_TIMEOUT_MS = 30_000;
+/**
+ * The exact `bodyLimits` object handed to AdmissionHttpServer. Annotated as
+ * `BodyLimitsConfig` so a misspelled key is a compile error rather than a
+ * silently ignored property, and exported so `tests/server-body-limits.test.ts`
+ * can bind a server with THIS object and prove the cap is enforced.
+ */
+exports.REQUEST_BODY_LIMITS = {
+    maxBytes: exports.MAX_REQUEST_BODY_BYTES,
+    readTimeoutMs: exports.BODY_READ_TIMEOUT_MS,
+};
+// This module compiles to CommonJS (package.json declares no "type", and
+// tsconfig targets module: node16), so `import.meta` is unavailable — every
+// path below is resolved from `__dirname` instead. Under Vitest the module
+// is transformed by vite-node, which injects `__dirname` as well, so the
+// same expression works in tests.
 function readServiceVersion() {
     try {
-        const pkgPath = new URL('../../package.json', import.meta.url).pathname;
+        const pkgPath = (0, node_path_1.join)(__dirname, '../../package.json');
         const pkg = JSON.parse((0, node_fs_1.readFileSync)(pkgPath, 'utf8'));
         return pkg.version ?? '0.0.0';
     }
@@ -222,7 +258,7 @@ async function startServer(config = {}) {
     ];
     // Static admin UI (production build) via distributed-core's serveStatic;
     // unmatched GETs fall through to the SPA's index.html.
-    const adminDistDir = new URL('../admin/dist', import.meta.url).pathname;
+    const adminDistDir = (0, node_path_1.join)(__dirname, '../admin/dist');
     const staticHandler = (0, server_1.serveStatic)({ staticDir: adminDistDir });
     const spaIndexPath = (0, node_path_1.join)(adminDistDir, 'index.html');
     /**
@@ -373,14 +409,17 @@ async function startServer(config = {}) {
         metrics.tickRateHistory();
     }, 15_000);
     // Start listening — distributed-core's AdmissionHttpServer is the HTTP
-    // transport: bounded body reads (1 MiB, matching the old express.json
-    // limit), slow-loris read timeouts, and in-flight admission control.
+    // transport: bounded body reads (MAX_REQUEST_BODY_BYTES, matching the old
+    // express.json limit), slow-loris read timeouts, and in-flight admission
+    // control. Both limit keys are spelled out against BodyLimitsConfig; an
+    // unknown key here is a silent no-op at runtime, so the typecheck over
+    // src/server (npm run lint:all) is what keeps this honest.
     const admission = new server_1.AdmissionHttpServer({
         port,
         // Bind all interfaces (AdmissionHttpServer defaults to 127.0.0.1,
         // which would break the Docker deployment).
         hostname: process.env.HOST ?? '0.0.0.0',
-        bodyLimits: { maxBodyBytes: 1_048_576 },
+        bodyLimits: exports.REQUEST_BODY_LIMITS,
         onRequest,
         onError: err => {
             console.warn('[server] unhandled request error:', err.message);

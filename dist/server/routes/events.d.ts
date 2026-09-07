@@ -1,7 +1,7 @@
 import type { Request, Response } from '../http-router.js';
 import { type RoutesDeps } from './_shared.js';
 export declare function createEventHandlers(deps: RoutesDeps): {
-    list: (_req: Request, res: Response) => void;
+    list: (req: Request, res: Response) => void;
     listPoisoned: (_req: Request, res: Response) => void;
     get: (req: Request, res: Response) => void;
     checkSchema: (req: Request, res: Response) => void;

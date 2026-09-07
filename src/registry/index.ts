@@ -14,6 +14,11 @@ function producerList(producer: string | string[]): string[] {
   return Array.isArray(producer) ? producer : [producer];
 }
 
+/** Membership test on the string-or-array `producer` field, allocation-free. */
+function hasProducer(producer: string | string[], candidate: string): boolean {
+  return Array.isArray(producer) ? producer.includes(candidate) : producer === candidate;
+}
+
 /**
  * AND-combine TopologyFilter predicates against a single registry entry.
  * Empty/missing filter returns true (no filter ⇒ include everything).
@@ -23,7 +28,7 @@ function matchesTopologyFilter(entry: RegistryEntry, filter?: TopologyFilter): b
   if (!filter) return true;
   if (filter.eventType && entry.name !== filter.eventType) return false;
   if (filter.transport && entry.transport !== filter.transport) return false;
-  if (filter.producer && !producerList(entry.producer).includes(filter.producer)) return false;
+  if (filter.producer && !hasProducer(entry.producer, filter.producer)) return false;
   if (filter.consumer && !entry.subscribers.includes(filter.consumer)) return false;
   // Phase E7 — namespace filter on the topology graph.
   if (filter.namespace && entry.namespace !== filter.namespace) return false;
@@ -44,6 +49,13 @@ export class Registry implements IRegistry {
   private readonly redis: RedisClientType | null;
   /** wave24-b — map keyed by `${eventName}\x00${serviceName}` → epoch ms. */
   private subscriberHeartbeats = new Map<string, number>();
+  /**
+   * alias name → canonical event name. Built lazily on the first alias
+   * lookup and dropped whenever the event map changes. `resolve()` sits on
+   * the publish hot path and used to walk every entry on the alias branch,
+   * which cost ~24µs on a 5k-event registry — 20x a whole publish.
+   */
+  private aliasIndex: Map<string, string> | null = null;
 
   constructor(redis?: RedisClientType) {
     this.schemaValidator = new JsonSchemaValidator({ mode: 'auto' });
@@ -56,6 +68,7 @@ export class Registry implements IRegistry {
     for (const [name, json] of Object.entries(entries)) {
       this.events.set(name, JSON.parse(json) as RegistryEntry);
     }
+    this.aliasIndex = null;
     this.migrateHistoryFingerprints();
   }
 
@@ -175,6 +188,7 @@ export class Registry implements IRegistry {
     };
 
     this.events.set(event.name, entry);
+    this.aliasIndex = null;
     this.persist(event.name, entry);
     return {
       version: entry.version,
@@ -199,37 +213,53 @@ export class Registry implements IRegistry {
     const direct = this.events.get(name);
     if (direct) return { entry: direct };
 
+    const canonical = this.getAliasIndex().get(name);
+    if (canonical === undefined) return undefined;
+
+    const entry = this.events.get(canonical);
+    if (!entry) return undefined;
+    const match = entry.aliases?.find((a) => a.name === name);
+    if (!match) return undefined;
+    return { entry, viaAlias: { name: match.name, until: match.until } };
+  }
+
+  /**
+   * Build (or reuse) the alias → canonical-name index. Invalidated by any
+   * change to the event map, so it can never outlive the declarations it
+   * was derived from. Insertion order is preserved, which keeps the
+   * first-declaration-wins behaviour of the old linear scan when two
+   * events declare the same alias.
+   */
+  private getAliasIndex(): Map<string, string> {
+    if (this.aliasIndex) return this.aliasIndex;
+    const index = new Map<string, string>();
     for (const entry of this.events.values()) {
-      const match = entry.aliases?.find((a) => a.name === name);
-      if (match) {
-        return { entry, viaAlias: { name: match.name, until: match.until } };
+      for (const alias of entry.aliases ?? []) {
+        if (!index.has(alias.name)) index.set(alias.name, entry.name);
       }
     }
-
-    return undefined;
+    this.aliasIndex = index;
+    return index;
   }
 
   list(filter?: RegistryFilter): RegistryEntry[] {
-    let entries = Array.from(this.events.values());
+    if (!filter) return Array.from(this.events.values());
 
-    if (filter?.transport) {
-      entries = entries.filter(e => e.transport === filter.transport);
+    // One pass, one output array. The previous shape chained a `.filter()`
+    // per criterion, so a three-criteria query walked and re-allocated the
+    // whole registry four times over.
+    const { transport, producer, subscriber, tag, namespace } = filter;
+    const out: RegistryEntry[] = [];
+    for (const e of this.events.values()) {
+      if (transport && e.transport !== transport) continue;
+      if (producer && !hasProducer(e.producer, producer)) continue;
+      if (subscriber && !e.subscribers.includes(subscriber)) continue;
+      if (tag && !(e.tags?.includes(tag) ?? false)) continue;
+      // Phase E7 — namespace filter (exact match).
+      if (namespace && e.namespace !== namespace) continue;
+      out.push(e);
     }
-    if (filter?.producer) {
-      entries = entries.filter(e => producerList(e.producer).includes(filter.producer!));
-    }
-    if (filter?.subscriber) {
-      entries = entries.filter(e => e.subscribers.includes(filter.subscriber!));
-    }
-    if (filter?.tag) {
-      entries = entries.filter(e => e.tags?.includes(filter.tag!) ?? false);
-    }
-    // Phase E7 — namespace filter (exact match).
-    if (filter?.namespace) {
-      entries = entries.filter(e => e.namespace === filter.namespace);
-    }
-
-    return entries;
+    return out;
   }
 
   addSubscriber(eventName: string, serviceName: string): void {
@@ -334,6 +364,7 @@ export class Registry implements IRegistry {
 
   remove(eventName: string): boolean {
     const deleted = this.events.delete(eventName);
+    if (deleted) this.aliasIndex = null;
     if (deleted && this.redis) {
       this.redis.hDel(REDIS_KEY, eventName).catch(() => {});
     }
@@ -441,6 +472,7 @@ export class Registry implements IRegistry {
 
   clear(): void {
     this.events.clear();
+    this.aliasIndex = null;
   }
 
   checkSchemaCompat(eventName: string, proposedSchema: Record<string, unknown>): CompatResult {

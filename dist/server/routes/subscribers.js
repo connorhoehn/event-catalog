@@ -73,7 +73,7 @@ function createSubscriberHandlers(deps) {
     // than the threshold (useful for "who's overdue?" dashboards).
     function list(req, res) {
         const all = registry.listSubscriberHeartbeats();
-        const staleAfter = parseInt(String(req.query.staleAfter ?? ''), 10);
+        const staleAfter = parseInt((0, _shared_js_1.stringParam)(req, 'staleAfter') ?? '', 10);
         if (Number.isFinite(staleAfter) && staleAfter > 0) {
             const cutoff = Date.now() - staleAfter * 1000;
             const stale = all.filter((s) => Date.parse(s.lastSeenAt) < cutoff);

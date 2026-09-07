@@ -8,10 +8,14 @@ import Sparkline from '@ui/components/shared/Sparkline';
 import { api, type EventEntry } from '../api';
 
 /** 60s publish-rate trend. Delegates the SVG to the shared Sparkline; the
- *  only local concern is the "not enough samples yet" dash. */
+ *  only local concern is the "not enough samples yet" dash.
+ *
+ *  `baseline="zero"` matters here: rates are magnitudes, so a steady 100/s that
+ *  ticks to 102/s must look steady. Min-based scaling would draw that as a
+ *  full-height climb, identical to a rate that actually tripled. */
 function RateSparkline({ data }: { data: number[] }) {
   if (data.length < 2) return <span className="sparkline-empty">—</span>;
-  return <Sparkline data={data} width={52} height={16} color="var(--blue-500)" />;
+  return <Sparkline data={data} width={52} height={16} color="var(--blue-500)" baseline="zero" />;
 }
 
 export function EventList() {

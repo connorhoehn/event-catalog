@@ -15,7 +15,7 @@ function createManifestHandlers(deps, manifestStore) {
     const { registry } = deps;
     async function put(req, res) {
         const consumerName = req.params.consumerName;
-        const events = req.body?.events;
+        const events = (0, _shared_js_1.jsonBody)(req)?.events;
         if (!Array.isArray(events)) {
             (0, _shared_js_1.badRequest)(res, 'body.events must be an array of { name, fingerprint }');
             return;

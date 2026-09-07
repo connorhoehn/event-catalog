@@ -10,11 +10,34 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createAuditHandlers = createAuditHandlers;
 const audit_emitter_js_1 = require("../audit-emitter.js");
 const _shared_js_1 = require("./_shared.js");
+/** The full AuditEventKind union, as a runtime value for `?kind=` narrowing. */
+const AUDIT_KINDS = [
+    'event.declared',
+    'event.version.bumped',
+    'event.removed',
+    'event.deprecated',
+    'event.undeprecated',
+    'event.poisoned',
+    'event.poison.cleared',
+    'subscriber.added',
+    'subscriber.removed',
+    'event.manifest.drift',
+];
+/**
+ * Narrow a raw `?kind=` value to AuditEventKind. Previously this was a bare
+ * `as` cast, so `?kind=typo` produced a filter matching nothing and the
+ * stream looked permanently idle. An unrecognized kind is now no filter at
+ * all — same "an SSE client should get a stream, not a 400" call as
+ * /api/flow's transport filter.
+ */
+function auditKind(raw) {
+    return AUDIT_KINDS.find(k => k === raw);
+}
 function createAuditHandlers(deps) {
     const { auditLog } = deps;
     async function stream(req, res) {
         const filter = {
-            kind: typeof req.query.kind === 'string' ? req.query.kind : undefined,
+            kind: auditKind(req.query.kind),
             eventName: (0, _shared_js_1.stringParam)(req, 'eventName'),
             namespace: (0, _shared_js_1.stringParam)(req, 'namespace'),
             serviceName: (0, _shared_js_1.stringParam)(req, 'serviceName'),
@@ -22,7 +45,7 @@ function createAuditHandlers(deps) {
         // wave23-a — replay-on-connect knob. ?replay=N reads the last N
         // events from the persistent log and writes them as SSE frames
         // before streaming live. Default 0 (no replay) for back-compat.
-        const replayN = Math.max(0, parseInt(String(req.query.replay ?? '0'), 10) || 0);
+        const replayN = Math.max(0, parseInt((0, _shared_js_1.stringParam)(req, 'replay') ?? '0', 10) || 0);
         (0, _shared_js_1.openSseStream)(res);
         res.write(`: connected; filter=${JSON.stringify(filter)}; replay=${replayN}\n\n`);
         // Replay history first when an audit log is wired and the caller
@@ -60,7 +83,7 @@ function createAuditHandlers(deps) {
             res.json({ events: [], note: 'no persistent audit log wired' });
             return;
         }
-        const limit = Math.max(1, parseInt(String(req.query.limit ?? '50'), 10) || 50);
+        const limit = Math.max(1, parseInt((0, _shared_js_1.stringParam)(req, 'limit') ?? '50', 10) || 50);
         const events = await auditLog.recent(limit);
         res.json({ events });
     }
