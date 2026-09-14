@@ -131,6 +131,8 @@ export declare class DurableTransport {
     private readonly deadLetterWarnings;
     private handlerFailures;
     private ensureQueueFailures;
+    /** Times a polled queue answered 404 and was re-created in place. */
+    private queueVanishedCount;
     private pollFailures;
     private deadLetteredTotal;
     private readonly log;
@@ -182,6 +184,7 @@ export declare class DurableTransport {
         handlerFailures: number;
         ensureQueueFailures: number;
         pollFailures: number;
+        queueVanished: number;
         deadLetteredTotal: number;
         suppressedWarnings: number;
     };

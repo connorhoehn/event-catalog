@@ -25,5 +25,5 @@ export { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpo
  * }
  * ```
  */
-export declare const pipelineEventDeclarations: import("../types").EventDeclaration[];
+export declare const pipelineEventDeclarations: import("..").EventDeclaration[];
 //# sourceMappingURL=pipeline-events.d.ts.map

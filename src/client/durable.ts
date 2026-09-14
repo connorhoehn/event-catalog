@@ -190,6 +190,8 @@ export class DurableTransport {
   private readonly deadLetterWarnings: LogThrottle;
   private handlerFailures = 0;
   private ensureQueueFailures = 0;
+  /** Times a polled queue answered 404 and was re-created in place. */
+  private queueVanishedCount = 0;
   private pollFailures = 0;
   private deadLetteredTotal = 0;
   private readonly log: LogWriter;
@@ -299,6 +301,7 @@ export class DurableTransport {
     handlerFailures: number;
     ensureQueueFailures: number;
     pollFailures: number;
+    queueVanished: number;
     deadLetteredTotal: number;
     suppressedWarnings: number;
   } {
@@ -310,6 +313,7 @@ export class DurableTransport {
       handlerFailures: this.handlerFailures,
       ensureQueueFailures: this.ensureQueueFailures,
       pollFailures: this.pollFailures,
+      queueVanished: this.queueVanishedCount,
       deadLetteredTotal: this.deadLetteredTotal,
       suppressedWarnings:
         this.backpressureWarnings.suppressedTotal
@@ -835,13 +839,32 @@ export class DurableTransport {
             );
 
             if (!res.ok) {
-              throw new Error(`message-queue returned ${res.status}`);
+              const err = new Error(`message-queue returned ${res.status}`) as Error & { status?: number };
+              err.status = res.status;
+              throw err;
             }
 
             return await res.json() as { messages?: Array<{ message_id: string; body: string; receipt_handle: string }> };
           });
         } catch (pollErr) {
           if (signal.aborted) return;
+          // 404 means the queue itself is gone — message-queue restarted on
+          // its in-memory store, or an operator deleted the queue. The
+          // subscribe-time ensureQueue() is a one-shot, so without this the
+          // poller would 404 every interval for the rest of the process.
+          // Forget the cached ensure and re-create the queue in place; the
+          // next iteration polls normally.
+          if ((pollErr as { status?: number }).status === 404) {
+            this.ensuredQueues.delete(queueName);
+            this.queueVanishedCount++;
+            this.log.warn(
+              `[durable-transport] queue "${queueName}" no longer exists (404); re-creating it`,
+              { queue: queueName, queueVanished: this.queueVanishedCount },
+            );
+            await this.ensureQueue(queueName);
+            await this.sleep(pollingInterval, signal);
+            continue;
+          }
           // A down message-queue fails this every `pollingInterval` (1s by
           // default) for as long as the outage lasts — ~86k lines a day
           // per queue if left unthrottled.
