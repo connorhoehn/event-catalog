@@ -38,6 +38,7 @@
   "client.chat.join": "beccadc341f9a3e175f153abfd8c52e8335ce85d60339ac68215b337c24fb2aa",
   "client.chat.leave": "a5b2f8884ca5be6690ce456435e2355454ee5bce750f4bfb5b888b0174ce1be9",
   "client.chat.send": "f9b8ad59b36657bc3c599a8de02ddfeef303623e52d1cfe60de8bbf450d4c914",
+  "client.chat.typing": "9016e60a9294a30331616fe678b1bf7acfeb223424ba338b1eb2a5df6837698f",
   "client.crdt.awareness": "ae531515a92d5a8b39bc8c0dadaaa19da6acfe61538c1172a26225949cce53ad",
   "client.crdt.subscribe": "91954e9befe020f9fd37018719571f5a70b5cf96fb1d6c79adc2f293a41e67e4",
   "client.crdt.unsubscribe": "2e710b9df3f406418530a9919c4b12202595059137ff33add8d7de474e74446d",

@@ -165,6 +165,7 @@ const INTENTIONALLY_UNBUNDLED: readonly string[] = [
   'client.activity.subscribe',
   'client.activity.unsubscribe',
   'client.chat.history',
+  'client.chat.typing',
   'client.chat.join',
   'client.chat.leave',
   'client.chat.send',
