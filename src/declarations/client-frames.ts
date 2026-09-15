@@ -103,6 +103,7 @@ import {
     clientChatJoin,
     clientChatLeave,
     clientChatSend,
+    clientChatTyping,
     clientChatHistory,
     clientPresenceSubscribe,
     clientPresenceUnsubscribe,
@@ -170,6 +171,7 @@ export {
     clientChatJoin,
     clientChatLeave,
     clientChatSend,
+    clientChatTyping,
     clientChatHistory,
     clientPresenceSubscribe,
     clientPresenceUnsubscribe,
@@ -242,6 +244,7 @@ export const clientFrameOutboundDeclarations: EventDeclaration[] = [
     clientChatJoin,
     clientChatLeave,
     clientChatSend,
+    clientChatTyping,
     clientChatHistory,
     // presence
     clientPresenceSubscribe,

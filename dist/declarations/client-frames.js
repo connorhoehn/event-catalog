@@ -97,8 +97,8 @@
 // description lands on which property. Never call `annotateDeclarations` from
 // a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsFileuploadStarted = exports.wsFileuploadFailed = exports.wsFileuploadComplete = exports.wsFileuploadUrl = exports.wsCrdtAwareness = exports.wsReactionAvailable = exports.wsReactionUnsubscribed = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
-exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = void 0;
+exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsFileuploadStarted = exports.wsFileuploadFailed = exports.wsFileuploadComplete = exports.wsFileuploadUrl = exports.wsCrdtAwareness = exports.wsReactionAvailable = exports.wsReactionUnsubscribed = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatTyping = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
+exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.wsFeatureFlagUpdated = void 0;
 const field_glossary_1 = require("./field-glossary");
 const outbound_fanout_1 = require("./client-frames/outbound-fanout");
 const outbound_media_1 = require("./client-frames/outbound-media");
@@ -113,6 +113,7 @@ var outbound_fanout_2 = require("./client-frames/outbound-fanout");
 Object.defineProperty(exports, "clientChatJoin", { enumerable: true, get: function () { return outbound_fanout_2.clientChatJoin; } });
 Object.defineProperty(exports, "clientChatLeave", { enumerable: true, get: function () { return outbound_fanout_2.clientChatLeave; } });
 Object.defineProperty(exports, "clientChatSend", { enumerable: true, get: function () { return outbound_fanout_2.clientChatSend; } });
+Object.defineProperty(exports, "clientChatTyping", { enumerable: true, get: function () { return outbound_fanout_2.clientChatTyping; } });
 Object.defineProperty(exports, "clientChatHistory", { enumerable: true, get: function () { return outbound_fanout_2.clientChatHistory; } });
 Object.defineProperty(exports, "clientPresenceSubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientPresenceSubscribe; } });
 Object.defineProperty(exports, "clientPresenceUnsubscribe", { enumerable: true, get: function () { return outbound_fanout_2.clientPresenceUnsubscribe; } });
@@ -177,6 +178,7 @@ exports.clientFrameOutboundDeclarations = [
     outbound_fanout_1.clientChatJoin,
     outbound_fanout_1.clientChatLeave,
     outbound_fanout_1.clientChatSend,
+    outbound_fanout_1.clientChatTyping,
     outbound_fanout_1.clientChatHistory,
     // presence
     outbound_fanout_1.clientPresenceSubscribe,

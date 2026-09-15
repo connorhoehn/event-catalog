@@ -55,6 +55,19 @@ export const clientChatSend: EventDeclaration = {
     }, ['channel', 'message']),
 };
 
+/** Sent by useChat.setTyping(): the person is composing (or has stopped). */
+export const clientChatTyping: EventDeclaration = {
+    namespace: 'client',
+    name: 'client.chat.typing',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client signal that the person is typing in a channel (useChat.setTyping). `typing: true` while composing, re-sent at most every few seconds; `typing: false` when they stop or send. The gateway ChatService relays it to the channel as {type:"chat", action:"typing", channel, userId, displayName, typing} to everyone but the sender; never persisted, never in history. Requires a prior join.',
+    tags: [...CLIENT_BASE_TAGS, 'chat'],
+    schema: clientFrameSchema('chat', 'typing', {
+        typing: { type: 'boolean', description: 'True while the person is composing in the channel; false once they stop or send.' },
+    }, ['channel', 'typing']),
+};
+
 /** Sent by useChat.loadHistory(). */
 export const clientChatHistory: EventDeclaration = {
     namespace: 'client',

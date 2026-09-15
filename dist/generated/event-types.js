@@ -1,5 +1,5 @@
 "use strict";
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-07T20:28:13.983Z
+// Generated at: 2026-09-15T23:29:47.663Z
 Object.defineProperty(exports, "__esModule", { value: true });
 //# sourceMappingURL=event-types.js.map

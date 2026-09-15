@@ -36,6 +36,14 @@ export interface ClientFramePayloadMap {
         metadata?: Record<string, unknown>;
         [key: string]: unknown;
     };
+    /** Client signal that the person is typing in a channel (useChat.setTyping). `typing: true` while composing, re-sent at most every few seconds; `typing: false` when they stop or send. The gateway ChatService relays it to the channel as {type:"chat", action:"typing", channel, userId, displayName, typing} to everyone but the sender; never persisted, never in history. Requires a prior join. */
+    'client.chat.typing': {
+        service: 'chat';
+        action: 'typing';
+        channel: string;
+        typing: boolean;
+        [key: string]: unknown;
+    };
     /** Client request for recent chat message history for a channel (useChat.loadHistory). limit is optional — the gateway ChatService falls back to its configured default history limit when omitted (hub#1497 re-audit: limit was wrongly declared required). */
     'client.chat.history': {
         service: 'chat';
@@ -274,7 +282,7 @@ export interface ClientFramePayloadMap {
  */
 export type ClientFramePayload<K extends keyof ClientFramePayloadMap> = ClientFramePayloadMap[K];
 /** Union of every outbound client→gateway frame for the `chat` service. */
-export type ChatOutboundFrame = ClientFramePayloadMap['client.chat.join'] | ClientFramePayloadMap['client.chat.leave'] | ClientFramePayloadMap['client.chat.send'] | ClientFramePayloadMap['client.chat.history'];
+export type ChatOutboundFrame = ClientFramePayloadMap['client.chat.join'] | ClientFramePayloadMap['client.chat.leave'] | ClientFramePayloadMap['client.chat.send'] | ClientFramePayloadMap['client.chat.typing'] | ClientFramePayloadMap['client.chat.history'];
 /** Union of every outbound client→gateway frame for the `presence` service. */
 export type PresenceOutboundFrame = ClientFramePayloadMap['client.presence.subscribe'] | ClientFramePayloadMap['client.presence.unsubscribe'] | ClientFramePayloadMap['client.presence.set'] | ClientFramePayloadMap['client.presence.get'] | ClientFramePayloadMap['client.presence.heartbeat'];
 /** Union of every outbound client→gateway frame for the `reaction` service. */

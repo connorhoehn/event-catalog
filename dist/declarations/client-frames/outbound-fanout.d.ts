@@ -5,6 +5,8 @@ export declare const clientChatJoin: EventDeclaration;
 export declare const clientChatLeave: EventDeclaration;
 /** Sent by useChat.sendMessage(). */
 export declare const clientChatSend: EventDeclaration;
+/** Sent by useChat.setTyping(): the person is composing (or has stopped). */
+export declare const clientChatTyping: EventDeclaration;
 /** Sent by useChat.loadHistory(). */
 export declare const clientChatHistory: EventDeclaration;
 /** Sent by usePresence on mount and by GatewaySocketProvider on connect. */

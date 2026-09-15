@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-07T20:28:13.983Z
+// Generated at: 2026-09-15T23:29:47.663Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -1548,6 +1548,14 @@ export interface EventPayloadMap {
     channel: string;
     message: string;
     metadata?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+  /** Client signal that the person is typing in a channel (useChat.setTyping). `typing: true` while composing, re-sent at most every few seconds; `typing: false` when they stop or send. The gateway ChatService relays it to the channel as {type:"chat", action:"typing", channel, userId, displayName, typing} to everyone but the sender; never persisted, never in history. Requires a prior join. */
+  'client.chat.typing': {
+    service: 'chat';
+    action: 'typing';
+    channel: string;
+    typing: boolean;
     [key: string]: unknown;
   };
   /** Client request for recent chat message history for a channel (useChat.loadHistory). limit is optional — the gateway ChatService falls back to its configured default history limit when omitted (hub#1497 re-audit: limit was wrongly declared required). */

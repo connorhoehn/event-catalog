@@ -1,5 +1,5 @@
 # AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
-# Scope: the gateway WebSocket protocol — 115 of 236 declarations
+# Scope: the gateway WebSocket protocol — 116 of 237 declarations
 # Source of truth: @connorhoehn/event-catalog src/declarations/
 asyncapi: 2.6.0
 info:
@@ -20,8 +20,8 @@ info:
     frames carry `{ service, action, channel?, ... }`; inbound frames carry
     a `type` discriminator.
 
-    SCOPE: this document describes 115 of the registry's
-    236 declarations — the gateway WebSocket frames, and
+    SCOPE: this document describes 116 of the registry's
+    237 declarations — the gateway WebSocket frames, and
     only those. It is NOT the platform event inventory. The other
     121 declarations are broker-addressed backbone events
     (Redis pub/sub and the durable message-queue) and are described in the
@@ -33,13 +33,13 @@ info:
   license:
     name: UNLICENSED
   x-event-catalog-coverage:
-    registryDeclarations: 236
-    describedInThisDocument: 115
+    registryDeclarations: 237
+    describedInThisDocument: 116
     describedInCompanionDocument:
       file: contracts/asyncapi.registry.yaml
       count: 121
     partitionRule: "Declarations in namespace `client` or `ws` are gateway WebSocket frames: they carry no `channel` and no `queue` because they are multiplexed over one connection, so they are described in contracts/asyncapi.yaml as a single channel with a oneOf per direction. Every other declaration is broker-addressed (a Redis pub/sub channel or a message-queue queue) and is described in contracts/asyncapi.registry.yaml as one channel per event."
-    fullInventory: contracts/registry.snapshot.json lists all 236 events with their schema fingerprints.
+    fullInventory: contracts/registry.snapshot.json lists all 237 events with their schema fingerprints.
 externalDocs:
   description: "Companion document: the broker-addressed backbone events this file does not cover."
   url: ./asyncapi.registry.yaml
@@ -73,6 +73,7 @@ channels:
           - $ref: "#/components/messages/client_chat_join"
           - $ref: "#/components/messages/client_chat_leave"
           - $ref: "#/components/messages/client_chat_send"
+          - $ref: "#/components/messages/client_chat_typing"
           - $ref: "#/components/messages/client_chat_history"
           - $ref: "#/components/messages/client_presence_subscribe"
           - $ref: "#/components/messages/client_presence_unsubscribe"
@@ -275,6 +276,35 @@ components:
           - action
           - channel
           - message
+        additionalProperties: true
+    client_chat_typing:
+      messageId: client.chat.typing
+      name: client.chat.typing
+      title: client.chat.typing
+      summary: 'Client signal that the person is typing in a channel (useChat.setTyping). `typing: true` while composing, re-sent at most every few seconds; `typing: false` when they stop or send. The gateway ChatService relays it to the channel as {type:"chat", action:"typing", channel, userId, displayName, typing} to everyone but the sender; never persisted, never in history. Requires a prior join.'
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: chat
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: typing
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          typing:
+            type: boolean
+            description: True while the person is composing in the channel; false once they stop or send.
+        required:
+          - service
+          - action
+          - channel
+          - typing
         additionalProperties: true
     client_chat_history:
       messageId: client.chat.history

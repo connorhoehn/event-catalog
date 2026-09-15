@@ -9,7 +9,7 @@
 //
 // Sliced verbatim out of the former single-file client-frames.ts.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
+exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatTyping = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
 const _shared_1 = require("./_shared");
 // ===========================================================================
 // OUTBOUND — chat (useChat.ts + GatewaySocketProvider.tsx)
@@ -50,6 +50,18 @@ exports.clientChatSend = {
         message: { type: 'string' },
         metadata: { type: 'object', additionalProperties: true },
     }, ['channel', 'message']),
+};
+/** Sent by useChat.setTyping(): the person is composing (or has stopped). */
+exports.clientChatTyping = {
+    namespace: 'client',
+    name: 'client.chat.typing',
+    transport: 'signal',
+    producer: _shared_1.CLIENT_PRODUCER,
+    description: 'Client signal that the person is typing in a channel (useChat.setTyping). `typing: true` while composing, re-sent at most every few seconds; `typing: false` when they stop or send. The gateway ChatService relays it to the channel as {type:"chat", action:"typing", channel, userId, displayName, typing} to everyone but the sender; never persisted, never in history. Requires a prior join.',
+    tags: [..._shared_1.CLIENT_BASE_TAGS, 'chat'],
+    schema: (0, _shared_1.clientFrameSchema)('chat', 'typing', {
+        typing: { type: 'boolean', description: 'True while the person is composing in the channel; false once they stop or send.' },
+    }, ['channel', 'typing']),
 };
 /** Sent by useChat.loadHistory(). */
 exports.clientChatHistory = {
