@@ -1,6 +1,6 @@
 {
   "name": "@connorhoehn/event-catalog",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },

@@ -128,7 +128,7 @@ export const clientChatEdit: EventDeclaration = {
     schema: clientFrameSchema('chat', 'edit', {
         messageId: { type: 'string', description: 'The id of the message to change.' },
         message: { type: 'string', minLength: 1, description: 'The new text.' },
-        metadata: { type: 'object', description: 'Metadata to merge over the stored metadata (mentions, html).' },
+        metadata: { type: 'object', additionalProperties: true, description: 'Metadata to merge over the stored metadata (mentions, html).' },
     }, ['channel', 'messageId', 'message']),
 };
 

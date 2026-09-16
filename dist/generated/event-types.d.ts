@@ -1588,7 +1588,7 @@ export interface EventPayloadMap {
         channel: string;
         messageId: string;
         message: string;
-        metadata?: Record<string, never>;
+        metadata?: Record<string, unknown>;
         [key: string]: unknown;
     };
     /** Client request to delete one of the sender's own chat messages (useChat.deleteMessage). A soft delete: the record keeps its id, channel, author and timestamp; its text becomes empty, its metadata {deleted:true}, and deletedAt is set. The ChatService broadcasts {type:"chat", action:"messageDeleted", channel, messageId, deletedAt, timestamp}. Only the author may delete; errors carry code forbidden | not-found. */

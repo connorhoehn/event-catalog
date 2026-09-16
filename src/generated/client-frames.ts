@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-16T09:50:56.440Z
+// Generated at: 2026-09-16T09:56:25.813Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -87,7 +87,7 @@ export interface ClientFramePayloadMap {
     channel: string;
     messageId: string;
     message: string;
-    metadata?: Record<string, never>;
+    metadata?: Record<string, unknown>;
     [key: string]: unknown;
   };
   /** Client request to delete one of the sender's own chat messages (useChat.deleteMessage). A soft delete: the record keeps its id, channel, author and timestamp; its text becomes empty, its metadata {deleted:true}, and deletedAt is set. The ChatService broadcasts {type:"chat", action:"messageDeleted", channel, messageId, deletedAt, timestamp}. Only the author may delete; errors carry code forbidden | not-found. */

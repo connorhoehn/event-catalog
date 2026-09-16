@@ -455,6 +455,7 @@ components:
             description: The new text.
           metadata:
             type: object
+            additionalProperties: true
             description: Metadata to merge over the stored metadata (mentions, html).
         required:
           - service
