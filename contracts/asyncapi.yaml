@@ -1,5 +1,5 @@
 # AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
-# Scope: the gateway WebSocket protocol — 119 of 240 declarations
+# Scope: the gateway WebSocket protocol — 121 of 242 declarations
 # Source of truth: @connorhoehn/event-catalog src/declarations/
 asyncapi: 2.6.0
 info:
@@ -20,8 +20,8 @@ info:
     frames carry `{ service, action, channel?, ... }`; inbound frames carry
     a `type` discriminator.
 
-    SCOPE: this document describes 119 of the registry's
-    240 declarations — the gateway WebSocket frames, and
+    SCOPE: this document describes 121 of the registry's
+    242 declarations — the gateway WebSocket frames, and
     only those. It is NOT the platform event inventory. The other
     121 declarations are broker-addressed backbone events
     (Redis pub/sub and the durable message-queue) and are described in the
@@ -33,13 +33,13 @@ info:
   license:
     name: UNLICENSED
   x-event-catalog-coverage:
-    registryDeclarations: 240
-    describedInThisDocument: 119
+    registryDeclarations: 242
+    describedInThisDocument: 121
     describedInCompanionDocument:
       file: contracts/asyncapi.registry.yaml
       count: 121
     partitionRule: "Declarations in namespace `client` or `ws` are gateway WebSocket frames: they carry no `channel` and no `queue` because they are multiplexed over one connection, so they are described in contracts/asyncapi.yaml as a single channel with a oneOf per direction. Every other declaration is broker-addressed (a Redis pub/sub channel or a message-queue queue) and is described in contracts/asyncapi.registry.yaml as one channel per event."
-    fullInventory: contracts/registry.snapshot.json lists all 240 events with their schema fingerprints.
+    fullInventory: contracts/registry.snapshot.json lists all 242 events with their schema fingerprints.
 externalDocs:
   description: "Companion document: the broker-addressed backbone events this file does not cover."
   url: ./asyncapi.registry.yaml
@@ -77,6 +77,8 @@ channels:
           - $ref: "#/components/messages/client_chat_members"
           - $ref: "#/components/messages/client_chat_addMembers"
           - $ref: "#/components/messages/client_chat_removeMember"
+          - $ref: "#/components/messages/client_chat_edit"
+          - $ref: "#/components/messages/client_chat_delete"
           - $ref: "#/components/messages/client_chat_history"
           - $ref: "#/components/messages/client_presence_subscribe"
           - $ref: "#/components/messages/client_presence_unsubscribe"
@@ -423,6 +425,72 @@ components:
           - action
           - channel
           - userId
+        additionalProperties: true
+    client_chat_edit:
+      messageId: client.chat.edit
+      name: client.chat.edit
+      title: client.chat.edit
+      summary: Client request to edit one of the sender's own chat messages (useChat.editMessage). The gateway ChatService updates the stored record in place (message text, optional metadata merge, editedAt) and broadcasts {type:"chat", action:"messageUpdated", channel, message:<the updated record>, timestamp} to every subscriber. Only the author may edit; errors carry code forbidden | not-found | gone (already deleted) | bad-request (empty text).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: chat
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: edit
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          messageId:
+            type: string
+            description: The id of the message to change.
+          message:
+            type: string
+            minLength: 1
+            description: The new text.
+          metadata:
+            type: object
+            description: Metadata to merge over the stored metadata (mentions, html).
+        required:
+          - service
+          - action
+          - channel
+          - messageId
+          - message
+        additionalProperties: true
+    client_chat_delete:
+      messageId: client.chat.delete
+      name: client.chat.delete
+      title: client.chat.delete
+      summary: "Client request to delete one of the sender's own chat messages (useChat.deleteMessage). A soft delete: the record keeps its id, channel, author and timestamp; its text becomes empty, its metadata {deleted:true}, and deletedAt is set. The ChatService broadcasts {type:\"chat\", action:\"messageDeleted\", channel, messageId, deletedAt, timestamp}. Only the author may delete; errors carry code forbidden | not-found."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: chat
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: delete
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          messageId:
+            type: string
+            description: The id of the message to delete.
+        required:
+          - service
+          - action
+          - channel
+          - messageId
         additionalProperties: true
     client_chat_history:
       messageId: client.chat.history

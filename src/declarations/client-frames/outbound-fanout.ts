@@ -117,6 +117,34 @@ export const clientChatRemoveMember: EventDeclaration = {
     }, ['channel', 'userId']),
 };
 
+/** Sent by useChat.editMessage(): the author changes what they said. */
+export const clientChatEdit: EventDeclaration = {
+    namespace: 'client',
+    name: 'client.chat.edit',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client request to edit one of the sender\'s own chat messages (useChat.editMessage). The gateway ChatService updates the stored record in place (message text, optional metadata merge, editedAt) and broadcasts {type:"chat", action:"messageUpdated", channel, message:<the updated record>, timestamp} to every subscriber. Only the author may edit; errors carry code forbidden | not-found | gone (already deleted) | bad-request (empty text).',
+    tags: [...CLIENT_BASE_TAGS, 'chat'],
+    schema: clientFrameSchema('chat', 'edit', {
+        messageId: { type: 'string', description: 'The id of the message to change.' },
+        message: { type: 'string', minLength: 1, description: 'The new text.' },
+        metadata: { type: 'object', description: 'Metadata to merge over the stored metadata (mentions, html).' },
+    }, ['channel', 'messageId', 'message']),
+};
+
+/** Sent by useChat.deleteMessage(): the author takes a message back. */
+export const clientChatDelete: EventDeclaration = {
+    namespace: 'client',
+    name: 'client.chat.delete',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client request to delete one of the sender\'s own chat messages (useChat.deleteMessage). A soft delete: the record keeps its id, channel, author and timestamp; its text becomes empty, its metadata {deleted:true}, and deletedAt is set. The ChatService broadcasts {type:"chat", action:"messageDeleted", channel, messageId, deletedAt, timestamp}. Only the author may delete; errors carry code forbidden | not-found.',
+    tags: [...CLIENT_BASE_TAGS, 'chat'],
+    schema: clientFrameSchema('chat', 'delete', {
+        messageId: { type: 'string', description: 'The id of the message to delete.' },
+    }, ['channel', 'messageId']),
+};
+
 /** Sent by useChat.loadHistory(). */
 export const clientChatHistory: EventDeclaration = {
     namespace: 'client',

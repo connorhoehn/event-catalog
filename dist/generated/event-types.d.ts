@@ -1581,6 +1581,24 @@ export interface EventPayloadMap {
         name?: string;
         [key: string]: unknown;
     };
+    /** Client request to edit one of the sender's own chat messages (useChat.editMessage). The gateway ChatService updates the stored record in place (message text, optional metadata merge, editedAt) and broadcasts {type:"chat", action:"messageUpdated", channel, message:<the updated record>, timestamp} to every subscriber. Only the author may edit; errors carry code forbidden | not-found | gone (already deleted) | bad-request (empty text). */
+    'client.chat.edit': {
+        service: 'chat';
+        action: 'edit';
+        channel: string;
+        messageId: string;
+        message: string;
+        metadata?: Record<string, never>;
+        [key: string]: unknown;
+    };
+    /** Client request to delete one of the sender's own chat messages (useChat.deleteMessage). A soft delete: the record keeps its id, channel, author and timestamp; its text becomes empty, its metadata {deleted:true}, and deletedAt is set. The ChatService broadcasts {type:"chat", action:"messageDeleted", channel, messageId, deletedAt, timestamp}. Only the author may delete; errors carry code forbidden | not-found. */
+    'client.chat.delete': {
+        service: 'chat';
+        action: 'delete';
+        channel: string;
+        messageId: string;
+        [key: string]: unknown;
+    };
     /** Client request for recent chat message history for a channel (useChat.loadHistory). limit is optional — the gateway ChatService falls back to its configured default history limit when omitted (hub#1497 re-audit: limit was wrongly declared required). */
     'client.chat.history': {
         service: 'chat';

@@ -169,6 +169,8 @@ const INTENTIONALLY_UNBUNDLED: readonly string[] = [
   'client.chat.members',
   'client.chat.addMembers',
   'client.chat.removeMember',
+  'client.chat.edit',
+  'client.chat.delete',
   'client.chat.join',
   'client.chat.leave',
   'client.chat.send',

@@ -35,6 +35,8 @@
   "client.activity.subscribe": "79e30ee1d19e39c6127b40d4d10ebc7f6b67713d3dfd42bb642db73398fa0cbf",
   "client.activity.unsubscribe": "081fd06edff6b635d311bccb74e0faf17c728e2b6ecf53cb7747a2cbb941ac3d",
   "client.chat.addMembers": "756a1ab3192a62b3714a2440b5f108499e243b781fd38b21b4948d5f7994967d",
+  "client.chat.delete": "49b17f3963ffdf496c34af3988b25a668b74d1dcd610af0cb7229782260a3bdc",
+  "client.chat.edit": "b02c1f5c4c913155a93fe8a30427584f1cfac5e52a4b5989001fb81b78b8db1d",
   "client.chat.history": "59de1c40115f3a1f5960d3447a0a51705b5e36ff117f96e0f6737b395f07df44",
   "client.chat.join": "beccadc341f9a3e175f153abfd8c52e8335ce85d60339ac68215b337c24fb2aa",
   "client.chat.leave": "a5b2f8884ca5be6690ce456435e2355454ee5bce750f4bfb5b888b0174ce1be9",

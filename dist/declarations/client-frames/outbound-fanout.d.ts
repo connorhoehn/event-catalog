@@ -13,6 +13,10 @@ export declare const clientChatMembers: EventDeclaration;
 export declare const clientChatAddMembers: EventDeclaration;
 /** Sent by useChatMembers.removeMember(): an owner removes someone, or a member leaves. */
 export declare const clientChatRemoveMember: EventDeclaration;
+/** Sent by useChat.editMessage(): the author changes what they said. */
+export declare const clientChatEdit: EventDeclaration;
+/** Sent by useChat.deleteMessage(): the author takes a message back. */
+export declare const clientChatDelete: EventDeclaration;
 /** Sent by useChat.loadHistory(). */
 export declare const clientChatHistory: EventDeclaration;
 /** Sent by usePresence on mount and by GatewaySocketProvider on connect. */

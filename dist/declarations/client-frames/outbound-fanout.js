@@ -9,7 +9,7 @@
 //
 // Sliced verbatim out of the former single-file client-frames.ts.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatRemoveMember = exports.clientChatAddMembers = exports.clientChatMembers = exports.clientChatTyping = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
+exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatDelete = exports.clientChatEdit = exports.clientChatRemoveMember = exports.clientChatAddMembers = exports.clientChatMembers = exports.clientChatTyping = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
 const _shared_1 = require("./_shared");
 // ===========================================================================
 // OUTBOUND — chat (useChat.ts + GatewaySocketProvider.tsx)
@@ -108,6 +108,32 @@ exports.clientChatRemoveMember = {
         userId: { type: 'string', description: 'The user id (auth subject) of the person to remove.' },
         name: { type: 'string', description: 'Their display name, for the thread\'s membership line.' },
     }, ['channel', 'userId']),
+};
+/** Sent by useChat.editMessage(): the author changes what they said. */
+exports.clientChatEdit = {
+    namespace: 'client',
+    name: 'client.chat.edit',
+    transport: 'signal',
+    producer: _shared_1.CLIENT_PRODUCER,
+    description: 'Client request to edit one of the sender\'s own chat messages (useChat.editMessage). The gateway ChatService updates the stored record in place (message text, optional metadata merge, editedAt) and broadcasts {type:"chat", action:"messageUpdated", channel, message:<the updated record>, timestamp} to every subscriber. Only the author may edit; errors carry code forbidden | not-found | gone (already deleted) | bad-request (empty text).',
+    tags: [..._shared_1.CLIENT_BASE_TAGS, 'chat'],
+    schema: (0, _shared_1.clientFrameSchema)('chat', 'edit', {
+        messageId: { type: 'string', description: 'The id of the message to change.' },
+        message: { type: 'string', minLength: 1, description: 'The new text.' },
+        metadata: { type: 'object', description: 'Metadata to merge over the stored metadata (mentions, html).' },
+    }, ['channel', 'messageId', 'message']),
+};
+/** Sent by useChat.deleteMessage(): the author takes a message back. */
+exports.clientChatDelete = {
+    namespace: 'client',
+    name: 'client.chat.delete',
+    transport: 'signal',
+    producer: _shared_1.CLIENT_PRODUCER,
+    description: 'Client request to delete one of the sender\'s own chat messages (useChat.deleteMessage). A soft delete: the record keeps its id, channel, author and timestamp; its text becomes empty, its metadata {deleted:true}, and deletedAt is set. The ChatService broadcasts {type:"chat", action:"messageDeleted", channel, messageId, deletedAt, timestamp}. Only the author may delete; errors carry code forbidden | not-found.',
+    tags: [..._shared_1.CLIENT_BASE_TAGS, 'chat'],
+    schema: (0, _shared_1.clientFrameSchema)('chat', 'delete', {
+        messageId: { type: 'string', description: 'The id of the message to delete.' },
+    }, ['channel', 'messageId']),
 };
 /** Sent by useChat.loadHistory(). */
 exports.clientChatHistory = {
