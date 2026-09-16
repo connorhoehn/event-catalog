@@ -172,6 +172,8 @@ const SEGMENT_CASE_EXCEPTIONS: Record<string, string> = {
   'pipeline:run:resumeFromStep': 'Gateway-local stub whose name mirrors the handleResumeFromStep handler; on the wire today.',
   'client.reaction.getAvailable': 'Name mirrors the gateway ReactionService `action` string verbatim — ground truth, not style.',
   'client.activity.getHistory': 'Name mirrors the gateway ActivityService `action` string verbatim — ground truth, not style.',
+  'client.chat.addMembers': 'Name mirrors the gateway ChatService `action` string verbatim — ground truth, not style.',
+  'client.chat.removeMember': 'Name mirrors the gateway ChatService `action` string verbatim — ground truth, not style.',
 };
 
 /**

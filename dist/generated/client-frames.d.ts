@@ -44,6 +44,35 @@ export interface ClientFramePayloadMap {
         typing: boolean;
         [key: string]: unknown;
     };
+    /** Client request for a chat channel's membership (useChatMembers). The gateway ChatService replies to the sender with {type:"chat", action:"members", channel, open, members:[{userId, role, addedBy, addedAt, historyFrom}]}. `open` is true when the channel has no membership rows (everyone the gateway admits is in it); a dm channel reports the ids in its name. */
+    'client.chat.members': {
+        service: 'chat';
+        action: 'members';
+        channel: string;
+        [key: string]: unknown;
+    };
+    /** Client request to add people to a chat channel (useChatMembers.addMembers). The requester must be a member, or the channel open — then they become its owner and the channel closes. `history` decides each added person's history floor: none (from now), days (the last N days), all. The ChatService writes the rows, posts a stored message from the requester with metadata.kind "membership" (event "added"), and broadcasts {type:"chat", action:"membersUpdated", channel, open, members} to the channel. Errors carry code not-a-member | forbidden | bad-request. */
+    'client.chat.addMembers': {
+        service: 'chat';
+        action: 'addMembers';
+        channel: string;
+        userIds: string[];
+        history: {
+            mode: 'none' | 'days' | 'all';
+            days?: number;
+        };
+        names?: Record<string, unknown>;
+        [key: string]: unknown;
+    };
+    /** Client request to remove a person from a chat channel (useChatMembers.removeMember). An owner may remove anyone; anyone may remove themselves. The ChatService marks the row removed, posts a membership message (event "removed"), and broadcasts membersUpdated. A removed person can no longer join, send or read the channel. */
+    'client.chat.removeMember': {
+        service: 'chat';
+        action: 'removeMember';
+        channel: string;
+        userId: string;
+        name?: string;
+        [key: string]: unknown;
+    };
     /** Client request for recent chat message history for a channel (useChat.loadHistory). limit is optional — the gateway ChatService falls back to its configured default history limit when omitted (hub#1497 re-audit: limit was wrongly declared required). */
     'client.chat.history': {
         service: 'chat';
@@ -282,7 +311,7 @@ export interface ClientFramePayloadMap {
  */
 export type ClientFramePayload<K extends keyof ClientFramePayloadMap> = ClientFramePayloadMap[K];
 /** Union of every outbound client→gateway frame for the `chat` service. */
-export type ChatOutboundFrame = ClientFramePayloadMap['client.chat.join'] | ClientFramePayloadMap['client.chat.leave'] | ClientFramePayloadMap['client.chat.send'] | ClientFramePayloadMap['client.chat.typing'] | ClientFramePayloadMap['client.chat.history'];
+export type ChatOutboundFrame = ClientFramePayloadMap['client.chat.join'] | ClientFramePayloadMap['client.chat.leave'] | ClientFramePayloadMap['client.chat.send'] | ClientFramePayloadMap['client.chat.typing'] | ClientFramePayloadMap['client.chat.members'] | ClientFramePayloadMap['client.chat.addMembers'] | ClientFramePayloadMap['client.chat.removeMember'] | ClientFramePayloadMap['client.chat.history'];
 /** Union of every outbound client→gateway frame for the `presence` service. */
 export type PresenceOutboundFrame = ClientFramePayloadMap['client.presence.subscribe'] | ClientFramePayloadMap['client.presence.unsubscribe'] | ClientFramePayloadMap['client.presence.set'] | ClientFramePayloadMap['client.presence.get'] | ClientFramePayloadMap['client.presence.heartbeat'];
 /** Union of every outbound client→gateway frame for the `reaction` service. */

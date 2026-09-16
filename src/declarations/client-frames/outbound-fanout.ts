@@ -68,6 +68,55 @@ export const clientChatTyping: EventDeclaration = {
     }, ['channel', 'typing']),
 };
 
+/** Sent by useChatMembers on mount: who is in the channel. */
+export const clientChatMembers: EventDeclaration = {
+    namespace: 'client',
+    name: 'client.chat.members',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client request for a chat channel\'s membership (useChatMembers). The gateway ChatService replies to the sender with {type:"chat", action:"members", channel, open, members:[{userId, role, addedBy, addedAt, historyFrom}]}. `open` is true when the channel has no membership rows (everyone the gateway admits is in it); a dm channel reports the ids in its name.',
+    tags: [...CLIENT_BASE_TAGS, 'chat'],
+    schema: clientFrameSchema('chat', 'members', {}, ['channel']),
+};
+
+/** Sent by useChatMembers.addMembers(): add people, with the history they may read. */
+export const clientChatAddMembers: EventDeclaration = {
+    namespace: 'client',
+    name: 'client.chat.addMembers',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client request to add people to a chat channel (useChatMembers.addMembers). The requester must be a member, or the channel open — then they become its owner and the channel closes. `history` decides each added person\'s history floor: none (from now), days (the last N days), all. The ChatService writes the rows, posts a stored message from the requester with metadata.kind "membership" (event "added"), and broadcasts {type:"chat", action:"membersUpdated", channel, open, members} to the channel. Errors carry code not-a-member | forbidden | bad-request.',
+    tags: [...CLIENT_BASE_TAGS, 'chat'],
+    schema: clientFrameSchema('chat', 'addMembers', {
+        userIds: { type: 'array', items: { type: 'string', description: 'The user id (auth subject) of a person to add.' }, minItems: 1, maxItems: 50, description: 'The people to add, by user id.' },
+        history: {
+            type: 'object',
+            properties: {
+                mode: { type: 'string', enum: ['none', 'days', 'all'], description: 'none: only what is said from now on; days: the last N days; all: everything.' },
+                days: { type: 'number', description: 'With mode "days": how many days back they may read (1..3650).' },
+            },
+            required: ['mode'],
+            additionalProperties: false,
+            description: 'How much of the channel\'s history the added people may read.',
+        },
+        names: { type: 'object', additionalProperties: { type: 'string', description: 'A display name.' }, description: 'Display names by userId, so the thread\'s membership line can name them.' },
+    }, ['channel', 'userIds', 'history']),
+};
+
+/** Sent by useChatMembers.removeMember(): an owner removes someone, or a member leaves. */
+export const clientChatRemoveMember: EventDeclaration = {
+    namespace: 'client',
+    name: 'client.chat.removeMember',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Client request to remove a person from a chat channel (useChatMembers.removeMember). An owner may remove anyone; anyone may remove themselves. The ChatService marks the row removed, posts a membership message (event "removed"), and broadcasts membersUpdated. A removed person can no longer join, send or read the channel.',
+    tags: [...CLIENT_BASE_TAGS, 'chat'],
+    schema: clientFrameSchema('chat', 'removeMember', {
+        userId: { type: 'string', description: 'The user id (auth subject) of the person to remove.' },
+        name: { type: 'string', description: 'Their display name, for the thread\'s membership line.' },
+    }, ['channel', 'userId']),
+};
+
 /** Sent by useChat.loadHistory(). */
 export const clientChatHistory: EventDeclaration = {
     namespace: 'client',

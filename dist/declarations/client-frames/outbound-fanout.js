@@ -9,7 +9,7 @@
 //
 // Sliced verbatim out of the former single-file client-frames.ts.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatTyping = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
+exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatRemoveMember = exports.clientChatAddMembers = exports.clientChatMembers = exports.clientChatTyping = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
 const _shared_1 = require("./_shared");
 // ===========================================================================
 // OUTBOUND — chat (useChat.ts + GatewaySocketProvider.tsx)
@@ -62,6 +62,52 @@ exports.clientChatTyping = {
     schema: (0, _shared_1.clientFrameSchema)('chat', 'typing', {
         typing: { type: 'boolean', description: 'True while the person is composing in the channel; false once they stop or send.' },
     }, ['channel', 'typing']),
+};
+/** Sent by useChatMembers on mount: who is in the channel. */
+exports.clientChatMembers = {
+    namespace: 'client',
+    name: 'client.chat.members',
+    transport: 'signal',
+    producer: _shared_1.CLIENT_PRODUCER,
+    description: 'Client request for a chat channel\'s membership (useChatMembers). The gateway ChatService replies to the sender with {type:"chat", action:"members", channel, open, members:[{userId, role, addedBy, addedAt, historyFrom}]}. `open` is true when the channel has no membership rows (everyone the gateway admits is in it); a dm channel reports the ids in its name.',
+    tags: [..._shared_1.CLIENT_BASE_TAGS, 'chat'],
+    schema: (0, _shared_1.clientFrameSchema)('chat', 'members', {}, ['channel']),
+};
+/** Sent by useChatMembers.addMembers(): add people, with the history they may read. */
+exports.clientChatAddMembers = {
+    namespace: 'client',
+    name: 'client.chat.addMembers',
+    transport: 'signal',
+    producer: _shared_1.CLIENT_PRODUCER,
+    description: 'Client request to add people to a chat channel (useChatMembers.addMembers). The requester must be a member, or the channel open — then they become its owner and the channel closes. `history` decides each added person\'s history floor: none (from now), days (the last N days), all. The ChatService writes the rows, posts a stored message from the requester with metadata.kind "membership" (event "added"), and broadcasts {type:"chat", action:"membersUpdated", channel, open, members} to the channel. Errors carry code not-a-member | forbidden | bad-request.',
+    tags: [..._shared_1.CLIENT_BASE_TAGS, 'chat'],
+    schema: (0, _shared_1.clientFrameSchema)('chat', 'addMembers', {
+        userIds: { type: 'array', items: { type: 'string', description: 'The user id (auth subject) of a person to add.' }, minItems: 1, maxItems: 50, description: 'The people to add, by user id.' },
+        history: {
+            type: 'object',
+            properties: {
+                mode: { type: 'string', enum: ['none', 'days', 'all'], description: 'none: only what is said from now on; days: the last N days; all: everything.' },
+                days: { type: 'number', description: 'With mode "days": how many days back they may read (1..3650).' },
+            },
+            required: ['mode'],
+            additionalProperties: false,
+            description: 'How much of the channel\'s history the added people may read.',
+        },
+        names: { type: 'object', additionalProperties: { type: 'string', description: 'A display name.' }, description: 'Display names by userId, so the thread\'s membership line can name them.' },
+    }, ['channel', 'userIds', 'history']),
+};
+/** Sent by useChatMembers.removeMember(): an owner removes someone, or a member leaves. */
+exports.clientChatRemoveMember = {
+    namespace: 'client',
+    name: 'client.chat.removeMember',
+    transport: 'signal',
+    producer: _shared_1.CLIENT_PRODUCER,
+    description: 'Client request to remove a person from a chat channel (useChatMembers.removeMember). An owner may remove anyone; anyone may remove themselves. The ChatService marks the row removed, posts a membership message (event "removed"), and broadcasts membersUpdated. A removed person can no longer join, send or read the channel.',
+    tags: [..._shared_1.CLIENT_BASE_TAGS, 'chat'],
+    schema: (0, _shared_1.clientFrameSchema)('chat', 'removeMember', {
+        userId: { type: 'string', description: 'The user id (auth subject) of the person to remove.' },
+        name: { type: 'string', description: 'Their display name, for the thread\'s membership line.' },
+    }, ['channel', 'userId']),
 };
 /** Sent by useChat.loadHistory(). */
 exports.clientChatHistory = {

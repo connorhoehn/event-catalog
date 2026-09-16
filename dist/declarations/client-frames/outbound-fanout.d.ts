@@ -7,6 +7,12 @@ export declare const clientChatLeave: EventDeclaration;
 export declare const clientChatSend: EventDeclaration;
 /** Sent by useChat.setTyping(): the person is composing (or has stopped). */
 export declare const clientChatTyping: EventDeclaration;
+/** Sent by useChatMembers on mount: who is in the channel. */
+export declare const clientChatMembers: EventDeclaration;
+/** Sent by useChatMembers.addMembers(): add people, with the history they may read. */
+export declare const clientChatAddMembers: EventDeclaration;
+/** Sent by useChatMembers.removeMember(): an owner removes someone, or a member leaves. */
+export declare const clientChatRemoveMember: EventDeclaration;
 /** Sent by useChat.loadHistory(). */
 export declare const clientChatHistory: EventDeclaration;
 /** Sent by usePresence on mount and by GatewaySocketProvider on connect. */
