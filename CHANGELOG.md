@@ -7,6 +7,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.7.1] - 2026-09-20
+
+- Production registry startup now requires the existing bearer token or an
+  explicitly injected authentication middleware, before connecting dependencies.
+  Development remains opt-in. Existing authenticated client registration is reused.
+- MQ signing preserves exact secret bytes, and container dependency installs use
+  tracked library artifacts without recursive lifecycle builds.
+
 ## [0.7.0] - 2026-09-20
 
 - Durable HTTP transports accept a per-attempt `requestHeaders` hook, including

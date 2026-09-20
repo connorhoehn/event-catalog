@@ -262,3 +262,11 @@ when signing, and never retries without a signature if the hook fails.
 For the registry container's outbound MQ transport, set `MQ_SERVICE_AUTH_SECRET`
 and allow the `event-catalog` caller at MQ. This is separate from inbound
 `EVENT_CATALOG_AUTH_TOKEN`; configuring one does not secure the other.
+
+Production registry startup (`NODE_ENV=production`) now requires
+`EVENT_CATALOG_AUTH_TOKEN`, or an explicitly injected `authMiddleware` for
+programmatic `startServer` callers. It refuses to open dependencies or bind a
+listener when neither is supplied. The existing bearer policy gates mutations;
+reads/metrics/flow still require a private network or an authenticated ingress
+policy if their visibility must be restricted. EventCatalog already forwards
+`EVENT_CATALOG_AUTH_TOKEN` on producer registration, heartbeat and manifest writes.

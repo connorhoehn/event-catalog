@@ -408,15 +408,16 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     log.warn(text, { component: 'server', ...fields, suppressed }, ...tail);
   };
 
-  // Auth is opt-in and off unless configured. With no explicit middleware
-  // and no $EVENT_CATALOG_AUTH_TOKEN this is `undefined`, the `if
-  // (authMiddleware)` gate below is never entered, and the request path is
-  // exactly what it was before src/server/auth.ts existed.
+  // Reuse an injected auth policy or the existing bearer-token middleware.
+  // An unconfigured development registry may remain open; production may not.
   const authMiddleware = resolveAuthMiddleware(
     config.authMiddleware,
     resolved.config.authToken,
     config.logger,
   );
+  if (process.env.NODE_ENV === 'production' && !authMiddleware) {
+    throw new Error('EVENT_CATALOG_AUTH_TOKEN or an injected auth middleware is required in production');
+  }
 
   const drainMs = shutdownDrainMs
     ?? (Number(process.env.EVENT_CATALOG_SHUTDOWN_DRAIN_MS) || SHUTDOWN_DRAIN_MS);

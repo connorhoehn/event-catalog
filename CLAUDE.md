@@ -92,3 +92,11 @@ hub tasks, do not attempt to register/heartbeat, and do not call
 `mcp__agent-hub__*` tools — they no longer exist. `hub#<id>` references in
 docs and commit history are historical breadcrumbs, not live tickets.
 Current state and open work live in this repo (constitution/roadmap/CHANGELOG).
+## Production authentication (0.7.1)
+
+`startServer` requires `EVENT_CATALOG_AUTH_TOKEN` or an injected auth middleware
+in production, before opening dependencies. The bearer policy protects mutations;
+reads and observability still need private routing. MQ is a separate receiver:
+`MQ_SERVICE_AUTH_SECRET` signs outbound requests as `event-catalog`. Configure
+both boundaries. Docker installs skip lifecycle scripts and compile the service
+explicitly; Git dependencies provide tracked distribution artifacts.
