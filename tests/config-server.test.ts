@@ -21,7 +21,7 @@ import {
 const REDIS = 'redis://localhost:6379';
 
 it('resolves MQ signing separately and never includes the secret in diagnostics', () => {
-  const secret = 'test-receiver-specific-secret';
+  const secret = '  test-receiver-specific-secret  ';
   const result = resolveServerConfig({ REDIS_URL: REDIS, MQ_SERVICE_AUTH_SECRET: secret });
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error('Expected valid config');
