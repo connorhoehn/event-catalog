@@ -6,6 +6,7 @@ exports.redactUrl = redactUrl;
 exports.buildDeadLetterCallback = buildDeadLetterCallback;
 exports.buildBundleRegistry = buildBundleRegistry;
 exports.startServer = startServer;
+const service_runtime_1 = require("@connorhoehn/service-runtime");
 const server_1 = require("distributed-core/server");
 const redis_1 = require("redis");
 const promises_1 = require("node:fs/promises");
@@ -317,7 +318,10 @@ async function startServer(config = {}) {
     // The transports take the same sink, so the publish-path lines from
     // src/client land alongside the service's own.
     const signal = new signal_js_1.SignalTransport({ url: redisUrl, logger });
-    const durable = new durable_js_1.DurableTransport({ url: messageQueueUrl, logger });
+    const durable = new durable_js_1.DurableTransport({ url: messageQueueUrl, logger,
+        requestHeaders: resolved.config.messageQueueAuthSecret ? (0, service_runtime_1.createServiceRequestHeaders)({
+            secret: resolved.config.messageQueueAuthSecret, serviceId: 'event-catalog', audience: 'message-queue',
+        }) : undefined });
     const startedAt = Date.now();
     // Connect transports
     await signal.connect().catch(err => {

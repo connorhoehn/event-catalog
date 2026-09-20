@@ -44,6 +44,8 @@ export interface ResolvedServerConfig {
   readonly redisUrl: string;
   /** http(s) base URL of the message-queue service. */
   readonly messageQueueUrl: string;
+  /** Receiver-specific HMAC secret; never included in configuration diagnostics. */
+  readonly messageQueueAuthSecret?: string;
   /** DynamoDB table backing the DLQ store. */
   readonly dlqTableName: string;
   /** Seconds of subscriber silence before a heartbeat is pruned. 0 disables. */
@@ -359,6 +361,7 @@ export function resolveServerConfig(
       hostname,
       redisUrl,
       messageQueueUrl,
+      messageQueueAuthSecret: read(env, 'MQ_SERVICE_AUTH_SECRET'),
       dlqTableName,
       subscriberTtlSeconds,
       redisBootConnectAttempts,

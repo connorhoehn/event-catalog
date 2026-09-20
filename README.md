@@ -248,3 +248,17 @@ Direct `DurableTransport` users can set `acknowledgementTimeoutMs` (default
 10,000 ms). Unsubscribe/disconnect also cancels an in-flight acknowledgement.
 The local in-memory DLQ remains a bounded diagnostic buffer, not a durable
 replacement for the queue service's DLQ.
+
+### Authenticated queue transport
+
+Pass `createServiceRequestHeaders({ secret, serviceId, audience: 'message-queue' })`
+from service-runtime 0.4.0 as `messageQueue.requestHeaders` when constructing
+EventCatalog, or `requestHeaders` when constructing DurableTransport directly.
+The hook runs for each actual HTTP attempt, including retries and receipt
+deletion. It receives the final URL, method and UTF-8 body. The transport
+preserves existing content headers and cancellation signals, refuses redirects
+when signing, and never retries without a signature if the hook fails.
+
+For the registry container's outbound MQ transport, set `MQ_SERVICE_AUTH_SECRET`
+and allow the `event-catalog` caller at MQ. This is separate from inbound
+`EVENT_CATALOG_AUTH_TOKEN`; configuring one does not secure the other.

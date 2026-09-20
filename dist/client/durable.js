@@ -65,6 +65,7 @@ const backpressureCounter = new bounded_1.BoundedCounter(MAX_TRACKED_QUEUES);
  *     it from the source queue.
  */
 class DurableTransport {
+    requestHeaders;
     url;
     /** message-queue's canonical versioned queue surface (Roadmap 4.1). */
     queuesBase;
@@ -113,6 +114,7 @@ class DurableTransport {
     deadLetteredTotal = 0;
     log;
     constructor(config) {
+        this.requestHeaders = config.requestHeaders;
         this.url = config.url.replace(/\/$/, '');
         this.log = new logger_1.LogWriter(config.logger);
         this.queuesBase = `${this.url}/api/v1/queues`;
@@ -155,7 +157,7 @@ class DurableTransport {
             return;
         // Verify message-queue is reachable
         try {
-            const res = await fetch(`${this.url}/health`);
+            const res = await this.request(`${this.url}/health`);
             if (!res.ok)
                 throw new Error(`status ${res.status}`);
         }
@@ -314,7 +316,7 @@ class DurableTransport {
      */
     async putQueue(queueName, configuration) {
         try {
-            const res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}`, {
+            const res = await this.request(`${this.queuesBase}/${encodeURIComponent(queueName)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ configuration }),
@@ -412,7 +414,7 @@ class DurableTransport {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), this.publishTimeoutMs);
             try {
-                res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages`, {
+                res = await this.request(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body,
@@ -546,7 +548,7 @@ class DurableTransport {
      */
     async getQueueAttributes(queueName) {
         try {
-            const res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/attributes`);
+            const res = await this.request(`${this.queuesBase}/${encodeURIComponent(queueName)}/attributes`);
             if (!res.ok)
                 return null;
             return await res.json();
@@ -616,7 +618,7 @@ class DurableTransport {
         try {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 2000);
-            const res = await fetch(`${this.url}/health`, { signal: controller.signal });
+            const res = await this.request(`${this.url}/health`, { signal: controller.signal });
             clearTimeout(timeout);
             const latencyMs = Math.round(performance.now() - start);
             if (res.ok) {
@@ -640,7 +642,7 @@ class DurableTransport {
                 let data;
                 try {
                     data = await this.pollRetryManager.execute(async () => {
-                        const res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages?` +
+                        const res = await this.request(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages?` +
                             `max_messages=${batchSize}&visibility_timeout=${visibilityTimeout}`, { signal });
                         if (!res.ok) {
                             const err = new Error(`message-queue returned ${res.status}`);
@@ -829,8 +831,21 @@ class DurableTransport {
             }
         }
     }
+    request(url, init = {}) {
+        if (!this.requestHeaders)
+            return Object.keys(init).length ? fetch(url, init) : fetch(url);
+        if (init.body !== undefined && typeof init.body !== 'string') {
+            throw new Error('Durable HTTP signing requires a UTF-8 string body');
+        }
+        const headers = new Headers(init.headers);
+        for (const [name, value] of Object.entries(this.requestHeaders({ url,
+            method: init.method ?? 'GET', body: init.body ?? '' })))
+            headers.set(name, value);
+        // A redirected request has a different signed target and may leak credentials.
+        return fetch(url, { ...init, headers, redirect: 'error' });
+    }
     async acknowledge(queueName, receipt, signal) {
-        const response = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(receipt)}`, { method: 'DELETE', signal: AbortSignal.any([signal, AbortSignal.timeout(this.acknowledgementTimeoutMs)]) });
+        const response = await this.request(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(receipt)}`, { method: 'DELETE', signal: AbortSignal.any([signal, AbortSignal.timeout(this.acknowledgementTimeoutMs)]) });
         if (!response.ok)
             throw new Error(`message-queue acknowledgement returned ${response.status}`);
     }

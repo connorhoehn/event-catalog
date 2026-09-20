@@ -446,7 +446,7 @@ export class EventCatalog {
     this.log = new LogWriter(config.logger);
     this.registry = new Registry();
     this.signal = new SignalTransport({ url: config.redis.url, logger: config.logger });
-    this.durable = new DurableTransport({ url: config.messageQueue.url, logger: config.logger });
+    this.durable = new DurableTransport({ ...config.messageQueue, logger: config.logger });
     this.syncRetryManager = new RetryManager({
       maxRetries: 2,
       baseDelay: 1000,

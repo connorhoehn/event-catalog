@@ -304,7 +304,7 @@ class EventCatalog {
         this.log = new logger_1.LogWriter(config.logger);
         this.registry = new index_1.Registry();
         this.signal = new signal_1.SignalTransport({ url: config.redis.url, logger: config.logger });
-        this.durable = new durable_1.DurableTransport({ url: config.messageQueue.url, logger: config.logger });
+        this.durable = new durable_1.DurableTransport({ ...config.messageQueue, logger: config.logger });
         this.syncRetryManager = new transport_1.RetryManager({
             maxRetries: 2,
             baseDelay: 1000,

@@ -1,3 +1,4 @@
+import { createServiceRequestHeaders } from '@connorhoehn/service-runtime';
 import {
   AdmissionHttpServer,
   serveStatic,
@@ -482,7 +483,10 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   // The transports take the same sink, so the publish-path lines from
   // src/client land alongside the service's own.
   const signal = new SignalTransport({ url: redisUrl, logger });
-  const durable = new DurableTransport({ url: messageQueueUrl, logger });
+  const durable = new DurableTransport({ url: messageQueueUrl, logger,
+    requestHeaders: resolved.config.messageQueueAuthSecret ? createServiceRequestHeaders({
+      secret: resolved.config.messageQueueAuthSecret, serviceId: 'event-catalog', audience: 'message-queue',
+    }) : undefined });
   const startedAt = Date.now();
 
   // Connect transports

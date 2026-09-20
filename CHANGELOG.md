@@ -7,6 +7,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.7.0] - 2026-09-20
+
+- Durable HTTP transports accept a per-attempt `requestHeaders` hook, including
+  queue creation, retries, polling and acknowledgements. EventCatalog forwards
+  `messageQueue.requestHeaders`. Signing failures never fall back to unsigned
+  requests, and signed requests refuse redirects.
+- The registry service signs outbound MQ calls when `MQ_SERVICE_AUTH_SECRET`
+  is configured, using service-runtime 0.4.0 with audience `message-queue` and
+  caller `event-catalog`. Its required pino peer is explicitly installed.
+- This does not change registry inbound authentication or create per-user MQ
+  authorization. Shared-secret callers occupy one trusted backend boundary.
+
 ## [0.6.5] - 2026-09-20
 
 - Durable consumers now check receipt-deletion HTTP status. A failed

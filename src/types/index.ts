@@ -1,3 +1,4 @@
+import type { DurableTransportConfig } from '../client/durable';
 export type TransportType = 'signal' | 'durable' | 'both';
 
 export type CompatibilityMode = 'backward' | 'forward' | 'full' | 'none';
@@ -138,7 +139,7 @@ export interface NamespacePolicy {
 
 export interface EventCatalogConfig {
   redis: { url: string };
-  messageQueue: { url: string };
+  messageQueue: Pick<DurableTransportConfig, 'url' | 'requestHeaders'>;
   serviceName: string;
   registryUrl?: string;
   /**

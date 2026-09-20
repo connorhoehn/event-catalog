@@ -1,6 +1,6 @@
 {
   "name": "@connorhoehn/event-catalog",
-  "version": "0.6.5",
+  "version": "0.7.0",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },
@@ -78,7 +78,9 @@
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1045.0",
     "@aws-sdk/lib-dynamodb": "^3.1045.0",
+    "@connorhoehn/service-runtime": "github:connorhoehn/service-runtime#7a0e338764ff82cbc482927f3878b77561067d8a",
     "distributed-core": "github:connorhoehn/distributed-core#b6f38f57b781a8bf74ff9e31a35b6062f7193dc9",
+    "pino": "9.14.0",
     "redis": "^4.7.0",
     "ulid": "^2.3.0"
   },

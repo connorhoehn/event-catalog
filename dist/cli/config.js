@@ -272,6 +272,7 @@ function resolveServerConfig(env, flags = {}) {
             hostname,
             redisUrl,
             messageQueueUrl,
+            messageQueueAuthSecret: read(env, 'MQ_SERVICE_AUTH_SECRET'),
             dlqTableName,
             subscriberTtlSeconds,
             redisBootConnectAttempts,

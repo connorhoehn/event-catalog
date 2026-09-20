@@ -61,6 +61,8 @@ export interface DurableTransportConfig {
    * service; the platform default is `http://localhost:3004`.
    */
   url: string;
+  /** Called for every HTTP attempt, including receive and acknowledgement. */
+  requestHeaders?: (request: { url: string; method: string; body: string }) => Record<string, string>;
   /** Total publish attempts before giving up (not *extra* retries). Default 3. */
   retryAttempts?: number;
   /** Base for the exponential publish back-off, in ms. Default 100. */
@@ -151,6 +153,7 @@ export type DeadLetterCallback = (message: DeadLetteredMessage) => void;
  *     it from the source queue.
  */
 export class DurableTransport {
+  private readonly requestHeaders?: DurableTransportConfig['requestHeaders'];
   private readonly url: string;
   /** message-queue's canonical versioned queue surface (Roadmap 4.1). */
   private readonly queuesBase: string;
@@ -200,6 +203,7 @@ export class DurableTransport {
   private readonly log: LogWriter;
 
   constructor(config: DurableTransportConfig) {
+    this.requestHeaders = config.requestHeaders;
     this.url = config.url.replace(/\/$/, '');
     this.log = new LogWriter(config.logger);
     this.queuesBase = `${this.url}/api/v1/queues`;
@@ -243,7 +247,7 @@ export class DurableTransport {
 
     // Verify message-queue is reachable
     try {
-      const res = await fetch(`${this.url}/health`);
+      const res = await this.request(`${this.url}/health`);
       if (!res.ok) throw new Error(`status ${res.status}`);
     } catch (err) {
       this.log.warn(
@@ -441,7 +445,7 @@ export class DurableTransport {
     configuration: Record<string, unknown>,
   ): Promise<boolean> {
     try {
-      const res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}`, {
+      const res = await this.request(`${this.queuesBase}/${encodeURIComponent(queueName)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ configuration }),
@@ -571,7 +575,7 @@ export class DurableTransport {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.publishTimeoutMs);
       try {
-        res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages`, {
+        res = await this.request(`${this.queuesBase}/${encodeURIComponent(queueName)}/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body,
@@ -725,7 +729,7 @@ export class DurableTransport {
    */
   async getQueueAttributes(queueName: string): Promise<Record<string, unknown> | null> {
     try {
-      const res = await fetch(`${this.queuesBase}/${encodeURIComponent(queueName)}/attributes`);
+      const res = await this.request(`${this.queuesBase}/${encodeURIComponent(queueName)}/attributes`);
       if (!res.ok) return null;
       return await res.json() as Record<string, unknown>;
     } catch {
@@ -801,7 +805,7 @@ export class DurableTransport {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 2000);
 
-      const res = await fetch(`${this.url}/health`, { signal: controller.signal });
+      const res = await this.request(`${this.url}/health`, { signal: controller.signal });
       clearTimeout(timeout);
 
       const latencyMs = Math.round(performance.now() - start);
@@ -836,7 +840,7 @@ export class DurableTransport {
         let data: { messages?: Array<{ message_id: string; body: string; receipt_handle: string }> };
         try {
           data = await this.pollRetryManager.execute(async () => {
-            const res = await fetch(
+            const res = await this.request(
               `${this.queuesBase}/${encodeURIComponent(queueName)}/messages?` +
               `max_messages=${batchSize}&visibility_timeout=${visibilityTimeout}`,
               { signal },
@@ -1049,8 +1053,20 @@ export class DurableTransport {
     }
   }
 
+  private request(url: string, init: RequestInit = {}): Promise<Response> {
+    if (!this.requestHeaders) return Object.keys(init).length ? fetch(url, init) : fetch(url);
+    if (init.body !== undefined && typeof init.body !== 'string') {
+      throw new Error('Durable HTTP signing requires a UTF-8 string body');
+    }
+    const headers = new Headers(init.headers);
+    for (const [name, value] of Object.entries(this.requestHeaders({ url,
+      method: init.method ?? 'GET', body: init.body ?? '' }))) headers.set(name, value);
+    // A redirected request has a different signed target and may leak credentials.
+    return fetch(url, { ...init, headers, redirect: 'error' });
+  }
+
   private async acknowledge(queueName: string, receipt: string, signal: AbortSignal): Promise<void> {
-    const response = await fetch(
+    const response = await this.request(
       `${this.queuesBase}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(receipt)}`,
       { method: 'DELETE', signal: AbortSignal.any([signal, AbortSignal.timeout(this.acknowledgementTimeoutMs)]) },
     );

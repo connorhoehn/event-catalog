@@ -9,6 +9,12 @@ export interface DurableTransportConfig {
      * service; the platform default is `http://localhost:3004`.
      */
     url: string;
+    /** Called for every HTTP attempt, including receive and acknowledgement. */
+    requestHeaders?: (request: {
+        url: string;
+        method: string;
+        body: string;
+    }) => Record<string, string>;
     /** Total publish attempts before giving up (not *extra* retries). Default 3. */
     retryAttempts?: number;
     /** Base for the exponential publish back-off, in ms. Default 100. */
@@ -92,6 +98,7 @@ export type DeadLetterCallback = (message: DeadLetteredMessage) => void;
  *     it from the source queue.
  */
 export declare class DurableTransport {
+    private readonly requestHeaders?;
     private readonly url;
     /** message-queue's canonical versioned queue surface (Roadmap 4.1). */
     private readonly queuesBase;
@@ -318,6 +325,7 @@ export declare class DurableTransport {
         latencyMs: number;
     }>;
     private pollLoop;
+    private request;
     private acknowledge;
     /** Unconditional sleep without an abort signal (used in publish retry loop). */
     private sleepMs;
