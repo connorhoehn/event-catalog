@@ -234,3 +234,17 @@ import type { ClientFramePayload } from '@connorhoehn/event-catalog/client-frame
 
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
 - [`contracts/README.md`](contracts/README.md) — machine-readable AsyncAPI/OpenAPI adopter specs
+
+
+### Durable consumer acknowledgement failures
+
+The library marks a consumed message `received` only after MQ accepts its
+receipt deletion. HTTP errors, network failures and timeouts leave the message
+eligible for queue redelivery and increment the failed metric, without charging
+those failures to the handler's poison-message budget. Handlers must be
+idempotent because processing can succeed while acknowledgement fails.
+
+Direct `DurableTransport` users can set `acknowledgementTimeoutMs` (default
+10,000 ms). Unsubscribe/disconnect also cancels an in-flight acknowledgement.
+The local in-memory DLQ remains a bounded diagnostic buffer, not a durable
+replacement for the queue service's DLQ.

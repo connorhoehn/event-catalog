@@ -19,6 +19,8 @@ export interface DurableTransportConfig {
      * failure and retried, rather than hanging the caller indefinitely.
      */
     publishTimeoutMs?: number;
+    /** Deadline for receipt deletion after processing; default 10000 ms. */
+    acknowledgementTimeoutMs?: number;
     /** Max processing attempts before a message is dead-lettered. Default: 3 */
     maxProcessingAttempts?: number;
     /** Maximum number of dead-lettered messages to retain in memory. Default: 10000 */
@@ -97,6 +99,7 @@ export declare class DurableTransport {
     private readonly retryBaseMs;
     /** Per-attempt ceiling on a publish POST. See the constructor note. */
     private readonly publishTimeoutMs;
+    private readonly acknowledgementTimeoutMs;
     private readonly maxProcessingAttempts;
     private readonly dlqCapacity;
     private readonly pollRetryManager;
@@ -315,6 +318,7 @@ export declare class DurableTransport {
         latencyMs: number;
     }>;
     private pollLoop;
+    private acknowledge;
     /** Unconditional sleep without an abort signal (used in publish retry loop). */
     private sleepMs;
     private sleep;

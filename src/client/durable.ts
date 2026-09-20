@@ -71,6 +71,8 @@ export interface DurableTransportConfig {
    * failure and retried, rather than hanging the caller indefinitely.
    */
   publishTimeoutMs?: number;
+  /** Deadline for receipt deletion after processing; default 10000 ms. */
+  acknowledgementTimeoutMs?: number;
   /** Max processing attempts before a message is dead-lettered. Default: 3 */
   maxProcessingAttempts?: number;
   /** Maximum number of dead-lettered messages to retain in memory. Default: 10000 */
@@ -156,6 +158,7 @@ export class DurableTransport {
   private readonly retryBaseMs: number;
   /** Per-attempt ceiling on a publish POST. See the constructor note. */
   private readonly publishTimeoutMs: number;
+  private readonly acknowledgementTimeoutMs: number;
   private readonly maxProcessingAttempts: number;
   private readonly dlqCapacity: number;
   private readonly pollRetryManager: RetryManager;
@@ -207,6 +210,7 @@ export class DurableTransport {
     // never resolves, never rejects, and nothing is metered. healthCheck
     // already bounded itself; publish did not.
     this.publishTimeoutMs = config.publishTimeoutMs ?? 10_000;
+    this.acknowledgementTimeoutMs = config.acknowledgementTimeoutMs ?? 10_000;
     this.maxProcessingAttempts = config.maxProcessingAttempts ?? 3;
     this.dlqCapacity = config.dlqCapacity ?? 10_000;
     // keyIntervalMs: a queue that is still failing an hour later deserves a
@@ -892,22 +896,34 @@ export class DurableTransport {
 
         for (const msg of messages) {
           this.incrementMetric(queueName, 'inFlight');
+          let processed = false;
 
           try {
             const envelope = JSON.parse(msg.body) as EventEnvelope;
             await handler(envelope);
 
-            // Delete on success — processing succeeded
-            await fetch(
-              `${this.queuesBase}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(msg.receipt_handle)}`,
-              { method: 'DELETE' },
-            );
+            processed = true;
+            this.messageAttempts.delete(msg.message_id);
+            // A completed handler is not a committed acknowledgement. Failed
+            // deletion leaves the queue responsible for redelivery.
+            await this.acknowledge(queueName, msg.receipt_handle, signal);
 
             this.incrementMetric(queueName, 'received');
             this.decrementInFlight(queueName);
             // Clear attempt counter on success
             this.messageAttempts.delete(msg.message_id);
           } catch (err) {
+            if (processed) {
+              const suppressed = this.pollWarnings.attempt(`ack:${queueName}`);
+              if (suppressed !== null) {
+                this.log.warn(`[durable-transport] acknowledgement failed for "${queueName}"; message may be redelivered`, {
+                  queue: queueName, messageId: msg.message_id, error: errorMessage(err), suppressed,
+                });
+              }
+              this.decrementInFlight(queueName);
+              this.incrementMetric(queueName, 'failed');
+              continue; // Never charge storage/network failure to the handler's poison budget.
+            }
             this.handlerFailures++;
             const attemptCount = (this.messageAttempts.get(msg.message_id) ?? 0) + 1;
             // Bounded: message ids are chosen by the queue, and an entry is
@@ -943,11 +959,9 @@ export class DurableTransport {
                 try { cb(dlqMessage); } catch { /* ignore callback errors */ }
               }
               // Delete from source queue so it's not redelivered
-              await fetch(
-                `${this.queuesBase}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(msg.receipt_handle)}`,
-                { method: 'DELETE' },
-              ).catch(() => { /* best-effort cleanup */ });
-              this.messageAttempts.delete(msg.message_id);
+              const acknowledged = await this.acknowledge(queueName, msg.receipt_handle, signal)
+                .then(() => true, () => false); // In-memory DLQ remains best effort.
+              if (acknowledged) this.messageAttempts.delete(msg.message_id);
               this.deadLetteredTotal++;
               // Keyed by queue, not message id: a poison batch dead-letters
               // at the drain rate, and the useful signal is "this queue is
@@ -1033,6 +1047,14 @@ export class DurableTransport {
         await this.sleep(pollingInterval, signal);
       }
     }
+  }
+
+  private async acknowledge(queueName: string, receipt: string, signal: AbortSignal): Promise<void> {
+    const response = await fetch(
+      `${this.queuesBase}/${encodeURIComponent(queueName)}/messages/${encodeURIComponent(receipt)}`,
+      { method: 'DELETE', signal: AbortSignal.any([signal, AbortSignal.timeout(this.acknowledgementTimeoutMs)]) },
+    );
+    if (!response.ok) throw new Error(`message-queue acknowledgement returned ${response.status}`);
   }
 
   /** Unconditional sleep without an abort signal (used in publish retry loop). */

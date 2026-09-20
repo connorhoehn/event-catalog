@@ -7,6 +7,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.6.5] - 2026-09-20
+
+- Durable consumers now check receipt-deletion HTTP status. A failed
+  acknowledgement no longer increments `received`, counts as a handler failure,
+  or consumes the poison-message retry budget. The queue may redeliver and
+  handlers must remain idempotent.
+- Receipt deletion has a 10-second default deadline, configurable through
+  `DurableTransportConfig.acknowledgementTimeoutMs`, and respects unsubscribe /
+  disconnect cancellation. The in-memory DLQ remains best effort; this release
+  does not make it durable or provide exactly-once processing.
+- Validation: all 3,097 tests, library/CLI builds and dist verification pass.
+- Regenerated AsyncAPI artifacts to match the package version (the committed
+  backbone artifact still declared 0.6.3 while the package was already 0.6.4).
+
 ## [0.6.0] - 2026-09-07
 
 Five sweeps that landed after the `0.5.0` entry was written and were never
