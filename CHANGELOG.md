@@ -1,3 +1,8 @@
+## Unreleased — durable document protocol
+
+- Declare correlated CRDT durable commit/error receipts and idempotent canvas seed request/receipt, with generated TypeScript and AsyncAPI contracts.
+- Add crdt-document@1.1.0 while retaining the immutable 1.0.0 bundle fingerprint for pinned consumers.
+
 # Changelog
 
 All notable changes to `@connorhoehn/event-catalog` will be documented in this

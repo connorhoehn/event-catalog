@@ -31,3 +31,14 @@ export const crdtDocumentBundle: FeatureBundle = {
   ..._def,
   fingerprint: computeFingerprint(_def),
 };
+
+// Keep the original bundle fingerprint resolvable for pinned consumers.
+const durabilityDef: Omit<FeatureBundle, 'fingerprint'> = {
+  ..._def, version: '1.1.0',
+  events: [..._def.events,
+    { name: 'ws.crdt.persisted', required: false },
+    { name: 'ws.crdt.persistence-error', required: false },
+    { name: 'ws.crdt.seeded', required: false },
+  ],
+};
+export const crdtDocumentDurabilityBundle: FeatureBundle = { ...durabilityDef, fingerprint: computeFingerprint(durabilityDef) };

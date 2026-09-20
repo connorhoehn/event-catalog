@@ -125,6 +125,7 @@ import {
     clientCrdtSubscribe,
     clientCrdtUnsubscribe,
     clientCrdtUpdate,
+    clientCrdtSeedDocument,
     clientCrdtAwareness,
     clientSubscribeSubscribe,
     clientSubscribeUnsubscribe,
@@ -198,6 +199,7 @@ export {
     clientCrdtSubscribe,
     clientCrdtUnsubscribe,
     clientCrdtUpdate,
+    clientCrdtSeedDocument,
     clientCrdtAwareness,
     clientSubscribeSubscribe,
     clientSubscribeUnsubscribe,
@@ -280,6 +282,7 @@ export const clientFrameOutboundDeclarations: EventDeclaration[] = [
     clientCrdtSubscribe,
     clientCrdtUnsubscribe,
     clientCrdtUpdate,
+    clientCrdtSeedDocument,
     clientCrdtAwareness,
     // fileupload
     clientFileuploadRequestUpload,

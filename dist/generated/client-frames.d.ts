@@ -215,6 +215,19 @@ export interface ClientFramePayloadMap {
         action: 'update';
         channel: string;
         update: string;
+        updateId?: string;
+        [key: string]: unknown;
+    };
+    /** Idempotent schema-version-2 binary canvas bootstrap under source-revision authority. Does not replace existing documents. */
+    'client.crdt.seed-document': {
+        service: 'crdt';
+        action: 'seedDocument';
+        channel: string;
+        snapshot: string;
+        sourceRevision: string;
+        title?: string;
+        type?: string;
+        requestId?: string;
         [key: string]: unknown;
     };
     /** Client broadcast of local Y.js awareness state, base64-encoded and debounced (GatewayProvider). `mode` and `idle` are lifted out of awareness local state as top-level fields so the gateway DocumentPresenceService can update without decoding the Y.js binary. */
@@ -337,7 +350,7 @@ export type ReactionOutboundFrame = ClientFramePayloadMap['client.reaction.subsc
 /** Union of every outbound client→gateway frame for the `activity` service. */
 export type ActivityOutboundFrame = ClientFramePayloadMap['client.activity.subscribe'] | ClientFramePayloadMap['client.activity.unsubscribe'] | ClientFramePayloadMap['client.activity.getHistory'];
 /** Union of every outbound client→gateway frame for the `crdt` service. */
-export type CrdtOutboundFrame = ClientFramePayloadMap['client.crdt.subscribe'] | ClientFramePayloadMap['client.crdt.unsubscribe'] | ClientFramePayloadMap['client.crdt.update'] | ClientFramePayloadMap['client.crdt.awareness'];
+export type CrdtOutboundFrame = ClientFramePayloadMap['client.crdt.subscribe'] | ClientFramePayloadMap['client.crdt.unsubscribe'] | ClientFramePayloadMap['client.crdt.update'] | ClientFramePayloadMap['client.crdt.seed-document'] | ClientFramePayloadMap['client.crdt.awareness'];
 /** Union of every outbound client→gateway frame for the `fileupload` service. */
 export type FileuploadOutboundFrame = ClientFramePayloadMap['client.fileupload.request-upload'] | ClientFramePayloadMap['client.fileupload.complete'] | ClientFramePayloadMap['client.fileupload.cancel'];
 /** Union of every outbound client→gateway frame for the `videohangout` service. */
@@ -351,7 +364,7 @@ export type CursorInboundFrame = EventPayloadMap['ws.cursor.subscribed'] | Event
 /** Union of every inbound gateway→client push frame for the `activity` service. */
 export type ActivityInboundFrame = EventPayloadMap['ws.activity.subscribed'] | EventPayloadMap['ws.activity.unsubscribed'] | EventPayloadMap['ws.activity.published'] | EventPayloadMap['ws.activity.history'] | EventPayloadMap['ws.activity.event'];
 /** Union of every inbound gateway→client push frame for the `crdt` service. */
-export type CrdtInboundFrame = EventPayloadMap['ws.crdt.subscribed'] | EventPayloadMap['ws.crdt.unsubscribed'] | EventPayloadMap['ws.crdt.snapshot'] | EventPayloadMap['ws.crdt.update'] | EventPayloadMap['ws.crdt.doc-replaced'] | EventPayloadMap['ws.crdt.sync-request'] | EventPayloadMap['ws.crdt.sync-response'] | EventPayloadMap['ws.crdt.snapshot-stored'] | EventPayloadMap['ws.crdt.awareness-batch'] | EventPayloadMap['ws.crdt.awareness'];
+export type CrdtInboundFrame = EventPayloadMap['ws.crdt.subscribed'] | EventPayloadMap['ws.crdt.unsubscribed'] | EventPayloadMap['ws.crdt.snapshot'] | EventPayloadMap['ws.crdt.update'] | EventPayloadMap['ws.crdt.persisted'] | EventPayloadMap['ws.crdt.persistence-error'] | EventPayloadMap['ws.crdt.seeded'] | EventPayloadMap['ws.crdt.doc-replaced'] | EventPayloadMap['ws.crdt.sync-request'] | EventPayloadMap['ws.crdt.sync-response'] | EventPayloadMap['ws.crdt.snapshot-stored'] | EventPayloadMap['ws.crdt.awareness-batch'] | EventPayloadMap['ws.crdt.awareness'];
 /** Union of every inbound gateway→client push frame for the `presence` service. */
 export type PresenceInboundFrame = EventPayloadMap['ws.presence.set'] | EventPayloadMap['ws.presence.update'] | EventPayloadMap['ws.presence.subscribed'] | EventPayloadMap['ws.presence.unsubscribed'] | EventPayloadMap['ws.presence.data'] | EventPayloadMap['ws.presence.offline'] | EventPayloadMap['ws.presence.joined'] | EventPayloadMap['ws.presence.left'];
 /** Union of every inbound gateway→client push frame for the `reaction` service. */

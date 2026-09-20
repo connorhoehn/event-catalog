@@ -178,6 +178,7 @@ const INTENTIONALLY_UNBUNDLED: readonly string[] = [
   'client.crdt.subscribe',
   'client.crdt.unsubscribe',
   'client.crdt.update',
+  'client.crdt.seed-document',
   'client.fileupload.cancel',
   'client.fileupload.complete',
   'client.fileupload.request-upload',

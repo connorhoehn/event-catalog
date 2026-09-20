@@ -34,8 +34,8 @@
 // guarantees the split cannot silently change which description lands on
 // which property. Never call `annotateDeclarations` from a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallRecordingCompleted = exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionHistory = exports.wsReactionList = exports.wsReactionRemoved = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtAwarenessBatch = exports.wsCrdtSnapshotStored = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorBatch = exports.wsCursorClear = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
-exports.gatewaySignalDeclarations = exports.wsSubscribeUnsubscribed = exports.wsSubscribeSubscribed = exports.wsSessionConnected = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = exports.wsPipelineAck = void 0;
+exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionHistory = exports.wsReactionList = exports.wsReactionRemoved = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtAwarenessBatch = exports.wsCrdtSnapshotStored = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtSeeded = exports.wsCrdtPersistenceError = exports.wsCrdtPersisted = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorBatch = exports.wsCursorClear = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
+exports.gatewaySignalDeclarations = exports.wsSubscribeUnsubscribed = exports.wsSubscribeSubscribed = exports.wsSessionConnected = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallRecordingCompleted = void 0;
 const field_glossary_1 = require("./field-glossary");
 const chat_1 = require("./gateway-signal/chat");
 const cursor_1 = require("./gateway-signal/cursor");
@@ -78,6 +78,9 @@ Object.defineProperty(exports, "wsCrdtSubscribed", { enumerable: true, get: func
 Object.defineProperty(exports, "wsCrdtUnsubscribed", { enumerable: true, get: function () { return crdt_2.wsCrdtUnsubscribed; } });
 Object.defineProperty(exports, "wsCrdtSnapshot", { enumerable: true, get: function () { return crdt_2.wsCrdtSnapshot; } });
 Object.defineProperty(exports, "wsCrdtUpdate", { enumerable: true, get: function () { return crdt_2.wsCrdtUpdate; } });
+Object.defineProperty(exports, "wsCrdtPersisted", { enumerable: true, get: function () { return crdt_2.wsCrdtPersisted; } });
+Object.defineProperty(exports, "wsCrdtPersistenceError", { enumerable: true, get: function () { return crdt_2.wsCrdtPersistenceError; } });
+Object.defineProperty(exports, "wsCrdtSeeded", { enumerable: true, get: function () { return crdt_2.wsCrdtSeeded; } });
 Object.defineProperty(exports, "wsCrdtSyncRequest", { enumerable: true, get: function () { return crdt_2.wsCrdtSyncRequest; } });
 Object.defineProperty(exports, "wsCrdtSyncResponse", { enumerable: true, get: function () { return crdt_2.wsCrdtSyncResponse; } });
 Object.defineProperty(exports, "wsCrdtDocReplaced", { enumerable: true, get: function () { return crdt_2.wsCrdtDocReplaced; } });
@@ -208,6 +211,9 @@ exports.gatewaySignalDeclarations = [
     crdt_1.wsCrdtUnsubscribed,
     crdt_1.wsCrdtSnapshot,
     crdt_1.wsCrdtUpdate,
+    crdt_1.wsCrdtPersisted,
+    crdt_1.wsCrdtPersistenceError,
+    crdt_1.wsCrdtSeeded,
     crdt_1.wsCrdtDocReplaced,
     crdt_1.wsCrdtSyncRequest,
     crdt_1.wsCrdtSyncResponse,

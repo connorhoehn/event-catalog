@@ -7,7 +7,7 @@
 // frames exchanged over the WebSocket signal channel.
 // Event names match the canonical ws.crdt.* declarations in gateway-signal.ts.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.crdtDocumentBundle = void 0;
+exports.crdtDocumentDurabilityBundle = exports.crdtDocumentBundle = void 0;
 const FeatureBundle_js_1 = require("../../bundles/FeatureBundle.js");
 const _def = {
     name: 'crdt-document',
@@ -31,4 +31,14 @@ exports.crdtDocumentBundle = {
     ..._def,
     fingerprint: (0, FeatureBundle_js_1.computeFingerprint)(_def),
 };
+// Keep the original bundle fingerprint resolvable for pinned consumers.
+const durabilityDef = {
+    ..._def, version: '1.1.0',
+    events: [..._def.events,
+        { name: 'ws.crdt.persisted', required: false },
+        { name: 'ws.crdt.persistence-error', required: false },
+        { name: 'ws.crdt.seeded', required: false },
+    ],
+};
+exports.crdtDocumentDurabilityBundle = { ...durabilityDef, fingerprint: (0, FeatureBundle_js_1.computeFingerprint)(durabilityDef) };
 //# sourceMappingURL=crdt-document.js.map

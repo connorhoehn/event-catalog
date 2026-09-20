@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-16T09:56:25.813Z
+// Generated at: 2026-09-20T15:05:00.883Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -222,6 +222,19 @@ export interface ClientFramePayloadMap {
     action: 'update';
     channel: string;
     update: string;
+    updateId?: string;
+    [key: string]: unknown;
+  };
+  /** Idempotent schema-version-2 binary canvas bootstrap under source-revision authority. Does not replace existing documents. */
+  'client.crdt.seed-document': {
+    service: 'crdt';
+    action: 'seedDocument';
+    channel: string;
+    snapshot: string;
+    sourceRevision: string;
+    title?: string;
+    type?: string;
+    requestId?: string;
     [key: string]: unknown;
   };
   /** Client broadcast of local Y.js awareness state, base64-encoded and debounced (GatewayProvider). `mode` and `idle` are lifted out of awareness local state as top-level fields so the gateway DocumentPresenceService can update without decoding the Y.js binary. */
@@ -380,6 +393,7 @@ export type CrdtOutboundFrame =
   | ClientFramePayloadMap['client.crdt.subscribe']
   | ClientFramePayloadMap['client.crdt.unsubscribe']
   | ClientFramePayloadMap['client.crdt.update']
+  | ClientFramePayloadMap['client.crdt.seed-document']
   | ClientFramePayloadMap['client.crdt.awareness'];
 
 /** Union of every outbound client→gateway frame for the `fileupload` service. */
@@ -439,6 +453,9 @@ export type CrdtInboundFrame =
   | EventPayloadMap['ws.crdt.unsubscribed']
   | EventPayloadMap['ws.crdt.snapshot']
   | EventPayloadMap['ws.crdt.update']
+  | EventPayloadMap['ws.crdt.persisted']
+  | EventPayloadMap['ws.crdt.persistence-error']
+  | EventPayloadMap['ws.crdt.seeded']
   | EventPayloadMap['ws.crdt.doc-replaced']
   | EventPayloadMap['ws.crdt.sync-request']
   | EventPayloadMap['ws.crdt.sync-response']

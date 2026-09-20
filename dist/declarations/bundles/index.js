@@ -5,7 +5,7 @@
 // Importing this module at boot time registers the bundles in the
 // module-level singleton via registerFeatureBundle().
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.allBundles = exports.gatewaySessionBundle = exports.sfuChatBundle = exports.sfuControlPlaneBundle = exports.sfuWebhooksBundle = exports.callCaptionsBundle = exports.agUiStreamBundle = exports.orgiqNewsroomBundle = exports.notificationsBundle = exports.fileUploadBundle = exports.videoHangoutBundle = exports.crdtDocumentBundle = exports.agenticPipelineDurableBundle = exports.agenticPipelineSignalBundle = exports.agenticPipelineBundle = exports.activityBundle = exports.reactionsBundle = exports.cursorBundle = exports.presenceBundle = exports.chatBundle = void 0;
+exports.allBundles = exports.gatewaySessionBundle = exports.sfuChatBundle = exports.sfuControlPlaneBundle = exports.sfuWebhooksBundle = exports.callCaptionsBundle = exports.agUiStreamBundle = exports.orgiqNewsroomBundle = exports.notificationsBundle = exports.fileUploadBundle = exports.videoHangoutBundle = exports.crdtDocumentDurabilityBundle = exports.crdtDocumentBundle = exports.agenticPipelineDurableBundle = exports.agenticPipelineSignalBundle = exports.agenticPipelineBundle = exports.activityBundle = exports.reactionsBundle = exports.cursorBundle = exports.presenceBundle = exports.chatBundle = void 0;
 var chat_js_1 = require("./chat.js");
 Object.defineProperty(exports, "chatBundle", { enumerable: true, get: function () { return chat_js_1.chatBundle; } });
 var presence_js_1 = require("./presence.js");
@@ -25,6 +25,7 @@ var agentic_pipeline_durable_js_1 = require("./agentic-pipeline-durable.js");
 Object.defineProperty(exports, "agenticPipelineDurableBundle", { enumerable: true, get: function () { return agentic_pipeline_durable_js_1.agenticPipelineDurableBundle; } });
 var crdt_document_js_1 = require("./crdt-document.js");
 Object.defineProperty(exports, "crdtDocumentBundle", { enumerable: true, get: function () { return crdt_document_js_1.crdtDocumentBundle; } });
+Object.defineProperty(exports, "crdtDocumentDurabilityBundle", { enumerable: true, get: function () { return crdt_document_js_1.crdtDocumentDurabilityBundle; } });
 var video_hangout_js_1 = require("./video-hangout.js");
 Object.defineProperty(exports, "videoHangoutBundle", { enumerable: true, get: function () { return video_hangout_js_1.videoHangoutBundle; } });
 var file_upload_js_1 = require("./file-upload.js");
@@ -76,6 +77,7 @@ exports.allBundles = [
     agentic_pipeline_signal_js_2.agenticPipelineSignalBundle,
     agentic_pipeline_durable_js_2.agenticPipelineDurableBundle,
     crdt_document_js_2.crdtDocumentBundle,
+    crdt_document_js_2.crdtDocumentDurabilityBundle,
     video_hangout_js_2.videoHangoutBundle,
     file_upload_js_2.fileUploadBundle,
     notifications_js_2.notificationsBundle,

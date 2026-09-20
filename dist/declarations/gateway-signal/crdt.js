@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.wsCrdtAwarenessBatch = exports.wsCrdtSnapshotStored = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = void 0;
+exports.wsCrdtSeeded = exports.wsCrdtPersistenceError = exports.wsCrdtPersisted = exports.wsCrdtAwarenessBatch = exports.wsCrdtSnapshotStored = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = void 0;
 const _shared_1 = require("./_shared");
 // ===========================================================================
 // CRDT frames — src/realtime-fanout/crdt-service.ts
@@ -157,5 +157,24 @@ exports.wsCrdtAwarenessBatch = {
             description: 'Array of per-client awareness state updates',
         },
     }, ['docId', 'updates']),
+};
+/** Correlated receipt: emitted only after SnapshotStore.putSnapshot resolves. */
+exports.wsCrdtPersisted = {
+    namespace: 'ws', name: 'ws.crdt.persisted', transport: 'signal', producer: _shared_1.PRODUCER,
+    description: 'Durable commit receipt for one client update identifier. Initial snapshot sync is not this receipt.',
+    tags: [..._shared_1.BASE_TAGS, 'crdt'],
+    schema: (0, _shared_1.wsSchema)('crdt:persisted', { channel: { type: 'string' }, updateId: { type: 'string', minLength: 1, maxLength: 160, description: 'Client update identifier echoed by the persistence result.' } }, ['channel', 'updateId']),
+};
+exports.wsCrdtPersistenceError = {
+    namespace: 'ws', name: 'ws.crdt.persistence-error', transport: 'signal', producer: _shared_1.PRODUCER,
+    description: 'An update failed authorization or durable persistence; the client retains its pending bytes for an explicit retry or reconnect.',
+    tags: [..._shared_1.BASE_TAGS, 'crdt'],
+    schema: (0, _shared_1.wsSchema)('crdt:persistence-error', { channel: { type: 'string' }, updateId: { type: 'string', minLength: 1, maxLength: 160, description: 'Client update identifier echoed by the persistence result.' } }, ['channel', 'updateId']),
+};
+exports.wsCrdtSeeded = {
+    namespace: 'ws', name: 'ws.crdt.seeded', transport: 'signal', producer: _shared_1.PRODUCER,
+    description: 'Server-coordinated initial canvas seed and metadata are durably stored, or an identical source revision was already seeded.',
+    tags: [..._shared_1.BASE_TAGS, 'crdt'],
+    schema: (0, _shared_1.wsSchema)('crdt:seeded', { channel: { type: 'string' }, sourceRevision: { type: 'string', description: 'Authoritative source revision used for the initial import.' }, alreadySeeded: { type: 'boolean', description: 'Whether this source revision was already durably seeded.' }, requestId: { type: 'string', description: 'Caller correlation identifier echoed in the seed result.' } }, ['channel', 'sourceRevision', 'alreadySeeded']),
 };
 //# sourceMappingURL=crdt.js.map

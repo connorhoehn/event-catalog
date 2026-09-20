@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-16T09:56:25.810Z
+// Generated at: 2026-09-20T15:05:00.873Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -750,6 +750,32 @@ export interface EventPayloadMap {
     timestamp?: string;
     channel: string;
     update: string;
+    [key: string]: unknown;
+  };
+  /** Durable commit receipt for one client update identifier. Initial snapshot sync is not this receipt. */
+  'ws.crdt.persisted': {
+    type: 'crdt:persisted';
+    timestamp?: string;
+    channel: string;
+    updateId: string;
+    [key: string]: unknown;
+  };
+  /** An update failed authorization or durable persistence; the client retains its pending bytes for an explicit retry or reconnect. */
+  'ws.crdt.persistence-error': {
+    type: 'crdt:persistence-error';
+    timestamp?: string;
+    channel: string;
+    updateId: string;
+    [key: string]: unknown;
+  };
+  /** Server-coordinated initial canvas seed and metadata are durably stored, or an identical source revision was already seeded. */
+  'ws.crdt.seeded': {
+    type: 'crdt:seeded';
+    timestamp?: string;
+    channel: string;
+    sourceRevision: string;
+    alreadySeeded: boolean;
+    requestId?: string;
     [key: string]: unknown;
   };
   /** Broadcast to all CRDT channel subscribers when a snapshot restore replaces the document state. */
@@ -1729,6 +1755,19 @@ export interface EventPayloadMap {
     action: 'update';
     channel: string;
     update: string;
+    updateId?: string;
+    [key: string]: unknown;
+  };
+  /** Idempotent schema-version-2 binary canvas bootstrap under source-revision authority. Does not replace existing documents. */
+  'client.crdt.seed-document': {
+    service: 'crdt';
+    action: 'seedDocument';
+    channel: string;
+    snapshot: string;
+    sourceRevision: string;
+    title?: string;
+    type?: string;
+    requestId?: string;
     [key: string]: unknown;
   };
   /** Client broadcast of local Y.js awareness state, base64-encoded and debounced (GatewayProvider). `mode` and `idle` are lifted out of awareness local state as top-level fields so the gateway DocumentPresenceService can update without decoding the Y.js binary. */

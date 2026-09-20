@@ -797,8 +797,8 @@ describe('feature bundles', () => {
     expect(bad, `bundle metadata problems: ${bad.join('; ')}`).toEqual([]);
   });
 
-  it('every bundle name is unique', () => {
-    const names = allBundles.map((b) => b.name);
+  it('every bundle name and version is unique (older pinned versions remain resolvable)', () => {
+    const names = allBundles.map((b) => `${b.name}@${b.version}`);
     expect(new Set(names).size, `duplicate bundle names in ${names.join(', ')}`).toBe(names.length);
   });
 });

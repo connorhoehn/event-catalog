@@ -13,7 +13,7 @@ export { activityBundle } from './activity.js';
 export { agenticPipelineBundle } from './agentic-pipeline.js';
 export { agenticPipelineSignalBundle } from './agentic-pipeline-signal.js';
 export { agenticPipelineDurableBundle } from './agentic-pipeline-durable.js';
-export { crdtDocumentBundle } from './crdt-document.js';
+export { crdtDocumentBundle, crdtDocumentDurabilityBundle } from './crdt-document.js';
 export { videoHangoutBundle } from './video-hangout.js';
 export { fileUploadBundle } from './file-upload.js';
 export { notificationsBundle } from './notifications.js';
@@ -34,7 +34,7 @@ import { activityBundle } from './activity.js';
 import { agenticPipelineBundle } from './agentic-pipeline.js';
 import { agenticPipelineSignalBundle } from './agentic-pipeline-signal.js';
 import { agenticPipelineDurableBundle } from './agentic-pipeline-durable.js';
-import { crdtDocumentBundle } from './crdt-document.js';
+import { crdtDocumentBundle, crdtDocumentDurabilityBundle } from './crdt-document.js';
 import { videoHangoutBundle } from './video-hangout.js';
 import { fileUploadBundle } from './file-upload.js';
 import { notificationsBundle } from './notifications.js';
@@ -57,6 +57,7 @@ export const allBundles = [
   agenticPipelineSignalBundle,
   agenticPipelineDurableBundle,
   crdtDocumentBundle,
+  crdtDocumentDurabilityBundle,
   videoHangoutBundle,
   fileUploadBundle,
   notificationsBundle,

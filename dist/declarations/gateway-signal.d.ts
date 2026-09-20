@@ -2,7 +2,7 @@ import type { EventDeclaration } from '../types/index';
 export { wsChatJoined, wsChatLeft, wsChatMessage, wsChatSent, wsChatHistory, } from './gateway-signal/chat';
 export { wsCursorSubscribed, wsCursorUnsubscribed, wsCursorUpdate, wsCursorRemove, wsCursorClear, wsCursorBatch, wsCursorList, wsCursorModes, } from './gateway-signal/cursor';
 export { wsActivitySubscribed, wsActivityUnsubscribed, wsActivityPublished, wsActivityHistory, wsActivityEvent, } from './gateway-signal/activity';
-export { wsCrdtSubscribed, wsCrdtUnsubscribed, wsCrdtSnapshot, wsCrdtUpdate, wsCrdtSyncRequest, wsCrdtSyncResponse, wsCrdtDocReplaced, wsCrdtSnapshotStored, wsCrdtAwarenessBatch, } from './gateway-signal/crdt';
+export { wsCrdtSubscribed, wsCrdtUnsubscribed, wsCrdtSnapshot, wsCrdtUpdate, wsCrdtPersisted, wsCrdtPersistenceError, wsCrdtSeeded, wsCrdtSyncRequest, wsCrdtSyncResponse, wsCrdtDocReplaced, wsCrdtSnapshotStored, wsCrdtAwarenessBatch, } from './gateway-signal/crdt';
 export { wsPresenceSet, wsPresenceUpdate, wsPresenceSubscribed, wsPresenceUnsubscribed, wsPresenceData, wsPresenceOffline, } from './gateway-signal/presence';
 export { wsReactionSubscribed, wsReactionReceived, wsReactionRemoved, wsReactionList, wsReactionHistory, wsReactionSent, } from './gateway-signal/reaction';
 export { wsCallInvite, wsCallAccepted, wsCallDeclined, wsCallCancelled, wsCallEnded, wsCallVideoOn, wsCallVideoOff, wsCallRecordingStarted, wsCallRecordingCompleted, } from './gateway-signal/call';

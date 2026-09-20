@@ -40,4 +40,8 @@ export declare const wsCrdtSnapshotStored: EventDeclaration;
  * WebSocket frame overhead for channels with many concurrent editors.
  */
 export declare const wsCrdtAwarenessBatch: EventDeclaration;
+/** Correlated receipt: emitted only after SnapshotStore.putSnapshot resolves. */
+export declare const wsCrdtPersisted: EventDeclaration;
+export declare const wsCrdtPersistenceError: EventDeclaration;
+export declare const wsCrdtSeeded: EventDeclaration;
 //# sourceMappingURL=crdt.d.ts.map

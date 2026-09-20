@@ -55,4 +55,6 @@ export declare const clientCrdtAwareness: EventDeclaration;
 export declare const clientSubscribeSubscribe: EventDeclaration;
 /** Sent by useWebSocket.unsubscribe(). */
 export declare const clientSubscribeUnsubscribe: EventDeclaration;
+/** Trusted initial migration; requires a narrow seed-only document grant. */
+export declare const clientCrdtSeedDocument: EventDeclaration;
 //# sourceMappingURL=outbound-fanout.d.ts.map

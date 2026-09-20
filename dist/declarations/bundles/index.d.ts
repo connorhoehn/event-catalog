@@ -6,7 +6,7 @@ export { activityBundle } from './activity.js';
 export { agenticPipelineBundle } from './agentic-pipeline.js';
 export { agenticPipelineSignalBundle } from './agentic-pipeline-signal.js';
 export { agenticPipelineDurableBundle } from './agentic-pipeline-durable.js';
-export { crdtDocumentBundle } from './crdt-document.js';
+export { crdtDocumentBundle, crdtDocumentDurabilityBundle } from './crdt-document.js';
 export { videoHangoutBundle } from './video-hangout.js';
 export { fileUploadBundle } from './file-upload.js';
 export { notificationsBundle } from './notifications.js';
@@ -18,5 +18,5 @@ export { sfuControlPlaneBundle } from './sfu-control-plane.js';
 export { sfuChatBundle } from './sfu-chat.js';
 export { gatewaySessionBundle } from './gateway-session.js';
 /** All v1 bundle definitions, in declaration order. */
-export declare const allBundles: readonly [import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle];
+export declare const allBundles: readonly [import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle, import("../../bundles/FeatureBundle.js").FeatureBundle];
 //# sourceMappingURL=index.d.ts.map

@@ -9,7 +9,7 @@
 //
 // Sliced verbatim out of the former single-file client-frames.ts.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatDelete = exports.clientChatEdit = exports.clientChatRemoveMember = exports.clientChatAddMembers = exports.clientChatMembers = exports.clientChatTyping = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
+exports.clientCrdtSeedDocument = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatDelete = exports.clientChatEdit = exports.clientChatRemoveMember = exports.clientChatAddMembers = exports.clientChatMembers = exports.clientChatTyping = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
 const _shared_1 = require("./_shared");
 // ===========================================================================
 // OUTBOUND — chat (useChat.ts + GatewaySocketProvider.tsx)
@@ -369,6 +369,7 @@ exports.clientCrdtUpdate = {
     tags: [..._shared_1.CLIENT_BASE_TAGS, 'crdt'],
     schema: (0, _shared_1.clientFrameSchema)('crdt', 'update', {
         update: { type: 'string', description: 'base64-encoded Y.js update' },
+        updateId: { type: 'string', minLength: 1, maxLength: 160, description: 'Client correlation identifier requesting a durable commit receipt.' },
     }, ['channel', 'update']),
 };
 /** Sent (debounced 50ms) by GatewayProvider awareness handler. */
@@ -410,5 +411,17 @@ exports.clientSubscribeUnsubscribe = {
     description: 'Generic channel unsubscribe frame from the useWebSocket channel multiplexer. Wire service is literally "subscribe".',
     tags: [..._shared_1.CLIENT_BASE_TAGS, 'subscribe'],
     schema: (0, _shared_1.clientFrameSchema)('subscribe', 'unsubscribe', {}, ['channel']),
+};
+/** Trusted initial migration; requires a narrow seed-only document grant. */
+exports.clientCrdtSeedDocument = {
+    namespace: 'client', name: 'client.crdt.seed-document', transport: 'signal', producer: _shared_1.CLIENT_PRODUCER,
+    description: 'Idempotent schema-version-2 binary canvas bootstrap under source-revision authority. Does not replace existing documents.',
+    tags: [..._shared_1.CLIENT_BASE_TAGS, 'crdt'],
+    schema: (0, _shared_1.clientFrameSchema)('crdt', 'seedDocument', {
+        snapshot: { type: 'string', description: 'Base64 binary Yjs state using the canonical canvas schema.' },
+        sourceRevision: { type: 'string', minLength: 1, maxLength: 512, description: 'Authoritative source revision used for the initial import.' },
+        title: { type: 'string', maxLength: 512 }, type: { type: 'string', maxLength: 128 },
+        requestId: { type: 'string', description: 'Caller correlation identifier echoed in the seed result.' },
+    }, ['channel', 'snapshot', 'sourceRevision']),
 };
 //# sourceMappingURL=outbound-fanout.js.map

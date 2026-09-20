@@ -166,3 +166,23 @@ export const wsCrdtAwarenessBatch: EventDeclaration = {
         },
     }, ['docId', 'updates']),
 };
+
+/** Correlated receipt: emitted only after SnapshotStore.putSnapshot resolves. */
+export const wsCrdtPersisted: EventDeclaration = {
+    namespace: 'ws', name: 'ws.crdt.persisted', transport: 'signal', producer: PRODUCER,
+    description: 'Durable commit receipt for one client update identifier. Initial snapshot sync is not this receipt.',
+    tags: [...BASE_TAGS, 'crdt'],
+    schema: wsSchema('crdt:persisted', { channel: { type: 'string' }, updateId: { type: 'string', minLength: 1, maxLength: 160, description: 'Client update identifier echoed by the persistence result.' } }, ['channel', 'updateId']),
+};
+export const wsCrdtPersistenceError: EventDeclaration = {
+    namespace: 'ws', name: 'ws.crdt.persistence-error', transport: 'signal', producer: PRODUCER,
+    description: 'An update failed authorization or durable persistence; the client retains its pending bytes for an explicit retry or reconnect.',
+    tags: [...BASE_TAGS, 'crdt'],
+    schema: wsSchema('crdt:persistence-error', { channel: { type: 'string' }, updateId: { type: 'string', minLength: 1, maxLength: 160, description: 'Client update identifier echoed by the persistence result.' } }, ['channel', 'updateId']),
+};
+export const wsCrdtSeeded: EventDeclaration = {
+    namespace: 'ws', name: 'ws.crdt.seeded', transport: 'signal', producer: PRODUCER,
+    description: 'Server-coordinated initial canvas seed and metadata are durably stored, or an identical source revision was already seeded.',
+    tags: [...BASE_TAGS, 'crdt'],
+    schema: wsSchema('crdt:seeded', { channel: { type: 'string' }, sourceRevision: { type: 'string', description: 'Authoritative source revision used for the initial import.' }, alreadySeeded: { type: 'boolean', description: 'Whether this source revision was already durably seeded.' }, requestId: { type: 'string', description: 'Caller correlation identifier echoed in the seed result.' } }, ['channel', 'sourceRevision', 'alreadySeeded']),
+};

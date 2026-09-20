@@ -399,6 +399,7 @@ export const clientCrdtUpdate: EventDeclaration = {
     tags: [...CLIENT_BASE_TAGS, 'crdt'],
     schema: clientFrameSchema('crdt', 'update', {
         update: { type: 'string', description: 'base64-encoded Y.js update' },
+        updateId: { type: 'string', minLength: 1, maxLength: 160, description: 'Client correlation identifier requesting a durable commit receipt.' },
     }, ['channel', 'update']),
 };
 
@@ -444,4 +445,17 @@ export const clientSubscribeUnsubscribe: EventDeclaration = {
     description: 'Generic channel unsubscribe frame from the useWebSocket channel multiplexer. Wire service is literally "subscribe".',
     tags: [...CLIENT_BASE_TAGS, 'subscribe'],
     schema: clientFrameSchema('subscribe', 'unsubscribe', {}, ['channel']),
+};
+
+/** Trusted initial migration; requires a narrow seed-only document grant. */
+export const clientCrdtSeedDocument: EventDeclaration = {
+    namespace: 'client', name: 'client.crdt.seed-document', transport: 'signal', producer: CLIENT_PRODUCER,
+    description: 'Idempotent schema-version-2 binary canvas bootstrap under source-revision authority. Does not replace existing documents.',
+    tags: [...CLIENT_BASE_TAGS, 'crdt'],
+    schema: clientFrameSchema('crdt', 'seedDocument', {
+        snapshot: { type: 'string', description: 'Base64 binary Yjs state using the canonical canvas schema.' },
+        sourceRevision: { type: 'string', minLength: 1, maxLength: 512, description: 'Authoritative source revision used for the initial import.' },
+        title: { type: 'string', maxLength: 512 }, type: { type: 'string', maxLength: 128 },
+        requestId: { type: 'string', description: 'Caller correlation identifier echoed in the seed result.' },
+    }, ['channel', 'snapshot', 'sourceRevision']),
 };
