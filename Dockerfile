@@ -40,7 +40,9 @@ FROM base AS builder
 WORKDIR /app
 
 COPY event-catalog/package.json event-catalog/package-lock.json* ./
-RUN --mount=type=ssh npm ci
+# Git dependencies publish their tracked dist; do not recursively rebuild
+# their development graphs during installation. Compile this service below.
+RUN --mount=type=ssh npm ci --ignore-scripts
 
 COPY event-catalog/tsconfig.json ./
 COPY event-catalog/src/ ./src/
@@ -96,7 +98,7 @@ RUN --mount=type=ssh \
     apk add --no-cache --virtual .build-deps git openssh-client python3 make g++ \
  && mkdir -p -m 0700 /root/.ssh \
  && ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> /root/.ssh/known_hosts 2>/dev/null \
- && npm ci --omit=dev \
+ && npm ci --omit=dev --ignore-scripts \
  && npm cache clean --force \
  && apk del .build-deps \
  && rm -rf /root/.ssh /root/.npm
