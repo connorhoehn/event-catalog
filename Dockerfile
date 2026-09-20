@@ -59,6 +59,10 @@ FROM base AS admin-builder
 # `file:../../../ui-components` resolved from /app/src/admin lands on
 # /ui-components, and vite.config.ts aliases @ui at /ui-components/src.
 COPY ui-components/ /ui-components/
+# The admin aliases library source, whose imports resolve from this directory.
+# Install its locked dependency graph in Linux; never rely on a host node_modules.
+WORKDIR /ui-components
+RUN --mount=type=ssh npm ci --ignore-scripts
 
 WORKDIR /app/src/admin
 COPY event-catalog/src/admin/package.json event-catalog/src/admin/package-lock.json* ./
