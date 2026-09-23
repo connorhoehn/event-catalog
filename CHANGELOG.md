@@ -12,6 +12,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.8.0] - 2026-09-23
+
+- `isPipelineMqLaneEvent` / `isPipelineHotLaneEvent` (+ the lists and
+  `PIPELINE_MQ_MAX_BODY_BYTES` behind them): one definition of which live
+  pipeline events platform-api relays to the MQ `pipeline-events` queue and
+  which stay on the Redis bus only (checkpoints, heartbeats, step context
+  patches, every `pipeline:llm:*` event, and bodies over the MQ cap). The
+  gateway subscribes Redis for exactly the hot lane in MQ-only mode
+  (realtime-examples NFR #130).
+- Also released here: the durable document receipts and idempotent canvas
+  seed declarations (`crdt-document@1.1.0`, a79ad51).
+
 ## [0.7.1] - 2026-09-20
 
 - Production registry startup now requires the existing bearer token or an

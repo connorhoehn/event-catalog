@@ -20,6 +20,7 @@ export { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpo
 export { createValidatingPublisher, createPublisher, ValidationError, type ValidationMode, type ValidatingPublisherOptions, } from './utils/validating-publisher';
 export { MQ_QUEUE_NAMES, ACTIVITY_RECORDED } from './queue-names';
 export type { MQQueueName } from './queue-names';
+export { isPipelineMqLaneEvent, isPipelineHotLaneEvent, PIPELINE_HOT_LANE_EVENT_TYPES, PIPELINE_HOT_LANE_PREFIXES, PIPELINE_MQ_LANE_PREFIXES, PIPELINE_MQ_MAX_BODY_BYTES, } from './pipeline-lanes';
 export { RECORDING_PROFILES, RECORDING_PROFILE_REGISTRY, RECORDING_PROFILE_REGISTRY_VERSION, InvalidRecordingProfileError, isRecordingProfile, validateRecordingProfile, resolveRecordingProfile, } from './declarations/recording-profiles';
 export type { RecordingProfile, RecordingProfileDef, StoredRecordingConfig, } from './declarations/recording-profiles';
 export { DEPRECATED_DUAL_EMIT_ALIASES } from './declarations/deprecated-pipeline-aliases';

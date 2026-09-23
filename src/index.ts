@@ -137,6 +137,17 @@ export {
 export { MQ_QUEUE_NAMES, ACTIVITY_RECORDED } from './queue-names';
 export type { MQQueueName } from './queue-names';
 
+// Live pipeline event lanes: MQ vs Redis-only hot lane (one predicate for
+// platform-api's MQ relay and the gateway's hot-lane subscription).
+export {
+  isPipelineMqLaneEvent,
+  isPipelineHotLaneEvent,
+  PIPELINE_HOT_LANE_EVENT_TYPES,
+  PIPELINE_HOT_LANE_PREFIXES,
+  PIPELINE_MQ_LANE_PREFIXES,
+  PIPELINE_MQ_MAX_BODY_BYTES,
+} from './pipeline-lanes';
+
 // Channel recording profile registry — single source of truth for
 // recording-shape configuration consumed by LVS, platform-api, and WSG.
 // See live-video-streaming/.agent/ADR-002-recording-profiles.md.
