@@ -46,6 +46,7 @@
 
 import type { EventDeclaration } from '../types/index';
 import { annotateDeclarations, type FieldGlossary } from './field-glossary';
+import { ARTIFACT_IDS } from './pipeline-p1';
 
 const PRODUCER = 'distributed-core';
 const TAGS_BASE = ['pipeline', 'producer:distributed-core'];
@@ -114,7 +115,7 @@ export const pipelineRunCompleted: EventDeclaration = {
     description: 'PipelineExecutor completed a run successfully.',
     tags: [...TAGS_BASE, 'run-lifecycle'],
     schema: pipelineSchema(
-        { durationMs: { type: 'number' } },
+        { durationMs: { type: 'number' }, artifactIds: ARTIFACT_IDS },
         ['durationMs'],
     ),
 };

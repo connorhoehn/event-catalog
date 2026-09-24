@@ -1,4 +1,18 @@
 import type { EventDeclaration } from '../types/index';
+/** Common envelope-shape builder for events whose payload follows the
+ *  `{ runId, ...fields, at }` pattern emitted by PipelineExecutor. */
+/**
+ * Documents (or other artifacts) a step declared on its output's `artifacts`
+ * array — the run is their provenance. Optional; absent when nothing was declared.
+ */
+export declare const ARTIFACT_IDS: {
+    type: string;
+    items: {
+        type: string;
+    };
+    maxItems: number;
+    description: string;
+};
 export declare const pipelineRunCancelled: EventDeclaration;
 export declare const pipelineRunPaused: EventDeclaration;
 export declare const pipelineRunResumed: EventDeclaration;

@@ -21,7 +21,7 @@
 // the publishSignal() bypass fix. EC-4 owns channel_message extraction.
 // This file deliberately does NOT touch any of those.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pipelineP1Declarations = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineLlmStreamOpened = exports.pipelineLlmResponse = exports.pipelineLlmToken = exports.pipelineLlmPrompt = exports.pipelineStepAttemptFailed = exports.pipelineStepAttemptStarted = exports.pipelineStepHeartbeat = exports.pipelineStepCancelled = exports.pipelineStepSkipped = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunResumed = exports.pipelineRunPaused = exports.pipelineRunCancelled = void 0;
+exports.pipelineP1Declarations = exports.pipelineContextPatchReverted = exports.pipelineContextPatchedUnvalidated = exports.pipelineContextPatched = exports.pipelineLlmStreamOpened = exports.pipelineLlmResponse = exports.pipelineLlmToken = exports.pipelineLlmPrompt = exports.pipelineStepAttemptFailed = exports.pipelineStepAttemptStarted = exports.pipelineStepHeartbeat = exports.pipelineStepCancelled = exports.pipelineStepSkipped = exports.pipelineStepFailed = exports.pipelineStepCompleted = exports.pipelineStepStarted = exports.pipelineRunResumed = exports.pipelineRunPaused = exports.pipelineRunCancelled = exports.ARTIFACT_IDS = void 0;
 const field_glossary_1 = require("./field-glossary");
 const PRODUCER = 'distributed-core';
 const TAGS_BASE = ['pipeline', 'producer:distributed-core'];
@@ -39,6 +39,16 @@ const FIELDS = {
 };
 /** Common envelope-shape builder for events whose payload follows the
  *  `{ runId, ...fields, at }` pattern emitted by PipelineExecutor. */
+/**
+ * Documents (or other artifacts) a step declared on its output's `artifacts`
+ * array — the run is their provenance. Optional; absent when nothing was declared.
+ */
+exports.ARTIFACT_IDS = {
+    type: 'array',
+    items: { type: 'string' },
+    maxItems: 50,
+    description: 'Artifact ids (documentIds for anything document-shaped) the step or run declared it produced.',
+};
 function pipelineSchema(extra, required) {
     return {
         type: 'object',
@@ -113,6 +123,7 @@ exports.pipelineStepCompleted = {
         stepId: { type: 'string' },
         durationMs: { type: 'number' },
         output: {},
+        artifactIds: exports.ARTIFACT_IDS,
     }, ['stepId', 'durationMs']),
 };
 exports.pipelineStepFailed = {

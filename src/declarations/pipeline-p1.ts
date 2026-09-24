@@ -41,6 +41,17 @@ const FIELDS: FieldGlossary = {
 
 /** Common envelope-shape builder for events whose payload follows the
  *  `{ runId, ...fields, at }` pattern emitted by PipelineExecutor. */
+/**
+ * Documents (or other artifacts) a step declared on its output's `artifacts`
+ * array — the run is their provenance. Optional; absent when nothing was declared.
+ */
+export const ARTIFACT_IDS = {
+    type: 'array',
+    items: { type: 'string' },
+    maxItems: 50,
+    description: 'Artifact ids (documentIds for anything document-shaped) the step or run declared it produced.',
+};
+
 function pipelineSchema(
     extra: Record<string, unknown>,
     required: string[],
@@ -132,6 +143,7 @@ export const pipelineStepCompleted: EventDeclaration = {
             stepId: { type: 'string' },
             durationMs: { type: 'number' },
             output: {},
+            artifactIds: ARTIFACT_IDS,
         },
         ['stepId', 'durationMs'],
     ),

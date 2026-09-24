@@ -47,6 +47,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pipelineP2Declarations = exports.pipelineJoinFired = exports.pipelineJoinWaiting = exports.pipelineStepBreakpoint = exports.pipelineRunStuck = exports.pipelineRunRetry = exports.pipelineRunResumeFromStep = exports.pipelineRunResumedFromStep = exports.pipelineRunReassigned = exports.pipelineRunOrphaned = exports.pipelineRunFailed = exports.pipelineRunCompleted = exports.pipelineRunStarted = void 0;
 const field_glossary_1 = require("./field-glossary");
+const pipeline_p1_1 = require("./pipeline-p1");
 const PRODUCER = 'distributed-core';
 const TAGS_BASE = ['pipeline', 'producer:distributed-core'];
 /**
@@ -102,7 +103,7 @@ exports.pipelineRunCompleted = {
     producer: PRODUCER,
     description: 'PipelineExecutor completed a run successfully.',
     tags: [...TAGS_BASE, 'run-lifecycle'],
-    schema: pipelineSchema({ durationMs: { type: 'number' } }, ['durationMs']),
+    schema: pipelineSchema({ durationMs: { type: 'number' }, artifactIds: pipeline_p1_1.ARTIFACT_IDS }, ['durationMs']),
 };
 exports.pipelineRunFailed = {
     namespace: 'pipeline',

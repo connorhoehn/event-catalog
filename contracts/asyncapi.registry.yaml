@@ -5146,6 +5146,12 @@ components:
           description: Wall-clock duration in milliseconds.
         output:
           description: Value produced by the step. Shape is node-type specific and deliberately unconstrained.
+        artifactIds:
+          type: array
+          items:
+            type: string
+          maxItems: 50
+          description: Artifact ids (documentIds for anything document-shaped) the step or run declared it produced.
       required:
         - runId
         - stepId
@@ -5493,6 +5499,12 @@ components:
         durationMs:
           type: number
           description: Wall-clock duration in milliseconds.
+        artifactIds:
+          type: array
+          items:
+            type: string
+          maxItems: 50
+          description: Artifact ids (documentIds for anything document-shaped) the step or run declared it produced.
       required:
         - runId
         - durationMs

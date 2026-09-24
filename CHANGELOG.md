@@ -12,6 +12,15 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.8.1] - 2026-09-23
+
+- `pipeline:step:completed` and `pipeline:run:completed` declare an optional
+  `artifactIds: string[]` — the documents a step (or, on the run event, any of
+  its steps) declared on its output's `artifacts`. platform-api stamps them on
+  the bus event so every lane (dc pub-sub, Redis relay, MQ) carries the same
+  provenance, and the gateway can credit a revision to the run that wrote it
+  (realtime-examples NFR #161).
+
 ## [0.8.0] - 2026-09-23
 
 - `isPipelineMqLaneEvent` / `isPipelineHotLaneEvent` (+ the lists and

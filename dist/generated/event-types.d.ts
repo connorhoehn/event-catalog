@@ -93,6 +93,7 @@ export interface EventPayloadMap {
         stepId: string;
         durationMs: number;
         output?: unknown;
+        artifactIds?: string[];
         [key: string]: unknown;
     };
     /** A pipeline step failed (after retry exhaustion). */
@@ -217,6 +218,7 @@ export interface EventPayloadMap {
         runId: string;
         at: string;
         durationMs: number;
+        artifactIds?: string[];
         [key: string]: unknown;
     };
     /** PipelineExecutor terminated a run with an error. `error` is a structured `PipelineRunError` object (not a plain string). */
