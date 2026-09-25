@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-25T03:19:32.660Z
+// Generated at: 2026-09-25T03:38:02.778Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -375,6 +375,33 @@ export interface ClientFramePayloadMap {
     title: string;
     [key: string]: unknown;
   };
+  /** Host asks a participant to mute. The gateway sends ws.call.mute-participant to that person's connections only. */
+  'client.call.mute-participant': {
+    service: 'call';
+    action: 'mute-participant';
+    channel?: string;
+    callId: string;
+    userId: string;
+    [key: string]: unknown;
+  };
+  /** Host removes a participant. The gateway sends ws.call.remove-participant to them, user-status left (reason removed) and call-meta to everyone else. */
+  'client.call.remove-participant': {
+    service: 'call';
+    action: 'remove-participant';
+    channel?: string;
+    callId: string;
+    userId: string;
+    [key: string]: unknown;
+  };
+  /** Host hands the host role to another participant. The gateway broadcasts ws.call.call-meta with the new hostUserId. */
+  'client.call.transfer-host': {
+    service: 'call';
+    action: 'transfer-host';
+    channel?: string;
+    callId: string;
+    userId: string;
+    [key: string]: unknown;
+  };
 }
 
 /**
@@ -457,7 +484,10 @@ export type CallOutboundFrame =
   | ClientFramePayloadMap['client.call.meta']
   | ClientFramePayloadMap['client.call.set-documents']
   | ClientFramePayloadMap['client.call.present']
-  | ClientFramePayloadMap['client.call.set-title'];
+  | ClientFramePayloadMap['client.call.set-title']
+  | ClientFramePayloadMap['client.call.mute-participant']
+  | ClientFramePayloadMap['client.call.remove-participant']
+  | ClientFramePayloadMap['client.call.transfer-host'];
 
 // ---------------------------------------------------------------------------
 // Per-service INBOUND frame unions (gateway → client, ws.* declarations)
@@ -542,7 +572,9 @@ export type CallInboundFrame =
   | EventPayloadMap['ws.call.call-meta']
   | EventPayloadMap['ws.call.invite-expired']
   | EventPayloadMap['ws.call.participant-state']
-  | EventPayloadMap['ws.call.user-status'];
+  | EventPayloadMap['ws.call.user-status']
+  | EventPayloadMap['ws.call.mute-participant']
+  | EventPayloadMap['ws.call.remove-participant'];
 
 /** Union of every inbound gateway→client push frame for the `upload` service. */
 export type UploadInboundFrame =

@@ -5,7 +5,7 @@
 // sent by realtime-modules useDocumentCall. The gateway's `call` service
 // answers each with ws.call.call-meta.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clientCallSetTitle = exports.clientCallPresent = exports.clientCallSetDocuments = exports.clientCallMeta = void 0;
+exports.clientCallTransferHost = exports.clientCallRemoveParticipant = exports.clientCallMuteParticipant = exports.clientCallSetTitle = exports.clientCallPresent = exports.clientCallSetDocuments = exports.clientCallMeta = void 0;
 const _shared_1 = require("./_shared");
 /** Ask for a document call's meta (participants only). */
 exports.clientCallMeta = {
@@ -56,5 +56,39 @@ exports.clientCallSetTitle = {
         callId: { type: 'string' },
         title: { type: 'string', minLength: 1, maxLength: 200 },
     }, ['callId', 'title']),
+};
+// --- Host moderation (2026-09-24) — host only; target must be in the call ---
+function moderationFrame(action, what) {
+    return (0, _shared_1.clientFrameSchema)('call', action, {
+        callId: { type: 'string' },
+        userId: { type: 'string', description: `The participant to ${what}.` },
+    }, ['callId', 'userId']);
+}
+exports.clientCallMuteParticipant = {
+    namespace: 'client',
+    name: 'client.call.mute-participant',
+    transport: 'signal',
+    producer: _shared_1.CLIENT_PRODUCER,
+    description: 'Host asks a participant to mute. The gateway sends ws.call.mute-participant to that person\'s connections only.',
+    tags: [..._shared_1.CLIENT_BASE_TAGS, 'call', 'document-call'],
+    schema: moderationFrame('mute-participant', 'mute'),
+};
+exports.clientCallRemoveParticipant = {
+    namespace: 'client',
+    name: 'client.call.remove-participant',
+    transport: 'signal',
+    producer: _shared_1.CLIENT_PRODUCER,
+    description: 'Host removes a participant. The gateway sends ws.call.remove-participant to them, user-status left (reason removed) and call-meta to everyone else.',
+    tags: [..._shared_1.CLIENT_BASE_TAGS, 'call', 'document-call'],
+    schema: moderationFrame('remove-participant', 'remove from the call'),
+};
+exports.clientCallTransferHost = {
+    namespace: 'client',
+    name: 'client.call.transfer-host',
+    transport: 'signal',
+    producer: _shared_1.CLIENT_PRODUCER,
+    description: 'Host hands the host role to another participant. The gateway broadcasts ws.call.call-meta with the new hostUserId.',
+    tags: [..._shared_1.CLIENT_BASE_TAGS, 'call', 'document-call'],
+    schema: moderationFrame('transfer-host', 'make host'),
 };
 //# sourceMappingURL=outbound-call.js.map

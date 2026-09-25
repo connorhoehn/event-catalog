@@ -7,4 +7,7 @@ export declare const clientCallSetDocuments: EventDeclaration;
 export declare const clientCallPresent: EventDeclaration;
 /** Rename the call (host only). */
 export declare const clientCallSetTitle: EventDeclaration;
+export declare const clientCallMuteParticipant: EventDeclaration;
+export declare const clientCallRemoveParticipant: EventDeclaration;
+export declare const clientCallTransferHost: EventDeclaration;
 //# sourceMappingURL=outbound-call.d.ts.map

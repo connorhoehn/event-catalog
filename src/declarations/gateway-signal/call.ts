@@ -206,7 +206,7 @@ const documentCallMetaData = {
                 type: 'object',
                 properties: {
                     at: { type: 'integer', description: 'Epoch milliseconds of the latest ring to this person.' },
-                    state: { type: 'string', enum: ['ringing', 'accepted', 'declined', 'missed', 'notified'], description: 'Ring state; notified = had no connected client, got a notification instead.' },
+                    state: { type: 'string', enum: ['ringing', 'accepted', 'declined', 'missed', 'notified', 'removed'], description: 'Ring state; notified = had no connected client, got a notification instead; removed = the host removed them.' },
                     by: { type: 'string', description: 'userId of whoever sent the invite (receives invite-expired).' },
                 },
                 required: ['at', 'state'],
@@ -301,4 +301,44 @@ export const wsCallUserStatus: EventDeclaration = {
             additionalProperties: true,
         },
     }, ['action', 'data']),
+};
+
+// --- Host moderation (2026-09-24) -------------------------------------------
+
+function moderationSchema(action: string): Record<string, unknown> {
+    return wsSchema('call', {
+        action: { type: 'string', const: action },
+        data: {
+            type: 'object',
+            properties: {
+                callId: { type: 'string' },
+                userId: { type: 'string', description: 'The person being moderated — only their own clients receive this frame.' },
+                by: { type: 'string', description: 'userId of the host who did it.' },
+            },
+            required: ['callId', 'userId', 'by'],
+            additionalProperties: false,
+        },
+    }, ['action', 'data']);
+}
+
+/** The host asked this person to mute; their client mutes itself and announces participant-state. */
+export const wsCallMuteParticipant: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.call.mute-participant',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'The host muted this participant. Sent to every connection of the target only; their client mutes and its participant-state tells the others.',
+    tags: [...BASE_TAGS, 'call', 'document-call'],
+    schema: moderationSchema('mute-participant'),
+};
+
+/** The host removed this person; their client leaves. Others get user-status left (reason removed) and call-meta. */
+export const wsCallRemoveParticipant: EventDeclaration = {
+    namespace: 'ws',
+    name: 'ws.call.remove-participant',
+    transport: 'signal',
+    producer: PRODUCER,
+    description: 'The host removed this participant from the call. Sent to every connection of the target only; the rest of the call gets user-status left with reason "removed" and call-meta. Only a new invite lets them back in.',
+    tags: [...BASE_TAGS, 'call', 'document-call'],
+    schema: moderationSchema('remove-participant'),
 };

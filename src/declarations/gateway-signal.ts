@@ -104,6 +104,8 @@ import {
     wsCallInviteExpired,
     wsCallParticipantState,
     wsCallUserStatus,
+    wsCallMuteParticipant,
+    wsCallRemoveParticipant,
 } from './gateway-signal/call';
 import {
     wsPipelineSubscribed,
@@ -198,6 +200,8 @@ export {
     wsCallInviteExpired,
     wsCallParticipantState,
     wsCallUserStatus,
+    wsCallMuteParticipant,
+    wsCallRemoveParticipant,
 } from './gateway-signal/call';
 export {
     wsPipelineSubscribed,
@@ -338,6 +342,8 @@ export const gatewaySignalDeclarations: EventDeclaration[] = [
     wsCallInviteExpired,
     wsCallParticipantState,
     wsCallUserStatus,
+    wsCallMuteParticipant,
+    wsCallRemoveParticipant,
     // upload
     wsUploadRequested,
     wsUploadUrlIssued,

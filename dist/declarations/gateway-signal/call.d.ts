@@ -20,4 +20,8 @@ export declare const wsCallInviteExpired: EventDeclaration;
 export declare const wsCallParticipantState: EventDeclaration;
 /** Presence of one participant in the call. `reconnecting` (2026-09-24) covers the rejoin grace. */
 export declare const wsCallUserStatus: EventDeclaration;
+/** The host asked this person to mute; their client mutes itself and announces participant-state. */
+export declare const wsCallMuteParticipant: EventDeclaration;
+/** The host removed this person; their client leaves. Others get user-status left (reason removed) and call-meta. */
+export declare const wsCallRemoveParticipant: EventDeclaration;
 //# sourceMappingURL=call.d.ts.map

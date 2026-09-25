@@ -12,7 +12,7 @@
 // Source: realtime-modules src/call/CallService.ts (producer: the gateway's
 // `call` service) and src/client/video/useDocumentCall.ts (client frames).
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.documentCallsBundle = void 0;
+exports.documentCallsModerationBundle = exports.documentCallsBundle = void 0;
 const FeatureBundle_js_1 = require("../../bundles/FeatureBundle.js");
 const _def = {
     name: 'document-calls',
@@ -35,4 +35,16 @@ exports.documentCallsBundle = {
     ..._def,
     fingerprint: (0, FeatureBundle_js_1.computeFingerprint)(_def),
 };
+// 1.1.0 adds host moderation; 1.0.0 stays resolvable for pinned consumers.
+const moderationDef = {
+    ..._def, version: '1.1.0',
+    events: [..._def.events,
+        { name: 'ws.call.mute-participant', required: false },
+        { name: 'ws.call.remove-participant', required: false },
+        { name: 'client.call.mute-participant', required: false },
+        { name: 'client.call.remove-participant', required: false },
+        { name: 'client.call.transfer-host', required: false },
+    ],
+};
+exports.documentCallsModerationBundle = { ...moderationDef, fingerprint: (0, FeatureBundle_js_1.computeFingerprint)(moderationDef) };
 //# sourceMappingURL=document-calls.js.map

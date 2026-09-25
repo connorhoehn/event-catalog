@@ -60,3 +60,42 @@ export const clientCallSetTitle: EventDeclaration = {
         title: { type: 'string', minLength: 1, maxLength: 200 },
     }, ['callId', 'title']),
 };
+
+// --- Host moderation (2026-09-24) — host only; target must be in the call ---
+
+function moderationFrame(action: string, what: string): Record<string, unknown> {
+    return clientFrameSchema('call', action, {
+        callId: { type: 'string' },
+        userId: { type: 'string', description: `The participant to ${what}.` },
+    }, ['callId', 'userId']);
+}
+
+export const clientCallMuteParticipant: EventDeclaration = {
+    namespace: 'client',
+    name: 'client.call.mute-participant',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Host asks a participant to mute. The gateway sends ws.call.mute-participant to that person\'s connections only.',
+    tags: [...CLIENT_BASE_TAGS, 'call', 'document-call'],
+    schema: moderationFrame('mute-participant', 'mute'),
+};
+
+export const clientCallRemoveParticipant: EventDeclaration = {
+    namespace: 'client',
+    name: 'client.call.remove-participant',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Host removes a participant. The gateway sends ws.call.remove-participant to them, user-status left (reason removed) and call-meta to everyone else.',
+    tags: [...CLIENT_BASE_TAGS, 'call', 'document-call'],
+    schema: moderationFrame('remove-participant', 'remove from the call'),
+};
+
+export const clientCallTransferHost: EventDeclaration = {
+    namespace: 'client',
+    name: 'client.call.transfer-host',
+    transport: 'signal',
+    producer: CLIENT_PRODUCER,
+    description: 'Host hands the host role to another participant. The gateway broadcasts ws.call.call-meta with the new hostUserId.',
+    tags: [...CLIENT_BASE_TAGS, 'call', 'document-call'],
+    schema: moderationFrame('transfer-host', 'make host'),
+};

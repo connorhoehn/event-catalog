@@ -35,7 +35,7 @@
 // which property. Never call `annotateDeclarations` from a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionHistory = exports.wsReactionList = exports.wsReactionRemoved = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtAwarenessBatch = exports.wsCrdtSnapshotStored = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtSeeded = exports.wsCrdtPersistenceError = exports.wsCrdtPersisted = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorBatch = exports.wsCursorClear = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
-exports.gatewaySignalDeclarations = exports.wsSubscribeUnsubscribed = exports.wsSubscribeSubscribed = exports.wsSessionConnected = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallUserStatus = exports.wsCallParticipantState = exports.wsCallInviteExpired = exports.wsCallCallMeta = exports.wsCallRecordingCompleted = void 0;
+exports.gatewaySignalDeclarations = exports.wsSubscribeUnsubscribed = exports.wsSubscribeSubscribed = exports.wsSessionConnected = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallRemoveParticipant = exports.wsCallMuteParticipant = exports.wsCallUserStatus = exports.wsCallParticipantState = exports.wsCallInviteExpired = exports.wsCallCallMeta = exports.wsCallRecordingCompleted = void 0;
 const field_glossary_1 = require("./field-glossary");
 const chat_1 = require("./gateway-signal/chat");
 const cursor_1 = require("./gateway-signal/cursor");
@@ -114,6 +114,8 @@ Object.defineProperty(exports, "wsCallCallMeta", { enumerable: true, get: functi
 Object.defineProperty(exports, "wsCallInviteExpired", { enumerable: true, get: function () { return call_2.wsCallInviteExpired; } });
 Object.defineProperty(exports, "wsCallParticipantState", { enumerable: true, get: function () { return call_2.wsCallParticipantState; } });
 Object.defineProperty(exports, "wsCallUserStatus", { enumerable: true, get: function () { return call_2.wsCallUserStatus; } });
+Object.defineProperty(exports, "wsCallMuteParticipant", { enumerable: true, get: function () { return call_2.wsCallMuteParticipant; } });
+Object.defineProperty(exports, "wsCallRemoveParticipant", { enumerable: true, get: function () { return call_2.wsCallRemoveParticipant; } });
 var pipeline_2 = require("./gateway-signal/pipeline");
 Object.defineProperty(exports, "wsPipelineSubscribed", { enumerable: true, get: function () { return pipeline_2.wsPipelineSubscribed; } });
 Object.defineProperty(exports, "wsPipelineUnsubscribed", { enumerable: true, get: function () { return pipeline_2.wsPipelineUnsubscribed; } });
@@ -251,6 +253,8 @@ exports.gatewaySignalDeclarations = [
     call_1.wsCallInviteExpired,
     call_1.wsCallParticipantState,
     call_1.wsCallUserStatus,
+    call_1.wsCallMuteParticipant,
+    call_1.wsCallRemoveParticipant,
     // upload
     upload_1.wsUploadRequested,
     upload_1.wsUploadUrlIssued,

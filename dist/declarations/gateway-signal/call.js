@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.wsCallUserStatus = exports.wsCallParticipantState = exports.wsCallInviteExpired = exports.wsCallCallMeta = exports.wsCallRecordingCompleted = exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = void 0;
+exports.wsCallRemoveParticipant = exports.wsCallMuteParticipant = exports.wsCallUserStatus = exports.wsCallParticipantState = exports.wsCallInviteExpired = exports.wsCallCallMeta = exports.wsCallRecordingCompleted = exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = void 0;
 const _shared_1 = require("./_shared");
 // ===========================================================================
 // CALL frames — src/services/call-service.ts
@@ -195,7 +195,7 @@ const documentCallMetaData = {
                 type: 'object',
                 properties: {
                     at: { type: 'integer', description: 'Epoch milliseconds of the latest ring to this person.' },
-                    state: { type: 'string', enum: ['ringing', 'accepted', 'declined', 'missed', 'notified'], description: 'Ring state; notified = had no connected client, got a notification instead.' },
+                    state: { type: 'string', enum: ['ringing', 'accepted', 'declined', 'missed', 'notified', 'removed'], description: 'Ring state; notified = had no connected client, got a notification instead; removed = the host removed them.' },
                     by: { type: 'string', description: 'userId of whoever sent the invite (receives invite-expired).' },
                 },
                 required: ['at', 'state'],
@@ -286,5 +286,41 @@ exports.wsCallUserStatus = {
             additionalProperties: true,
         },
     }, ['action', 'data']),
+};
+// --- Host moderation (2026-09-24) -------------------------------------------
+function moderationSchema(action) {
+    return (0, _shared_1.wsSchema)('call', {
+        action: { type: 'string', const: action },
+        data: {
+            type: 'object',
+            properties: {
+                callId: { type: 'string' },
+                userId: { type: 'string', description: 'The person being moderated — only their own clients receive this frame.' },
+                by: { type: 'string', description: 'userId of the host who did it.' },
+            },
+            required: ['callId', 'userId', 'by'],
+            additionalProperties: false,
+        },
+    }, ['action', 'data']);
+}
+/** The host asked this person to mute; their client mutes itself and announces participant-state. */
+exports.wsCallMuteParticipant = {
+    namespace: 'ws',
+    name: 'ws.call.mute-participant',
+    transport: 'signal',
+    producer: _shared_1.PRODUCER,
+    description: 'The host muted this participant. Sent to every connection of the target only; their client mutes and its participant-state tells the others.',
+    tags: [..._shared_1.BASE_TAGS, 'call', 'document-call'],
+    schema: moderationSchema('mute-participant'),
+};
+/** The host removed this person; their client leaves. Others get user-status left (reason removed) and call-meta. */
+exports.wsCallRemoveParticipant = {
+    namespace: 'ws',
+    name: 'ws.call.remove-participant',
+    transport: 'signal',
+    producer: _shared_1.PRODUCER,
+    description: 'The host removed this participant from the call. Sent to every connection of the target only; the rest of the call gets user-status left with reason "removed" and call-meta. Only a new invite lets them back in.',
+    tags: [..._shared_1.BASE_TAGS, 'call', 'document-call'],
+    schema: moderationSchema('remove-participant'),
 };
 //# sourceMappingURL=call.js.map

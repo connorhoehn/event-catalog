@@ -1,5 +1,5 @@
 # AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
-# Scope: the gateway WebSocket protocol — 133 of 254 declarations
+# Scope: the gateway WebSocket protocol — 138 of 259 declarations
 # Source of truth: @connorhoehn/event-catalog src/declarations/
 asyncapi: 2.6.0
 info:
@@ -20,8 +20,8 @@ info:
     frames carry `{ service, action, channel?, ... }`; inbound frames carry
     a `type` discriminator.
 
-    SCOPE: this document describes 133 of the registry's
-    254 declarations — the gateway WebSocket frames, and
+    SCOPE: this document describes 138 of the registry's
+    259 declarations — the gateway WebSocket frames, and
     only those. It is NOT the platform event inventory. The other
     121 declarations are broker-addressed backbone events
     (Redis pub/sub and the durable message-queue) and are described in the
@@ -33,13 +33,13 @@ info:
   license:
     name: UNLICENSED
   x-event-catalog-coverage:
-    registryDeclarations: 254
-    describedInThisDocument: 133
+    registryDeclarations: 259
+    describedInThisDocument: 138
     describedInCompanionDocument:
       file: contracts/asyncapi.registry.yaml
       count: 121
     partitionRule: "Declarations in namespace `client` or `ws` are gateway WebSocket frames: they carry no `channel` and no `queue` because they are multiplexed over one connection, so they are described in contracts/asyncapi.yaml as a single channel with a oneOf per direction. Every other declaration is broker-addressed (a Redis pub/sub channel or a message-queue queue) and is described in contracts/asyncapi.registry.yaml as one channel per event."
-    fullInventory: contracts/registry.snapshot.json lists all 254 events with their schema fingerprints.
+    fullInventory: contracts/registry.snapshot.json lists all 259 events with their schema fingerprints.
 externalDocs:
   description: "Companion document: the broker-addressed backbone events this file does not cover."
   url: ./asyncapi.registry.yaml
@@ -112,6 +112,9 @@ channels:
           - $ref: "#/components/messages/client_call_set_documents"
           - $ref: "#/components/messages/client_call_present"
           - $ref: "#/components/messages/client_call_set_title"
+          - $ref: "#/components/messages/client_call_mute_participant"
+          - $ref: "#/components/messages/client_call_remove_participant"
+          - $ref: "#/components/messages/client_call_transfer_host"
     subscribe:
       operationId: receiveGatewayFrame
       summary: Frames the client RECEIVES from the gateway (gateway→client).
@@ -173,6 +176,8 @@ channels:
           - $ref: "#/components/messages/ws_call_invite_expired"
           - $ref: "#/components/messages/ws_call_participant_state"
           - $ref: "#/components/messages/ws_call_user_status"
+          - $ref: "#/components/messages/ws_call_mute_participant"
+          - $ref: "#/components/messages/ws_call_remove_participant"
           - $ref: "#/components/messages/ws_upload_requested"
           - $ref: "#/components/messages/ws_upload_url_issued"
           - $ref: "#/components/messages/ws_upload_completed"
@@ -1516,6 +1521,102 @@ components:
           - action
           - callId
           - title
+        additionalProperties: true
+    client_call_mute_participant:
+      messageId: client.call.mute-participant
+      name: client.call.mute-participant
+      title: client.call.mute-participant
+      summary: Host asks a participant to mute. The gateway sends ws.call.mute-participant to that person's connections only.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: call
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: mute-participant
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          callId:
+            type: string
+            description: Identifier of the call this event relates to.
+          userId:
+            type: string
+            description: The participant to mute.
+        required:
+          - service
+          - action
+          - callId
+          - userId
+        additionalProperties: true
+    client_call_remove_participant:
+      messageId: client.call.remove-participant
+      name: client.call.remove-participant
+      title: client.call.remove-participant
+      summary: Host removes a participant. The gateway sends ws.call.remove-participant to them, user-status left (reason removed) and call-meta to everyone else.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: call
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: remove-participant
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          callId:
+            type: string
+            description: Identifier of the call this event relates to.
+          userId:
+            type: string
+            description: The participant to remove from the call.
+        required:
+          - service
+          - action
+          - callId
+          - userId
+        additionalProperties: true
+    client_call_transfer_host:
+      messageId: client.call.transfer-host
+      name: client.call.transfer-host
+      title: client.call.transfer-host
+      summary: Host hands the host role to another participant. The gateway broadcasts ws.call.call-meta with the new hostUserId.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: call
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: transfer-host
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          callId:
+            type: string
+            description: Identifier of the call this event relates to.
+          userId:
+            type: string
+            description: The participant to make host.
+        required:
+          - service
+          - action
+          - callId
+          - userId
         additionalProperties: true
     ws_chat_joined:
       messageId: ws.chat.joined
@@ -3453,7 +3554,8 @@ components:
                         - declined
                         - missed
                         - notified
-                      description: Ring state; notified = had no connected client, got a notification instead.
+                        - removed
+                      description: Ring state; notified = had no connected client, got a notification instead; removed = the host removed them.
                     by:
                       type: string
                       description: userId of whoever sent the invite (receives invite-expired).
@@ -3629,6 +3731,94 @@ components:
               - callId
               - status
             additionalProperties: true
+            description: Frame body — the per-action payload of this frame.
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_call_mute_participant:
+      messageId: ws.call.mute-participant
+      name: ws.call.mute-participant
+      title: ws.call.mute-participant
+      summary: The host muted this participant. Sent to every connection of the target only; their client mutes and its participant-state tells the others.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: mute-participant
+            description: Which action of the frame's service this frame reports.
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+                description: Identifier of the call this event relates to.
+              userId:
+                type: string
+                description: The person being moderated — only their own clients receive this frame.
+              by:
+                type: string
+                description: userId of the host who did it.
+            required:
+              - callId
+              - userId
+              - by
+            additionalProperties: false
+            description: Frame body — the per-action payload of this frame.
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_call_remove_participant:
+      messageId: ws.call.remove-participant
+      name: ws.call.remove-participant
+      title: ws.call.remove-participant
+      summary: The host removed this participant from the call. Sent to every connection of the target only; the rest of the call gets user-status left with reason "removed" and call-meta. Only a new invite lets them back in.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: remove-participant
+            description: Which action of the frame's service this frame reports.
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+                description: Identifier of the call this event relates to.
+              userId:
+                type: string
+                description: The person being moderated — only their own clients receive this frame.
+              by:
+                type: string
+                description: userId of the host who did it.
+            required:
+              - callId
+              - userId
+              - by
+            additionalProperties: false
             description: Frame body — the per-action payload of this frame.
         required:
           - type

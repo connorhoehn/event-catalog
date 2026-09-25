@@ -1149,6 +1149,30 @@ export interface EventPayloadMap {
         };
         [key: string]: unknown;
     };
+    /** The host muted this participant. Sent to every connection of the target only; their client mutes and its participant-state tells the others. */
+    'ws.call.mute-participant': {
+        type: 'call';
+        timestamp?: string;
+        action: 'mute-participant';
+        data: {
+            callId: string;
+            userId: string;
+            by: string;
+        };
+        [key: string]: unknown;
+    };
+    /** The host removed this participant from the call. Sent to every connection of the target only; the rest of the call gets user-status left with reason "removed" and call-meta. Only a new invite lets them back in. */
+    'ws.call.remove-participant': {
+        type: 'call';
+        timestamp?: string;
+        action: 'remove-participant';
+        data: {
+            callId: string;
+            userId: string;
+            by: string;
+        };
+        [key: string]: unknown;
+    };
     /** Acknowledgement sent when the gateway receives a file upload request from a client. */
     'ws.upload.requested': {
         type: 'upload';
@@ -1967,6 +1991,33 @@ export interface EventPayloadMap {
         channel?: string;
         callId: string;
         title: string;
+        [key: string]: unknown;
+    };
+    /** Host asks a participant to mute. The gateway sends ws.call.mute-participant to that person's connections only. */
+    'client.call.mute-participant': {
+        service: 'call';
+        action: 'mute-participant';
+        channel?: string;
+        callId: string;
+        userId: string;
+        [key: string]: unknown;
+    };
+    /** Host removes a participant. The gateway sends ws.call.remove-participant to them, user-status left (reason removed) and call-meta to everyone else. */
+    'client.call.remove-participant': {
+        service: 'call';
+        action: 'remove-participant';
+        channel?: string;
+        callId: string;
+        userId: string;
+        [key: string]: unknown;
+    };
+    /** Host hands the host role to another participant. The gateway broadcasts ws.call.call-meta with the new hostUserId. */
+    'client.call.transfer-host': {
+        service: 'call';
+        action: 'transfer-host';
+        channel?: string;
+        callId: string;
+        userId: string;
         [key: string]: unknown;
     };
     /** Broadcast when a client joins a presence channel, carrying the joining client's PresenceEntry. NOTE: the gateway presence service currently emits type:"presence" action frames (ws.presence.update / ws.presence.offline); presence:joined is the usePresence hook contract — naming tension documented per Wave A2, not renamed. */

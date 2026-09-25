@@ -256,12 +256,18 @@ import {
     clientCallSetDocuments,
     clientCallPresent,
     clientCallSetTitle,
+    clientCallMuteParticipant,
+    clientCallRemoveParticipant,
+    clientCallTransferHost,
 } from './client-frames/outbound-call';
 export {
     clientCallMeta,
     clientCallSetDocuments,
     clientCallPresent,
     clientCallSetTitle,
+    clientCallMuteParticipant,
+    clientCallRemoveParticipant,
+    clientCallTransferHost,
 } from './client-frames/outbound-call';
 
 export const clientFrameOutboundDeclarations: EventDeclaration[] = [
@@ -315,6 +321,9 @@ export const clientFrameOutboundDeclarations: EventDeclaration[] = [
     clientCallSetDocuments,
     clientCallPresent,
     clientCallSetTitle,
+    clientCallMuteParticipant,
+    clientCallRemoveParticipant,
+    clientCallTransferHost,
 ];
 
 /**

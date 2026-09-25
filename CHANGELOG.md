@@ -12,6 +12,15 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.8.3] - 2026-09-24
+
+- Document-call host moderation: `ws.call.mute-participant` and
+  `ws.call.remove-participant` (to the target's connections only), client
+  frames `client.call.mute-participant` / `remove-participant` /
+  `transfer-host`, and invite state `removed` on `ws.call.call-meta`
+  (realtime-modules 0.97.0). New `document-calls@1.1.0`; 1.0.0 keeps its
+  fingerprint.
+
 ## [0.8.2] - 2026-09-24
 
 - Document calls: declare `ws.call.call-meta`, `ws.call.invite-expired`,

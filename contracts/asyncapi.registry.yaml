@@ -1,10 +1,10 @@
 # AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
-# Scope: broker-addressed backbone events — 121 of 254 declarations
+# Scope: broker-addressed backbone events — 121 of 259 declarations
 # Source of truth: @connorhoehn/event-catalog src/declarations/
 asyncapi: 3.0.0
 info:
   title: event-catalog backbone events
-  version: 0.8.1
+  version: 0.8.2
   description: |-
     Machine-readable contract for the cross-service events that move over the
     platform's brokers: Redis pub/sub (ephemeral `signal`) and the
@@ -17,7 +17,7 @@ info:
     because it genuinely goes to both.
 
     SCOPE: this document describes 121 of the registry's
-    254 declarations. The other 133 are
+    259 declarations. The other 138 are
     gateway WebSocket frames with no broker address; they are described in the
     companion document `contracts/asyncapi.yaml`. See
     `info.x-event-catalog-coverage` for the exact partition rule.
@@ -29,13 +29,13 @@ info:
     REGENERATE: `npm run generate-asyncapi` in @connorhoehn/event-catalog.
     DO NOT hand-edit — event shapes are owned by src/declarations/.
   x-event-catalog-coverage:
-    registryDeclarations: 254
+    registryDeclarations: 259
     describedInThisDocument: 121
     describedInCompanionDocument:
       file: contracts/asyncapi.yaml
-      count: 133
+      count: 138
     partitionRule: "Declarations in namespace `client` or `ws` are gateway WebSocket frames: they carry no `channel` and no `queue` because they are multiplexed over one connection, so they are described in contracts/asyncapi.yaml as a single channel with a oneOf per direction. Every other declaration is broker-addressed (a Redis pub/sub channel or a message-queue queue) and is described in contracts/asyncapi.registry.yaml as one channel per event."
-    fullInventory: contracts/registry.snapshot.json lists all 254 events with their schema fingerprints.
+    fullInventory: contracts/registry.snapshot.json lists all 259 events with their schema fingerprints.
 externalDocs:
   description: "Companion document: the gateway WebSocket frames this file does not cover."
   url: ./asyncapi.yaml
