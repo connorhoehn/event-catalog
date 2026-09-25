@@ -224,13 +224,17 @@ exports.wsCallInviteExpired = {
     name: 'ws.call.invite-expired',
     transport: 'signal',
     producer: _shared_1.PRODUCER,
-    description: 'A document-call ring to one person expired unanswered (60 s). Sent to the inviter; the call itself goes on.',
+    description: 'A document-call ring to one person expired unanswered (60 s). Sent to the inviter (their row reads "Didn\'t answer") and to that person (their ring closes); the call itself goes on.',
     tags: [..._shared_1.BASE_TAGS, 'call', 'document-call'],
     schema: (0, _shared_1.wsSchema)('call', {
         action: { type: 'string', const: 'invite-expired' },
         data: {
             type: 'object',
-            properties: { callId: { type: 'string' }, userId: { type: 'string' } },
+            properties: {
+                callId: { type: 'string' },
+                userId: { type: 'string' },
+                inviteAt: { type: 'integer', description: 'Epoch milliseconds of the ring that expired; a later ring of the same person supersedes this outcome.' },
+            },
             required: ['callId', 'userId'],
             additionalProperties: false,
         },

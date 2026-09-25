@@ -12,6 +12,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.8.4] - 2026-09-25
+
+- `ws.call.invite-expired` also goes to the person whose ring expired, and
+  carries optional `inviteAt` (epoch ms of that ring) so a later re-ring
+  supersedes the outcome (realtime-modules 0.97.6).
+
 ## [0.8.3] - 2026-09-24
 
 - Document-call host moderation: `ws.call.mute-participant` and

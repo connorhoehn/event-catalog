@@ -3583,7 +3583,7 @@ components:
       messageId: ws.call.invite-expired
       name: ws.call.invite-expired
       title: ws.call.invite-expired
-      summary: A document-call ring to one person expired unanswered (60 s). Sent to the inviter; the call itself goes on.
+      summary: A document-call ring to one person expired unanswered (60 s). Sent to the inviter (their row reads "Didn't answer") and to that person (their ring closes); the call itself goes on.
       schemaFormat: application/schema+json;version=draft-07
       payload:
         type: object
@@ -3609,6 +3609,9 @@ components:
               userId:
                 type: string
                 description: Platform user id of the acting or referenced user.
+              inviteAt:
+                type: integer
+                description: Epoch milliseconds of the ring that expired; a later ring of the same person supersedes this outcome.
             required:
               - callId
               - userId

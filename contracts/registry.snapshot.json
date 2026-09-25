@@ -176,7 +176,7 @@
   "ws.call.declined": "032e108958c42741fbd32a515af092a46c77d944059c0e8005298fe0eec0bdb6",
   "ws.call.ended": "44691b38fcbb6e9a7a31e889448b5a320ee1a50b6ec8694dc39f80007f97114c",
   "ws.call.invite": "b80f1d0e9a35069ea18eea4045c64aa6ca912e91e4b5d8260660e40a9f3e8179",
-  "ws.call.invite-expired": "b1141f7a9039878bd2c59d8c9c1de4d563f52112100e93cb6ac28650031599b1",
+  "ws.call.invite-expired": "99d3e9e1f2f7dafc6001cd7c4a44b66b206aa5150e39438600b35dbbb4fc5488",
   "ws.call.mute-participant": "4223a53cf76e9c71efc3ff8d58b7776b9b7575d3779ba900874bd33cf99b809c",
   "ws.call.participant-state": "f2ab01da36d485204ed133b4146a95f817c53594be4752ca340dec31b52ca7da",
   "ws.call.recording-completed": "575164447d400fd2468d11ac60d7e33c40bf666b86cd140af264fdefcac00398",

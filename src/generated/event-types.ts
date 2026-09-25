@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-25T03:38:02.773Z
+// Generated at: 2026-09-25T07:18:47.940Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -1110,7 +1110,7 @@ export interface EventPayloadMap {
     };
     [key: string]: unknown;
   };
-  /** A document-call ring to one person expired unanswered (60 s). Sent to the inviter; the call itself goes on. */
+  /** A document-call ring to one person expired unanswered (60 s). Sent to the inviter (their row reads "Didn't answer") and to that person (their ring closes); the call itself goes on. */
   'ws.call.invite-expired': {
     type: 'call';
     timestamp?: string;
@@ -1118,6 +1118,7 @@ export interface EventPayloadMap {
     data: {
       callId: string;
       userId: string;
+      inviteAt?: number;
     };
     [key: string]: unknown;
   };

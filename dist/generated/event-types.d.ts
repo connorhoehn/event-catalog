@@ -1104,7 +1104,7 @@ export interface EventPayloadMap {
         };
         [key: string]: unknown;
     };
-    /** A document-call ring to one person expired unanswered (60 s). Sent to the inviter; the call itself goes on. */
+    /** A document-call ring to one person expired unanswered (60 s). Sent to the inviter (their row reads "Didn't answer") and to that person (their ring closes); the call itself goes on. */
     'ws.call.invite-expired': {
         type: 'call';
         timestamp?: string;
@@ -1112,6 +1112,7 @@ export interface EventPayloadMap {
         data: {
             callId: string;
             userId: string;
+            inviteAt?: number;
         };
         [key: string]: unknown;
     };
