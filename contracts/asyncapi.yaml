@@ -1,5 +1,5 @@
 # AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
-# Scope: the gateway WebSocket protocol — 125 of 246 declarations
+# Scope: the gateway WebSocket protocol — 133 of 254 declarations
 # Source of truth: @connorhoehn/event-catalog src/declarations/
 asyncapi: 2.6.0
 info:
@@ -20,8 +20,8 @@ info:
     frames carry `{ service, action, channel?, ... }`; inbound frames carry
     a `type` discriminator.
 
-    SCOPE: this document describes 125 of the registry's
-    246 declarations — the gateway WebSocket frames, and
+    SCOPE: this document describes 133 of the registry's
+    254 declarations — the gateway WebSocket frames, and
     only those. It is NOT the platform event inventory. The other
     121 declarations are broker-addressed backbone events
     (Redis pub/sub and the durable message-queue) and are described in the
@@ -33,13 +33,13 @@ info:
   license:
     name: UNLICENSED
   x-event-catalog-coverage:
-    registryDeclarations: 246
-    describedInThisDocument: 125
+    registryDeclarations: 254
+    describedInThisDocument: 133
     describedInCompanionDocument:
       file: contracts/asyncapi.registry.yaml
       count: 121
     partitionRule: "Declarations in namespace `client` or `ws` are gateway WebSocket frames: they carry no `channel` and no `queue` because they are multiplexed over one connection, so they are described in contracts/asyncapi.yaml as a single channel with a oneOf per direction. Every other declaration is broker-addressed (a Redis pub/sub channel or a message-queue queue) and is described in contracts/asyncapi.registry.yaml as one channel per event."
-    fullInventory: contracts/registry.snapshot.json lists all 246 events with their schema fingerprints.
+    fullInventory: contracts/registry.snapshot.json lists all 254 events with their schema fingerprints.
 externalDocs:
   description: "Companion document: the broker-addressed backbone events this file does not cover."
   url: ./asyncapi.registry.yaml
@@ -108,6 +108,10 @@ channels:
           - $ref: "#/components/messages/client_videohangout_toggle_audio"
           - $ref: "#/components/messages/client_subscribe_subscribe"
           - $ref: "#/components/messages/client_subscribe_unsubscribe"
+          - $ref: "#/components/messages/client_call_meta"
+          - $ref: "#/components/messages/client_call_set_documents"
+          - $ref: "#/components/messages/client_call_present"
+          - $ref: "#/components/messages/client_call_set_title"
     subscribe:
       operationId: receiveGatewayFrame
       summary: Frames the client RECEIVES from the gateway (gateway→client).
@@ -165,6 +169,10 @@ channels:
           - $ref: "#/components/messages/ws_call_video_off"
           - $ref: "#/components/messages/ws_call_recording_started"
           - $ref: "#/components/messages/ws_call_recording_completed"
+          - $ref: "#/components/messages/ws_call_call_meta"
+          - $ref: "#/components/messages/ws_call_invite_expired"
+          - $ref: "#/components/messages/ws_call_participant_state"
+          - $ref: "#/components/messages/ws_call_user_status"
           - $ref: "#/components/messages/ws_upload_requested"
           - $ref: "#/components/messages/ws_upload_url_issued"
           - $ref: "#/components/messages/ws_upload_completed"
@@ -1374,6 +1382,140 @@ components:
           - service
           - action
           - channel
+        additionalProperties: true
+    client_call_meta:
+      messageId: client.call.meta
+      name: client.call.meta
+      title: client.call.meta
+      summary: Ask for a document call's live meta. The gateway replies to the sender only with ws.call.call-meta.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: call
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: meta
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          callId:
+            type: string
+            description: Identifier of the call this event relates to.
+        required:
+          - service
+          - action
+          - callId
+        additionalProperties: true
+    client_call_set_documents:
+      messageId: client.call.set-documents
+      name: client.call.set-documents
+      title: client.call.set-documents
+      summary: Replace a document call's review documents (host document stays first). Any participant. Broadcasts ws.call.call-meta.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: call
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: set-documents
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          callId:
+            type: string
+            description: Identifier of the call this event relates to.
+          documentIds:
+            type: array
+            items:
+              type: string
+            description: The new review list; the server puts the host document first.
+          documentTitles:
+            type: object
+            additionalProperties:
+              type: string
+            description: Optional document id → title map for the list.
+        required:
+          - service
+          - action
+          - callId
+          - documentIds
+        additionalProperties: true
+    client_call_present:
+      messageId: client.call.present
+      name: client.call.present
+      title: client.call.present
+      summary: Present a review document, or stop with documentId null. Only the current presenter or the host may replace a presenter. Broadcasts ws.call.call-meta.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: call
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: present
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          callId:
+            type: string
+            description: Identifier of the call this event relates to.
+          documentId:
+            type:
+              - string
+              - "null"
+            description: Review document to present, or null to stop presenting.
+        required:
+          - service
+          - action
+          - callId
+        additionalProperties: true
+    client_call_set_title:
+      messageId: client.call.set-title
+      name: client.call.set-title
+      title: client.call.set-title
+      summary: Rename a document call. Host only. Broadcasts ws.call.call-meta.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: call
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: set-title
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          callId:
+            type: string
+            description: Identifier of the call this event relates to.
+          title:
+            type: string
+            minLength: 1
+            maxLength: 200
+            description: Short human-readable headline.
+        required:
+          - service
+          - action
+          - callId
+          - title
         additionalProperties: true
     ws_chat_joined:
       messageId: ws.chat.joined
@@ -3216,6 +3358,276 @@ components:
               - sessionId
               - recordingId
               - downloadUrl
+            additionalProperties: true
+            description: Frame body — the per-action payload of this frame.
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_call_call_meta:
+      messageId: ws.call.call-meta
+      name: ws.call.call-meta
+      title: ws.call.call-meta
+      summary: Live meta of a document call (title, review documents, presenter, per-person ring state). Sent to the asker after a meta query and to every participant after set-documents / present / set-title / invite / accept / ring expiry.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: call-meta
+            description: Which action of the frame's service this frame reports.
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+                description: Identifier of the call this event relates to.
+              documentId:
+                type: string
+                description: Host document (also the LVS lobby name).
+              title:
+                type: string
+                description: Short human-readable headline.
+              documentIds:
+                type: array
+                items:
+                  type: string
+                description: Review documents, host document first.
+              documentTitles:
+                type: object
+                additionalProperties:
+                  type: string
+                description: Optional document id → title map sent with the list, so joiners can label rows before their own document list loads.
+              hostUserId:
+                type: string
+                description: userId of the person who started the call; may end it for everyone and rename it.
+              media:
+                type: string
+                enum:
+                  - video
+                  - audio
+                description: "Media mode chosen at start: video, or audio with cameras off."
+              startedAt:
+                type: integer
+                description: Epoch milliseconds when the call started.
+              presenting:
+                description: Who is presenting which review document, or null.
+                oneOf:
+                  - type: "null"
+                  - type: object
+                    properties:
+                      documentId:
+                        type: string
+                      userId:
+                        type: string
+                      since:
+                        type: integer
+                    required:
+                      - documentId
+                      - userId
+                      - since
+              invites:
+                type: object
+                description: userId → ring state of each invited person.
+                additionalProperties:
+                  type: object
+                  properties:
+                    at:
+                      type: integer
+                      description: Epoch milliseconds of the latest ring to this person.
+                    state:
+                      type: string
+                      enum:
+                        - ringing
+                        - accepted
+                        - declined
+                        - missed
+                        - notified
+                      description: Ring state; notified = had no connected client, got a notification instead.
+                    by:
+                      type: string
+                      description: userId of whoever sent the invite (receives invite-expired).
+                  required:
+                    - at
+                    - state
+            required:
+              - callId
+              - documentId
+              - title
+              - documentIds
+              - hostUserId
+              - media
+              - startedAt
+              - presenting
+              - invites
+            additionalProperties: true
+            description: Frame body — the per-action payload of this frame.
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_call_invite_expired:
+      messageId: ws.call.invite-expired
+      name: ws.call.invite-expired
+      title: ws.call.invite-expired
+      summary: A document-call ring to one person expired unanswered (60 s). Sent to the inviter; the call itself goes on.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: invite-expired
+            description: Which action of the frame's service this frame reports.
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+                description: Identifier of the call this event relates to.
+              userId:
+                type: string
+                description: Platform user id of the acting or referenced user.
+            required:
+              - callId
+              - userId
+            additionalProperties: false
+            description: Frame body — the per-action payload of this frame.
+        required:
+          - type
+          - action
+          - data
+        additionalProperties: true
+    ws_call_participant_state:
+      messageId: ws.call.participant-state
+      name: ws.call.participant-state
+      title: ws.call.participant-state
+      summary: A participant's camera / mic / screen-share state and display name, relayed to the rest of the call.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: participant-state
+            description: Which action of the frame's service this frame reports.
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+                description: Identifier of the call this event relates to.
+              callerId:
+                type: string
+                description: userId of the participant this state belongs to (legacy name).
+              userId:
+                type: string
+                description: Platform user id of the acting or referenced user.
+              participantId:
+                type: string
+                description: SFU wire participant id of the speaker/participant.
+              displayName:
+                type: string
+                description: Human-readable display name shown in the UI.
+              cameraOn:
+                type: boolean
+                description: True while the participant's camera is publishing.
+              audioOn:
+                type: boolean
+                description: True while the participant's microphone is unmuted.
+              screenSharing:
+                type: boolean
+                description: True while the participant shares their screen.
+              status:
+                type: string
+                enum:
+                  - in-call
+                  - left
+                  - on-hold
+                  - reconnecting
+                description: Current lifecycle status of the subject.
+            additionalProperties: true
+            description: Frame body — the per-action payload of this frame.
+        required:
+          - type
+          - action
+        additionalProperties: true
+    ws_call_user_status:
+      messageId: ws.call.user-status
+      name: ws.call.user-status
+      title: ws.call.user-status
+      summary: A participant is in the call, on hold, reconnecting (socket dropped, inside the rejoin grace) or has left.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: call
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: user-status
+            description: Which action of the frame's service this frame reports.
+          data:
+            type: object
+            properties:
+              callId:
+                type: string
+                description: Identifier of the call this event relates to.
+              userId:
+                type:
+                  - string
+                  - "null"
+                description: Platform user id of the acting or referenced user.
+              status:
+                type: string
+                enum:
+                  - in-call
+                  - left
+                  - on-hold
+                  - reconnecting
+                description: Current lifecycle status of the subject.
+              reason:
+                type: string
+                description: Why the reported outcome happened.
+              rejoinGraceMs:
+                type: integer
+                description: Milliseconds the dropped participant has to come back before `left` follows.
+            required:
+              - callId
+              - status
             additionalProperties: true
             description: Frame body — the per-action payload of this frame.
         required:

@@ -5,10 +5,7 @@ export { wsPresenceJoined, wsPresenceLeft, wsReactionUnsubscribed, wsReactionAva
 export { wsFileuploadUrl, wsFileuploadComplete, wsFileuploadFailed, wsFileuploadStarted, wsFileuploadProgress, wsFileuploadScanning, wsFileuploadCancelled, wsVideohangoutParticipant, wsVideohangoutMedia, } from './client-frames/inbound-media';
 export { wsNotificationNew, wsNotificationRead, wsNotificationBulkUpdate, } from './client-frames/inbound-notification';
 export { wsCapabilityUpdated, wsFeatureFlagUpdated, } from './client-frames/inbound-control-plane';
-/**
- * All OUTBOUND client→gateway frame declarations (namespace `client`).
- * Producer is the realtime-modules client hook layer; the gateway consumes.
- */
+export { clientCallMeta, clientCallSetDocuments, clientCallPresent, clientCallSetTitle, } from './client-frames/outbound-call';
 export declare const clientFrameOutboundDeclarations: EventDeclaration[];
 /**
  * INBOUND gateway→client push-frame declarations added in Wave A2 (GAP 2) —

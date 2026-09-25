@@ -12,6 +12,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.8.2] - 2026-09-24
+
+- Document calls: declare `ws.call.call-meta`, `ws.call.invite-expired`,
+  `ws.call.participant-state` and `ws.call.user-status` (status now includes
+  `reconnecting`), and the client frames `client.call.meta`,
+  `client.call.set-documents`, `client.call.present`, `client.call.set-title`
+  (realtime-modules 0.96.0 `CallService` / `useDocumentCall`). New
+  `document-calls@1.0.0` bundle; `video-hangout@1.0.0` is unchanged so its
+  pinned fingerprint holds.
+
 ## [0.8.1] - 2026-09-23
 
 - `pipeline:step:completed` and `pipeline:run:completed` declare an optional

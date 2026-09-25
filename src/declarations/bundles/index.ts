@@ -15,6 +15,7 @@ export { agenticPipelineSignalBundle } from './agentic-pipeline-signal.js';
 export { agenticPipelineDurableBundle } from './agentic-pipeline-durable.js';
 export { crdtDocumentBundle, crdtDocumentDurabilityBundle } from './crdt-document.js';
 export { videoHangoutBundle } from './video-hangout.js';
+export { documentCallsBundle } from './document-calls.js';
 export { fileUploadBundle } from './file-upload.js';
 export { notificationsBundle } from './notifications.js';
 export { orgiqNewsroomBundle } from './orgiq-newsroom.js';
@@ -36,6 +37,7 @@ import { agenticPipelineSignalBundle } from './agentic-pipeline-signal.js';
 import { agenticPipelineDurableBundle } from './agentic-pipeline-durable.js';
 import { crdtDocumentBundle, crdtDocumentDurabilityBundle } from './crdt-document.js';
 import { videoHangoutBundle } from './video-hangout.js';
+import { documentCallsBundle } from './document-calls.js';
 import { fileUploadBundle } from './file-upload.js';
 import { notificationsBundle } from './notifications.js';
 import { gatewaySessionBundle } from './gateway-session.js';
@@ -68,6 +70,7 @@ export const allBundles = [
   sfuWebhooksBundle,
   sfuControlPlaneBundle,
   sfuChatBundle,
+  documentCallsBundle,
 ] as const;
 
 // Register each bundle in the module-level singleton at import time.

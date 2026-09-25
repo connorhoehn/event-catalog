@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.wsCallRecordingCompleted = exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = void 0;
+exports.wsCallUserStatus = exports.wsCallParticipantState = exports.wsCallInviteExpired = exports.wsCallCallMeta = exports.wsCallRecordingCompleted = exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = void 0;
 const _shared_1 = require("./_shared");
 // ===========================================================================
 // CALL frames — src/services/call-service.ts
@@ -152,6 +152,137 @@ exports.wsCallRecordingCompleted = {
                 downloadUrl: { type: 'string' },
             },
             required: ['sessionId', 'recordingId', 'downloadUrl'],
+            additionalProperties: true,
+        },
+    }, ['action', 'data']),
+};
+// ===========================================================================
+// Document calls (2026-09-24) — realtime-modules src/call/CallService.ts.
+// A call that belongs to a document review: live meta (title, review
+// documents, presenter, per-person ring state), per-target ring expiry, and
+// the in-call roster frames the gateway has always relayed but never declared.
+// ===========================================================================
+const documentCallMetaData = {
+    type: 'object',
+    properties: {
+        callId: { type: 'string' },
+        documentId: { type: 'string', description: 'Host document (also the LVS lobby name).' },
+        title: { type: 'string' },
+        documentIds: { type: 'array', items: { type: 'string' }, description: 'Review documents, host document first.' },
+        documentTitles: { type: 'object', additionalProperties: { type: 'string' }, description: 'Optional document id → title map sent with the list, so joiners can label rows before their own document list loads.' },
+        hostUserId: { type: 'string', description: 'userId of the person who started the call; may end it for everyone and rename it.' },
+        media: { type: 'string', enum: ['video', 'audio'], description: 'Media mode chosen at start: video, or audio with cameras off.' },
+        startedAt: { type: 'integer', description: 'Epoch milliseconds when the call started.' },
+        presenting: {
+            description: 'Who is presenting which review document, or null.',
+            oneOf: [
+                { type: 'null' },
+                {
+                    type: 'object',
+                    properties: {
+                        documentId: { type: 'string' },
+                        userId: { type: 'string' },
+                        since: { type: 'integer' },
+                    },
+                    required: ['documentId', 'userId', 'since'],
+                },
+            ],
+        },
+        invites: {
+            type: 'object',
+            description: 'userId → ring state of each invited person.',
+            additionalProperties: {
+                type: 'object',
+                properties: {
+                    at: { type: 'integer', description: 'Epoch milliseconds of the latest ring to this person.' },
+                    state: { type: 'string', enum: ['ringing', 'accepted', 'declined', 'missed', 'notified'], description: 'Ring state; notified = had no connected client, got a notification instead.' },
+                    by: { type: 'string', description: 'userId of whoever sent the invite (receives invite-expired).' },
+                },
+                required: ['at', 'state'],
+            },
+        },
+    },
+    required: ['callId', 'documentId', 'title', 'documentIds', 'hostUserId', 'media', 'startedAt', 'presenting', 'invites'],
+    additionalProperties: true,
+};
+/** The full meta of a document call, after a `meta` query and after every change. */
+exports.wsCallCallMeta = {
+    namespace: 'ws',
+    name: 'ws.call.call-meta',
+    transport: 'signal',
+    producer: _shared_1.PRODUCER,
+    description: 'Live meta of a document call (title, review documents, presenter, per-person ring state). Sent to the asker after a meta query and to every participant after set-documents / present / set-title / invite / accept / ring expiry.',
+    tags: [..._shared_1.BASE_TAGS, 'call', 'document-call'],
+    schema: (0, _shared_1.wsSchema)('call', {
+        action: { type: 'string', const: 'call-meta' },
+        data: documentCallMetaData,
+    }, ['action', 'data']),
+};
+/** One target's ring timed out; sent by the sweep leader to the inviter's clients. */
+exports.wsCallInviteExpired = {
+    namespace: 'ws',
+    name: 'ws.call.invite-expired',
+    transport: 'signal',
+    producer: _shared_1.PRODUCER,
+    description: 'A document-call ring to one person expired unanswered (60 s). Sent to the inviter; the call itself goes on.',
+    tags: [..._shared_1.BASE_TAGS, 'call', 'document-call'],
+    schema: (0, _shared_1.wsSchema)('call', {
+        action: { type: 'string', const: 'invite-expired' },
+        data: {
+            type: 'object',
+            properties: { callId: { type: 'string' }, userId: { type: 'string' } },
+            required: ['callId', 'userId'],
+            additionalProperties: false,
+        },
+    }, ['action', 'data']),
+};
+/** In-call media flags of one participant, relayed to the others. */
+exports.wsCallParticipantState = {
+    namespace: 'ws',
+    name: 'ws.call.participant-state',
+    transport: 'signal',
+    producer: _shared_1.PRODUCER,
+    description: 'A participant\'s camera / mic / screen-share state and display name, relayed to the rest of the call.',
+    tags: [..._shared_1.BASE_TAGS, 'call'],
+    schema: (0, _shared_1.wsSchema)('call', {
+        action: { type: 'string', const: 'participant-state' },
+        data: {
+            type: 'object',
+            properties: {
+                callId: { type: 'string' },
+                callerId: { type: 'string', description: 'userId of the participant this state belongs to (legacy name).' },
+                userId: { type: 'string' },
+                participantId: { type: 'string' },
+                displayName: { type: 'string' },
+                cameraOn: { type: 'boolean', description: 'True while the participant\'s camera is publishing.' },
+                audioOn: { type: 'boolean', description: 'True while the participant\'s microphone is unmuted.' },
+                screenSharing: { type: 'boolean', description: 'True while the participant shares their screen.' },
+                status: { type: 'string', enum: ['in-call', 'left', 'on-hold', 'reconnecting'] },
+            },
+            additionalProperties: true,
+        },
+    }, ['action']),
+};
+/** Presence of one participant in the call. `reconnecting` (2026-09-24) covers the rejoin grace. */
+exports.wsCallUserStatus = {
+    namespace: 'ws',
+    name: 'ws.call.user-status',
+    transport: 'signal',
+    producer: _shared_1.PRODUCER,
+    description: 'A participant is in the call, on hold, reconnecting (socket dropped, inside the rejoin grace) or has left.',
+    tags: [..._shared_1.BASE_TAGS, 'call'],
+    schema: (0, _shared_1.wsSchema)('call', {
+        action: { type: 'string', const: 'user-status' },
+        data: {
+            type: 'object',
+            properties: {
+                callId: { type: 'string' },
+                userId: { type: ['string', 'null'] },
+                status: { type: 'string', enum: ['in-call', 'left', 'on-hold', 'reconnecting'] },
+                reason: { type: 'string' },
+                rejoinGraceMs: { type: 'integer', description: 'Milliseconds the dropped participant has to come back before `left` follows.' },
+            },
+            required: ['callId', 'status'],
             additionalProperties: true,
         },
     }, ['action', 'data']),

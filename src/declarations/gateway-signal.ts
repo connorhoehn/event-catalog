@@ -100,6 +100,10 @@ import {
     wsCallVideoOff,
     wsCallRecordingStarted,
     wsCallRecordingCompleted,
+    wsCallCallMeta,
+    wsCallInviteExpired,
+    wsCallParticipantState,
+    wsCallUserStatus,
 } from './gateway-signal/call';
 import {
     wsPipelineSubscribed,
@@ -190,6 +194,10 @@ export {
     wsCallVideoOff,
     wsCallRecordingStarted,
     wsCallRecordingCompleted,
+    wsCallCallMeta,
+    wsCallInviteExpired,
+    wsCallParticipantState,
+    wsCallUserStatus,
 } from './gateway-signal/call';
 export {
     wsPipelineSubscribed,
@@ -326,6 +334,10 @@ export const gatewaySignalDeclarations: EventDeclaration[] = [
     wsCallVideoOff,
     wsCallRecordingStarted,
     wsCallRecordingCompleted,
+    wsCallCallMeta,
+    wsCallInviteExpired,
+    wsCallParticipantState,
+    wsCallUserStatus,
     // upload
     wsUploadRequested,
     wsUploadUrlIssued,

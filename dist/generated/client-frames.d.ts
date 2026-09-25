@@ -332,6 +332,42 @@ export interface ClientFramePayloadMap {
         channel: string;
         [key: string]: unknown;
     };
+    /** Ask for a document call's live meta. The gateway replies to the sender only with ws.call.call-meta. */
+    'client.call.meta': {
+        service: 'call';
+        action: 'meta';
+        channel?: string;
+        callId: string;
+        [key: string]: unknown;
+    };
+    /** Replace a document call's review documents (host document stays first). Any participant. Broadcasts ws.call.call-meta. */
+    'client.call.set-documents': {
+        service: 'call';
+        action: 'set-documents';
+        channel?: string;
+        callId: string;
+        documentIds: string[];
+        documentTitles?: Record<string, unknown>;
+        [key: string]: unknown;
+    };
+    /** Present a review document, or stop with documentId null. Only the current presenter or the host may replace a presenter. Broadcasts ws.call.call-meta. */
+    'client.call.present': {
+        service: 'call';
+        action: 'present';
+        channel?: string;
+        callId: string;
+        documentId?: string | null;
+        [key: string]: unknown;
+    };
+    /** Rename a document call. Host only. Broadcasts ws.call.call-meta. */
+    'client.call.set-title': {
+        service: 'call';
+        action: 'set-title';
+        channel?: string;
+        callId: string;
+        title: string;
+        [key: string]: unknown;
+    };
 }
 /**
  * Utility type — get the frame payload type for a specific outbound
@@ -357,6 +393,8 @@ export type FileuploadOutboundFrame = ClientFramePayloadMap['client.fileupload.r
 export type VideohangoutOutboundFrame = ClientFramePayloadMap['client.videohangout.start'] | ClientFramePayloadMap['client.videohangout.join'] | ClientFramePayloadMap['client.videohangout.leave'] | ClientFramePayloadMap['client.videohangout.end'] | ClientFramePayloadMap['client.videohangout.toggle-video'] | ClientFramePayloadMap['client.videohangout.toggle-audio'];
 /** Union of every outbound client→gateway frame for the `subscribe` service. */
 export type SubscribeOutboundFrame = ClientFramePayloadMap['client.subscribe.subscribe'] | ClientFramePayloadMap['client.subscribe.unsubscribe'];
+/** Union of every outbound client→gateway frame for the `call` service. */
+export type CallOutboundFrame = ClientFramePayloadMap['client.call.meta'] | ClientFramePayloadMap['client.call.set-documents'] | ClientFramePayloadMap['client.call.present'] | ClientFramePayloadMap['client.call.set-title'];
 /** Union of every inbound gateway→client push frame for the `chat` service. */
 export type ChatInboundFrame = EventPayloadMap['ws.chat.joined'] | EventPayloadMap['ws.chat.left'] | EventPayloadMap['ws.chat.message'] | EventPayloadMap['ws.chat.sent'] | EventPayloadMap['ws.chat.history'];
 /** Union of every inbound gateway→client push frame for the `cursor` service. */
@@ -370,7 +408,7 @@ export type PresenceInboundFrame = EventPayloadMap['ws.presence.set'] | EventPay
 /** Union of every inbound gateway→client push frame for the `reaction` service. */
 export type ReactionInboundFrame = EventPayloadMap['ws.reaction.subscribed'] | EventPayloadMap['ws.reaction.received'] | EventPayloadMap['ws.reaction.removed'] | EventPayloadMap['ws.reaction.list'] | EventPayloadMap['ws.reaction.history'] | EventPayloadMap['ws.reaction.sent'] | EventPayloadMap['ws.reaction.unsubscribed'] | EventPayloadMap['ws.reaction.available'];
 /** Union of every inbound gateway→client push frame for the `call` service. */
-export type CallInboundFrame = EventPayloadMap['ws.call.invite'] | EventPayloadMap['ws.call.accepted'] | EventPayloadMap['ws.call.declined'] | EventPayloadMap['ws.call.cancelled'] | EventPayloadMap['ws.call.ended'] | EventPayloadMap['ws.call.video-on'] | EventPayloadMap['ws.call.video-off'] | EventPayloadMap['ws.call.recording-started'] | EventPayloadMap['ws.call.recording-completed'];
+export type CallInboundFrame = EventPayloadMap['ws.call.invite'] | EventPayloadMap['ws.call.accepted'] | EventPayloadMap['ws.call.declined'] | EventPayloadMap['ws.call.cancelled'] | EventPayloadMap['ws.call.ended'] | EventPayloadMap['ws.call.video-on'] | EventPayloadMap['ws.call.video-off'] | EventPayloadMap['ws.call.recording-started'] | EventPayloadMap['ws.call.recording-completed'] | EventPayloadMap['ws.call.call-meta'] | EventPayloadMap['ws.call.invite-expired'] | EventPayloadMap['ws.call.participant-state'] | EventPayloadMap['ws.call.user-status'];
 /** Union of every inbound gateway→client push frame for the `upload` service. */
 export type UploadInboundFrame = EventPayloadMap['ws.upload.requested'] | EventPayloadMap['ws.upload.url-issued'] | EventPayloadMap['ws.upload.completed'] | EventPayloadMap['ws.upload.failed'] | EventPayloadMap['ws.upload.scanned'] | EventPayloadMap['ws.upload.scan-quarantined'] | EventPayloadMap['ws.upload.url-revoked'];
 /** Union of every inbound gateway→client push frame for the `pipeline` service. */

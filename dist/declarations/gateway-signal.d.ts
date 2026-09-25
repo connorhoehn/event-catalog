@@ -5,7 +5,7 @@ export { wsActivitySubscribed, wsActivityUnsubscribed, wsActivityPublished, wsAc
 export { wsCrdtSubscribed, wsCrdtUnsubscribed, wsCrdtSnapshot, wsCrdtUpdate, wsCrdtPersisted, wsCrdtPersistenceError, wsCrdtSeeded, wsCrdtSyncRequest, wsCrdtSyncResponse, wsCrdtDocReplaced, wsCrdtSnapshotStored, wsCrdtAwarenessBatch, } from './gateway-signal/crdt';
 export { wsPresenceSet, wsPresenceUpdate, wsPresenceSubscribed, wsPresenceUnsubscribed, wsPresenceData, wsPresenceOffline, } from './gateway-signal/presence';
 export { wsReactionSubscribed, wsReactionReceived, wsReactionRemoved, wsReactionList, wsReactionHistory, wsReactionSent, } from './gateway-signal/reaction';
-export { wsCallInvite, wsCallAccepted, wsCallDeclined, wsCallCancelled, wsCallEnded, wsCallVideoOn, wsCallVideoOff, wsCallRecordingStarted, wsCallRecordingCompleted, } from './gateway-signal/call';
+export { wsCallInvite, wsCallAccepted, wsCallDeclined, wsCallCancelled, wsCallEnded, wsCallVideoOn, wsCallVideoOff, wsCallRecordingStarted, wsCallRecordingCompleted, wsCallCallMeta, wsCallInviteExpired, wsCallParticipantState, wsCallUserStatus, } from './gateway-signal/call';
 export { wsPipelineSubscribed, wsPipelineUnsubscribed, wsPipelineAck, wsPipelineSnapshot, wsPipelineHistory, wsPipelineEvent, } from './gateway-signal/pipeline';
 export { wsUploadRequested, wsUploadUrlIssued, wsUploadCompleted, wsUploadFailed, wsUploadScanned, wsUploadScanQuarantined, wsUploadUrlRevoked, } from './gateway-signal/upload';
 export { wsError } from './gateway-signal/error';

@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: npm run generate-types
-// Generated at: 2026-09-20T15:05:00.883Z
+// Generated at: 2026-09-25T03:19:32.660Z
 
 // prettier-ignore-file
 /* eslint-disable */
@@ -339,6 +339,42 @@ export interface ClientFramePayloadMap {
     channel: string;
     [key: string]: unknown;
   };
+  /** Ask for a document call's live meta. The gateway replies to the sender only with ws.call.call-meta. */
+  'client.call.meta': {
+    service: 'call';
+    action: 'meta';
+    channel?: string;
+    callId: string;
+    [key: string]: unknown;
+  };
+  /** Replace a document call's review documents (host document stays first). Any participant. Broadcasts ws.call.call-meta. */
+  'client.call.set-documents': {
+    service: 'call';
+    action: 'set-documents';
+    channel?: string;
+    callId: string;
+    documentIds: string[];
+    documentTitles?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+  /** Present a review document, or stop with documentId null. Only the current presenter or the host may replace a presenter. Broadcasts ws.call.call-meta. */
+  'client.call.present': {
+    service: 'call';
+    action: 'present';
+    channel?: string;
+    callId: string;
+    documentId?: string | null;
+    [key: string]: unknown;
+  };
+  /** Rename a document call. Host only. Broadcasts ws.call.call-meta. */
+  'client.call.set-title': {
+    service: 'call';
+    action: 'set-title';
+    channel?: string;
+    callId: string;
+    title: string;
+    [key: string]: unknown;
+  };
 }
 
 /**
@@ -415,6 +451,13 @@ export type VideohangoutOutboundFrame =
 export type SubscribeOutboundFrame =
   | ClientFramePayloadMap['client.subscribe.subscribe']
   | ClientFramePayloadMap['client.subscribe.unsubscribe'];
+
+/** Union of every outbound client→gateway frame for the `call` service. */
+export type CallOutboundFrame =
+  | ClientFramePayloadMap['client.call.meta']
+  | ClientFramePayloadMap['client.call.set-documents']
+  | ClientFramePayloadMap['client.call.present']
+  | ClientFramePayloadMap['client.call.set-title'];
 
 // ---------------------------------------------------------------------------
 // Per-service INBOUND frame unions (gateway → client, ws.* declarations)
@@ -495,7 +538,11 @@ export type CallInboundFrame =
   | EventPayloadMap['ws.call.video-on']
   | EventPayloadMap['ws.call.video-off']
   | EventPayloadMap['ws.call.recording-started']
-  | EventPayloadMap['ws.call.recording-completed'];
+  | EventPayloadMap['ws.call.recording-completed']
+  | EventPayloadMap['ws.call.call-meta']
+  | EventPayloadMap['ws.call.invite-expired']
+  | EventPayloadMap['ws.call.participant-state']
+  | EventPayloadMap['ws.call.user-status'];
 
 /** Union of every inbound gateway→client push frame for the `upload` service. */
 export type UploadInboundFrame =

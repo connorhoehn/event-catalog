@@ -251,6 +251,19 @@ export {
  * All OUTBOUND client→gateway frame declarations (namespace `client`).
  * Producer is the realtime-modules client hook layer; the gateway consumes.
  */
+import {
+    clientCallMeta,
+    clientCallSetDocuments,
+    clientCallPresent,
+    clientCallSetTitle,
+} from './client-frames/outbound-call';
+export {
+    clientCallMeta,
+    clientCallSetDocuments,
+    clientCallPresent,
+    clientCallSetTitle,
+} from './client-frames/outbound-call';
+
 export const clientFrameOutboundDeclarations: EventDeclaration[] = [
     // chat
     clientChatJoin,
@@ -297,7 +310,11 @@ export const clientFrameOutboundDeclarations: EventDeclaration[] = [
     clientVideohangoutToggleAudio,
     // generic channel multiplexer
     clientSubscribeSubscribe,
-    clientSubscribeUnsubscribe,
+    clientSubscribeUnsubscribe,    // document calls (call service)
+    clientCallMeta,
+    clientCallSetDocuments,
+    clientCallPresent,
+    clientCallSetTitle,
 ];
 
 /**

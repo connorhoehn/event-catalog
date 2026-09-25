@@ -1084,6 +1084,71 @@ export interface EventPayloadMap {
         };
         [key: string]: unknown;
     };
+    /** Live meta of a document call (title, review documents, presenter, per-person ring state). Sent to the asker after a meta query and to every participant after set-documents / present / set-title / invite / accept / ring expiry. */
+    'ws.call.call-meta': {
+        type: 'call';
+        timestamp?: string;
+        action: 'call-meta';
+        data: {
+            callId: string;
+            documentId: string;
+            title: string;
+            documentIds: string[];
+            documentTitles?: Record<string, unknown>;
+            hostUserId: string;
+            media: 'video' | 'audio';
+            startedAt: number;
+            presenting: unknown;
+            invites: Record<string, unknown>;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** A document-call ring to one person expired unanswered (60 s). Sent to the inviter; the call itself goes on. */
+    'ws.call.invite-expired': {
+        type: 'call';
+        timestamp?: string;
+        action: 'invite-expired';
+        data: {
+            callId: string;
+            userId: string;
+        };
+        [key: string]: unknown;
+    };
+    /** A participant's camera / mic / screen-share state and display name, relayed to the rest of the call. */
+    'ws.call.participant-state': {
+        type: 'call';
+        timestamp?: string;
+        action: 'participant-state';
+        data?: {
+            callId?: string;
+            callerId?: string;
+            userId?: string;
+            participantId?: string;
+            displayName?: string;
+            cameraOn?: boolean;
+            audioOn?: boolean;
+            screenSharing?: boolean;
+            status?: 'in-call' | 'left' | 'on-hold' | 'reconnecting';
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** A participant is in the call, on hold, reconnecting (socket dropped, inside the rejoin grace) or has left. */
+    'ws.call.user-status': {
+        type: 'call';
+        timestamp?: string;
+        action: 'user-status';
+        data: {
+            callId: string;
+            userId?: string | null;
+            status: 'in-call' | 'left' | 'on-hold' | 'reconnecting';
+            reason?: string;
+            rejoinGraceMs?: number;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
     /** Acknowledgement sent when the gateway receives a file upload request from a client. */
     'ws.upload.requested': {
         type: 'upload';
@@ -1866,6 +1931,42 @@ export interface EventPayloadMap {
         service: 'subscribe';
         action: 'unsubscribe';
         channel: string;
+        [key: string]: unknown;
+    };
+    /** Ask for a document call's live meta. The gateway replies to the sender only with ws.call.call-meta. */
+    'client.call.meta': {
+        service: 'call';
+        action: 'meta';
+        channel?: string;
+        callId: string;
+        [key: string]: unknown;
+    };
+    /** Replace a document call's review documents (host document stays first). Any participant. Broadcasts ws.call.call-meta. */
+    'client.call.set-documents': {
+        service: 'call';
+        action: 'set-documents';
+        channel?: string;
+        callId: string;
+        documentIds: string[];
+        documentTitles?: Record<string, unknown>;
+        [key: string]: unknown;
+    };
+    /** Present a review document, or stop with documentId null. Only the current presenter or the host may replace a presenter. Broadcasts ws.call.call-meta. */
+    'client.call.present': {
+        service: 'call';
+        action: 'present';
+        channel?: string;
+        callId: string;
+        documentId?: string | null;
+        [key: string]: unknown;
+    };
+    /** Rename a document call. Host only. Broadcasts ws.call.call-meta. */
+    'client.call.set-title': {
+        service: 'call';
+        action: 'set-title';
+        channel?: string;
+        callId: string;
+        title: string;
         [key: string]: unknown;
     };
     /** Broadcast when a client joins a presence channel, carrying the joining client's PresenceEntry. NOTE: the gateway presence service currently emits type:"presence" action frames (ws.presence.update / ws.presence.offline); presence:joined is the usePresence hook contract — naming tension documented per Wave A2, not renamed. */

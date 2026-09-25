@@ -98,7 +98,7 @@
 // a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsFileuploadStarted = exports.wsFileuploadFailed = exports.wsFileuploadComplete = exports.wsFileuploadUrl = exports.wsCrdtAwareness = exports.wsReactionAvailable = exports.wsReactionUnsubscribed = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtSeedDocument = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatDelete = exports.clientChatEdit = exports.clientChatRemoveMember = exports.clientChatAddMembers = exports.clientChatMembers = exports.clientChatTyping = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
-exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = void 0;
+exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.clientCallSetTitle = exports.clientCallPresent = exports.clientCallSetDocuments = exports.clientCallMeta = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = void 0;
 const field_glossary_1 = require("./field-glossary");
 const outbound_fanout_1 = require("./client-frames/outbound-fanout");
 const outbound_media_1 = require("./client-frames/outbound-media");
@@ -179,6 +179,12 @@ Object.defineProperty(exports, "wsFeatureFlagUpdated", { enumerable: true, get: 
  * All OUTBOUND client→gateway frame declarations (namespace `client`).
  * Producer is the realtime-modules client hook layer; the gateway consumes.
  */
+const outbound_call_1 = require("./client-frames/outbound-call");
+var outbound_call_2 = require("./client-frames/outbound-call");
+Object.defineProperty(exports, "clientCallMeta", { enumerable: true, get: function () { return outbound_call_2.clientCallMeta; } });
+Object.defineProperty(exports, "clientCallSetDocuments", { enumerable: true, get: function () { return outbound_call_2.clientCallSetDocuments; } });
+Object.defineProperty(exports, "clientCallPresent", { enumerable: true, get: function () { return outbound_call_2.clientCallPresent; } });
+Object.defineProperty(exports, "clientCallSetTitle", { enumerable: true, get: function () { return outbound_call_2.clientCallSetTitle; } });
 exports.clientFrameOutboundDeclarations = [
     // chat
     outbound_fanout_1.clientChatJoin,
@@ -225,7 +231,11 @@ exports.clientFrameOutboundDeclarations = [
     outbound_media_1.clientVideohangoutToggleAudio,
     // generic channel multiplexer
     outbound_fanout_1.clientSubscribeSubscribe,
-    outbound_fanout_1.clientSubscribeUnsubscribe,
+    outbound_fanout_1.clientSubscribeUnsubscribe, // document calls (call service)
+    outbound_call_1.clientCallMeta,
+    outbound_call_1.clientCallSetDocuments,
+    outbound_call_1.clientCallPresent,
+    outbound_call_1.clientCallSetTitle,
 ];
 /**
  * INBOUND gateway→client push-frame declarations added in Wave A2 (GAP 2) —
