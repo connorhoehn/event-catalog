@@ -12,6 +12,15 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.8.5] - 2026-10-14
+
+- Maintenance (lane S1): distributed-core v0.42.1 -> v0.48.0 at the full sha
+  `077d7594cc412e3153ace47ce0f0b4be60df84d5`, and service-runtime 0.4.0 ->
+  0.4.1 (`5f7275e`), so an install carries one distributed-core copy. No
+  declaration changes. Declared `yaml` as a devDependency: the AsyncAPI tests
+  imported it but only got it through a hoisted transitive copy that the new
+  tree no longer provides.
+
 ## [0.8.4] - 2026-09-25
 
 - `ws.call.invite-expired` also goes to the person whose ring expired, and
