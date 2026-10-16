@@ -12,6 +12,27 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.8.6] - 2026-10-16
+
+- Declare the realtime-modules `meeting` service (raised hands and breakout
+  rooms; `src/meeting/types.ts`, `MeetingService.ts`, `useMeeting.ts`):
+  - 17 outbound frames `client.meeting.<action>`, one per `MEETING_ACTIONS`
+    verb, envelope `{ service: 'meeting', action, meetingId, ... }`. Payload
+    schemas follow what `MeetingService.apply` reads: `MEETING_ID_PATTERN`
+    plus the `~breakout~` ban, `BREAKOUT_ROOM_ID_PATTERN`, room names 1–80,
+    announcements 1–500. Organizer-only verbs open their description with
+    "Organizer only." and carry the `organizer-only` tag; `hand.lower` says
+    it is organizer only when it names another user.
+  - 6 inbound frames: `ws.meeting.meeting.snapshot`, `ws.meeting.hands.changed`,
+    `ws.meeting.breakout.changed`, `ws.meeting.breakout.announcement`,
+    `ws.meeting.meeting.unsubscribed` and `ws.meeting.error` (all seven
+    `MeetingErrorCode`s). Nested state objects are open, since
+    `breakout.closing` was already added additively.
+  - `meeting@1.0.0` FeatureBundle; generated `MeetingOutboundFrame` /
+    `MeetingInboundFrame` unions; AsyncAPI and registry snapshot regenerated.
+  - `raisedAt`, `updatedAt` and `endsAt` join `COMMON_FORMATS` as
+    `date-time` (no existing event declares them).
+
 ## [0.8.5] - 2026-10-14
 
 - Maintenance (lane S1): distributed-core v0.42.1 -> v0.48.0 at the full sha

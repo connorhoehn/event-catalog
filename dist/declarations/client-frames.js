@@ -98,7 +98,7 @@
 // a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.wsFileuploadCancelled = exports.wsFileuploadScanning = exports.wsFileuploadProgress = exports.wsFileuploadStarted = exports.wsFileuploadFailed = exports.wsFileuploadComplete = exports.wsFileuploadUrl = exports.wsCrdtAwareness = exports.wsReactionAvailable = exports.wsReactionUnsubscribed = exports.wsPresenceLeft = exports.wsPresenceJoined = exports.clientVideohangoutToggleAudio = exports.clientVideohangoutToggleVideo = exports.clientVideohangoutEnd = exports.clientVideohangoutLeave = exports.clientVideohangoutJoin = exports.clientVideohangoutStart = exports.clientFileuploadCancel = exports.clientFileuploadComplete = exports.clientFileuploadRequestUpload = exports.clientSubscribeUnsubscribe = exports.clientSubscribeSubscribe = exports.clientCrdtAwareness = exports.clientCrdtSeedDocument = exports.clientCrdtUpdate = exports.clientCrdtUnsubscribe = exports.clientCrdtSubscribe = exports.clientActivityGetHistory = exports.clientActivityUnsubscribe = exports.clientActivitySubscribe = exports.clientReactionGetAvailable = exports.clientReactionSend = exports.clientReactionUnsubscribe = exports.clientReactionSubscribe = exports.clientPresenceSet = exports.clientPresenceHeartbeat = exports.clientPresenceGet = exports.clientPresenceUnsubscribe = exports.clientPresenceSubscribe = exports.clientChatHistory = exports.clientChatDelete = exports.clientChatEdit = exports.clientChatRemoveMember = exports.clientChatAddMembers = exports.clientChatMembers = exports.clientChatTyping = exports.clientChatSend = exports.clientChatLeave = exports.clientChatJoin = void 0;
-exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.clientCallTransferHost = exports.clientCallRemoveParticipant = exports.clientCallMuteParticipant = exports.clientCallSetTitle = exports.clientCallPresent = exports.clientCallSetDocuments = exports.clientCallMeta = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = void 0;
+exports.clientFrameDeclarations = exports.clientContractInboundDeclarations = exports.clientFrameOutboundDeclarations = exports.clientMeetingDeclarations = exports.clientMeetingBreakoutEnd = exports.clientMeetingBreakoutLeave = exports.clientMeetingBreakoutJoin = exports.clientMeetingBreakoutBroadcast = exports.clientMeetingBreakoutTimer = exports.clientMeetingBreakoutClose = exports.clientMeetingBreakoutOpen = exports.clientMeetingBreakoutAutoAssign = exports.clientMeetingBreakoutAssign = exports.clientMeetingBreakoutRename = exports.clientMeetingBreakoutAddRoom = exports.clientMeetingBreakoutConfigure = exports.clientMeetingHandLowerAll = exports.clientMeetingHandLower = exports.clientMeetingHandRaise = exports.clientMeetingUnsubscribe = exports.clientMeetingSubscribe = exports.clientCallTransferHost = exports.clientCallRemoveParticipant = exports.clientCallMuteParticipant = exports.clientCallSetTitle = exports.clientCallPresent = exports.clientCallSetDocuments = exports.clientCallMeta = exports.wsFeatureFlagUpdated = exports.wsCapabilityUpdated = exports.wsNotificationBulkUpdate = exports.wsNotificationRead = exports.wsNotificationNew = exports.wsVideohangoutMedia = exports.wsVideohangoutParticipant = void 0;
 const field_glossary_1 = require("./field-glossary");
 const outbound_fanout_1 = require("./client-frames/outbound-fanout");
 const outbound_media_1 = require("./client-frames/outbound-media");
@@ -188,6 +188,26 @@ Object.defineProperty(exports, "clientCallSetTitle", { enumerable: true, get: fu
 Object.defineProperty(exports, "clientCallMuteParticipant", { enumerable: true, get: function () { return outbound_call_2.clientCallMuteParticipant; } });
 Object.defineProperty(exports, "clientCallRemoveParticipant", { enumerable: true, get: function () { return outbound_call_2.clientCallRemoveParticipant; } });
 Object.defineProperty(exports, "clientCallTransferHost", { enumerable: true, get: function () { return outbound_call_2.clientCallTransferHost; } });
+const outbound_meeting_1 = require("./client-frames/outbound-meeting");
+var outbound_meeting_2 = require("./client-frames/outbound-meeting");
+Object.defineProperty(exports, "clientMeetingSubscribe", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingSubscribe; } });
+Object.defineProperty(exports, "clientMeetingUnsubscribe", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingUnsubscribe; } });
+Object.defineProperty(exports, "clientMeetingHandRaise", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingHandRaise; } });
+Object.defineProperty(exports, "clientMeetingHandLower", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingHandLower; } });
+Object.defineProperty(exports, "clientMeetingHandLowerAll", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingHandLowerAll; } });
+Object.defineProperty(exports, "clientMeetingBreakoutConfigure", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutConfigure; } });
+Object.defineProperty(exports, "clientMeetingBreakoutAddRoom", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutAddRoom; } });
+Object.defineProperty(exports, "clientMeetingBreakoutRename", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutRename; } });
+Object.defineProperty(exports, "clientMeetingBreakoutAssign", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutAssign; } });
+Object.defineProperty(exports, "clientMeetingBreakoutAutoAssign", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutAutoAssign; } });
+Object.defineProperty(exports, "clientMeetingBreakoutOpen", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutOpen; } });
+Object.defineProperty(exports, "clientMeetingBreakoutClose", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutClose; } });
+Object.defineProperty(exports, "clientMeetingBreakoutTimer", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutTimer; } });
+Object.defineProperty(exports, "clientMeetingBreakoutBroadcast", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutBroadcast; } });
+Object.defineProperty(exports, "clientMeetingBreakoutJoin", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutJoin; } });
+Object.defineProperty(exports, "clientMeetingBreakoutLeave", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutLeave; } });
+Object.defineProperty(exports, "clientMeetingBreakoutEnd", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingBreakoutEnd; } });
+Object.defineProperty(exports, "clientMeetingDeclarations", { enumerable: true, get: function () { return outbound_meeting_2.clientMeetingDeclarations; } });
 exports.clientFrameOutboundDeclarations = [
     // chat
     outbound_fanout_1.clientChatJoin,
@@ -242,6 +262,8 @@ exports.clientFrameOutboundDeclarations = [
     outbound_call_1.clientCallMuteParticipant,
     outbound_call_1.clientCallRemoveParticipant,
     outbound_call_1.clientCallTransferHost,
+    // meeting (raised hands + breakout rooms)
+    ...outbound_meeting_1.clientMeetingDeclarations,
 ];
 /**
  * INBOUND gateway→client push-frame declarations added in Wave A2 (GAP 2) —

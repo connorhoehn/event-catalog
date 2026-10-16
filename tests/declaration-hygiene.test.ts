@@ -174,6 +174,9 @@ const SEGMENT_CASE_EXCEPTIONS: Record<string, string> = {
   'client.activity.getHistory': 'Name mirrors the gateway ActivityService `action` string verbatim — ground truth, not style.',
   'client.chat.addMembers': 'Name mirrors the gateway ChatService `action` string verbatim — ground truth, not style.',
   'client.chat.removeMember': 'Name mirrors the gateway ChatService `action` string verbatim — ground truth, not style.',
+  'client.meeting.hand.lowerAll': 'Name mirrors the realtime-modules MeetingService `action` string verbatim — ground truth, not style.',
+  'client.meeting.breakout.addRoom': 'Name mirrors the realtime-modules MeetingService `action` string verbatim — ground truth, not style.',
+  'client.meeting.breakout.autoAssign': 'Name mirrors the realtime-modules MeetingService `action` string verbatim — ground truth, not style.',
 };
 
 /**

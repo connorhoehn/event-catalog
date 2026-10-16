@@ -35,7 +35,7 @@
 // which property. Never call `annotateDeclarations` from a part file.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.wsCallRecordingStarted = exports.wsCallVideoOff = exports.wsCallVideoOn = exports.wsCallEnded = exports.wsCallCancelled = exports.wsCallDeclined = exports.wsCallAccepted = exports.wsCallInvite = exports.wsReactionSent = exports.wsReactionHistory = exports.wsReactionList = exports.wsReactionRemoved = exports.wsReactionReceived = exports.wsReactionSubscribed = exports.wsPresenceOffline = exports.wsPresenceData = exports.wsPresenceUnsubscribed = exports.wsPresenceSubscribed = exports.wsPresenceUpdate = exports.wsPresenceSet = exports.wsCrdtAwarenessBatch = exports.wsCrdtSnapshotStored = exports.wsCrdtDocReplaced = exports.wsCrdtSyncResponse = exports.wsCrdtSyncRequest = exports.wsCrdtSeeded = exports.wsCrdtPersistenceError = exports.wsCrdtPersisted = exports.wsCrdtUpdate = exports.wsCrdtSnapshot = exports.wsCrdtUnsubscribed = exports.wsCrdtSubscribed = exports.wsActivityEvent = exports.wsActivityHistory = exports.wsActivityPublished = exports.wsActivityUnsubscribed = exports.wsActivitySubscribed = exports.wsCursorModes = exports.wsCursorList = exports.wsCursorBatch = exports.wsCursorClear = exports.wsCursorRemove = exports.wsCursorUpdate = exports.wsCursorUnsubscribed = exports.wsCursorSubscribed = exports.wsChatHistory = exports.wsChatSent = exports.wsChatMessage = exports.wsChatLeft = exports.wsChatJoined = void 0;
-exports.gatewaySignalDeclarations = exports.wsSubscribeUnsubscribed = exports.wsSubscribeSubscribed = exports.wsSessionConnected = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallRemoveParticipant = exports.wsCallMuteParticipant = exports.wsCallUserStatus = exports.wsCallParticipantState = exports.wsCallInviteExpired = exports.wsCallCallMeta = exports.wsCallRecordingCompleted = void 0;
+exports.gatewaySignalDeclarations = exports.MEETING_ERROR_CODES = exports.wsMeetingDeclarations = exports.wsMeetingError = exports.wsMeetingUnsubscribed = exports.wsMeetingBreakoutAnnouncement = exports.wsMeetingBreakoutChanged = exports.wsMeetingHandsChanged = exports.wsMeetingSnapshot = exports.wsSubscribeUnsubscribed = exports.wsSubscribeSubscribed = exports.wsSessionConnected = exports.wsError = exports.wsUploadUrlRevoked = exports.wsUploadScanQuarantined = exports.wsUploadScanned = exports.wsUploadFailed = exports.wsUploadCompleted = exports.wsUploadUrlIssued = exports.wsUploadRequested = exports.wsPipelineEvent = exports.wsPipelineHistory = exports.wsPipelineSnapshot = exports.wsPipelineAck = exports.wsPipelineUnsubscribed = exports.wsPipelineSubscribed = exports.wsCallRemoveParticipant = exports.wsCallMuteParticipant = exports.wsCallUserStatus = exports.wsCallParticipantState = exports.wsCallInviteExpired = exports.wsCallCallMeta = exports.wsCallRecordingCompleted = void 0;
 const field_glossary_1 = require("./field-glossary");
 const chat_1 = require("./gateway-signal/chat");
 const cursor_1 = require("./gateway-signal/cursor");
@@ -49,6 +49,7 @@ const upload_1 = require("./gateway-signal/upload");
 const error_1 = require("./gateway-signal/error");
 const session_1 = require("./gateway-signal/session");
 const subscribe_1 = require("./gateway-signal/subscribe");
+const meeting_1 = require("./gateway-signal/meeting");
 // ---------------------------------------------------------------------------
 // Public surface — every declaration, under the name it has always had.
 // ---------------------------------------------------------------------------
@@ -138,6 +139,15 @@ Object.defineProperty(exports, "wsSessionConnected", { enumerable: true, get: fu
 var subscribe_2 = require("./gateway-signal/subscribe");
 Object.defineProperty(exports, "wsSubscribeSubscribed", { enumerable: true, get: function () { return subscribe_2.wsSubscribeSubscribed; } });
 Object.defineProperty(exports, "wsSubscribeUnsubscribed", { enumerable: true, get: function () { return subscribe_2.wsSubscribeUnsubscribed; } });
+var meeting_2 = require("./gateway-signal/meeting");
+Object.defineProperty(exports, "wsMeetingSnapshot", { enumerable: true, get: function () { return meeting_2.wsMeetingSnapshot; } });
+Object.defineProperty(exports, "wsMeetingHandsChanged", { enumerable: true, get: function () { return meeting_2.wsMeetingHandsChanged; } });
+Object.defineProperty(exports, "wsMeetingBreakoutChanged", { enumerable: true, get: function () { return meeting_2.wsMeetingBreakoutChanged; } });
+Object.defineProperty(exports, "wsMeetingBreakoutAnnouncement", { enumerable: true, get: function () { return meeting_2.wsMeetingBreakoutAnnouncement; } });
+Object.defineProperty(exports, "wsMeetingUnsubscribed", { enumerable: true, get: function () { return meeting_2.wsMeetingUnsubscribed; } });
+Object.defineProperty(exports, "wsMeetingError", { enumerable: true, get: function () { return meeting_2.wsMeetingError; } });
+Object.defineProperty(exports, "wsMeetingDeclarations", { enumerable: true, get: function () { return meeting_2.wsMeetingDeclarations; } });
+Object.defineProperty(exports, "MEETING_ERROR_CODES", { enumerable: true, get: function () { return meeting_2.MEETING_ERROR_CODES; } });
 // ---------------------------------------------------------------------------
 // Field glossary
 // ---------------------------------------------------------------------------
@@ -255,6 +265,8 @@ exports.gatewaySignalDeclarations = [
     call_1.wsCallUserStatus,
     call_1.wsCallMuteParticipant,
     call_1.wsCallRemoveParticipant,
+    // meeting (raised hands + breakout rooms)
+    ...meeting_1.wsMeetingDeclarations,
     // upload
     upload_1.wsUploadRequested,
     upload_1.wsUploadUrlIssued,

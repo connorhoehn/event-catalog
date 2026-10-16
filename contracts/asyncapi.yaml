@@ -1,5 +1,5 @@
 # AUTO-GENERATED — do not edit manually. Run: npm run generate-asyncapi
-# Scope: the gateway WebSocket protocol — 138 of 259 declarations
+# Scope: the gateway WebSocket protocol — 161 of 282 declarations
 # Source of truth: @connorhoehn/event-catalog src/declarations/
 asyncapi: 2.6.0
 info:
@@ -20,8 +20,8 @@ info:
     frames carry `{ service, action, channel?, ... }`; inbound frames carry
     a `type` discriminator.
 
-    SCOPE: this document describes 138 of the registry's
-    259 declarations — the gateway WebSocket frames, and
+    SCOPE: this document describes 161 of the registry's
+    282 declarations — the gateway WebSocket frames, and
     only those. It is NOT the platform event inventory. The other
     121 declarations are broker-addressed backbone events
     (Redis pub/sub and the durable message-queue) and are described in the
@@ -33,13 +33,13 @@ info:
   license:
     name: UNLICENSED
   x-event-catalog-coverage:
-    registryDeclarations: 259
-    describedInThisDocument: 138
+    registryDeclarations: 282
+    describedInThisDocument: 161
     describedInCompanionDocument:
       file: contracts/asyncapi.registry.yaml
       count: 121
     partitionRule: "Declarations in namespace `client` or `ws` are gateway WebSocket frames: they carry no `channel` and no `queue` because they are multiplexed over one connection, so they are described in contracts/asyncapi.yaml as a single channel with a oneOf per direction. Every other declaration is broker-addressed (a Redis pub/sub channel or a message-queue queue) and is described in contracts/asyncapi.registry.yaml as one channel per event."
-    fullInventory: contracts/registry.snapshot.json lists all 259 events with their schema fingerprints.
+    fullInventory: contracts/registry.snapshot.json lists all 282 events with their schema fingerprints.
 externalDocs:
   description: "Companion document: the broker-addressed backbone events this file does not cover."
   url: ./asyncapi.registry.yaml
@@ -115,6 +115,23 @@ channels:
           - $ref: "#/components/messages/client_call_mute_participant"
           - $ref: "#/components/messages/client_call_remove_participant"
           - $ref: "#/components/messages/client_call_transfer_host"
+          - $ref: "#/components/messages/client_meeting_subscribe"
+          - $ref: "#/components/messages/client_meeting_unsubscribe"
+          - $ref: "#/components/messages/client_meeting_hand_raise"
+          - $ref: "#/components/messages/client_meeting_hand_lower"
+          - $ref: "#/components/messages/client_meeting_hand_lowerAll"
+          - $ref: "#/components/messages/client_meeting_breakout_configure"
+          - $ref: "#/components/messages/client_meeting_breakout_addRoom"
+          - $ref: "#/components/messages/client_meeting_breakout_rename"
+          - $ref: "#/components/messages/client_meeting_breakout_assign"
+          - $ref: "#/components/messages/client_meeting_breakout_autoAssign"
+          - $ref: "#/components/messages/client_meeting_breakout_open"
+          - $ref: "#/components/messages/client_meeting_breakout_close"
+          - $ref: "#/components/messages/client_meeting_breakout_timer"
+          - $ref: "#/components/messages/client_meeting_breakout_broadcast"
+          - $ref: "#/components/messages/client_meeting_breakout_join"
+          - $ref: "#/components/messages/client_meeting_breakout_leave"
+          - $ref: "#/components/messages/client_meeting_breakout_end"
     subscribe:
       operationId: receiveGatewayFrame
       summary: Frames the client RECEIVES from the gateway (gateway→client).
@@ -178,6 +195,12 @@ channels:
           - $ref: "#/components/messages/ws_call_user_status"
           - $ref: "#/components/messages/ws_call_mute_participant"
           - $ref: "#/components/messages/ws_call_remove_participant"
+          - $ref: "#/components/messages/ws_meeting_meeting_snapshot"
+          - $ref: "#/components/messages/ws_meeting_hands_changed"
+          - $ref: "#/components/messages/ws_meeting_breakout_changed"
+          - $ref: "#/components/messages/ws_meeting_breakout_announcement"
+          - $ref: "#/components/messages/ws_meeting_meeting_unsubscribed"
+          - $ref: "#/components/messages/ws_meeting_error"
           - $ref: "#/components/messages/ws_upload_requested"
           - $ref: "#/components/messages/ws_upload_url_issued"
           - $ref: "#/components/messages/ws_upload_completed"
@@ -1617,6 +1640,612 @@ components:
           - action
           - callId
           - userId
+        additionalProperties: true
+    client_meeting_subscribe:
+      messageId: client.meeting.subscribe
+      name: client.meeting.subscribe
+      title: client.meeting.subscribe
+      summary: Join a meeting's coordination channel. The gateway replies to the sender only with ws.meeting.meeting.snapshot (or ws.meeting.error FORBIDDEN when the channel guard refuses). The first subscriber becomes the default organizer. Sent again after every reconnect.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: subscribe
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+        required:
+          - service
+          - action
+          - meetingId
+        additionalProperties: true
+    client_meeting_unsubscribe:
+      messageId: client.meeting.unsubscribe
+      name: client.meeting.unsubscribe
+      title: client.meeting.unsubscribe
+      summary: Leave a meeting's coordination channel. The gateway replies with ws.meeting.meeting.unsubscribed; when this was the user's last connection in the meeting their raised hand goes down (ws.meeting.hands.changed).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: unsubscribe
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+        required:
+          - service
+          - action
+          - meetingId
+        additionalProperties: true
+    client_meeting_hand_raise:
+      messageId: client.meeting.hand.raise
+      name: client.meeting.hand.raise
+      title: client.meeting.hand.raise
+      summary: Raise your own hand. Any subscribed, signed-in participant. A hand already raised is a no-op; otherwise broadcasts ws.meeting.hands.changed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: hand.raise
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          displayName:
+            type: string
+            description: Name shown on your hand when the server's auth context carries none; the server prefers its own, trims it and keeps the first 80 characters.
+        required:
+          - service
+          - action
+          - meetingId
+        additionalProperties: true
+    client_meeting_hand_lower:
+      messageId: client.meeting.hand.lower
+      name: client.meeting.hand.lower
+      title: client.meeting.hand.lower
+      summary: Lower your own hand (no userId), or someone else's — organizer only when userId names another user (ws.meeting.error FORBIDDEN otherwise). A hand not raised is a no-op; otherwise broadcasts ws.meeting.hands.changed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: hand.lower
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          userId:
+            type: string
+            description: Whose hand to lower; omit for your own. Naming anyone else is organizer only.
+        required:
+          - service
+          - action
+          - meetingId
+        additionalProperties: true
+    client_meeting_hand_lowerAll:
+      messageId: client.meeting.hand.lowerAll
+      name: client.meeting.hand.lowerAll
+      title: client.meeting.hand.lowerAll
+      summary: Organizer only. Lower every raised hand. Broadcasts ws.meeting.hands.changed unless no hand was up.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: hand.lowerAll
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+        required:
+          - service
+          - action
+          - meetingId
+        additionalProperties: true
+    client_meeting_breakout_configure:
+      messageId: client.meeting.breakout.configure
+      name: client.meeting.breakout.configure
+      title: client.meeting.breakout.configure
+      summary: "Organizer only. Replace the breakout plan: rooms (all closed), mode and settings; clears the timer, returned list and announcement. Refused with CONFLICT while rooms are open. At most maxRooms rooms (host config, default 50). An empty list ends the session (phase none). Broadcasts ws.meeting.breakout.changed."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.configure
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          rooms:
+            type: array
+            description: The new rooms in order. Duplicate ids are refused; a user listed in two rooms stays in the first.
+            items:
+              type: object
+              description: One room draft.
+              properties:
+                id:
+                  type: string
+                  pattern: ^[A-Za-z0-9_-]{1,64}$
+                  description: Room id to keep or create; omit to have the server mint one. 1–64 of A-Z a-z 0-9 _ -.
+                name:
+                  type: string
+                  description: Room name; trimmed and cut to 80 characters. Blank or missing becomes "Room N".
+                members:
+                  type: array
+                  items:
+                    type: string
+                    description: A userId placed in this room.
+                  description: userIds placed in this room. Omit to keep the members a room with the same id already had.
+              required: []
+              additionalProperties: true
+          mode:
+            type: string
+            enum:
+              - assigned
+              - self-select
+            description: "assigned: the organizer places people and a participant may join only their own room; self-select: anyone may join any open room. Omit to keep the current mode."
+          allowReturnToMain:
+            type: boolean
+            description: Whether participants may leave their room for the main meeting. Omit to keep the current setting (default true).
+        required:
+          - service
+          - action
+          - meetingId
+          - rooms
+        additionalProperties: true
+    client_meeting_breakout_addRoom:
+      messageId: client.meeting.breakout.addRoom
+      name: client.meeting.breakout.addRoom
+      title: client.meeting.breakout.addRoom
+      summary: Organizer only. Add one closed room in any phase (open it with client.meeting.breakout.open and its id). CONFLICT at maxRooms (default 50) or on a duplicate id. Broadcasts ws.meeting.breakout.changed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.addRoom
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          id:
+            type: string
+            pattern: ^[A-Za-z0-9_-]{1,64}$
+            description: Room id; omit to have the server mint one. 1–64 of A-Z a-z 0-9 _ -.
+          name:
+            type:
+              - string
+              - "null"
+            minLength: 1
+            maxLength: 80
+            description: Room name, 1–80 characters after trimming. Omit or null for the next free "Room N".
+        required:
+          - service
+          - action
+          - meetingId
+        additionalProperties: true
+    client_meeting_breakout_rename:
+      messageId: client.meeting.breakout.rename
+      name: client.meeting.breakout.rename
+      title: client.meeting.breakout.rename
+      summary: Organizer only. Rename a room in any phase. NOT_FOUND for an unknown room; the same name is a no-op. Broadcasts ws.meeting.breakout.changed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.rename
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          roomId:
+            type: string
+            pattern: ^[A-Za-z0-9_-]{1,64}$
+            description: The room to rename. 1–64 of A-Z a-z 0-9 _ -.
+          name:
+            type: string
+            minLength: 1
+            maxLength: 80
+            description: The new name, 1–80 characters after trimming.
+        required:
+          - service
+          - action
+          - meetingId
+          - roomId
+          - name
+        additionalProperties: true
+    client_meeting_breakout_assign:
+      messageId: client.meeting.breakout.assign
+      name: client.meeting.breakout.assign
+      title: client.meeting.breakout.assign
+      summary: "Organizer only. Place or unplace people: each entry moves that user to the room (out of any other) or, with null, out of every room. An unknown room id is INVALID_PAYLOAD. Assigned users drop off the returned list. Broadcasts ws.meeting.breakout.changed."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.assign
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          assignments:
+            type: object
+            description: userId → roomId, or null to unassign.
+            properties: {}
+            additionalProperties:
+              type:
+                - string
+                - "null"
+              description: Target room id, or null to take the user out of every room.
+        required:
+          - service
+          - action
+          - meetingId
+          - assignments
+        additionalProperties: true
+    client_meeting_breakout_autoAssign:
+      messageId: client.meeting.breakout.autoAssign
+      name: client.meeting.breakout.autoAssign
+      title: client.meeting.breakout.autoAssign
+      summary: Organizer only. Replace every room's members by dealing the listed users round-robin across the rooms in order; clears the returned list. CONFLICT when there are no rooms. Broadcasts ws.meeting.breakout.changed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.autoAssign
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          userIds:
+            type: array
+            items:
+              type: string
+              description: A userId to deal into a room.
+            description: Users to spread across the rooms; duplicates and empty strings are dropped. Missing means nobody, which empties every room.
+        required:
+          - service
+          - action
+          - meetingId
+        additionalProperties: true
+    client_meeting_breakout_open:
+      messageId: client.meeting.breakout.open
+      name: client.meeting.breakout.open
+      title: client.meeting.breakout.open
+      summary: Organizer only. Open the listed rooms, or all of them. Cancels a closing countdown. CONFLICT when there are no rooms. Broadcasts ws.meeting.breakout.changed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.open
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          roomIds:
+            type: array
+            items:
+              type: string
+              description: A breakout room id.
+            description: Rooms to open; omit for every room.
+        required:
+          - service
+          - action
+          - meetingId
+        additionalProperties: true
+    client_meeting_breakout_close:
+      messageId: client.meeting.breakout.close
+      name: client.meeting.breakout.close
+      title: client.meeting.breakout.close
+      summary: Organizer only. Close the listed rooms at once, or all of them. Closing all while rooms are open starts the host's closing grace (breakout.closing true, endsAt the end of the grace) unless immediate is set or a grace is already running. CONFLICT when there are no rooms. Broadcasts ws.meeting.breakout.changed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.close
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          roomIds:
+            type: array
+            items:
+              type: string
+              description: A breakout room id.
+            description: Rooms to close at once; omit to close every room (subject to the closing grace).
+          immediate:
+            type: boolean
+            description: Skip the host's closing grace and close at once. Only `true` changes anything; a second close or end during the grace also closes at once.
+        required:
+          - service
+          - action
+          - meetingId
+        additionalProperties: true
+    client_meeting_breakout_timer:
+      messageId: client.meeting.breakout.timer
+      name: client.meeting.breakout.timer
+      title: client.meeting.breakout.timer
+      summary: Organizer only. Start a timer that closes every room when it runs out, or clear it with null. A duration needs open rooms (CONFLICT otherwise) and must be above 0 and at most maxTimerMs (host config, default 4 h = 14400000; INVALID_PAYLOAD otherwise). Cancels a closing countdown. Broadcasts ws.meeting.breakout.changed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.timer
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          durationMs:
+            type:
+              - number
+              - "null"
+            description: Milliseconds from now until the rooms close (greater than 0), or null to clear the timer.
+        required:
+          - service
+          - action
+          - meetingId
+        additionalProperties: true
+    client_meeting_breakout_broadcast:
+      messageId: client.meeting.breakout.broadcast
+      name: client.meeting.breakout.broadcast
+      title: client.meeting.breakout.broadcast
+      summary: Organizer only. Send an announcement to every room and the main meeting. Stored as breakout.announcement and broadcast as ws.meeting.breakout.changed then ws.meeting.breakout.announcement.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.broadcast
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          message:
+            type: string
+            minLength: 1
+            maxLength: 500
+            description: The announcement, 1–500 characters after trimming (MAX_ANNOUNCEMENT_LENGTH).
+          displayName:
+            type: string
+            description: Sender name when the server's auth context carries none; the server prefers its own, trims it and keeps the first 80 characters.
+        required:
+          - service
+          - action
+          - meetingId
+          - message
+        additionalProperties: true
+    client_meeting_breakout_join:
+      messageId: client.meeting.breakout.join
+      name: client.meeting.breakout.join
+      title: client.meeting.breakout.join
+      summary: Move yourself into an open room. Any participant in self-select mode; in assigned mode only your own room (FORBIDDEN otherwise) — organizers may visit any room. NOT_FOUND for an unknown room, CONFLICT when it is closed or the rooms are closing. Rejoining your assigned room after returning to main takes you off the returned list. Broadcasts ws.meeting.breakout.changed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.join
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          roomId:
+            type: string
+            pattern: ^[A-Za-z0-9_-]{1,64}$
+            description: The room to join. 1–64 of A-Z a-z 0-9 _ -.
+        required:
+          - service
+          - action
+          - meetingId
+          - roomId
+        additionalProperties: true
+    client_meeting_breakout_leave:
+      messageId: client.meeting.breakout.leave
+      name: client.meeting.breakout.leave
+      title: client.meeting.breakout.leave
+      summary: Return from your room to the main meeting. FORBIDDEN when settings.allowReturnToMain is false (organizers exempt). In self-select mode you leave the room; in assigned mode you stay assigned and join the returned list. Not in a room is a no-op. Broadcasts ws.meeting.breakout.changed.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.leave
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+        required:
+          - service
+          - action
+          - meetingId
+        additionalProperties: true
+    client_meeting_breakout_end:
+      messageId: client.meeting.breakout.end
+      name: client.meeting.breakout.end
+      title: client.meeting.breakout.end
+      summary: "Organizer only. End the breakout session: every room closes and everyone returns to the main meeting (rooms are kept as a draft). While rooms are open this starts the host's closing grace unless immediate is set or a grace is already running. No session is a no-op. Broadcasts ws.meeting.breakout.changed."
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          service:
+            type: string
+            const: meeting
+            description: Gateway fan-out service this frame belongs to. Paired with `action` it is the gateway's routing key.
+          action:
+            type: string
+            const: breakout.end
+            description: Verb the addressed service should perform.
+          channel:
+            type: string
+            description: Gateway channel (room) this frame is scoped to.
+          meetingId:
+            type: string
+            pattern: ^(?!.*~breakout~)[A-Za-z0-9:_.~-]{1,200}$
+            description: "The meeting this frame addresses. It is also the main call's LVS lobby name: 1–200 of A-Z a-z 0-9 : _ . ~ -, never containing \"~breakout~\"."
+          immediate:
+            type: boolean
+            description: Skip the host's closing grace and close at once. Only `true` changes anything; a second close or end during the grace also closes at once.
+        required:
+          - service
+          - action
+          - meetingId
         additionalProperties: true
     ws_chat_joined:
       messageId: ws.chat.joined
@@ -3827,6 +4456,578 @@ components:
           - type
           - action
           - data
+        additionalProperties: true
+    ws_meeting_meeting_snapshot:
+      messageId: ws.meeting.meeting.snapshot
+      name: ws.meeting.meeting.snapshot
+      title: ws.meeting.meeting.snapshot
+      summary: The whole meeting state, sent to the subscribing connection only in reply to client.meeting.subscribe. `you` says who the server thinks you are and whether you are an organizer. Overwrite local state with it.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: meeting
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: meeting.snapshot
+            description: Which action of the frame's service this frame reports.
+          meetingId:
+            type: string
+            description: The meeting this frame belongs to; also the main call's LVS lobby name.
+          data:
+            type: object
+            description: MeetingState plus `you`.
+            properties:
+              meetingId:
+                type: string
+                description: The meeting this frame belongs to; also the main call's LVS lobby name.
+              createdBy:
+                type:
+                  - string
+                  - "null"
+                description: userId of the first subscriber, the default organizer; null when that subscriber was anonymous.
+              version:
+                type: integer
+                minimum: 0
+                description: Meeting state version, bumped on every change. Drop a frame whose version is not newer than the one you hold.
+              hands:
+                type: array
+                items:
+                  type: object
+                  description: One raised hand.
+                  properties:
+                    userId:
+                      type: string
+                      description: The user whose hand is up.
+                    displayName:
+                      type: string
+                      description: Name shown on the hand (auth context first, else the name the client sent, else the userId).
+                    raisedAt:
+                      type: string
+                      description: ISO-8601 time the hand went up. The queue is ordered by it, oldest first.
+                      format: date-time
+                  required:
+                    - userId
+                    - displayName
+                    - raisedAt
+                  additionalProperties: true
+                description: "Every raised hand, oldest first: the whole queue, not a diff."
+              breakout:
+                type: object
+                description: The whole breakout session state.
+                properties:
+                  phase:
+                    type: string
+                    enum:
+                      - none
+                      - draft
+                      - open
+                    description: "none: no breakout session; draft: rooms exist, nobody sent yet; open: at least one room is open."
+                  mode:
+                    type: string
+                    enum:
+                      - assigned
+                      - self-select
+                    description: "assigned: the organizer places people; self-select: participants pick any open room."
+                  rooms:
+                    type: array
+                    description: Every breakout room in order.
+                    items:
+                      type: object
+                      description: One breakout room.
+                      properties:
+                        id:
+                          type: string
+                          pattern: ^[A-Za-z0-9_-]{1,64}$
+                          description: Room id; part of the room's LVS lobby name (<meetingId>~breakout~<id>).
+                        name:
+                          type: string
+                          description: Room name, 1–80 characters.
+                        state:
+                          type: string
+                          enum:
+                            - open
+                            - closed
+                          description: Whether the room is open for joining.
+                        members:
+                          type: array
+                          items:
+                            type: string
+                            description: A userId that belongs in this room.
+                          description: userIds that belong in this room. A user is in at most one room.
+                      required:
+                        - id
+                        - name
+                        - state
+                        - members
+                      additionalProperties: true
+                  returned:
+                    type: array
+                    items:
+                      type: string
+                      description: A userId back in the main meeting.
+                    description: userIds who left their room for the main meeting while rooms are open (assigned mode keeps their assignment).
+                  endsAt:
+                    type:
+                      - string
+                      - "null"
+                    description: ISO-8601 time every room closes (timer or closing grace), or null for no timer.
+                    format: date-time
+                  closing:
+                    type: boolean
+                    description: "True during the closing grace: endsAt is the end of the grace and joins are refused. Absent from older servers; read absent as false."
+                  announcement:
+                    type:
+                      - object
+                      - "null"
+                    description: The latest organizer announcement, or null.
+                    properties:
+                      message:
+                        type: string
+                        description: The announcement text, 1–500 characters.
+                      fromUserId:
+                        type: string
+                        description: userId of the organizer who sent it.
+                      fromDisplayName:
+                        type: string
+                        description: Display name of the organizer who sent it.
+                      at:
+                        type: string
+                        description: ISO-8601 time the announcement was sent.
+                        format: date-time
+                    required:
+                      - message
+                      - fromUserId
+                      - fromDisplayName
+                      - at
+                    additionalProperties: true
+                  settings:
+                    type: object
+                    description: Breakout session settings.
+                    properties:
+                      allowReturnToMain:
+                        type: boolean
+                        description: Whether participants may leave their room for the main meeting. Default true.
+                    required:
+                      - allowReturnToMain
+                    additionalProperties: true
+                required:
+                  - phase
+                  - mode
+                  - rooms
+                  - returned
+                  - endsAt
+                  - announcement
+                  - settings
+                additionalProperties: true
+              updatedAt:
+                type: string
+                description: ISO-8601 time of the last change to the meeting.
+                format: date-time
+              you:
+                type: object
+                description: The receiving connection as the server sees it.
+                properties:
+                  userId:
+                    type:
+                      - string
+                      - "null"
+                    description: Your userId from the connection's auth context, or null when anonymous.
+                  organizer:
+                    type: boolean
+                    description: Whether you may send the organizer-only verbs.
+                required:
+                  - userId
+                  - organizer
+                additionalProperties: true
+            required:
+              - meetingId
+              - createdBy
+              - version
+              - hands
+              - breakout
+              - updatedAt
+              - you
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - meetingId
+          - data
+          - timestamp
+        additionalProperties: true
+    ws_meeting_hands_changed:
+      messageId: ws.meeting.hands.changed
+      name: ws.meeting.hands.changed
+      title: ws.meeting.hands.changed
+      summary: The raised-hand queue changed (raise, lower, lower all, or a user's last connection leaving). Broadcast to every subscriber; carries the whole queue.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: meeting
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: hands.changed
+            description: Which action of the frame's service this frame reports.
+          meetingId:
+            type: string
+            description: The meeting this frame belongs to; also the main call's LVS lobby name.
+          data:
+            type: object
+            description: The new version and the whole hand queue.
+            properties:
+              version:
+                type: integer
+                minimum: 0
+                description: Meeting state version, bumped on every change. Drop a frame whose version is not newer than the one you hold.
+              hands:
+                type: array
+                items:
+                  type: object
+                  description: One raised hand.
+                  properties:
+                    userId:
+                      type: string
+                      description: The user whose hand is up.
+                    displayName:
+                      type: string
+                      description: Name shown on the hand (auth context first, else the name the client sent, else the userId).
+                    raisedAt:
+                      type: string
+                      description: ISO-8601 time the hand went up. The queue is ordered by it, oldest first.
+                      format: date-time
+                  required:
+                    - userId
+                    - displayName
+                    - raisedAt
+                  additionalProperties: true
+                description: "Every raised hand, oldest first: the whole queue, not a diff."
+            required:
+              - version
+              - hands
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - meetingId
+          - data
+          - timestamp
+        additionalProperties: true
+    ws_meeting_breakout_changed:
+      messageId: ws.meeting.breakout.changed
+      name: ws.meeting.breakout.changed
+      title: ws.meeting.breakout.changed
+      summary: The breakout session changed (any breakout verb, the timer or closing grace running out, or a write from another replica). Broadcast to every subscriber; carries the whole breakout state.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: meeting
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: breakout.changed
+            description: Which action of the frame's service this frame reports.
+          meetingId:
+            type: string
+            description: The meeting this frame belongs to; also the main call's LVS lobby name.
+          data:
+            type: object
+            description: The new version and the whole breakout state.
+            properties:
+              version:
+                type: integer
+                minimum: 0
+                description: Meeting state version, bumped on every change. Drop a frame whose version is not newer than the one you hold.
+              breakout:
+                type: object
+                description: The whole breakout session state after the change.
+                properties:
+                  phase:
+                    type: string
+                    enum:
+                      - none
+                      - draft
+                      - open
+                    description: "none: no breakout session; draft: rooms exist, nobody sent yet; open: at least one room is open."
+                  mode:
+                    type: string
+                    enum:
+                      - assigned
+                      - self-select
+                    description: "assigned: the organizer places people; self-select: participants pick any open room."
+                  rooms:
+                    type: array
+                    description: Every breakout room in order.
+                    items:
+                      type: object
+                      description: One breakout room.
+                      properties:
+                        id:
+                          type: string
+                          pattern: ^[A-Za-z0-9_-]{1,64}$
+                          description: Room id; part of the room's LVS lobby name (<meetingId>~breakout~<id>).
+                        name:
+                          type: string
+                          description: Room name, 1–80 characters.
+                        state:
+                          type: string
+                          enum:
+                            - open
+                            - closed
+                          description: Whether the room is open for joining.
+                        members:
+                          type: array
+                          items:
+                            type: string
+                            description: A userId that belongs in this room.
+                          description: userIds that belong in this room. A user is in at most one room.
+                      required:
+                        - id
+                        - name
+                        - state
+                        - members
+                      additionalProperties: true
+                  returned:
+                    type: array
+                    items:
+                      type: string
+                      description: A userId back in the main meeting.
+                    description: userIds who left their room for the main meeting while rooms are open (assigned mode keeps their assignment).
+                  endsAt:
+                    type:
+                      - string
+                      - "null"
+                    description: ISO-8601 time every room closes (timer or closing grace), or null for no timer.
+                    format: date-time
+                  closing:
+                    type: boolean
+                    description: "True during the closing grace: endsAt is the end of the grace and joins are refused. Absent from older servers; read absent as false."
+                  announcement:
+                    type:
+                      - object
+                      - "null"
+                    description: The latest organizer announcement, or null.
+                    properties:
+                      message:
+                        type: string
+                        description: The announcement text, 1–500 characters.
+                      fromUserId:
+                        type: string
+                        description: userId of the organizer who sent it.
+                      fromDisplayName:
+                        type: string
+                        description: Display name of the organizer who sent it.
+                      at:
+                        type: string
+                        description: ISO-8601 time the announcement was sent.
+                        format: date-time
+                    required:
+                      - message
+                      - fromUserId
+                      - fromDisplayName
+                      - at
+                    additionalProperties: true
+                  settings:
+                    type: object
+                    description: Breakout session settings.
+                    properties:
+                      allowReturnToMain:
+                        type: boolean
+                        description: Whether participants may leave their room for the main meeting. Default true.
+                    required:
+                      - allowReturnToMain
+                    additionalProperties: true
+                required:
+                  - phase
+                  - mode
+                  - rooms
+                  - returned
+                  - endsAt
+                  - announcement
+                  - settings
+                additionalProperties: true
+            required:
+              - version
+              - breakout
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - meetingId
+          - data
+          - timestamp
+        additionalProperties: true
+    ws_meeting_breakout_announcement:
+      messageId: ws.meeting.breakout.announcement
+      name: ws.meeting.breakout.announcement
+      title: ws.meeting.breakout.announcement
+      summary: An organizer broadcast an announcement to every room (client.meeting.breakout.broadcast). Broadcast to every subscriber right after the ws.meeting.breakout.changed that stores it.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: meeting
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: breakout.announcement
+            description: Which action of the frame's service this frame reports.
+          meetingId:
+            type: string
+            description: The meeting this frame belongs to; also the main call's LVS lobby name.
+          data:
+            type: object
+            description: The announcement (BreakoutAnnouncement).
+            properties:
+              message:
+                type: string
+                description: The announcement text, 1–500 characters.
+              fromUserId:
+                type: string
+                description: userId of the organizer who sent it.
+              fromDisplayName:
+                type: string
+                description: Display name of the organizer who sent it.
+              at:
+                type: string
+                description: ISO-8601 time the announcement was sent.
+                format: date-time
+            required:
+              - message
+              - fromUserId
+              - fromDisplayName
+              - at
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - meetingId
+          - data
+          - timestamp
+        additionalProperties: true
+    ws_meeting_meeting_unsubscribed:
+      messageId: ws.meeting.meeting.unsubscribed
+      name: ws.meeting.meeting.unsubscribed
+      title: ws.meeting.meeting.unsubscribed
+      summary: Acknowledges client.meeting.unsubscribe, to the sending connection only. Clear local meeting state.
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: meeting
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: meeting.unsubscribed
+            description: Which action of the frame's service this frame reports.
+          meetingId:
+            type: string
+            description: The meeting this frame belongs to; also the main call's LVS lobby name.
+          data:
+            type: object
+            description: Always an empty object.
+            properties: {}
+            required: []
+            additionalProperties: false
+        required:
+          - type
+          - action
+          - meetingId
+          - data
+          - timestamp
+        additionalProperties: true
+    ws_meeting_error:
+      messageId: ws.meeting.error
+      name: ws.meeting.error
+      title: ws.meeting.error
+      summary: A meeting verb was refused. Sent to the sending connection only; nothing changed. INVALID_ACTION unknown verb; INVALID_PAYLOAD bad meetingId or field; UNAUTHENTICATED no signed-in user; FORBIDDEN channel guard refused, organizer-only verb, wrong room or return to main not allowed; NOT_SUBSCRIBED subscribe first; NOT_FOUND unknown meeting or room; CONFLICT state does not allow it (or the write lost a race).
+      schemaFormat: application/schema+json;version=draft-07
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: meeting
+            description: WebSocket frame type — names the gateway fan-out service that produced this frame.
+          timestamp:
+            type: string
+            description: ISO-8601 timestamp at which the producer emitted this frame.
+            format: date-time
+          action:
+            type: string
+            const: error
+            description: Which action of the frame's service this frame reports.
+          meetingId:
+            type:
+              - string
+              - "null"
+            description: The meeting the refused frame named, or null when it named none.
+          error:
+            type: object
+            description: Why the verb was refused.
+            properties:
+              code:
+                type: string
+                enum:
+                  - INVALID_ACTION
+                  - INVALID_PAYLOAD
+                  - UNAUTHENTICATED
+                  - FORBIDDEN
+                  - NOT_SUBSCRIBED
+                  - NOT_FOUND
+                  - CONFLICT
+                description: MeetingErrorCode — machine-readable refusal reason.
+              message:
+                type: string
+                description: Human-readable reason, safe to show.
+              requestAction:
+                type: string
+                description: The action of the refused client frame, verbatim (may be an unknown verb).
+            required:
+              - code
+              - message
+              - requestAction
+            additionalProperties: true
+        required:
+          - type
+          - action
+          - meetingId
+          - error
+          - timestamp
         additionalProperties: true
     ws_upload_requested:
       messageId: ws.upload.requested

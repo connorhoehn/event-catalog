@@ -11,6 +11,7 @@ export { wsUploadRequested, wsUploadUrlIssued, wsUploadCompleted, wsUploadFailed
 export { wsError } from './gateway-signal/error';
 export { wsSessionConnected } from './gateway-signal/session';
 export { wsSubscribeSubscribed, wsSubscribeUnsubscribed } from './gateway-signal/subscribe';
+export { wsMeetingSnapshot, wsMeetingHandsChanged, wsMeetingBreakoutChanged, wsMeetingBreakoutAnnouncement, wsMeetingUnsubscribed, wsMeetingError, wsMeetingDeclarations, MEETING_ERROR_CODES, } from './gateway-signal/meeting';
 /**
  * All gateway WS signal frame declarations.
  * Pass to `catalog.declare()` at boot to register every frame type the

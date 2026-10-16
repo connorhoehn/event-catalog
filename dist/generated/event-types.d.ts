@@ -1174,6 +1174,140 @@ export interface EventPayloadMap {
         };
         [key: string]: unknown;
     };
+    /** The whole meeting state, sent to the subscribing connection only in reply to client.meeting.subscribe. `you` says who the server thinks you are and whether you are an organizer. Overwrite local state with it. */
+    'ws.meeting.meeting.snapshot': {
+        type: 'meeting';
+        timestamp: string;
+        action: 'meeting.snapshot';
+        meetingId: string;
+        data: {
+            meetingId: string;
+            createdBy: string | null;
+            version: number;
+            hands: ({
+                userId: string;
+                displayName: string;
+                raisedAt: string;
+                [key: string]: unknown;
+            })[];
+            breakout: {
+                phase: 'none' | 'draft' | 'open';
+                mode: 'assigned' | 'self-select';
+                rooms: ({
+                    id: string;
+                    name: string;
+                    state: 'open' | 'closed';
+                    members: string[];
+                    [key: string]: unknown;
+                })[];
+                returned: string[];
+                endsAt: string | null;
+                closing?: boolean;
+                announcement: unknown | null;
+                settings: {
+                    allowReturnToMain: boolean;
+                    [key: string]: unknown;
+                };
+                [key: string]: unknown;
+            };
+            updatedAt: string;
+            you: {
+                userId: string | null;
+                organizer: boolean;
+                [key: string]: unknown;
+            };
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** The raised-hand queue changed (raise, lower, lower all, or a user's last connection leaving). Broadcast to every subscriber; carries the whole queue. */
+    'ws.meeting.hands.changed': {
+        type: 'meeting';
+        timestamp: string;
+        action: 'hands.changed';
+        meetingId: string;
+        data: {
+            version: number;
+            hands: ({
+                userId: string;
+                displayName: string;
+                raisedAt: string;
+                [key: string]: unknown;
+            })[];
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** The breakout session changed (any breakout verb, the timer or closing grace running out, or a write from another replica). Broadcast to every subscriber; carries the whole breakout state. */
+    'ws.meeting.breakout.changed': {
+        type: 'meeting';
+        timestamp: string;
+        action: 'breakout.changed';
+        meetingId: string;
+        data: {
+            version: number;
+            breakout: {
+                phase: 'none' | 'draft' | 'open';
+                mode: 'assigned' | 'self-select';
+                rooms: ({
+                    id: string;
+                    name: string;
+                    state: 'open' | 'closed';
+                    members: string[];
+                    [key: string]: unknown;
+                })[];
+                returned: string[];
+                endsAt: string | null;
+                closing?: boolean;
+                announcement: unknown | null;
+                settings: {
+                    allowReturnToMain: boolean;
+                    [key: string]: unknown;
+                };
+                [key: string]: unknown;
+            };
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** An organizer broadcast an announcement to every room (client.meeting.breakout.broadcast). Broadcast to every subscriber right after the ws.meeting.breakout.changed that stores it. */
+    'ws.meeting.breakout.announcement': {
+        type: 'meeting';
+        timestamp: string;
+        action: 'breakout.announcement';
+        meetingId: string;
+        data: {
+            message: string;
+            fromUserId: string;
+            fromDisplayName: string;
+            at: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+    /** Acknowledges client.meeting.unsubscribe, to the sending connection only. Clear local meeting state. */
+    'ws.meeting.meeting.unsubscribed': {
+        type: 'meeting';
+        timestamp: string;
+        action: 'meeting.unsubscribed';
+        meetingId: string;
+        data: Record<string, never>;
+        [key: string]: unknown;
+    };
+    /** A meeting verb was refused. Sent to the sending connection only; nothing changed. INVALID_ACTION unknown verb; INVALID_PAYLOAD bad meetingId or field; UNAUTHENTICATED no signed-in user; FORBIDDEN channel guard refused, organizer-only verb, wrong room or return to main not allowed; NOT_SUBSCRIBED subscribe first; NOT_FOUND unknown meeting or room; CONFLICT state does not allow it (or the write lost a race). */
+    'ws.meeting.error': {
+        type: 'meeting';
+        timestamp: string;
+        action: 'error';
+        meetingId: string | null;
+        error: {
+            code: 'INVALID_ACTION' | 'INVALID_PAYLOAD' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_SUBSCRIBED' | 'NOT_FOUND' | 'CONFLICT';
+            message: string;
+            requestAction: string;
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
     /** Acknowledgement sent when the gateway receives a file upload request from a client. */
     'ws.upload.requested': {
         type: 'upload';
@@ -2019,6 +2153,166 @@ export interface EventPayloadMap {
         channel?: string;
         callId: string;
         userId: string;
+        [key: string]: unknown;
+    };
+    /** Join a meeting's coordination channel. The gateway replies to the sender only with ws.meeting.meeting.snapshot (or ws.meeting.error FORBIDDEN when the channel guard refuses). The first subscriber becomes the default organizer. Sent again after every reconnect. */
+    'client.meeting.subscribe': {
+        service: 'meeting';
+        action: 'subscribe';
+        channel?: string;
+        meetingId: string;
+        [key: string]: unknown;
+    };
+    /** Leave a meeting's coordination channel. The gateway replies with ws.meeting.meeting.unsubscribed; when this was the user's last connection in the meeting their raised hand goes down (ws.meeting.hands.changed). */
+    'client.meeting.unsubscribe': {
+        service: 'meeting';
+        action: 'unsubscribe';
+        channel?: string;
+        meetingId: string;
+        [key: string]: unknown;
+    };
+    /** Raise your own hand. Any subscribed, signed-in participant. A hand already raised is a no-op; otherwise broadcasts ws.meeting.hands.changed. */
+    'client.meeting.hand.raise': {
+        service: 'meeting';
+        action: 'hand.raise';
+        channel?: string;
+        meetingId: string;
+        displayName?: string;
+        [key: string]: unknown;
+    };
+    /** Lower your own hand (no userId), or someone else's — organizer only when userId names another user (ws.meeting.error FORBIDDEN otherwise). A hand not raised is a no-op; otherwise broadcasts ws.meeting.hands.changed. */
+    'client.meeting.hand.lower': {
+        service: 'meeting';
+        action: 'hand.lower';
+        channel?: string;
+        meetingId: string;
+        userId?: string;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Lower every raised hand. Broadcasts ws.meeting.hands.changed unless no hand was up. */
+    'client.meeting.hand.lowerAll': {
+        service: 'meeting';
+        action: 'hand.lowerAll';
+        channel?: string;
+        meetingId: string;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Replace the breakout plan: rooms (all closed), mode and settings; clears the timer, returned list and announcement. Refused with CONFLICT while rooms are open. At most maxRooms rooms (host config, default 50). An empty list ends the session (phase none). Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.configure': {
+        service: 'meeting';
+        action: 'breakout.configure';
+        channel?: string;
+        meetingId: string;
+        rooms: ({
+            id?: string;
+            name?: string;
+            members?: string[];
+            [key: string]: unknown;
+        })[];
+        mode?: 'assigned' | 'self-select';
+        allowReturnToMain?: boolean;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Add one closed room in any phase (open it with client.meeting.breakout.open and its id). CONFLICT at maxRooms (default 50) or on a duplicate id. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.addRoom': {
+        service: 'meeting';
+        action: 'breakout.addRoom';
+        channel?: string;
+        meetingId: string;
+        id?: string;
+        name?: string | null;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Rename a room in any phase. NOT_FOUND for an unknown room; the same name is a no-op. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.rename': {
+        service: 'meeting';
+        action: 'breakout.rename';
+        channel?: string;
+        meetingId: string;
+        roomId: string;
+        name: string;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Place or unplace people: each entry moves that user to the room (out of any other) or, with null, out of every room. An unknown room id is INVALID_PAYLOAD. Assigned users drop off the returned list. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.assign': {
+        service: 'meeting';
+        action: 'breakout.assign';
+        channel?: string;
+        meetingId: string;
+        assignments: Record<string, unknown>;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Replace every room's members by dealing the listed users round-robin across the rooms in order; clears the returned list. CONFLICT when there are no rooms. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.autoAssign': {
+        service: 'meeting';
+        action: 'breakout.autoAssign';
+        channel?: string;
+        meetingId: string;
+        userIds?: string[];
+        [key: string]: unknown;
+    };
+    /** Organizer only. Open the listed rooms, or all of them. Cancels a closing countdown. CONFLICT when there are no rooms. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.open': {
+        service: 'meeting';
+        action: 'breakout.open';
+        channel?: string;
+        meetingId: string;
+        roomIds?: string[];
+        [key: string]: unknown;
+    };
+    /** Organizer only. Close the listed rooms at once, or all of them. Closing all while rooms are open starts the host's closing grace (breakout.closing true, endsAt the end of the grace) unless immediate is set or a grace is already running. CONFLICT when there are no rooms. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.close': {
+        service: 'meeting';
+        action: 'breakout.close';
+        channel?: string;
+        meetingId: string;
+        roomIds?: string[];
+        immediate?: boolean;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Start a timer that closes every room when it runs out, or clear it with null. A duration needs open rooms (CONFLICT otherwise) and must be above 0 and at most maxTimerMs (host config, default 4 h = 14400000; INVALID_PAYLOAD otherwise). Cancels a closing countdown. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.timer': {
+        service: 'meeting';
+        action: 'breakout.timer';
+        channel?: string;
+        meetingId: string;
+        durationMs?: number | null;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Send an announcement to every room and the main meeting. Stored as breakout.announcement and broadcast as ws.meeting.breakout.changed then ws.meeting.breakout.announcement. */
+    'client.meeting.breakout.broadcast': {
+        service: 'meeting';
+        action: 'breakout.broadcast';
+        channel?: string;
+        meetingId: string;
+        message: string;
+        displayName?: string;
+        [key: string]: unknown;
+    };
+    /** Move yourself into an open room. Any participant in self-select mode; in assigned mode only your own room (FORBIDDEN otherwise) — organizers may visit any room. NOT_FOUND for an unknown room, CONFLICT when it is closed or the rooms are closing. Rejoining your assigned room after returning to main takes you off the returned list. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.join': {
+        service: 'meeting';
+        action: 'breakout.join';
+        channel?: string;
+        meetingId: string;
+        roomId: string;
+        [key: string]: unknown;
+    };
+    /** Return from your room to the main meeting. FORBIDDEN when settings.allowReturnToMain is false (organizers exempt). In self-select mode you leave the room; in assigned mode you stay assigned and join the returned list. Not in a room is a no-op. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.leave': {
+        service: 'meeting';
+        action: 'breakout.leave';
+        channel?: string;
+        meetingId: string;
+        [key: string]: unknown;
+    };
+    /** Organizer only. End the breakout session: every room closes and everyone returns to the main meeting (rooms are kept as a draft). While rooms are open this starts the host's closing grace unless immediate is set or a grace is already running. No session is a no-op. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.end': {
+        service: 'meeting';
+        action: 'breakout.end';
+        channel?: string;
+        meetingId: string;
+        immediate?: boolean;
         [key: string]: unknown;
     };
     /** Broadcast when a client joins a presence channel, carrying the joining client's PresenceEntry. NOTE: the gateway presence service currently emits type:"presence" action frames (ws.presence.update / ws.presence.offline); presence:joined is the usePresence hook contract — naming tension documented per Wave A2, not renamed. */

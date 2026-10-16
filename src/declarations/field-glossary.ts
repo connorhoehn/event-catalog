@@ -247,6 +247,9 @@ export const COMMON_FORMATS: FormatGlossary = {
   lastEventAt: 'date-time',
   lastSeen: 'date-time',
   lastHeartbeatAt: 'date-time',
+  raisedAt: 'date-time',
+  updatedAt: 'date-time',
+  endsAt: 'date-time',
 
   // --- URLs ---------------------------------------------------------------
   transcriptUrl: 'uri',

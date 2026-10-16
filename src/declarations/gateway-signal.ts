@@ -127,6 +127,7 @@ import {
 import { wsError } from './gateway-signal/error';
 import { wsSessionConnected } from './gateway-signal/session';
 import { wsSubscribeSubscribed, wsSubscribeUnsubscribed } from './gateway-signal/subscribe';
+import { wsMeetingDeclarations } from './gateway-signal/meeting';
 
 // ---------------------------------------------------------------------------
 // Public surface — every declaration, under the name it has always had.
@@ -223,6 +224,16 @@ export {
 export { wsError } from './gateway-signal/error';
 export { wsSessionConnected } from './gateway-signal/session';
 export { wsSubscribeSubscribed, wsSubscribeUnsubscribed } from './gateway-signal/subscribe';
+export {
+    wsMeetingSnapshot,
+    wsMeetingHandsChanged,
+    wsMeetingBreakoutChanged,
+    wsMeetingBreakoutAnnouncement,
+    wsMeetingUnsubscribed,
+    wsMeetingError,
+    wsMeetingDeclarations,
+    MEETING_ERROR_CODES,
+} from './gateway-signal/meeting';
 
 // ---------------------------------------------------------------------------
 // Field glossary
@@ -344,6 +355,8 @@ export const gatewaySignalDeclarations: EventDeclaration[] = [
     wsCallUserStatus,
     wsCallMuteParticipant,
     wsCallRemoveParticipant,
+    // meeting (raised hands + breakout rooms)
+    ...wsMeetingDeclarations,
     // upload
     wsUploadRequested,
     wsUploadUrlIssued,

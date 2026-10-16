@@ -395,6 +395,166 @@ export interface ClientFramePayloadMap {
         userId: string;
         [key: string]: unknown;
     };
+    /** Join a meeting's coordination channel. The gateway replies to the sender only with ws.meeting.meeting.snapshot (or ws.meeting.error FORBIDDEN when the channel guard refuses). The first subscriber becomes the default organizer. Sent again after every reconnect. */
+    'client.meeting.subscribe': {
+        service: 'meeting';
+        action: 'subscribe';
+        channel?: string;
+        meetingId: string;
+        [key: string]: unknown;
+    };
+    /** Leave a meeting's coordination channel. The gateway replies with ws.meeting.meeting.unsubscribed; when this was the user's last connection in the meeting their raised hand goes down (ws.meeting.hands.changed). */
+    'client.meeting.unsubscribe': {
+        service: 'meeting';
+        action: 'unsubscribe';
+        channel?: string;
+        meetingId: string;
+        [key: string]: unknown;
+    };
+    /** Raise your own hand. Any subscribed, signed-in participant. A hand already raised is a no-op; otherwise broadcasts ws.meeting.hands.changed. */
+    'client.meeting.hand.raise': {
+        service: 'meeting';
+        action: 'hand.raise';
+        channel?: string;
+        meetingId: string;
+        displayName?: string;
+        [key: string]: unknown;
+    };
+    /** Lower your own hand (no userId), or someone else's — organizer only when userId names another user (ws.meeting.error FORBIDDEN otherwise). A hand not raised is a no-op; otherwise broadcasts ws.meeting.hands.changed. */
+    'client.meeting.hand.lower': {
+        service: 'meeting';
+        action: 'hand.lower';
+        channel?: string;
+        meetingId: string;
+        userId?: string;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Lower every raised hand. Broadcasts ws.meeting.hands.changed unless no hand was up. */
+    'client.meeting.hand.lowerAll': {
+        service: 'meeting';
+        action: 'hand.lowerAll';
+        channel?: string;
+        meetingId: string;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Replace the breakout plan: rooms (all closed), mode and settings; clears the timer, returned list and announcement. Refused with CONFLICT while rooms are open. At most maxRooms rooms (host config, default 50). An empty list ends the session (phase none). Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.configure': {
+        service: 'meeting';
+        action: 'breakout.configure';
+        channel?: string;
+        meetingId: string;
+        rooms: ({
+            id?: string;
+            name?: string;
+            members?: string[];
+            [key: string]: unknown;
+        })[];
+        mode?: 'assigned' | 'self-select';
+        allowReturnToMain?: boolean;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Add one closed room in any phase (open it with client.meeting.breakout.open and its id). CONFLICT at maxRooms (default 50) or on a duplicate id. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.addRoom': {
+        service: 'meeting';
+        action: 'breakout.addRoom';
+        channel?: string;
+        meetingId: string;
+        id?: string;
+        name?: string | null;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Rename a room in any phase. NOT_FOUND for an unknown room; the same name is a no-op. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.rename': {
+        service: 'meeting';
+        action: 'breakout.rename';
+        channel?: string;
+        meetingId: string;
+        roomId: string;
+        name: string;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Place or unplace people: each entry moves that user to the room (out of any other) or, with null, out of every room. An unknown room id is INVALID_PAYLOAD. Assigned users drop off the returned list. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.assign': {
+        service: 'meeting';
+        action: 'breakout.assign';
+        channel?: string;
+        meetingId: string;
+        assignments: Record<string, unknown>;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Replace every room's members by dealing the listed users round-robin across the rooms in order; clears the returned list. CONFLICT when there are no rooms. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.autoAssign': {
+        service: 'meeting';
+        action: 'breakout.autoAssign';
+        channel?: string;
+        meetingId: string;
+        userIds?: string[];
+        [key: string]: unknown;
+    };
+    /** Organizer only. Open the listed rooms, or all of them. Cancels a closing countdown. CONFLICT when there are no rooms. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.open': {
+        service: 'meeting';
+        action: 'breakout.open';
+        channel?: string;
+        meetingId: string;
+        roomIds?: string[];
+        [key: string]: unknown;
+    };
+    /** Organizer only. Close the listed rooms at once, or all of them. Closing all while rooms are open starts the host's closing grace (breakout.closing true, endsAt the end of the grace) unless immediate is set or a grace is already running. CONFLICT when there are no rooms. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.close': {
+        service: 'meeting';
+        action: 'breakout.close';
+        channel?: string;
+        meetingId: string;
+        roomIds?: string[];
+        immediate?: boolean;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Start a timer that closes every room when it runs out, or clear it with null. A duration needs open rooms (CONFLICT otherwise) and must be above 0 and at most maxTimerMs (host config, default 4 h = 14400000; INVALID_PAYLOAD otherwise). Cancels a closing countdown. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.timer': {
+        service: 'meeting';
+        action: 'breakout.timer';
+        channel?: string;
+        meetingId: string;
+        durationMs?: number | null;
+        [key: string]: unknown;
+    };
+    /** Organizer only. Send an announcement to every room and the main meeting. Stored as breakout.announcement and broadcast as ws.meeting.breakout.changed then ws.meeting.breakout.announcement. */
+    'client.meeting.breakout.broadcast': {
+        service: 'meeting';
+        action: 'breakout.broadcast';
+        channel?: string;
+        meetingId: string;
+        message: string;
+        displayName?: string;
+        [key: string]: unknown;
+    };
+    /** Move yourself into an open room. Any participant in self-select mode; in assigned mode only your own room (FORBIDDEN otherwise) — organizers may visit any room. NOT_FOUND for an unknown room, CONFLICT when it is closed or the rooms are closing. Rejoining your assigned room after returning to main takes you off the returned list. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.join': {
+        service: 'meeting';
+        action: 'breakout.join';
+        channel?: string;
+        meetingId: string;
+        roomId: string;
+        [key: string]: unknown;
+    };
+    /** Return from your room to the main meeting. FORBIDDEN when settings.allowReturnToMain is false (organizers exempt). In self-select mode you leave the room; in assigned mode you stay assigned and join the returned list. Not in a room is a no-op. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.leave': {
+        service: 'meeting';
+        action: 'breakout.leave';
+        channel?: string;
+        meetingId: string;
+        [key: string]: unknown;
+    };
+    /** Organizer only. End the breakout session: every room closes and everyone returns to the main meeting (rooms are kept as a draft). While rooms are open this starts the host's closing grace unless immediate is set or a grace is already running. No session is a no-op. Broadcasts ws.meeting.breakout.changed. */
+    'client.meeting.breakout.end': {
+        service: 'meeting';
+        action: 'breakout.end';
+        channel?: string;
+        meetingId: string;
+        immediate?: boolean;
+        [key: string]: unknown;
+    };
 }
 /**
  * Utility type — get the frame payload type for a specific outbound
@@ -422,6 +582,8 @@ export type VideohangoutOutboundFrame = ClientFramePayloadMap['client.videohango
 export type SubscribeOutboundFrame = ClientFramePayloadMap['client.subscribe.subscribe'] | ClientFramePayloadMap['client.subscribe.unsubscribe'];
 /** Union of every outbound client→gateway frame for the `call` service. */
 export type CallOutboundFrame = ClientFramePayloadMap['client.call.meta'] | ClientFramePayloadMap['client.call.set-documents'] | ClientFramePayloadMap['client.call.present'] | ClientFramePayloadMap['client.call.set-title'] | ClientFramePayloadMap['client.call.mute-participant'] | ClientFramePayloadMap['client.call.remove-participant'] | ClientFramePayloadMap['client.call.transfer-host'];
+/** Union of every outbound client→gateway frame for the `meeting` service. */
+export type MeetingOutboundFrame = ClientFramePayloadMap['client.meeting.subscribe'] | ClientFramePayloadMap['client.meeting.unsubscribe'] | ClientFramePayloadMap['client.meeting.hand.raise'] | ClientFramePayloadMap['client.meeting.hand.lower'] | ClientFramePayloadMap['client.meeting.hand.lowerAll'] | ClientFramePayloadMap['client.meeting.breakout.configure'] | ClientFramePayloadMap['client.meeting.breakout.addRoom'] | ClientFramePayloadMap['client.meeting.breakout.rename'] | ClientFramePayloadMap['client.meeting.breakout.assign'] | ClientFramePayloadMap['client.meeting.breakout.autoAssign'] | ClientFramePayloadMap['client.meeting.breakout.open'] | ClientFramePayloadMap['client.meeting.breakout.close'] | ClientFramePayloadMap['client.meeting.breakout.timer'] | ClientFramePayloadMap['client.meeting.breakout.broadcast'] | ClientFramePayloadMap['client.meeting.breakout.join'] | ClientFramePayloadMap['client.meeting.breakout.leave'] | ClientFramePayloadMap['client.meeting.breakout.end'];
 /** Union of every inbound gateway→client push frame for the `chat` service. */
 export type ChatInboundFrame = EventPayloadMap['ws.chat.joined'] | EventPayloadMap['ws.chat.left'] | EventPayloadMap['ws.chat.message'] | EventPayloadMap['ws.chat.sent'] | EventPayloadMap['ws.chat.history'];
 /** Union of every inbound gateway→client push frame for the `cursor` service. */
@@ -436,6 +598,8 @@ export type PresenceInboundFrame = EventPayloadMap['ws.presence.set'] | EventPay
 export type ReactionInboundFrame = EventPayloadMap['ws.reaction.subscribed'] | EventPayloadMap['ws.reaction.received'] | EventPayloadMap['ws.reaction.removed'] | EventPayloadMap['ws.reaction.list'] | EventPayloadMap['ws.reaction.history'] | EventPayloadMap['ws.reaction.sent'] | EventPayloadMap['ws.reaction.unsubscribed'] | EventPayloadMap['ws.reaction.available'];
 /** Union of every inbound gateway→client push frame for the `call` service. */
 export type CallInboundFrame = EventPayloadMap['ws.call.invite'] | EventPayloadMap['ws.call.accepted'] | EventPayloadMap['ws.call.declined'] | EventPayloadMap['ws.call.cancelled'] | EventPayloadMap['ws.call.ended'] | EventPayloadMap['ws.call.video-on'] | EventPayloadMap['ws.call.video-off'] | EventPayloadMap['ws.call.recording-started'] | EventPayloadMap['ws.call.recording-completed'] | EventPayloadMap['ws.call.call-meta'] | EventPayloadMap['ws.call.invite-expired'] | EventPayloadMap['ws.call.participant-state'] | EventPayloadMap['ws.call.user-status'] | EventPayloadMap['ws.call.mute-participant'] | EventPayloadMap['ws.call.remove-participant'];
+/** Union of every inbound gateway→client push frame for the `meeting` service. */
+export type MeetingInboundFrame = EventPayloadMap['ws.meeting.meeting.snapshot'] | EventPayloadMap['ws.meeting.hands.changed'] | EventPayloadMap['ws.meeting.breakout.changed'] | EventPayloadMap['ws.meeting.breakout.announcement'] | EventPayloadMap['ws.meeting.meeting.unsubscribed'] | EventPayloadMap['ws.meeting.error'];
 /** Union of every inbound gateway→client push frame for the `upload` service. */
 export type UploadInboundFrame = EventPayloadMap['ws.upload.requested'] | EventPayloadMap['ws.upload.url-issued'] | EventPayloadMap['ws.upload.completed'] | EventPayloadMap['ws.upload.failed'] | EventPayloadMap['ws.upload.scanned'] | EventPayloadMap['ws.upload.scan-quarantined'] | EventPayloadMap['ws.upload.url-revoked'];
 /** Union of every inbound gateway→client push frame for the `pipeline` service. */

@@ -6,6 +6,7 @@ export { wsFileuploadUrl, wsFileuploadComplete, wsFileuploadFailed, wsFileupload
 export { wsNotificationNew, wsNotificationRead, wsNotificationBulkUpdate, } from './client-frames/inbound-notification';
 export { wsCapabilityUpdated, wsFeatureFlagUpdated, } from './client-frames/inbound-control-plane';
 export { clientCallMeta, clientCallSetDocuments, clientCallPresent, clientCallSetTitle, clientCallMuteParticipant, clientCallRemoveParticipant, clientCallTransferHost, } from './client-frames/outbound-call';
+export { clientMeetingSubscribe, clientMeetingUnsubscribe, clientMeetingHandRaise, clientMeetingHandLower, clientMeetingHandLowerAll, clientMeetingBreakoutConfigure, clientMeetingBreakoutAddRoom, clientMeetingBreakoutRename, clientMeetingBreakoutAssign, clientMeetingBreakoutAutoAssign, clientMeetingBreakoutOpen, clientMeetingBreakoutClose, clientMeetingBreakoutTimer, clientMeetingBreakoutBroadcast, clientMeetingBreakoutJoin, clientMeetingBreakoutLeave, clientMeetingBreakoutEnd, clientMeetingDeclarations, } from './client-frames/outbound-meeting';
 export declare const clientFrameOutboundDeclarations: EventDeclaration[];
 /**
  * INBOUND gateway→client push-frame declarations added in Wave A2 (GAP 2) —

@@ -269,6 +269,27 @@ export {
     clientCallRemoveParticipant,
     clientCallTransferHost,
 } from './client-frames/outbound-call';
+import { clientMeetingDeclarations } from './client-frames/outbound-meeting';
+export {
+    clientMeetingSubscribe,
+    clientMeetingUnsubscribe,
+    clientMeetingHandRaise,
+    clientMeetingHandLower,
+    clientMeetingHandLowerAll,
+    clientMeetingBreakoutConfigure,
+    clientMeetingBreakoutAddRoom,
+    clientMeetingBreakoutRename,
+    clientMeetingBreakoutAssign,
+    clientMeetingBreakoutAutoAssign,
+    clientMeetingBreakoutOpen,
+    clientMeetingBreakoutClose,
+    clientMeetingBreakoutTimer,
+    clientMeetingBreakoutBroadcast,
+    clientMeetingBreakoutJoin,
+    clientMeetingBreakoutLeave,
+    clientMeetingBreakoutEnd,
+    clientMeetingDeclarations,
+} from './client-frames/outbound-meeting';
 
 export const clientFrameOutboundDeclarations: EventDeclaration[] = [
     // chat
@@ -324,6 +345,8 @@ export const clientFrameOutboundDeclarations: EventDeclaration[] = [
     clientCallMuteParticipant,
     clientCallRemoveParticipant,
     clientCallTransferHost,
+    // meeting (raised hands + breakout rooms)
+    ...clientMeetingDeclarations,
 ];
 
 /**
