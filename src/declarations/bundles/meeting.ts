@@ -55,3 +55,23 @@ export const meetingBundle: FeatureBundle = {
   ..._def,
   fingerprint: computeFingerprint(_def),
 };
+
+// meeting@1.1.0 (realtime-modules 0.130–0.132). Same frames: every change is
+// additive to the shared declarations, so 1.0.0 keeps its fingerprint for
+// pinned consumers. What 1.1.0 asserts on top: `breakout.announcements` (the
+// last 20, oldest first) in the snapshot and breakout.changed, the
+// RATE_LIMITED error code, and breakout.configure refusing malformed fields
+// (a null room name is allowed and means "Room N").
+const historyDef: Omit<FeatureBundle, 'fingerprint'> = {
+  ..._def,
+  version: '1.1.0',
+  description:
+    _def.description
+    + ' 1.1.0: announcement history in the breakout state, RATE_LIMITED on writes (per person, per meeting), '
+    + 'and breakout.configure refusing malformed fields.',
+};
+
+export const meetingHistoryBundle: FeatureBundle = {
+  ...historyDef,
+  fingerprint: computeFingerprint(historyDef),
+};

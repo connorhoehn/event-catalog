@@ -25,7 +25,7 @@ can pulse the topology graph as events fire. Library publish never blocks
 on the server. Multiple server replicas share the registry over a Redis hash
 plus pub/sub; `src/server/registry-coordinator.ts` orders mutations with a
 Lamport clock and runs the same compat gate the HTTP route runs, so a schema
-refused on one replica cannot be installed on another by broadcast. The 23
+refused on one replica cannot be installed on another by broadcast. The 24
 `FeatureBundle`s in `src/declarations/bundles/` are the pinnable unit an
 adopter names in a CRD, served at `/api/feature-bundles`.
 

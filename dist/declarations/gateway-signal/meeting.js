@@ -17,8 +17,12 @@
 // Nested state objects are open (additionalProperties: true): the producer
 // has already grown `breakout.closing` additively (0.124.0) and readers must
 // tolerate the next field.
+//
+// 1.1.0 additions (realtime-modules 0.130–0.132), all additive so the frames
+// stay shared with meeting@1.0.0: `breakout.announcements` (the history) and
+// the RATE_LIMITED error code.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.wsMeetingDeclarations = exports.wsMeetingError = exports.wsMeetingUnsubscribed = exports.wsMeetingBreakoutAnnouncement = exports.wsMeetingBreakoutChanged = exports.wsMeetingHandsChanged = exports.wsMeetingSnapshot = exports.MEETING_ERROR_CODES = void 0;
+exports.wsMeetingDeclarations = exports.wsMeetingError = exports.wsMeetingUnsubscribed = exports.wsMeetingBreakoutAnnouncement = exports.wsMeetingBreakoutChanged = exports.wsMeetingHandsChanged = exports.wsMeetingSnapshot = exports.MAX_ANNOUNCEMENT_HISTORY = exports.MEETING_ERROR_CODES = void 0;
 const _shared_1 = require("./_shared");
 const TAGS = [..._shared_1.BASE_TAGS, 'meeting'];
 /** MeetingErrorCode, in source order. */
@@ -30,7 +34,10 @@ exports.MEETING_ERROR_CODES = [
     'NOT_SUBSCRIBED',
     'NOT_FOUND',
     'CONFLICT',
+    'RATE_LIMITED',
 ];
+/** How many announcements BreakoutState.announcements keeps (realtime-modules MAX_ANNOUNCEMENT_HISTORY, 0.130.0). */
+exports.MAX_ANNOUNCEMENT_HISTORY = 20;
 const meetingIdField = () => ({ type: 'string', description: 'The meeting this frame belongs to; also the main call\'s LVS lobby name.' });
 const versionField = () => ({ type: 'integer', minimum: 0, description: 'Meeting state version, bumped on every change. Drop a frame whose version is not newer than the one you hold.' });
 function raisedHandSchema() {
@@ -100,6 +107,12 @@ function breakoutStateSchema(description) {
             announcement: {
                 ...announcementSchema('The latest organizer announcement, or null.'),
                 type: ['object', 'null'],
+            },
+            announcements: {
+                type: 'array',
+                maxItems: exports.MAX_ANNOUNCEMENT_HISTORY,
+                items: announcementSchema('One past announcement.'),
+                description: `The last ${exports.MAX_ANNOUNCEMENT_HISTORY} announcements, oldest first, kept across breakout sessions like chat (configure clears \`announcement\` but not this). \`announcement\` stays the latest. Absent from servers before realtime-modules 0.130.0; read absent as [].`,
             },
             settings: {
                 type: 'object',
@@ -171,7 +184,7 @@ exports.wsMeetingUnsubscribed = decl('ws.meeting.meeting.unsubscribed', 'Acknowl
     required: [],
     additionalProperties: false,
 }));
-exports.wsMeetingError = decl('ws.meeting.error', 'A meeting verb was refused. Sent to the sending connection only; nothing changed. INVALID_ACTION unknown verb; INVALID_PAYLOAD bad meetingId or field; UNAUTHENTICATED no signed-in user; FORBIDDEN channel guard refused, organizer-only verb, wrong room or return to main not allowed; NOT_SUBSCRIBED subscribe first; NOT_FOUND unknown meeting or room; CONFLICT state does not allow it (or the write lost a race).', (0, _shared_1.wsSchema)('meeting', {
+exports.wsMeetingError = decl('ws.meeting.error', 'A meeting verb was refused. Sent to the sending connection only; nothing changed. INVALID_ACTION unknown verb; INVALID_PAYLOAD bad meetingId or field; UNAUTHENTICATED no signed-in user; FORBIDDEN channel guard refused, organizer-only verb, wrong room or return to main not allowed; NOT_SUBSCRIBED subscribe first; NOT_FOUND unknown meeting or room; CONFLICT state does not allow it (or the write lost a race); RATE_LIMITED too many writes from this person in this meeting (a token bucket per person per meeting, default burst 20 refilled at 5 per second, host config `rateLimit`; subscribe and unsubscribe are never limited), so wait and retry.', (0, _shared_1.wsSchema)('meeting', {
     action: { type: 'string', const: 'error' },
     meetingId: { type: ['string', 'null'], description: 'The meeting the refused frame named, or null when it named none.' },
     error: {

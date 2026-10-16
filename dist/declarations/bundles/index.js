@@ -5,7 +5,7 @@
 // Importing this module at boot time registers the bundles in the
 // module-level singleton via registerFeatureBundle().
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.allBundles = exports.gatewaySessionBundle = exports.sfuChatBundle = exports.sfuControlPlaneBundle = exports.sfuWebhooksBundle = exports.callCaptionsBundle = exports.agUiStreamBundle = exports.orgiqNewsroomBundle = exports.notificationsBundle = exports.fileUploadBundle = exports.meetingBundle = exports.documentCallsModerationBundle = exports.documentCallsBundle = exports.videoHangoutBundle = exports.crdtDocumentDurabilityBundle = exports.crdtDocumentBundle = exports.agenticPipelineDurableBundle = exports.agenticPipelineSignalBundle = exports.agenticPipelineBundle = exports.activityBundle = exports.reactionsBundle = exports.cursorBundle = exports.presenceBundle = exports.chatBundle = void 0;
+exports.allBundles = exports.gatewaySessionBundle = exports.sfuChatBundle = exports.sfuControlPlaneBundle = exports.sfuWebhooksBundle = exports.callCaptionsBundle = exports.agUiStreamBundle = exports.orgiqNewsroomBundle = exports.notificationsBundle = exports.fileUploadBundle = exports.meetingHistoryBundle = exports.meetingBundle = exports.documentCallsModerationBundle = exports.documentCallsBundle = exports.videoHangoutBundle = exports.crdtDocumentDurabilityBundle = exports.crdtDocumentBundle = exports.agenticPipelineDurableBundle = exports.agenticPipelineSignalBundle = exports.agenticPipelineBundle = exports.activityBundle = exports.reactionsBundle = exports.cursorBundle = exports.presenceBundle = exports.chatBundle = void 0;
 var chat_js_1 = require("./chat.js");
 Object.defineProperty(exports, "chatBundle", { enumerable: true, get: function () { return chat_js_1.chatBundle; } });
 var presence_js_1 = require("./presence.js");
@@ -33,6 +33,7 @@ Object.defineProperty(exports, "documentCallsBundle", { enumerable: true, get: f
 Object.defineProperty(exports, "documentCallsModerationBundle", { enumerable: true, get: function () { return document_calls_js_1.documentCallsModerationBundle; } });
 var meeting_js_1 = require("./meeting.js");
 Object.defineProperty(exports, "meetingBundle", { enumerable: true, get: function () { return meeting_js_1.meetingBundle; } });
+Object.defineProperty(exports, "meetingHistoryBundle", { enumerable: true, get: function () { return meeting_js_1.meetingHistoryBundle; } });
 var file_upload_js_1 = require("./file-upload.js");
 Object.defineProperty(exports, "fileUploadBundle", { enumerable: true, get: function () { return file_upload_js_1.fileUploadBundle; } });
 var notifications_js_1 = require("./notifications.js");
@@ -98,6 +99,7 @@ exports.allBundles = [
     document_calls_js_2.documentCallsBundle,
     document_calls_js_2.documentCallsModerationBundle,
     meeting_js_2.meetingBundle,
+    meeting_js_2.meetingHistoryBundle,
 ];
 // Register each bundle in the module-level singleton at import time.
 // Idempotent: re-importing this module after the first load is a no-op

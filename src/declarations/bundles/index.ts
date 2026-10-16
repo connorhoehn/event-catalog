@@ -16,7 +16,7 @@ export { agenticPipelineDurableBundle } from './agentic-pipeline-durable.js';
 export { crdtDocumentBundle, crdtDocumentDurabilityBundle } from './crdt-document.js';
 export { videoHangoutBundle } from './video-hangout.js';
 export { documentCallsBundle, documentCallsModerationBundle } from './document-calls.js';
-export { meetingBundle } from './meeting.js';
+export { meetingBundle, meetingHistoryBundle } from './meeting.js';
 export { fileUploadBundle } from './file-upload.js';
 export { notificationsBundle } from './notifications.js';
 export { orgiqNewsroomBundle } from './orgiq-newsroom.js';
@@ -39,7 +39,7 @@ import { agenticPipelineDurableBundle } from './agentic-pipeline-durable.js';
 import { crdtDocumentBundle, crdtDocumentDurabilityBundle } from './crdt-document.js';
 import { videoHangoutBundle } from './video-hangout.js';
 import { documentCallsBundle, documentCallsModerationBundle } from './document-calls.js';
-import { meetingBundle } from './meeting.js';
+import { meetingBundle, meetingHistoryBundle } from './meeting.js';
 import { fileUploadBundle } from './file-upload.js';
 import { notificationsBundle } from './notifications.js';
 import { gatewaySessionBundle } from './gateway-session.js';
@@ -75,6 +75,7 @@ export const allBundles = [
   documentCallsBundle,
   documentCallsModerationBundle,
   meetingBundle,
+  meetingHistoryBundle,
 ] as const;
 
 // Register each bundle in the module-level singleton at import time.

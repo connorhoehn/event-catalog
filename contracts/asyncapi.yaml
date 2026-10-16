@@ -1796,7 +1796,7 @@ components:
       messageId: client.meeting.breakout.configure
       name: client.meeting.breakout.configure
       title: client.meeting.breakout.configure
-      summary: "Organizer only. Replace the breakout plan: rooms (all closed), mode and settings; clears the timer, returned list and announcement. Refused with CONFLICT while rooms are open. At most maxRooms rooms (host config, default 50). An empty list ends the session (phase none). Broadcasts ws.meeting.breakout.changed."
+      summary: "Organizer only. Replace the breakout plan: rooms (all closed), mode and settings; clears the timer, returned list and latest announcement. Refused with CONFLICT while rooms are open. At most maxRooms rooms (host config, default 50). An empty list ends the session (phase none). Malformed fields are refused with INVALID_PAYLOAD, never ignored (realtime-modules 0.131.0): a mode other than assigned/self-select, a non-boolean allowReturnToMain, a room draft that is not an object, a room name that is neither a string nor null, or members that are not an array of userIds. Absent mode and allowReturnToMain keep their current values. The announcement history (breakout.announcements) is kept. Broadcasts ws.meeting.breakout.changed."
       schemaFormat: application/schema+json;version=draft-07
       payload:
         type: object
@@ -1828,8 +1828,10 @@ components:
                   pattern: ^[A-Za-z0-9_-]{1,64}$
                   description: Room id to keep or create; omit to have the server mint one. 1–64 of A-Z a-z 0-9 _ -.
                 name:
-                  type: string
-                  description: Room name; trimmed and cut to 80 characters. Blank or missing becomes "Room N".
+                  type:
+                    - string
+                    - "null"
+                  description: Room name; trimmed and cut to 80 characters. Blank, null or missing becomes "Room N". Any other type is INVALID_PAYLOAD.
                 members:
                   type: array
                   items:
@@ -4608,6 +4610,33 @@ components:
                       - fromDisplayName
                       - at
                     additionalProperties: true
+                  announcements:
+                    type: array
+                    maxItems: 20
+                    items:
+                      type: object
+                      description: One past announcement.
+                      properties:
+                        message:
+                          type: string
+                          description: The announcement text, 1–500 characters.
+                        fromUserId:
+                          type: string
+                          description: userId of the organizer who sent it.
+                        fromDisplayName:
+                          type: string
+                          description: Display name of the organizer who sent it.
+                        at:
+                          type: string
+                          description: ISO-8601 time the announcement was sent.
+                          format: date-time
+                      required:
+                        - message
+                        - fromUserId
+                        - fromDisplayName
+                        - at
+                      additionalProperties: true
+                    description: The last 20 announcements, oldest first, kept across breakout sessions like chat (configure clears `announcement` but not this). `announcement` stays the latest. Absent from servers before realtime-modules 0.130.0; read absent as [].
                   settings:
                     type: object
                     description: Breakout session settings.
@@ -4849,6 +4878,33 @@ components:
                       - fromDisplayName
                       - at
                     additionalProperties: true
+                  announcements:
+                    type: array
+                    maxItems: 20
+                    items:
+                      type: object
+                      description: One past announcement.
+                      properties:
+                        message:
+                          type: string
+                          description: The announcement text, 1–500 characters.
+                        fromUserId:
+                          type: string
+                          description: userId of the organizer who sent it.
+                        fromDisplayName:
+                          type: string
+                          description: Display name of the organizer who sent it.
+                        at:
+                          type: string
+                          description: ISO-8601 time the announcement was sent.
+                          format: date-time
+                      required:
+                        - message
+                        - fromUserId
+                        - fromDisplayName
+                        - at
+                      additionalProperties: true
+                    description: The last 20 announcements, oldest first, kept across breakout sessions like chat (configure clears `announcement` but not this). `announcement` stays the latest. Absent from servers before realtime-modules 0.130.0; read absent as [].
                   settings:
                     type: object
                     description: Breakout session settings.
@@ -4974,7 +5030,7 @@ components:
       messageId: ws.meeting.error
       name: ws.meeting.error
       title: ws.meeting.error
-      summary: A meeting verb was refused. Sent to the sending connection only; nothing changed. INVALID_ACTION unknown verb; INVALID_PAYLOAD bad meetingId or field; UNAUTHENTICATED no signed-in user; FORBIDDEN channel guard refused, organizer-only verb, wrong room or return to main not allowed; NOT_SUBSCRIBED subscribe first; NOT_FOUND unknown meeting or room; CONFLICT state does not allow it (or the write lost a race).
+      summary: A meeting verb was refused. Sent to the sending connection only; nothing changed. INVALID_ACTION unknown verb; INVALID_PAYLOAD bad meetingId or field; UNAUTHENTICATED no signed-in user; FORBIDDEN channel guard refused, organizer-only verb, wrong room or return to main not allowed; NOT_SUBSCRIBED subscribe first; NOT_FOUND unknown meeting or room; CONFLICT state does not allow it (or the write lost a race); RATE_LIMITED too many writes from this person in this meeting (a token bucket per person per meeting, default burst 20 refilled at 5 per second, host config `rateLimit`; subscribe and unsubscribe are never limited), so wait and retry.
       schemaFormat: application/schema+json;version=draft-07
       payload:
         type: object
@@ -5010,6 +5066,7 @@ components:
                   - NOT_SUBSCRIBED
                   - NOT_FOUND
                   - CONFLICT
+                  - RATE_LIMITED
                 description: MeetingErrorCode — machine-readable refusal reason.
               message:
                 type: string

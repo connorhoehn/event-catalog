@@ -90,6 +90,24 @@ describe('client.meeting.* — outbound', () => {
     expect(ok('client.meeting.breakout.broadcast', frame('breakout.broadcast', { message: 'x'.repeat(501) }))).toBe(false);
     expect(ok('client.meeting.breakout.join', frame('breakout.join'))).toBe(false);
   });
+
+  // realtime-modules 0.131.0: configure refuses these with INVALID_PAYLOAD.
+  it('refuses the malformed configure fields MeetingService refuses since 0.131.0', () => {
+    const configure = (extra: Record<string, unknown>) => ok('client.meeting.breakout.configure', frame('breakout.configure', { rooms: [], ...extra }));
+    expect(configure({ mode: 'free-for-all' })).toBe(false);
+    expect(configure({ allowReturnToMain: 'yes' })).toBe(false);
+    expect(configure({ rooms: ['Room 1'] })).toBe(false);
+    expect(configure({ rooms: [['r-1']] })).toBe(false);
+    expect(configure({ rooms: [{ name: 7 }] })).toBe(false);
+    expect(configure({ rooms: [{ members: 'u-1' }] })).toBe(false);
+    expect(configure({ rooms: [{ members: ['u-1', 2] }] })).toBe(false);
+  });
+
+  it('accepts a null room name in configure (the server names it "Room N") and absent mode/settings', () => {
+    expect(ok('client.meeting.breakout.configure', frame('breakout.configure', {
+      rooms: [{ id: 'r-1', name: null, members: ['u-1'] }, { name: 'Design' }, {}],
+    }))).toBe(true);
+  });
 });
 
 describe('ws.meeting.* — inbound', () => {
@@ -131,6 +149,24 @@ describe('ws.meeting.* — inbound', () => {
         error: { code, message: 'nope', requestAction: 'breakout.bogus' }, timestamp: ts,
       }), code).toBe(true);
     }
+  });
+
+  it('carries the announcement history (0.130.0) and RATE_LIMITED (0.132.0)', () => {
+    const env = (action: string, data: unknown) => ({ type: 'meeting', action, meetingId: 'call-42', data, timestamp: ts });
+    const announcements = Array.from({ length: 20 }, (_, i) => ({ ...breakout.announcement, message: `Note ${i}` }));
+    expect(ok('ws.meeting.breakout.changed', env('breakout.changed', { version: 6, breakout: { ...breakout, announcements } }))).toBe(true);
+    expect(ok('ws.meeting.meeting.snapshot', env('meeting.snapshot', {
+      meetingId: 'call-42', createdBy: 'u-0', version: 6, hands, breakout: { ...breakout, announcements: [] }, updatedAt: ts,
+      you: { userId: 'u-1', organizer: true },
+    }))).toBe(true);
+    expect(ok('ws.meeting.breakout.changed', env('breakout.changed', {
+      version: 6, breakout: { ...breakout, announcements: [...announcements, breakout.announcement] },
+    }))).toBe(false);
+    expect(ok('ws.meeting.breakout.changed', env('breakout.changed', {
+      version: 6, breakout: { ...breakout, announcements: [{ message: 'no sender' }] },
+    }))).toBe(false);
+    expect(MEETING_ERROR_CODES[MEETING_ERROR_CODES.length - 1]).toBe('RATE_LIMITED');
+    expect(MEETING_ERROR_CODES.indexOf('RATE_LIMITED')).toBe(MEETING_ERROR_CODES.indexOf('CONFLICT') + 1);
   });
 
   it('refuses an unknown error code and a malformed room', () => {

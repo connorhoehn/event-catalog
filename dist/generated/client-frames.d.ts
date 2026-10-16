@@ -437,7 +437,7 @@ export interface ClientFramePayloadMap {
         meetingId: string;
         [key: string]: unknown;
     };
-    /** Organizer only. Replace the breakout plan: rooms (all closed), mode and settings; clears the timer, returned list and announcement. Refused with CONFLICT while rooms are open. At most maxRooms rooms (host config, default 50). An empty list ends the session (phase none). Broadcasts ws.meeting.breakout.changed. */
+    /** Organizer only. Replace the breakout plan: rooms (all closed), mode and settings; clears the timer, returned list and latest announcement. Refused with CONFLICT while rooms are open. At most maxRooms rooms (host config, default 50). An empty list ends the session (phase none). Malformed fields are refused with INVALID_PAYLOAD, never ignored (realtime-modules 0.131.0): a mode other than assigned/self-select, a non-boolean allowReturnToMain, a room draft that is not an object, a room name that is neither a string nor null, or members that are not an array of userIds. Absent mode and allowReturnToMain keep their current values. The announcement history (breakout.announcements) is kept. Broadcasts ws.meeting.breakout.changed. */
     'client.meeting.breakout.configure': {
         service: 'meeting';
         action: 'breakout.configure';
@@ -445,7 +445,7 @@ export interface ClientFramePayloadMap {
         meetingId: string;
         rooms: ({
             id?: string;
-            name?: string;
+            name?: string | null;
             members?: string[];
             [key: string]: unknown;
         })[];

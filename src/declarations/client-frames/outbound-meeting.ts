@@ -132,7 +132,7 @@ export const clientMeetingHandLowerAll = decl(
 
 export const clientMeetingBreakoutConfigure = decl(
     'client.meeting.breakout.configure',
-    'Organizer only. Replace the breakout plan: rooms (all closed), mode and settings; clears the timer, returned list and announcement. Refused with CONFLICT while rooms are open. At most maxRooms rooms (host config, default 50). An empty list ends the session (phase none). Broadcasts ws.meeting.breakout.changed.',
+    'Organizer only. Replace the breakout plan: rooms (all closed), mode and settings; clears the timer, returned list and latest announcement. Refused with CONFLICT while rooms are open. At most maxRooms rooms (host config, default 50). An empty list ends the session (phase none). Malformed fields are refused with INVALID_PAYLOAD, never ignored (realtime-modules 0.131.0): a mode other than assigned/self-select, a non-boolean allowReturnToMain, a room draft that is not an object, a room name that is neither a string nor null, or members that are not an array of userIds. Absent mode and allowReturnToMain keep their current values. The announcement history (breakout.announcements) is kept. Broadcasts ws.meeting.breakout.changed.',
     meetingFrame('breakout.configure', {
         rooms: {
             type: 'array',
@@ -142,7 +142,7 @@ export const clientMeetingBreakoutConfigure = decl(
                 description: 'One room draft.',
                 properties: {
                     id: roomIdField('Room id to keep or create; omit to have the server mint one.'),
-                    name: { type: 'string', description: 'Room name; trimmed and cut to 80 characters. Blank or missing becomes "Room N".' },
+                    name: { type: ['string', 'null'], description: 'Room name; trimmed and cut to 80 characters. Blank, null or missing becomes "Room N". Any other type is INVALID_PAYLOAD.' },
                     members: {
                         type: 'array',
                         items: { type: 'string', description: 'A userId placed in this room.' },

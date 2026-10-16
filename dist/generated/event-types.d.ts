@@ -1204,6 +1204,13 @@ export interface EventPayloadMap {
                 endsAt: string | null;
                 closing?: boolean;
                 announcement: unknown | null;
+                announcements?: ({
+                    message: string;
+                    fromUserId: string;
+                    fromDisplayName: string;
+                    at: string;
+                    [key: string]: unknown;
+                })[];
                 settings: {
                     allowReturnToMain: boolean;
                     [key: string]: unknown;
@@ -1260,6 +1267,13 @@ export interface EventPayloadMap {
                 endsAt: string | null;
                 closing?: boolean;
                 announcement: unknown | null;
+                announcements?: ({
+                    message: string;
+                    fromUserId: string;
+                    fromDisplayName: string;
+                    at: string;
+                    [key: string]: unknown;
+                })[];
                 settings: {
                     allowReturnToMain: boolean;
                     [key: string]: unknown;
@@ -1294,14 +1308,14 @@ export interface EventPayloadMap {
         data: Record<string, never>;
         [key: string]: unknown;
     };
-    /** A meeting verb was refused. Sent to the sending connection only; nothing changed. INVALID_ACTION unknown verb; INVALID_PAYLOAD bad meetingId or field; UNAUTHENTICATED no signed-in user; FORBIDDEN channel guard refused, organizer-only verb, wrong room or return to main not allowed; NOT_SUBSCRIBED subscribe first; NOT_FOUND unknown meeting or room; CONFLICT state does not allow it (or the write lost a race). */
+    /** A meeting verb was refused. Sent to the sending connection only; nothing changed. INVALID_ACTION unknown verb; INVALID_PAYLOAD bad meetingId or field; UNAUTHENTICATED no signed-in user; FORBIDDEN channel guard refused, organizer-only verb, wrong room or return to main not allowed; NOT_SUBSCRIBED subscribe first; NOT_FOUND unknown meeting or room; CONFLICT state does not allow it (or the write lost a race); RATE_LIMITED too many writes from this person in this meeting (a token bucket per person per meeting, default burst 20 refilled at 5 per second, host config `rateLimit`; subscribe and unsubscribe are never limited), so wait and retry. */
     'ws.meeting.error': {
         type: 'meeting';
         timestamp: string;
         action: 'error';
         meetingId: string | null;
         error: {
-            code: 'INVALID_ACTION' | 'INVALID_PAYLOAD' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_SUBSCRIBED' | 'NOT_FOUND' | 'CONFLICT';
+            code: 'INVALID_ACTION' | 'INVALID_PAYLOAD' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_SUBSCRIBED' | 'NOT_FOUND' | 'CONFLICT' | 'RATE_LIMITED';
             message: string;
             requestAction: string;
             [key: string]: unknown;
@@ -2197,7 +2211,7 @@ export interface EventPayloadMap {
         meetingId: string;
         [key: string]: unknown;
     };
-    /** Organizer only. Replace the breakout plan: rooms (all closed), mode and settings; clears the timer, returned list and announcement. Refused with CONFLICT while rooms are open. At most maxRooms rooms (host config, default 50). An empty list ends the session (phase none). Broadcasts ws.meeting.breakout.changed. */
+    /** Organizer only. Replace the breakout plan: rooms (all closed), mode and settings; clears the timer, returned list and latest announcement. Refused with CONFLICT while rooms are open. At most maxRooms rooms (host config, default 50). An empty list ends the session (phase none). Malformed fields are refused with INVALID_PAYLOAD, never ignored (realtime-modules 0.131.0): a mode other than assigned/self-select, a non-boolean allowReturnToMain, a room draft that is not an object, a room name that is neither a string nor null, or members that are not an array of userIds. Absent mode and allowReturnToMain keep their current values. The announcement history (breakout.announcements) is kept. Broadcasts ws.meeting.breakout.changed. */
     'client.meeting.breakout.configure': {
         service: 'meeting';
         action: 'breakout.configure';
@@ -2205,7 +2219,7 @@ export interface EventPayloadMap {
         meetingId: string;
         rooms: ({
             id?: string;
-            name?: string;
+            name?: string | null;
             members?: string[];
             [key: string]: unknown;
         })[];

@@ -12,6 +12,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.8.7] - 2026-10-16
+
+- `meeting@1.1.0` declares realtime-modules 0.130–0.132; `meeting@1.0.0`
+  keeps its released fingerprint (`4db73a17…`) for pinned consumers. Both
+  name the same 23 frames, whose shared schemas changed additively:
+  - `breakout.announcements` (optional, at most 20, oldest first, kept across
+    sessions) inside `breakout` in `ws.meeting.meeting.snapshot` and
+    `ws.meeting.breakout.changed`; `announcement` stays the latest (0.130.0).
+  - `client.meeting.breakout.configure` allows a `null` room `name` (the
+    server names it "Room N"), which 1.0.0 refused, and its description says
+    malformed `mode`, `allowReturnToMain`, room drafts, names and `members`
+    are refused with `INVALID_PAYLOAD` (0.131.0).
+  - `RATE_LIMITED` appended to the `ws.meeting.error` codes after `CONFLICT`:
+    a per-person, per-meeting token bucket on writes, default burst 20
+    refilled at 5/s, host config `rateLimit`; subscribe is never limited
+    (0.132.0).
+- New export `meetingHistoryBundle`. Generated types, AsyncAPI, registry
+  snapshot and dist regenerated.
+
 ## [0.8.6] - 2026-10-16
 
 - Declare the realtime-modules `meeting` service (raised hands and breakout
