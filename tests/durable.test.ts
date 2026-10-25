@@ -496,7 +496,6 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
       .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail (attempt 1)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 2 → fail (attempt 2) → dead-letter
-      .mockResolvedValueOnce({ ok: true })                                          // DELETE after dead-letter
       .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
@@ -523,11 +522,11 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     expect(dlq).toHaveLength(1);
     expect(dlq[0]!.messageId).toBe('msg-poison');
 
-    // DELETE must have been issued to remove the dead-lettered message from the source queue
+    // A diagnostic must never authorize source deletion.
     const deleteCalls = fetchSpy.mock.calls.filter(([url, opts]: [string, RequestInit]) =>
       (url as string).includes('/messages/') && opts?.method === 'DELETE',
     );
-    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls).toHaveLength(0);
 
     unsubscribe();
   });
@@ -541,7 +540,6 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
       .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail (attempt 1)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 2 → dead-letter
-      .mockResolvedValueOnce({ ok: true })                                          // DELETE after dead-letter
       .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
@@ -575,7 +573,6 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
       .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail (attempt 1)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 2 → fail (attempt 2) → dead-letter
-      .mockResolvedValueOnce({ ok: true })                                          // DELETE after dead-letter
       .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
@@ -600,7 +597,7 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     unsubscribe();
   });
 
-  it('a throwing onDeadLetter callback does not block sibling callbacks or the DELETE cleanup', async () => {
+  it('a throwing onDeadLetter callback does not block sibling callbacks or delete the source', async () => {
     const envelope = makeEnvelope({ eventName: 'poison.event' });
     const queueMsg = makeQueueMessage('msg-cb-throws', envelope);
 
@@ -608,7 +605,6 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
       .mockResolvedValueOnce({ ok: true })                                          // connect /health
       .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail → dead-letter
-      .mockResolvedValueOnce({ ok: true })                                          // DELETE after dead-letter
       .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
@@ -633,11 +629,11 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     // DLQ recorded the dead-letter despite the callback throw.
     expect(t.getDLQ()).toHaveLength(1);
 
-    // DELETE still issued to drop the message from the source queue.
+    // Even successful diagnostics leave removal to broker redrive.
     const deleteCalls = fetchSpy.mock.calls.filter(([url, opts]: [string, RequestInit]) =>
       (url as string).includes('/messages/') && opts?.method === 'DELETE',
     );
-    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls).toHaveLength(0);
 
     unsubscribe();
   });
@@ -679,7 +675,6 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
       .mockResolvedValueOnce({ ok: true })                                                  // connect /health
       .mockResolvedValueOnce({ ok: true, status: 201 })                                     // ensureQueue PUT
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [badMsg] }) })      // poll → bad body → dead-letter
-      .mockResolvedValueOnce({ ok: true })                                                  // DELETE after dead-letter
       .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });               // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
@@ -750,10 +745,8 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
       .mockResolvedValueOnce({ ok: true, status: 201 })                                      // ensureQueue PUT
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgA] }) })         // poll 1 → msg-a attempt 1 (warn)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgA] }) })         // poll 2 → msg-a attempt 2 → dead-letter
-      .mockResolvedValueOnce({ ok: true })                                                   // DELETE msg-a
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgB] }) })         // poll 3 → msg-b attempt 1 (warn)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgB] }) })         // poll 4 → msg-b attempt 2 → dead-letter
-      .mockResolvedValueOnce({ ok: true })                                                   // DELETE msg-b
       .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });                // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);

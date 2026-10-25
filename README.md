@@ -249,6 +249,15 @@ Direct `DurableTransport` users can set `acknowledgementTimeoutMs` (default
 The local in-memory DLQ remains a bounded diagnostic buffer, not a durable
 replacement for the queue service's DLQ.
 
+Handler failures never cause source deletion. `maxProcessingAttempts` controls
+when a diagnostic and `onDeadLetter` callback fire; neither that buffer nor a
+successful callback authorizes an acknowledgement. Configure the queue's
+`dlqAfterAttempts`/redrive policy for durable movement. Without a broker redrive
+policy, a poison message remains eligible for retry until queue retention expires.
+Replacing the client or losing the diagnostic buffer cannot delete that source.
+The legacy `deadLetteredTotal` metric counts poison observations, not confirmed
+durable DLQ transfers.
+
 ### Authenticated queue transport
 
 Pass `createServiceRequestHeaders({ secret, serviceId, audience: 'message-queue' })`

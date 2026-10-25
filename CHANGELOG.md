@@ -12,6 +12,11 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.8.8] - 2026-10-25
+
+- Retain failed subscriber messages at the broker. The capped diagnostic buffer and `onDeadLetter` callbacks no longer authorize source deletion; configure broker redrive for durable dead-letter movement.
+- A loopback HTTP regression reproduces the prior loss and verifies redelivery after replacing the client, including a failing diagnostic callback.
+
 ## [0.8.7] - 2026-10-16
 
 - `meeting@1.1.0` declares realtime-modules 0.130–0.132; `meeting@1.0.0`

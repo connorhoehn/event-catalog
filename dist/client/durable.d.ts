@@ -27,9 +27,9 @@ export interface DurableTransportConfig {
     publishTimeoutMs?: number;
     /** Deadline for receipt deletion after processing; default 10000 ms. */
     acknowledgementTimeoutMs?: number;
-    /** Max processing attempts before a message is dead-lettered. Default: 3 */
+    /** Handler failures before a diagnostic is recorded. Broker redrive owns removal. Default: 3. */
     maxProcessingAttempts?: number;
-    /** Maximum number of dead-lettered messages to retain in memory. Default: 10000 */
+    /** Maximum poison-message diagnostics retained in memory. Default: 10000. */
     dlqCapacity?: number;
     /**
      * Sink for this transport's diagnostics. Defaults to `console.warn` /
@@ -94,8 +94,8 @@ export type DeadLetterCallback = (message: DeadLetteredMessage) => void;
  *     warned and accepted; a failed ensure still lets the publish proceed.
  *   - **`subscribe()` never throws.** Poll failures are retried with
  *     back-off forever; a handler that fails `maxProcessingAttempts` times
- *     moves the message to the in-memory DLQ ({@link getDLQ}) and deletes
- *     it from the source queue.
+ *     records a diagnostic in {@link getDLQ}. Only the broker's redrive policy
+ *     may move a failed message; the subscriber never deletes it for a failure.
  */
 export declare class DurableTransport {
     private readonly requestHeaders?;
@@ -272,9 +272,10 @@ export declare class DurableTransport {
      * message-queue outage at subscribe time is not an error here.
      *
      * A handler rejection causes redelivery. After `maxProcessingAttempts`
-     * rejections for the same message it is dead-lettered (see
-     * {@link getDLQ} / {@link onDeadLetter}) and deleted from the queue.
-     * Attempt counts are process-local, so a restart resets them.
+     * rejections for the same message a diagnostic is recorded (see
+     * {@link getDLQ} / {@link onDeadLetter}). The source is retained for the
+     * broker's redrive policy or redelivery. Diagnostic attempt counts are
+     * process-local, so a restart resets them.
      *
      * @returns a cancel function that aborts the poll loop. It does not wait
      *   for an in-flight handler to finish.
@@ -298,15 +299,17 @@ export declare class DurableTransport {
      * does not affect the transport).
      *
      * This buffer is **not durable**: it is capped at `dlqCapacity`, evicts
-     * oldest-first when full, and is lost on restart. Use `onDeadLetter` to
-     * forward records somewhere persistent if you need them to survive.
+     * oldest-first when full, and is lost on restart. Source messages are never
+     * acknowledged on its strength. Configure broker redrive for durable DLQ
+     * movement; onDeadLetter callbacks only observe failures.
      */
     getDLQ(): DeadLetteredMessage[];
     /** Return and clear the in-memory dead-letter buffer. */
     drainDLQ(): DeadLetteredMessage[];
     /**
      * Register a callback fired synchronously whenever a message is
-     * dead-lettered. Callback exceptions are swallowed. Returns an
+     * recorded as poison. Callback exceptions are swallowed; callbacks do not
+     * authorize source deletion. Returns an
      * unregister function.
      */
     onDeadLetter(callback: DeadLetterCallback): () => void;

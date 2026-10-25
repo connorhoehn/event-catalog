@@ -268,7 +268,7 @@ describe('DurableTransport poll loop — failure arms', () => {
     await t.disconnect();
   }, 15_000);
 
-  it('dead-letters a message whose body is not JSON once attempts are exhausted', async () => {
+  it('records malformed JSON without deleting its source once attempts are exhausted', async () => {
     const deleted: string[] = [];
     let served = false;
     const f = vi.fn(async (url: string, init?: RequestInit) => {
@@ -305,8 +305,8 @@ describe('DurableTransport poll loop — failure arms', () => {
     // Body was unparseable, so the synthesised envelope carries the raw text.
     expect(dead!.envelope.eventName).toBe('unknown');
     expect(dead!.envelope.payload).toBe('{not json');
-    // And it must be removed from the source queue so it isn't redelivered forever.
-    expect(deleted.some(u => u.includes('r-1'))).toBe(true);
+    // Broker redrive owns removal; a diagnostic cannot commit that transfer.
+    expect(deleted).toEqual([]);
 
     cancel();
     await t.disconnect();
