@@ -52,6 +52,8 @@ export type { SchemaShapeResult } from './registry/schema-shape';
 export { deriveNamespace, resolveNamespace } from './registry/namespace';
 export type { SignalTransportConfig } from './client/signal';
 export type { DurableTransportConfig, DurableSubscribeOptions, EnsureQueueOptions, DurablePublishOptions, DurableSubscription, DurableHandlerContext } from './client/durable';
+export { DurableSubscriptionUnavailableError, parseSubscriptionHandle } from './client/durable';
+export type { SubscriptionHandle } from './client/durable';
 
 // Wire envelopes (Phase 55 — single source of truth for channel_message shape).
 export {

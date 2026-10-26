@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DurableTransport = void 0;
+exports.DurableTransport = exports.DurableSubscriptionUnavailableError = void 0;
+exports.parseSubscriptionHandle = parseSubscriptionHandle;
 const distributed_core_1 = require("distributed-core");
 const node_crypto_1 = require("node:crypto");
 const client_1 = require("@connorhoehnslalom/message-queue/client");
@@ -24,6 +25,40 @@ const MAX_TRACKED_MESSAGE_ATTEMPTS = 10_000;
  * lifetime total, because it is never cleared outside tests.
  */
 const backpressureCounter = new bounded_1.BoundedCounter(MAX_TRACKED_QUEUES);
+/** Raised when an explicit subscription handle is stale, removed or belongs to a replaced queue. */
+class DurableSubscriptionUnavailableError extends Error {
+    queue;
+    subscription;
+    code;
+    cause;
+    name = 'DurableSubscriptionUnavailableError';
+    constructor(queue, subscription, code, cause) {
+        super(`Subscription "${subscription.id}" (generation ${subscription.generation}) on queue "${queue}" is unavailable: ${code}`);
+        this.queue = queue;
+        this.subscription = subscription;
+        this.code = code;
+        this.cause = cause;
+    }
+}
+exports.DurableSubscriptionUnavailableError = DurableSubscriptionUnavailableError;
+const TERMINAL_SUBSCRIPTION_CODES = new Set([
+    'StaleSubscription',
+    'StaleQueue',
+    'SubscriptionDoesNotExist',
+    'QueueDoesNotExist',
+]);
+/** Validate and freeze a queue-owned subscription handle. */
+function parseSubscriptionHandle(value) {
+    const handle = value;
+    if (!handle ||
+        typeof handle !== 'object' ||
+        typeof handle.id !== 'string' ||
+        !handle.id ||
+        typeof handle.generation !== 'string' ||
+        !handle.generation)
+        throw new TypeError('subscription must be a queue-owned handle with a non-empty id and generation');
+    return Object.freeze({ id: handle.id, generation: handle.generation });
+}
 function integer(value, min, max, name) {
     if (!Number.isSafeInteger(value) || value < min || value > max)
         throw new RangeError(`${name} must be an integer between ${min} and ${max}`);
@@ -84,6 +119,7 @@ class DurableTransport {
     /** Times a polled queue answered 404 and was re-created in place. */
     queueVanishedCount = 0;
     pollFailures = 0;
+    unavailableSubscriptions = 0;
     deadLetteredTotal = 0;
     log;
     constructor(config) {
@@ -204,6 +240,7 @@ class DurableTransport {
             ensureQueueFailures: this.ensureQueueFailures,
             pollFailures: this.pollFailures,
             queueVanished: this.queueVanishedCount,
+            unavailableSubscriptions: this.unavailableSubscriptions,
             deadLetteredTotal: this.deadLetteredTotal,
             suppressedWarnings: this.backpressureWarnings.suppressedTotal +
                 this.ensureQueueWarnings.suppressedTotal +
@@ -359,11 +396,15 @@ class DurableTransport {
     subscribe(queueName, handler, options = {}) {
         const pollingInterval = integer(options.pollingInterval ?? 1000, 0, 300000, 'pollingInterval');
         const batchSize = integer(options.batchSize ?? 10, 1, 10, 'batchSize');
+        const subscription = options.subscription === undefined
+            ? undefined
+            : parseSubscriptionHandle(options.subscription);
         const visibilityTimeout = integer(options.visibilityTimeout ?? 30, 1, 43200, 'visibilityTimeout');
         const intake = new AbortController();
         const leases = new Set();
         let timer;
         const id = this.nextPollerId++;
+        let terminalError;
         const poller = {
             stopped: false,
             done: Promise.resolve(),
@@ -380,13 +421,26 @@ class DurableTransport {
             },
         };
         this.activePollers.set(id, poller);
-        poller.done = this.pollLoop(queueName, handler, { ...options, pollingInterval, batchSize, visibilityTimeout }, intake.signal, leases).finally(() => {
+        poller.done = this.pollLoop(queueName, handler, { ...options, subscription, pollingInterval, batchSize, visibilityTimeout }, intake.signal, leases, (error) => {
+            terminalError = error;
+            this.unavailableSubscriptions++;
+            poller.stop();
+            try {
+                options.onTerminalError?.(error);
+            }
+            catch {
+                // Observer failures never change delivery ownership.
+            }
+        }).finally(() => {
             clearTimeout(timer);
             for (const lease of leases)
                 lease.abandon();
             this.activePollers.delete(id);
         });
-        const cancel = Object.assign(() => poller.stop(), { done: poller.done });
+        const cancel = Object.defineProperties(() => poller.stop(), {
+            done: { value: poller.done, enumerable: true },
+            terminalError: { get: () => terminalError, enumerable: true },
+        });
         return cancel;
     }
     /**
@@ -478,8 +532,9 @@ class DurableTransport {
             };
         }
     }
-    async pollLoop(queueName, handler, options, signal, leases) {
+    async pollLoop(queueName, handler, options, signal, leases, terminate) {
         let failures = 0;
+        const subscription = options.subscription;
         const policy = options.queueOptions ?? this.queuePolicies.get(queueName);
         while (!signal.aborted) {
             try {
@@ -487,13 +542,17 @@ class DurableTransport {
                     await this.sleep(options.pollingInterval, signal);
                     continue;
                 }
-                await this.ensureQueue(queueName, policy, { signal });
+                // Explicit subscriptions belong to a host-provisioned queue
+                // incarnation; ensuring here could re-create a deleted queue.
+                if (!subscription)
+                    await this.ensureQueue(queueName, policy, { signal });
                 const started = performance.now();
                 const messages = await this.client.receive(queueName, {
                     max: options.batchSize,
                     visibilityTimeoutSeconds: options.visibilityTimeout,
                     waitSeconds: 0,
                     signal,
+                    ...(subscription ? { subscription } : {}),
                 });
                 failures = 0;
                 // Renew every acquired receipt, including queued members of a slow batch.
@@ -552,6 +611,20 @@ class DurableTransport {
             catch (error) {
                 if (signal.aborted)
                     return;
+                if (subscription &&
+                    error instanceof client_1.MessageQueueError &&
+                    [404, 409].includes(error.status) &&
+                    TERMINAL_SUBSCRIPTION_CODES.has(error.code)) {
+                    const unavailable = new DurableSubscriptionUnavailableError(queueName, subscription, error.code, error);
+                    this.log.error(`[durable-transport] ${unavailable.message}; intake stopped`, {
+                        queue: queueName,
+                        subscription: subscription.id,
+                        generation: subscription.generation,
+                        code: error.code,
+                    });
+                    terminate(unavailable);
+                    return;
+                }
                 if (error instanceof client_1.MessageQueueError &&
                     error.status === 404 &&
                     error.code === 'QueueDoesNotExist') {

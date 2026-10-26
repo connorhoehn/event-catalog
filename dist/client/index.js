@@ -990,6 +990,13 @@ class EventCatalog {
         if (resolved.viaAlias) {
             eventName = entry.name;
         }
+        if (options?.subscription !== undefined && entry.transport === 'signal') {
+            throw new Error(`[event-catalog] cannot subscribe to "${eventName}" with a durable subscription handle: `
+                + 'it is a signal event, and signal delivery has no queue-owned subscriptions.');
+        }
+        const subscription = options?.subscription === undefined
+            ? undefined
+            : (0, durable_1.parseSubscriptionHandle)(options.subscription);
         this.registry.addSubscriber(eventName, this.config.serviceName);
         // Notify remote catalog (non-blocking, fault-tolerant)
         this.registerSubscriberRemote(eventName).catch(err => {
@@ -1040,6 +1047,8 @@ class EventCatalog {
                 visibilityTimeout: options?.visibilityTimeout,
                 queueOptions: { retention: entry.retention, fifo: entry.fifo, dlqAfterAttempts: entry.dlqAfterAttempts },
                 isPaused: () => paused,
+                subscription,
+                onTerminalError: options?.onTerminalError,
             });
             return {
                 unsubscribe: async () => {
@@ -1052,6 +1061,7 @@ class EventCatalog {
                 pause: () => { paused = true; },
                 resume: () => { paused = false; },
                 isPaused: () => paused,
+                terminalError: () => cancel.terminalError,
             };
         }
     }

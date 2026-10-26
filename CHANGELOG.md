@@ -12,6 +12,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.10.0] - 2026-10-26
+
+- Adopt message-queue 0.5.0 (`316c35f3`), installed through its Git prepare build. The lock integrity equals the locally packed and verified MQ artifact; the earlier script-disabled install lacked `dist/client` and is replaced.
+- Add explicit queue-owned subscription selection. Durable `subscribe` options accept `subscription: { id, generation }`, forwarded on every receive; ACK and renewal keep deriving scope from the receipt. Default consumers are unchanged.
+- In subscription mode the catalog never ensures, re-creates or deletes the queue or subscription. `unsubscribe()`/`disconnect()` only stop intake and drain. A stale, removed or replaced-queue handle (`StaleSubscription`, `StaleQueue`, `SubscriptionDoesNotExist`, `QueueDoesNotExist`) ends intake with `DurableSubscriptionUnavailableError` on `terminalError` and `onTerminalError`; it never falls back to the default scope. Transient failures keep retrying with the same handle.
+- Reject a subscription handle on signal-only events and malformed handles before any registry side effect. Export `SubscriptionHandle`, `parseSubscriptionHandle` and `DurableSubscriptionUnavailableError`; `getOverflowStats()` adds `unavailableSubscriptions`.
+- Three more actual-broker cases against DynamoDB Local and separate broker processes: independent copies per subscription with competition inside one and an untouched default scope, offline backlog and rejoin without deletion, and stale-generation refusal. Twelve broker and ten policy cases pass on Node 20.0.0 and 25.9.0, with packed import/require identity and consumer types.
+
 ## [0.9.0] - 2026-10-26
 
 - Adopt message-queue 0.4.0's shared client under its actual package identity. Signing, wire validation, POST receive, request/body deadlines, cancellation, readiness and attribute reads now use the owner implementation. Remove the incorrectly named optional MQ peer.

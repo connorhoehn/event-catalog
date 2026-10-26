@@ -7,7 +7,9 @@ import {
   type QueueMessage,
   type SendOptions,
   type RequestOptions,
+  type SubscriptionHandle,
 } from '@connorhoehnslalom/message-queue/client';
+export type { SubscriptionHandle } from '@connorhoehnslalom/message-queue/client';
 import { DurableLease, type DurableHandlerContext } from './durable-lease';
 export type { DurableHandlerContext } from './durable-lease';
 import type { EventEnvelope } from '../types/index';
@@ -97,6 +99,57 @@ export interface DurableSubscribeOptions {
   queueOptions?: EnsureQueueOptions;
   /** Pauses intake; acquired but unstarted messages are left for redelivery. */
   isPaused?: () => boolean;
+  /**
+   * Receive through an explicit queue-owned subscription (ID plus generation)
+   * instead of the queue's default delivery scope. The host or an operator
+   * provisions the queue and the subscription; in this mode the transport
+   * never ensures, re-creates or deletes either. A stale or missing
+   * subscription (or queue incarnation) ends intake with
+   * {@link DurableSubscription.terminalError} set; it never falls back to the
+   * default scope.
+   */
+  subscription?: SubscriptionHandle;
+  /** Called once when intake ends because the selected subscription can no longer be used. */
+  onTerminalError?: (error: Error) => void;
+}
+
+/** Raised when an explicit subscription handle is stale, removed or belongs to a replaced queue. */
+export class DurableSubscriptionUnavailableError extends Error {
+  readonly name = 'DurableSubscriptionUnavailableError';
+  constructor(
+    readonly queue: string,
+    readonly subscription: SubscriptionHandle,
+    readonly code: string,
+    readonly cause?: unknown,
+  ) {
+    super(
+      `Subscription "${subscription.id}" (generation ${subscription.generation}) on queue "${queue}" is unavailable: ${code}`,
+    );
+  }
+}
+
+const TERMINAL_SUBSCRIPTION_CODES = new Set([
+  'StaleSubscription',
+  'StaleQueue',
+  'SubscriptionDoesNotExist',
+  'QueueDoesNotExist',
+]);
+
+/** Validate and freeze a queue-owned subscription handle. */
+export function parseSubscriptionHandle(value: unknown): SubscriptionHandle {
+  const handle = value as Partial<SubscriptionHandle> | null;
+  if (
+    !handle ||
+    typeof handle !== 'object' ||
+    typeof handle.id !== 'string' ||
+    !handle.id ||
+    typeof handle.generation !== 'string' ||
+    !handle.generation
+  )
+    throw new TypeError(
+      'subscription must be a queue-owned handle with a non-empty id and generation',
+    );
+  return Object.freeze({ id: handle.id, generation: handle.generation });
 }
 
 /**
@@ -134,6 +187,8 @@ type MessageHandler = (
 export type DurablePublishOptions = SendOptions;
 export type DurableSubscription = (() => void) & {
   readonly done: Promise<void>;
+  /** Set when intake ended because the explicit subscription became unusable. */
+  readonly terminalError: Error | undefined;
 };
 interface Poller {
   stop(): void;
@@ -213,6 +268,7 @@ export class DurableTransport {
   /** Times a polled queue answered 404 and was re-created in place. */
   private queueVanishedCount = 0;
   private pollFailures = 0;
+  private unavailableSubscriptions = 0;
   private deadLetteredTotal = 0;
   private readonly log: LogWriter;
 
@@ -371,6 +427,7 @@ export class DurableTransport {
     ensureQueueFailures: number;
     pollFailures: number;
     queueVanished: number;
+    unavailableSubscriptions: number;
     deadLetteredTotal: number;
     suppressedWarnings: number;
   } {
@@ -383,6 +440,7 @@ export class DurableTransport {
       ensureQueueFailures: this.ensureQueueFailures,
       pollFailures: this.pollFailures,
       queueVanished: this.queueVanishedCount,
+      unavailableSubscriptions: this.unavailableSubscriptions,
       deadLetteredTotal: this.deadLetteredTotal,
       suppressedWarnings:
         this.backpressureWarnings.suppressedTotal +
@@ -617,6 +675,10 @@ export class DurableTransport {
       'pollingInterval',
     );
     const batchSize = integer(options.batchSize ?? 10, 1, 10, 'batchSize');
+    const subscription =
+      options.subscription === undefined
+        ? undefined
+        : parseSubscriptionHandle(options.subscription);
     const visibilityTimeout = integer(
       options.visibilityTimeout ?? 30,
       1,
@@ -627,6 +689,7 @@ export class DurableTransport {
     const leases = new Set<DurableLease>();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const id = this.nextPollerId++;
+    let terminalError: Error | undefined;
     const poller: Poller = {
       stopped: false,
       done: Promise.resolve(),
@@ -645,15 +708,28 @@ export class DurableTransport {
     poller.done = this.pollLoop(
       queueName,
       handler,
-      { ...options, pollingInterval, batchSize, visibilityTimeout },
+      { ...options, subscription, pollingInterval, batchSize, visibilityTimeout },
       intake.signal,
       leases,
+      (error) => {
+        terminalError = error;
+        this.unavailableSubscriptions++;
+        poller.stop();
+        try {
+          options.onTerminalError?.(error);
+        } catch {
+          // Observer failures never change delivery ownership.
+        }
+      },
     ).finally(() => {
       clearTimeout(timer);
       for (const lease of leases) lease.abandon();
       this.activePollers.delete(id);
     });
-    const cancel = Object.assign(() => poller.stop(), { done: poller.done });
+    const cancel = Object.defineProperties(() => poller.stop(), {
+      done: { value: poller.done, enumerable: true },
+      terminalError: { get: () => terminalError, enumerable: true },
+    }) as DurableSubscription;
     return cancel;
   }
 
@@ -772,8 +848,10 @@ export class DurableTransport {
     },
     signal: AbortSignal,
     leases: Set<DurableLease>,
+    terminate: (error: Error) => void,
   ): Promise<void> {
     let failures = 0;
+    const subscription = options.subscription;
     const policy = options.queueOptions ?? this.queuePolicies.get(queueName);
     while (!signal.aborted) {
       try {
@@ -781,13 +859,17 @@ export class DurableTransport {
           await this.sleep(options.pollingInterval, signal);
           continue;
         }
-        await this.ensureQueue(queueName, policy, { signal });
+        // Explicit subscriptions belong to a host-provisioned queue
+        // incarnation; ensuring here could re-create a deleted queue.
+        if (!subscription)
+          await this.ensureQueue(queueName, policy, { signal });
         const started = performance.now();
         const messages = await this.client.receive(queueName, {
           max: options.batchSize,
           visibilityTimeoutSeconds: options.visibilityTimeout,
           waitSeconds: 0,
           signal,
+          ...(subscription ? { subscription } : {}),
         });
         failures = 0;
         // Renew every acquired receipt, including queued members of a slow batch.
@@ -854,6 +936,27 @@ export class DurableTransport {
         if (!messages.length) await this.sleep(options.pollingInterval, signal);
       } catch (error) {
         if (signal.aborted) return;
+        if (
+          subscription &&
+          error instanceof MessageQueueError &&
+          [404, 409].includes(error.status) &&
+          TERMINAL_SUBSCRIPTION_CODES.has(error.code)
+        ) {
+          const unavailable = new DurableSubscriptionUnavailableError(
+            queueName,
+            subscription,
+            error.code,
+            error,
+          );
+          this.log.error(`[durable-transport] ${unavailable.message}; intake stopped`, {
+            queue: queueName,
+            subscription: subscription.id,
+            generation: subscription.generation,
+            code: error.code,
+          });
+          terminate(unavailable);
+          return;
+        }
         if (
           error instanceof MessageQueueError &&
           error.status === 404 &&

@@ -24,6 +24,7 @@ import { EventCatalog } from '@connorhoehn/event-catalog';
 const require = createRequire(import.meta.url);
 assert.equal(require('@connorhoehn/event-catalog/durable').DurableTransport, DurableTransport);
 assert.equal(require('@connorhoehn/event-catalog').EventCatalog, EventCatalog);
+assert.equal(require('@connorhoehn/event-catalog').DurableSubscriptionUnavailableError, require('@connorhoehn/event-catalog/durable').DurableSubscriptionUnavailableError);
 assert.equal(Object.keys(require.cache).some(p => /message-queue[\\\\/]dist[\\\\/]server/.test(p)), false);
 const calls = [];
 globalThis.fetch = async (url, init) => {
@@ -41,12 +42,17 @@ console.log('Packed catalog root/durable import + require identity and owner-cli
   execFileSync(process.execPath, [join(temporary, 'verify.mjs')], { stdio: 'inherit', timeout: 15000 });
   writeFileSync(join(temporary, 'consumer.ts'), `
 import { EventCatalog, type DurableHandlerContext, type PublishOptions } from '@connorhoehn/event-catalog';
-import { DurableTransport, type DurableSubscription } from '@connorhoehn/event-catalog/durable';
+import { DurableTransport, DurableSubscriptionUnavailableError, type DurableSubscription, type SubscriptionHandle } from '@connorhoehn/event-catalog/durable';
 const options: PublishOptions = { groupId: 'team', deduplicationId: 'event', signal: new AbortController().signal };
 export async function consume(catalog: EventCatalog, transport: DurableTransport) {
   await catalog.publish('work:requested', {}, options);
   const subscription: DurableSubscription = transport.subscribe('work', async (_, context: DurableHandlerContext) => { context.signal.throwIfAborted(); });
   subscription(); await subscription.done;
+  const handle: SubscriptionHandle = { id: 'reports', generation: 'g1' };
+  const selected = catalog.subscribe('work:requested', async () => {}, { subscription: handle, onTerminalError: (error: Error) => void error });
+  const reason: Error | undefined = selected.terminalError?.();
+  if (reason instanceof DurableSubscriptionUnavailableError) void reason.code;
+  await selected.unsubscribe();
 }
 `);
   writeFileSync(join(temporary, 'tsconfig.json'), JSON.stringify({ compilerOptions: {

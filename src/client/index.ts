@@ -1,7 +1,7 @@
 import { RetryManager } from 'distributed-core/transport';
 import { Registry } from '../registry/index';
 import { SignalTransport } from './signal';
-import { DurableTransport } from './durable';
+import { DurableTransport, parseSubscriptionHandle } from './durable';
 import {
   buildChannelMessageEnvelope,
   buildSignalMessage,
@@ -1242,6 +1242,15 @@ export class EventCatalog {
     if (resolved.viaAlias) {
       eventName = entry.name;
     }
+    if (options?.subscription !== undefined && entry.transport === 'signal') {
+      throw new Error(
+        `[event-catalog] cannot subscribe to "${eventName}" with a durable subscription handle: `
+        + 'it is a signal event, and signal delivery has no queue-owned subscriptions.',
+      );
+    }
+    const subscription = options?.subscription === undefined
+      ? undefined
+      : parseSubscriptionHandle(options.subscription);
 
     this.registry.addSubscriber(eventName, this.config.serviceName);
 
@@ -1307,6 +1316,8 @@ export class EventCatalog {
           visibilityTimeout: options?.visibilityTimeout,
           queueOptions: { retention: entry.retention, fifo: entry.fifo, dlqAfterAttempts: entry.dlqAfterAttempts },
           isPaused: () => paused,
+          subscription,
+          onTerminalError: options?.onTerminalError,
         },
       );
 
@@ -1325,6 +1336,7 @@ export class EventCatalog {
         pause: () => { paused = true; },
         resume: () => { paused = false; },
         isPaused: () => paused,
+        terminalError: () => cancel.terminalError,
       };
     }
   }

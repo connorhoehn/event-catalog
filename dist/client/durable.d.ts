@@ -1,4 +1,5 @@
-import { type SendOptions, type RequestOptions } from '@connorhoehnslalom/message-queue/client';
+import { type SendOptions, type RequestOptions, type SubscriptionHandle } from '@connorhoehnslalom/message-queue/client';
+export type { SubscriptionHandle } from '@connorhoehnslalom/message-queue/client';
 import { type DurableHandlerContext } from './durable-lease';
 export type { DurableHandlerContext } from './durable-lease';
 import type { EventEnvelope } from '../types/index';
@@ -57,7 +58,30 @@ export interface DurableSubscribeOptions {
     queueOptions?: EnsureQueueOptions;
     /** Pauses intake; acquired but unstarted messages are left for redelivery. */
     isPaused?: () => boolean;
+    /**
+     * Receive through an explicit queue-owned subscription (ID plus generation)
+     * instead of the queue's default delivery scope. The host or an operator
+     * provisions the queue and the subscription; in this mode the transport
+     * never ensures, re-creates or deletes either. A stale or missing
+     * subscription (or queue incarnation) ends intake with
+     * {@link DurableSubscription.terminalError} set; it never falls back to the
+     * default scope.
+     */
+    subscription?: SubscriptionHandle;
+    /** Called once when intake ends because the selected subscription can no longer be used. */
+    onTerminalError?: (error: Error) => void;
 }
+/** Raised when an explicit subscription handle is stale, removed or belongs to a replaced queue. */
+export declare class DurableSubscriptionUnavailableError extends Error {
+    readonly queue: string;
+    readonly subscription: SubscriptionHandle;
+    readonly code: string;
+    readonly cause?: unknown;
+    readonly name = "DurableSubscriptionUnavailableError";
+    constructor(queue: string, subscription: SubscriptionHandle, code: string, cause?: unknown);
+}
+/** Validate and freeze a queue-owned subscription handle. */
+export declare function parseSubscriptionHandle(value: unknown): SubscriptionHandle;
 /**
  * Subset of an event-catalog EventDeclaration's durable-side config that
  * affects queue creation. Passed by EventCatalog.publish() (Phase 4.2)
@@ -88,6 +112,8 @@ type MessageHandler = (envelope: EventEnvelope, context: DurableHandlerContext) 
 export type DurablePublishOptions = SendOptions;
 export type DurableSubscription = (() => void) & {
     readonly done: Promise<void>;
+    /** Set when intake ended because the explicit subscription became unusable. */
+    readonly terminalError: Error | undefined;
 };
 export type DeadLetterCallback = (message: DeadLetteredMessage) => void;
 /** Durable event policy over the MQ-owned wire client. Broker storage owns delivery. */
@@ -137,6 +163,7 @@ export declare class DurableTransport {
     /** Times a polled queue answered 404 and was re-created in place. */
     private queueVanishedCount;
     private pollFailures;
+    private unavailableSubscriptions;
     private deadLetteredTotal;
     private readonly log;
     constructor(config: DurableTransportConfig);
@@ -188,6 +215,7 @@ export declare class DurableTransport {
         ensureQueueFailures: number;
         pollFailures: number;
         queueVanished: number;
+        unavailableSubscriptions: number;
         deadLetteredTotal: number;
         suppressedWarnings: number;
     };

@@ -21,6 +21,7 @@ import {
   vi,
 } from 'vitest';
 import {
+  DurableSubscriptionUnavailableError,
   DurableTransport,
   type DurableTransportConfig,
 } from '../src/client/durable';
@@ -463,6 +464,104 @@ live(
       expect(await competitor.receive(name)).toEqual([]);
       expect(handler).toHaveBeenCalledTimes(1);
     }, 10000);
+
+    it('delivers an independent copy to each explicit subscription and splits work inside one', async () => {
+      const producer = await transport();
+      const name = queue();
+      await producer.ensureQueue(name);
+      const { subscription: groupA } = await competitor.ensureSubscription(name, 'group-a', 'earliest');
+      const { subscription: groupB } = await competitor.ensureSubscription(name, 'group-b', 'earliest');
+      const ids = Array.from({ length: 6 }, (_, i) => `job-${i}`);
+      for (const id of ids) await producer.publish(name, envelope(id));
+      const seen = { a1: [] as string[], a2: [] as string[], b: [] as string[] };
+      const consumer = async (key: keyof typeof seen, subscription: typeof groupA) =>
+        (await transport()).subscribe(
+          name,
+          async (event) => {
+            seen[key].push(event.metadata.id);
+            await sleep(20);
+          },
+          { subscription, batchSize: 1, pollingInterval: 10 },
+        );
+      await consumer('a1', groupA);
+      await consumer('a2', groupA);
+      await consumer('b', groupB);
+      await vi.waitFor(
+        () => {
+          expect([...seen.a1, ...seen.a2].sort()).toEqual(ids);
+          expect([...seen.b].sort()).toEqual(ids);
+        },
+        { timeout: 8000, interval: 50 },
+      );
+      // Members of one subscription compete: no copy is processed twice.
+      expect(seen.a1.filter((id) => seen.a2.includes(id))).toEqual([]);
+      // The default delivery scope keeps its own copies.
+      const defaults = await receive(name, ids.length);
+      expect(defaults.map((m) => JSON.parse(m.body).metadata.id).sort()).toEqual(ids);
+    }, 15000);
+
+    it('keeps backlog while every catalog consumer is offline and never deletes the subscription', async () => {
+      const producer = await transport();
+      const name = queue();
+      await producer.ensureQueue(name);
+      const { subscription } = await competitor.ensureSubscription(name, 'reports', 'earliest');
+      await producer.publish(name, envelope('before'));
+      const first = await transport();
+      const handled: string[] = [];
+      const sub = first.subscribe(name, async (event) => { handled.push(event.metadata.id); }, {
+        subscription,
+        pollingInterval: 10,
+      });
+      await vi.waitFor(() => expect(handled).toEqual(['before']));
+      sub();
+      await sub.done;
+      await first.disconnect();
+      for (const id of ['offline-1', 'offline-2']) await producer.publish(name, envelope(id));
+      expect(await competitor.getSubscription(name, 'reports')).toMatchObject({
+        id: 'reports',
+        generation: subscription.generation,
+      });
+      const rejoined = await transport();
+      rejoined.subscribe(name, async (event) => { handled.push(event.metadata.id); }, {
+        subscription,
+        pollingInterval: 10,
+      });
+      await vi.waitFor(() => expect(handled).toEqual(['before', 'offline-1', 'offline-2']), { timeout: 6000 });
+      await rejoined.disconnect();
+      expect(await competitor.getSubscription(name, 'reports')).toMatchObject({ generation: subscription.generation });
+    }, 15000);
+
+    it('refuses a stale generation without falling back to the default scope or re-creating the subscription', async () => {
+      const producer = await transport();
+      const name = queue();
+      await producer.ensureQueue(name);
+      const { subscription: old } = await competitor.ensureSubscription(name, 'audit', 'earliest');
+      await competitor.removeSubscription(name, old);
+      const { subscription: current } = await competitor.ensureSubscription(name, 'audit', 'earliest');
+      expect(current.generation).not.toBe(old.generation);
+      await producer.publish(name, envelope('after-reset'));
+      const stale = await transport();
+      const staleHandler = vi.fn();
+      const onTerminalError = vi.fn();
+      const sub = stale.subscribe(name, staleHandler, { subscription: old, pollingInterval: 10, onTerminalError });
+      await sub.done;
+      expect(onTerminalError).toHaveBeenCalledTimes(1);
+      expect(sub.terminalError).toBeInstanceOf(DurableSubscriptionUnavailableError);
+      expect(['StaleSubscription', 'SubscriptionDoesNotExist']).toContain(
+        (sub.terminalError as DurableSubscriptionUnavailableError).code,
+      );
+      expect(staleHandler).not.toHaveBeenCalled();
+      expect(await competitor.getSubscription(name, 'audit')).toMatchObject({ generation: current.generation });
+      // Neither the default scope nor the current subscription lost its copy.
+      expect(JSON.parse((await receive(name))[0].body).metadata.id).toBe('after-reset');
+      const fresh = await transport();
+      const handled: string[] = [];
+      fresh.subscribe(name, async (event) => { handled.push(event.metadata.id); }, {
+        subscription: current,
+        pollingInterval: 10,
+      });
+      await vi.waitFor(() => expect(handled).toEqual(['after-reset']), { timeout: 6000 });
+    }, 15000);
 
     it('loses readiness and aborts ownership after its broker process dies; another process redelivers', async () => {
       const value = await transport();

@@ -1,4 +1,4 @@
-import type { DurableTransportConfig, DurableHandlerContext, DurablePublishOptions } from '../client/durable';
+import type { DurableTransportConfig, DurableHandlerContext, DurablePublishOptions, SubscriptionHandle } from '../client/durable';
 export type TransportType = 'signal' | 'durable' | 'both';
 export type CompatibilityMode = 'backward' | 'forward' | 'full' | 'none';
 /**
@@ -186,6 +186,15 @@ export interface SubscribeOptions {
     pollingInterval?: number;
     batchSize?: number;
     visibilityTimeout?: number;
+    /**
+     * Durable only: receive through this queue-owned subscription instead of
+     * the default delivery scope. Provision it with the queue owner; the
+     * catalog never creates or deletes it, and `unsubscribe()` only stops
+     * intake and drains handlers. Rejected for signal-only events.
+     */
+    subscription?: SubscriptionHandle;
+    /** Durable only: observe intake ending because `subscription` became stale or was removed. */
+    onTerminalError?: (error: Error) => void;
 }
 export interface EventMetadata {
     id: string;
@@ -213,6 +222,8 @@ export interface Subscription {
     resume(): void;
     /** Phase 20-b — current pause state. */
     isPaused(): boolean;
+    /** Durable subscriptions: why intake ended on its own (stale or removed subscription). */
+    terminalError?(): Error | undefined;
 }
 export interface EventStats {
     publishCount: number;
