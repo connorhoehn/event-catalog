@@ -35,6 +35,8 @@
 // constants here — add them to the appropriate module and then include
 // them in the list below.
 
+import type { EventDeclaration } from '../types';
+
 import {
     pipelineApprovalRequested,
     pipelineApprovalRecorded,
@@ -147,7 +149,7 @@ export {
  * }
  * ```
  */
-export const pipelineEventDeclarations = [
+export const pipelineEventDeclarations: EventDeclaration[] = [
     // P0 — approval + checkpoint
     pipelineApprovalRequested,
     pipelineApprovalRecorded,

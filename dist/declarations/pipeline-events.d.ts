@@ -1,3 +1,4 @@
+import type { EventDeclaration } from '../types';
 import { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpoint } from './pipeline';
 import { pipelineRunCancelled, pipelineStepStarted, pipelineStepCompleted, pipelineStepFailed, pipelineLlmPrompt, pipelineLlmResponse, pipelineContextPatched, pipelineContextPatchedUnvalidated, pipelineContextPatchReverted } from './pipeline-p1';
 import { pipelineRunStarted, pipelineRunCompleted, pipelineRunFailed, pipelineRunOrphaned, pipelineRunReassigned, pipelineRunResumedFromStep, pipelineRunRetry, pipelineRunStuck, pipelineStepBreakpoint, pipelineJoinWaiting, pipelineJoinFired } from './pipeline-p2';
@@ -25,5 +26,5 @@ export { pipelineApprovalRequested, pipelineApprovalRecorded, pipelineRunCheckpo
  * }
  * ```
  */
-export declare const pipelineEventDeclarations: import("../types").EventDeclaration[];
+export declare const pipelineEventDeclarations: EventDeclaration[];
 //# sourceMappingURL=pipeline-events.d.ts.map
