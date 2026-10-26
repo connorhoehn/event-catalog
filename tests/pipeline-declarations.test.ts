@@ -1,3 +1,4 @@
+import { queueResponse } from './helpers/queue-http';
 // tests/pipeline-declarations.test.ts
 //
 // Wave 1 / track EC-1 — coverage for the P0 pipeline declarations:
@@ -69,8 +70,9 @@ beforeEach(() => {
   // Default: healthy fetch (durable-transport queue exists + send 200).
   fetchMock.mockImplementation(async (url: string | URL | Request, opts?: RequestInit) => {
     const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
-    if (urlStr.includes('/health')) return new Response('ok', { status: 200 });
-    if (opts?.method === 'POST') return new Response(JSON.stringify({ messageId: 'm-1' }), { status: 200 });
+    if (urlStr.includes('/ready')) return queueResponse(200, { status: 'ready' });
+    if (opts?.method === 'PUT') return queueResponse(201, { status: 'created' });
+    if (opts?.method === 'POST') return queueResponse(200, { message_id: 'm-1' });
     if (opts?.method === 'GET') return new Response(JSON.stringify({ messages: [] }), { status: 200 });
     return new Response('', { status: 200 });
   });

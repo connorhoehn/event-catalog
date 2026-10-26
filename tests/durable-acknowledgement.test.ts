@@ -1,7 +1,8 @@
+import { queueResponse } from './helpers/queue-http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DurableTransport } from '../src/client/durable';
 
-const message = { message_id: 'one', receipt_handle: 'receipt', body: JSON.stringify({
+const message = { message_id: 'one', approximate_receive_count: 1, receipt_handle: 'receipt', body: JSON.stringify({
   eventName: 'test:event', payload: {}, metadata: { id: 'one', producer: 'test', timestamp: 1 },
 }) };
 
@@ -13,15 +14,15 @@ describe('durable acknowledgement result', () => {
     let recovered = false;
     const handler = vi.fn(async () => {});
     vi.stubGlobal('fetch', vi.fn(async (url: string, opts?: RequestInit) => {
-      if (opts?.method === 'PUT') return { ok: true, status: 201 };
-      if (url.endsWith('/health')) return { ok: true };
+      if (opts?.method === 'PUT') return queueResponse(201, { status: 'created' });
+      if (url.endsWith('/ready')) return queueResponse(200, { status: 'ready' });
       if (opts?.method === 'DELETE') {
-        if (recovered) return { ok: true };
+        if (recovered) return queueResponse(200, { success: true });
         if (failure === 'network') throw Error('offline');
-        return { ok: false, status: 503 };
+        return queueResponse(503, {});
       }
       const messages = polled ? [] : [message]; polled = true;
-      return { ok: true, json: async () => ({ messages }) };
+      return queueResponse(200, { messages });
     }));
     const transport = new DurableTransport({ url: 'http://queue', maxProcessingAttempts: 1,
       logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } });
@@ -46,8 +47,8 @@ it.each(['deadline', 'disconnect'])('a stalled acknowledgement is cancelled by %
   let started!: () => void;
   const pending = new Promise<void>(resolve => { started = resolve; });
   vi.stubGlobal('fetch', vi.fn(async (url: string, opts?: RequestInit) => {
-    if (opts?.method === 'PUT') return { ok: true, status: 201 };
-    if (url.endsWith('/health')) return { ok: true };
+    if (opts?.method === 'PUT') return queueResponse(201, { status: 'created' });
+    if (url.endsWith('/ready')) return queueResponse(200, { status: 'ready' });
     if (opts?.method === 'DELETE') {
       started();
       return new Promise((_, reject) => {
@@ -57,9 +58,9 @@ it.each(['deadline', 'disconnect'])('a stalled acknowledgement is cancelled by %
       });
     }
     const messages = polled ? [] : [message]; polled = true;
-    return { ok: true, json: async () => ({ messages }) };
+    return queueResponse(200, { messages });
   }));
-  const transport = new DurableTransport({ url: 'http://queue', acknowledgementTimeoutMs: reason === 'deadline' ? 20 : 10000,
+  const transport = new DurableTransport({ url: 'http://queue', drainTimeoutMs: 20, acknowledgementTimeoutMs: reason === 'deadline' ? 20 : 10000,
     logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } });
   await transport.connect();
   transport.subscribe('test', async () => {}, { pollingInterval: 1 });

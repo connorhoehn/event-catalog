@@ -76,8 +76,10 @@ assume cross-service events are declared and validated here.
   `distributed-core/server`; the admin server does NOT use Express).
   `Counter`/`Gauge` come from `distributed-core/monitoring`, not the root
   barrel.
-- **`@connorhoehn/message-queue`** — peer dependency. `DurableTransport`
-  resolves to this via `MESSAGE_QUEUE_URL`.
+- **`@connorhoehnslalom/message-queue`** — runtime dependency, SHA-pinned to
+  v0.4.0. `DurableTransport` imports `/client`; `MESSAGE_QUEUE_URL` is the
+  broker's bare origin. Queue policy is strict; subscriber leases renew and
+  shutdown drains within a configured budget. See README's 0.9.0 section.
 - **`@connorhoehn/ui-components`** — admin UI shared components (Vite). The
   topology + flow views import `PipelineCanvas`'s underlying primitives
   (`@xyflow/react` + `AnimatedEdge`) to match the gateway's

@@ -121,7 +121,7 @@ describe('redis key helpers', () => {
 });
 
 describe('JSON Schemas (Phase E2.1 close-out)', () => {
-  const validator = new JsonSchemaValidator({ mode: 'auto' });
+  const validator = new JsonSchemaValidator({ mode: 'fallback' });
 
   const canonicalSignalMessage = {
     type: 'social:post',
@@ -299,7 +299,7 @@ describe('buildBroadcastEnvelope (wave18-b)', () => {
 });
 
 describe('directMessageEnvelopeSchema + broadcastEnvelopeSchema (wave18-b)', () => {
-  const validator = new JsonSchemaValidator({ mode: 'auto' });
+  const validator = new JsonSchemaValidator({ mode: 'fallback' });
 
   it('accepts canonical direct-message builder output', () => {
     const env = buildDirectMessageEnvelope({

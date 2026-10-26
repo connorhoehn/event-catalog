@@ -1,3 +1,4 @@
+import { queueResponse } from './helpers/queue-http';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // In-memory Redis pub/sub + streams simulator
@@ -74,17 +75,17 @@ describe('EventCatalog Client Integration', () => {
     // Default fetch mock: healthy durable transport
     fetchMock.mockImplementation(async (url: string | URL | Request, opts?: RequestInit) => {
       const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
-      if (urlStr.includes('/health')) {
-        return new Response('ok', { status: 200 });
+      if (urlStr.includes('/ready')) {
+        return queueResponse(200, { status: 'ready' });
       }
-      if (urlStr.includes('/queues') && opts?.method === 'POST' && !urlStr.includes('/messages')) {
-        return new Response(JSON.stringify({ queue_name: 'test' }), { status: 201 });
+      if (opts?.method === 'PUT') {
+        return queueResponse(201, { status: 'created' });
       }
       if (urlStr.includes('/messages') && opts?.method === 'POST') {
         return new Response(JSON.stringify({ message_id: 'msg-1' }), { status: 200 });
       }
       if (urlStr.includes('/api/events')) {
-        return new Response('ok', { status: 200 });
+        return queueResponse(200, { status: 'ready' });
       }
       return new Response('not found', { status: 404 });
     });
@@ -1117,16 +1118,16 @@ describe('EventCatalog Client Integration', () => {
         payload,
         metadata: { id: 'e-001', producer: 'test-service', timestamp: Date.now() },
       });
-      const queueMsg = { message_id: 'msg-1', body: messageBody, receipt_handle: 'rh-1' };
+      const queueMsg = { message_id: 'msg-1', body: messageBody, approximate_receive_count: 1, receipt_handle: 'rh-1' };
 
       let pollCall = 0;
       fetchMock.mockImplementation(async (url: string | URL | Request, opts?: RequestInit) => {
         const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : (url as Request).url;
         const method = opts?.method ?? 'GET';
-        if (urlStr.includes('/health')) return new Response('ok', { status: 200 });
-        if (method === 'PUT') return new Response('{}', { status: 201 });
-        if (method === 'DELETE') return new Response('{}', { status: 200 });
-        if (method === 'GET' && urlStr.includes('/messages')) {
+        if (urlStr.includes('/ready')) return queueResponse(200, { status: 'ready' });
+        if (method === 'PUT') return queueResponse(201, { status: 'created' });
+        if (method === 'DELETE') return queueResponse(200, { success: true });
+        if (method === 'POST' && urlStr.includes('/messages/receive')) {
           return new Response(
             JSON.stringify({ messages: pollCall++ === 0 ? [queueMsg] : [] }),
             { status: 200 },
@@ -1158,7 +1159,7 @@ describe('EventCatalog Client Integration', () => {
     it('uses eventNameToQueueName to derive the queue URL from the event name', async () => {
       fetchMock.mockImplementation(async (url: string | URL | Request, opts?: RequestInit) => {
         const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : (url as Request).url;
-        if (urlStr.includes('/health')) return new Response('ok', { status: 200 });
+        if (urlStr.includes('/ready')) return queueResponse(200, { status: 'ready' });
         return new Response(JSON.stringify({ messages: [] }), { status: 200 });
       });
 
@@ -1183,7 +1184,7 @@ describe('EventCatalog Client Integration', () => {
     it('transport:both subscribe routes to the durable polling path (not signal)', async () => {
       fetchMock.mockImplementation(async (url: string | URL | Request, opts?: RequestInit) => {
         const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : (url as Request).url;
-        if (urlStr.includes('/health')) return new Response('ok', { status: 200 });
+        if (urlStr.includes('/ready')) return queueResponse(200, { status: 'ready' });
         return new Response(JSON.stringify({ messages: [] }), { status: 200 });
       });
 
@@ -1267,7 +1268,7 @@ describe('EventCatalog Client Integration', () => {
       // Make the next bulk POST throw to simulate a transient upstream failure
       fetchMock.mockImplementation(async (url: string) => {
         if (url.includes('/api/events/bulk')) throw new Error('upstream timeout');
-        return new Response('ok', { status: 200 });
+        return queueResponse(200, { status: 'ready' });
       });
 
       await vi.advanceTimersByTimeAsync(60_000); // fire the periodic re-sync interval
@@ -1287,7 +1288,7 @@ describe('EventCatalog Client Integration', () => {
 
       // syncToRemoteRegistry() does not check res.ok; it must *throw* to trigger retries
       fetchMock.mockImplementation(async (url: string) => {
-        if (url.includes('/health')) return new Response('ok', { status: 200 });
+        if (url.includes('/ready')) return queueResponse(200, { status: 'ready' });
         if (url.includes('/api/events/bulk')) throw new Error('ECONNREFUSED');
         return new Response('not found', { status: 404 });
       });

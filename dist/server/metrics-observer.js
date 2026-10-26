@@ -282,21 +282,18 @@ class MetricsObserver {
                 this.lastDurableFailed.delete(name);
         }
         for (const entry of durableEvents) {
-            const queueName = durable_js_1.DurableTransport.eventNameToQueueName(entry.name);
+            const queueName = entry.queue ?? durable_js_1.DurableTransport.eventNameToQueueName(entry.name, entry.fifo);
             const attrs = await this.durable.getQueueAttributes(queueName);
             if (attrs) {
                 this.metrics.updateDurableStats(entry.name, {
-                    queueDepth: typeof attrs['ApproximateNumberOfMessages'] === 'number'
-                        ? attrs['ApproximateNumberOfMessages'] : undefined,
-                    messagesInFlight: typeof attrs['ApproximateNumberOfMessagesNotVisible'] === 'number'
-                        ? attrs['ApproximateNumberOfMessagesNotVisible'] : undefined,
+                    queueDepth: queueCount(attrs['ApproximateNumberOfMessages']),
+                    messagesInFlight: queueCount(attrs['ApproximateNumberOfMessagesNotVisible']),
                     // `oldestMessageAge` is declared on EventStats and gauged by
                     // MetricsCollector but was never populated, so it read 0 —
                     // i.e. "nothing is stuck" — for every queue forever. Depth
                     // alone does not distinguish a busy queue from a wedged one;
                     // the age of the head does.
-                    oldestMessageAge: typeof attrs['ApproximateAgeOfOldestMessage'] === 'number'
-                        ? attrs['ApproximateAgeOfOldestMessage'] : undefined,
+                    oldestMessageAge: queueCount(attrs['ApproximateAgeOfOldestMessage']),
                 });
             }
             const transportMetrics = this.durable.getMetrics(queueName);
@@ -345,4 +342,11 @@ class MetricsObserver {
     }
 }
 exports.MetricsObserver = MetricsObserver;
+/** MQ attributes are wire strings; missing/malformed values remain unknown. */
+function queueCount(value) {
+    if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/.test(value)))
+        return undefined;
+    const count = Number(value);
+    return Number.isSafeInteger(count) && count >= 0 ? count : undefined;
+}
 //# sourceMappingURL=metrics-observer.js.map

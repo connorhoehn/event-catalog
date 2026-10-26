@@ -26,24 +26,12 @@ import * as dcServer from 'distributed-core/server';
 // ───────────────────────────────────────────────────────────────────────────
 
 describe('distributed-core JsonSchemaValidator', () => {
-  const validator = new JsonSchemaValidator({ mode: 'auto' });
+  const validator = new JsonSchemaValidator({ mode: 'fallback' });
 
-  it('does NOT install ajv, so mode:auto always falls back to the hand-rolled validator', () => {
-    // `mode: 'auto'` tries `require('ajv')` and silently falls back. If ajv
-    // ever becomes a distributed-core dependency, every assertion below about
-    // inert keywords changes meaning — and our schema-evolution gate should be
-    // widened to gate on the keywords ajv would then enforce.
-    let ajvInstalled = true;
-    try {
-      require.resolve('ajv');
-    } catch {
-      ajvInstalled = false;
-    }
-    expect(
-      ajvInstalled,
-      'ajv is now resolvable. The fallback validator is no longer the only code path — ' +
-        're-examine registry/schema-compat.ts and the format-enforcement rules.',
-    ).toBe(false);
+  it('pins fallback semantics even with AJV available through the queue package', () => {
+    expect(require.resolve('ajv')).toBeTruthy();
+    expect(validator.validate({ type: 'string', format: 'email' }, 'not-an-email').ok).toBe(true);
+    expect(validator.validate({ type: 'number' }, 'wrong-type').ok).toBe(false);
   });
 
   it('ignores `const` entirely — this is why our declarations use `enum` for discriminators', () => {

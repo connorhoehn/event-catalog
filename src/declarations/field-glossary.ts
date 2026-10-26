@@ -175,21 +175,12 @@ export const COMMON_FIELDS: FieldGlossary = {
 // No, and that is established empirically rather than assumed — see
 // `tests/declaration-format-enforcement.test.ts`. The short version:
 // `Registry.validate()` (the publish gate, src/registry/index.ts) delegates to
-// distributed-core's `JsonSchemaValidator` with `mode: 'auto'`, which uses ajv
-// only when `ajv` resolves. `ajv` is not installed here, is not a dependency of
-// this repo, and distributed-core documents that it "MUST NOT depend on `ajv`
-// at runtime". The hand-rolled fallback that actually runs implements exactly
-// type / enum / properties / required / pattern / items / additionalProperties
-// / minimum / maximum / minLength / maxLength / minItems / maxItems. `format`
-// is not in that list, so stamping it cannot reject a payload that validates
-// today. The registry's own compat gate reasons only about `required`, so an
-// added `format` is also compatible under `full` mode.
-//
-// The corollary is the risk to watch: if someone installs `ajv` WITHOUT
-// `ajv-formats`, ajv v8 throws "unknown format" at compile time and
-// `validateWithAjv` turns that into a hard failure for EVERY payload of the
-// affected event. The enforcement test asserts ajv is absent so that day is
-// loud rather than silent.
+// distributed-core's `JsonSchemaValidator` with explicit `mode: 'fallback'`.
+// This preserves the catalog's existing supported keywords regardless of
+// transitive AJV installation. `format` remains documentation; changing the
+// validator mode requires a separate compatibility review of existing schemas.
+// The enforcement tests exercise the real Registry.validate() path with AJV
+// installed by the message-queue dependency.
 //
 // SCOPE
 // -----

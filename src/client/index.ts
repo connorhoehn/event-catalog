@@ -934,6 +934,11 @@ export class EventCatalog {
       // Phase E3.4 — 'both' fan-out: publish to signal AND durable in
       // parallel. Failure of either propagates after both are attempted so
       // partial deliveries are not silently masked.
+      // Evaluate FIFO routing before either leg starts: a throwing partition
+      // function must not leave an already-started signal promise unobserved.
+      const hasDurable = entry.transport === 'durable' || entry.transport === 'both';
+      const durableGroupId = hasDurable ? options?.groupId ?? (entry.fifo ? entry.partitionKey?.(payload) : undefined) : undefined;
+      if (hasDurable && entry.fifo && !durableGroupId) throw new Error('FIFO publish requires a groupId or declared partitionKey');
       const sends: Array<Promise<void>> = [];
       // A signal publish issued while Redis is disconnected is discarded by
       // SignalTransport rather than thrown. Detect that here so the drop is
@@ -970,7 +975,7 @@ export class EventCatalog {
         // Derived here rather than above the branch: the two regex passes in
         // eventNameToQueueName cost ~7% of a signal-only publish, and the
         // overwhelming majority of declared events never touch this branch.
-        const queueName = entry.queue ?? DurableTransport.eventNameToQueueName(eventName);
+        const queueName = entry.queue ?? DurableTransport.eventNameToQueueName(eventName, entry.fifo);
         // Phase 4.2 — thread the declared durable-side config so
         // DurableTransport.ensureQueue can PUT the right shape on first publish.
         const queueOptions = {
@@ -978,7 +983,11 @@ export class EventCatalog {
           fifo: entry.fifo,
           dlqAfterAttempts: entry.dlqAfterAttempts,
         };
-        sends.push(this.durable.publish(queueName, envelope as EventEnvelope, queueOptions));
+        sends.push(this.durable.publish(queueName, envelope as EventEnvelope, queueOptions, {
+          groupId: durableGroupId,
+          deduplicationId: options?.deduplicationId, delaySeconds: options?.delaySeconds,
+          signal: options?.signal, timeoutMs: options?.timeoutMs, schemaVersion: entry.version,
+        }));
       }
       const results = await Promise.allSettled(sends);
       const rejection = results.find((r) => r.status === 'rejected');
@@ -1286,22 +1295,25 @@ export class EventCatalog {
         isPaused: () => paused,
       };
     } else {
-      const queueName = DurableTransport.eventNameToQueueName(eventName);
+      const queueName = entry.queue ?? DurableTransport.eventNameToQueueName(eventName, entry.fifo);
       const cancel = this.durable.subscribe(
         queueName,
-        async (envelope) => {
-          await guardedHandler(envelope as EventEnvelope<T>);
+        async (envelope, context) => {
+          await handler(envelope as EventEnvelope<T>, context);
         },
         {
           pollingInterval: options?.pollingInterval,
           batchSize: options?.batchSize,
           visibilityTimeout: options?.visibilityTimeout,
+          queueOptions: { retention: entry.retention, fifo: entry.fifo, dlqAfterAttempts: entry.dlqAfterAttempts },
+          isPaused: () => paused,
         },
       );
 
       return {
         unsubscribe: async () => {
           cancel();
+          await cancel.done;
           this.deregisterSubscriberRemote(eventName).catch(err => {
             this.log.warn(
               `[event-catalog] failed to deregister subscriber from remote registry for "${eventName}":`,

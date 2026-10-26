@@ -25,10 +25,10 @@ describe('DurableTransport poll loop — queue vanished (404)', () => {
       if (init?.method === 'PUT') {
         return new Response(JSON.stringify({ status: 'created' }), { status: 201 });
       }
-      if (url.includes('/messages?')) {
+      if (url.includes('/messages/receive')) {
         pollCalls++;
         // First poll finds the queue gone; every later poll succeeds.
-        if (pollCalls === 1) return new Response('Queue does not exist', { status: 404 });
+        if (pollCalls === 1) return new Response(JSON.stringify({ error_code: 'QueueDoesNotExist' }), { status: 404 });
         return new Response(JSON.stringify({ messages: [] }), { status: 200 });
       }
       return new Response('', { status: 200 });
@@ -43,7 +43,7 @@ describe('DurableTransport poll loop — queue vanished (404)', () => {
     }
     // Give the loop a moment to resume polling against the re-created queue.
     await sleep(100);
-    unsubscribe();
+    unsubscribe(); await unsubscribe.done;
 
     const puts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PUT');
     expect(puts.map(([url]) => url)).toEqual([
@@ -56,8 +56,8 @@ describe('DurableTransport poll loop — queue vanished (404)', () => {
 
   it('does not treat other poll failures as a vanished queue', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'PUT') return new Response('', { status: 201 });
-      if (url.includes('/messages?')) return new Response('boom', { status: 500 });
+      if (init?.method === 'PUT') return new Response(JSON.stringify({ status: 'created' }), { status: 201 });
+      if (url.includes('/messages/receive')) return new Response('boom', { status: 500 });
       return new Response('', { status: 200 });
     });
 
@@ -68,7 +68,7 @@ describe('DurableTransport poll loop — queue vanished (404)', () => {
     while (Date.now() < deadline && transport.getOverflowStats().pollFailures === 0) {
       await sleep(50);
     }
-    unsubscribe();
+    unsubscribe(); await unsubscribe.done;
 
     const puts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PUT');
     expect(puts).toHaveLength(1);

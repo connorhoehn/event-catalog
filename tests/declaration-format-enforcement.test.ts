@@ -12,27 +12,11 @@
 //
 //     EventCatalogClient.publish()
 //       -> Registry.validate(name, payload)          (src/registry/index.ts:417)
-//         -> JsonSchemaValidator.validate(...)       ({ mode: 'auto' })
+//         -> JsonSchemaValidator.validate(...)       ({ mode: 'fallback' })
 //
-// The findings, as of distributed-core b6f38f5:
-//
-//   * `ajv` is not installed — not a dependency of this repo, not a dependency
-//     of distributed-core (which documents "The library MUST NOT depend on
-//     `ajv` at runtime"), and not present transitively.
-//   * With `mode: 'auto'` and no ajv, JsonSchemaValidator uses its hand-rolled
-//     fallback, whose keyword coverage is exactly: type, enum, properties,
-//     required, pattern, items, additionalProperties, minimum, maximum,
-//     minLength, maxLength, minItems, maxItems. `format` is not among them,
-//     and neither is `multipleOf`, `exclusiveMinimum`, `const`, `oneOf`,
-//     `anyOf`, `allOf`, `not`, or `$ref`.
-//   * Therefore `format` is inert on this path: adding it to a live schema
-//     cannot reject a payload that validates today.
-//
-// The tests below assert all of that, so that if someone later installs `ajv`
-// (which WOULD change the answer — and, without `ajv-formats` registered,
-// would make ajv v8 throw "unknown format" at compile time and fail EVERY
-// payload for the affected event, not just malformed ones) this file fails
-// loudly and the ~140 annotations get revisited before they bite.
+// Catalog now explicitly pins the established fallback keyword set. Adding
+// message-queue installs AJV transitively; the publish gate must retain its
+// documented semantics instead of switching validators based on node_modules.
 
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
@@ -53,13 +37,13 @@ function isInstalled(spec: string): boolean {
 }
 
 describe('format enforcement — is `format` a contract or a comment?', () => {
-  it('ajv is not installed, so JsonSchemaValidator runs its hand-rolled fallback', () => {
-    expect(isInstalled('ajv'), 'ajv resolved — the fallback assumption no longer holds').toBe(false);
-    expect(isInstalled('ajv-formats'), 'ajv-formats resolved unexpectedly').toBe(false);
+  it('exercises catalog validation with AJV present in the dependency tree', () => {
+    expect(isInstalled('ajv')).toBe(true);
+    expect(isInstalled('ajv-formats')).toBe(true);
   });
 
   it('a `format: date-time` violation is NOT reported by the validator directly', () => {
-    const validator = new JsonSchemaValidator({ mode: 'auto' });
+    const validator = new JsonSchemaValidator({ mode: 'fallback' });
     const schema = {
       type: 'object',
       properties: { at: { type: 'string', format: 'date-time' } },
@@ -73,7 +57,7 @@ describe('format enforcement — is `format` a contract or a comment?', () => {
   });
 
   it('a `format: uri` violation is NOT reported by the validator directly', () => {
-    const validator = new JsonSchemaValidator({ mode: 'auto' });
+    const validator = new JsonSchemaValidator({ mode: 'fallback' });
     const schema = {
       type: 'object',
       properties: { downloadUrl: { type: 'string', format: 'uri' } },
@@ -156,7 +140,7 @@ describe('keyword coverage of the fallback validator', () => {
   // Documents exactly which keywords the fallback honours, so the hygiene
   // rules know which narrowings are real and which are decorative. A rule
   // that "enforces" an inert keyword is a rule that enforces nothing.
-  const validator = new JsonSchemaValidator({ mode: 'auto' });
+  const validator = new JsonSchemaValidator({ mode: 'fallback' });
   const rejects = (schema: object, payload: unknown): boolean =>
     !validator.validate(schema, payload).ok;
 
@@ -218,7 +202,7 @@ describe('keyword coverage of the fallback validator', () => {
 // ---------------------------------------------------------------------------
 
 describe('would the other known gaps narrow a live schema?', () => {
-  const validator = new JsonSchemaValidator({ mode: 'auto' });
+  const validator = new JsonSchemaValidator({ mode: 'fallback' });
   const rejects = (schema: object, payload: unknown): boolean =>
     !validator.validate(schema, payload).ok;
 

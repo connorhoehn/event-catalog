@@ -244,8 +244,10 @@ eligible for queue redelivery and increment the failed metric, without charging
 those failures to the handler's poison-message budget. Handlers must be
 idempotent because processing can succeed while acknowledgement fails.
 
-Direct `DurableTransport` users can set `acknowledgementTimeoutMs` (default
-10,000 ms). Unsubscribe/disconnect also cancels an in-flight acknowledgement.
+Set `acknowledgementTimeoutMs` (default 10,000 ms) directly or through
+`EventCatalog.messageQueue`. Unsubscribe/disconnect stop intake immediately, keep
+renewing accepted work, and wait up to `drainTimeoutMs` (default 30,000 ms).
+After that deadline the handler signal and pending receipt I/O are aborted.
 The local in-memory DLQ remains a bounded diagnostic buffer, not a durable
 replacement for the queue service's DLQ.
 
@@ -279,3 +281,57 @@ listener when neither is supplied. The existing bearer policy gates mutations;
 reads/metrics/flow still require a private network or an authenticated ingress
 policy if their visibility must be restricted. EventCatalog already forwards
 `EVENT_CATALOG_AUTH_TOKEN` on producer registration, heartbeat and manifest writes.
+
+### Durable subscriber lifecycle and queue policy (0.9.0)
+
+Queue policy setup is strict. A configuration conflict, unavailable broker or
+missing required dead-letter queue rejects publishing; the catalog never drops
+redrive policy to make a send succeed. Subscriptions retry failed setup with
+bounded backoff. Broker `/ready` is probed with a two-second deadline;
+`isConnected()` still means `connect()` was called, while `healthCheck()` reports
+current dependency availability. Queue URLs must be bare HTTP(S) origins.
+
+Declare `fifo: true` with `partitionKey(payload)`, or pass `groupId` to publish.
+The default queue name gains `.fifo`; an explicit queue name must already be valid
+for the broker. An automatically created FIFO dead-letter queue is named
+`base-dlq.fifo` (long names are deterministically shortened). `deduplicationId`
+defaults to the envelope ID for retries of that publish. Separate publish calls
+create distinct envelopes; use an explicit stable business key when those calls
+represent the same operation. `delaySeconds`, `timeoutMs` and `signal` are also
+available in publish options. Timeouts apply per HTTP attempt, including setup,
+signing and the response body; retries can extend the overall publish duration.
+
+```ts
+catalog.declare({
+  name: 'work:requested', producer: 'worker', schema: { type: 'object' },
+  transport: 'durable', fifo: true, dlqAfterAttempts: 3,
+  partitionKey: payload => (payload as { teamId: string }).teamId,
+});
+const subscription = catalog.subscribe('work:requested', async (event, context) => {
+  context?.signal.throwIfAborted();
+  // Persist the business result idempotently; cancellation alone cannot fence writes.
+  await processWork(event, context?.signal);
+}, { visibilityTimeout: 30 });
+await subscription.unsubscribe(); // stops intake and awaits bounded draining
+```
+
+Direct `DurableTransport.subscribe()` still returns a callable stop function;
+`stop(); await stop.done` awaits draining. Every receipt in a fetched batch is
+renewed, including those behind a slow handler. Renewal failure aborts the
+handler context and prohibits a late ACK. Pausing stops new intake; an already
+started handler may finish, while unstarted deliveries are left for redelivery.
+Handler cancellation is cooperative: uncooperative business writes can continue
+after the drain deadline and need their own durable idempotency/fencing checks.
+
+The catalog deliberately uses distributed-core's `fallback` validator to retain
+its established supported keyword set, regardless of transitive AJV installation.
+`format` remains documentary on this path. Adopting broader schema enforcement
+requires a separate compatibility review, not a dependency-hoisting side effect.
+
+Run `npm run verify:durable` for the packed boundary. Run
+`EC_DDB_INTEGRATION=1 npm test -- tests/durable-broker.test.ts` with a loopback
+DynamoDB Local endpoint for real delivery acceptance. The test starts the installed
+SHA-pinned broker package, creates only its UUID-owned table and processes, and
+removes them afterward. It does not migrate or reset a shared stack. The broker's
+experimental `ddb-v2` path still rejects production/durable runtime profiles;
+durable subscriptions, operator replay and scale acceptance remain separate gates.

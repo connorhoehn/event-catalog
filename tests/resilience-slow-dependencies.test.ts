@@ -55,7 +55,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('DurableTransport.publish — message-queue slow, not dead', () => {
-  it('BUG: a publish to a hung message-queue never settles, at any timescale', async () => {
+  it('bounds a hung publish even when the fetch implementation ignores cancellation', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', messageQueueFetch(() => neverSettles()));
 
@@ -68,17 +68,10 @@ describe('DurableTransport.publish — message-queue slow, not dead', () => {
     // request timeout, and any operator's patience.
     await vi.advanceTimersByTimeAsync(600_000);
 
-    // BUG (report): src/client/durable.ts publish() calls fetch() with no
-    // AbortSignal and no timeout, so a message-queue that holds the
-    // socket open holds the caller with it. Every awaiting publish —
-    // including the signal leg's sibling in a `transport: 'both'`
-    // fan-out — piles up behind it. `healthCheck()` on the same class
-    // does use an AbortController; publish() does not.
-    expect(pending.state()).toBe('pending');
-
-    // Nothing was recorded either way: not sent, not failed. The queue
-    // simply disappears from the operator's view.
-    expect(transport.getMetrics('orders-created')).toBeUndefined();
+    expect(pending.state()).toBe('rejected');
+    expect((pending.error() as Error).message).toContain('Timeout');
+    expect(transport.getMetrics('orders-created')).toMatchObject({ sent: 0, failed: 1 });
+    expect(transport.getInFlightPublishCount().current).toBe(0);
   });
 
   it('healthCheck DOES bound itself, so the transport is still reportable while publishes hang', async () => {
@@ -95,7 +88,7 @@ describe('DurableTransport.publish — message-queue slow, not dead', () => {
     }));
 
     const transport = new DurableTransport({ url: 'http://mq:3004' });
-    // connect() probes /health with no timeout either, so it hangs too —
+    // connect() probes /ready with no timeout either, so it hangs too —
     // but it is fire-and-forget at boot, not on the request path.
     const connecting = watch(transport.connect());
     await vi.advanceTimersByTimeAsync(10);
@@ -115,7 +108,7 @@ describe('DurableTransport.publish — message-queue slow, not dead', () => {
     await probing;
 
     // Degraded, not disconnected: the socket opened, the answer never
-    // came. That distinction is what /health reports as 200-degraded
+    // came. That distinction is what /ready reports as 200-degraded
     // rather than 503.
     expect(status).toBe('degraded');
   });
@@ -141,7 +134,7 @@ describe('DurableTransport.publish — accepted, then 500', () => {
     await vi.advanceTimersByTimeAsync(5_000);
 
     expect(publishing.state()).toBe('rejected');
-    expect(String((publishing.error() as Error).message)).toContain('returned 500');
+    expect(String((publishing.error() as Error).message)).toContain('request failed (500');
     expect(posts).toBe(3);
     // One publish that failed is one failure, not one per HTTP attempt —
     // otherwise the error rate reads 3x during any message-queue wobble.
@@ -177,10 +170,10 @@ describe('DurableTransport.publish — accepted, then 500', () => {
     const puts: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       const s = String(url);
-      if (s.endsWith('/health')) return httpResponse(200);
+      if (s.endsWith('/ready')) return httpResponse(200, { status: 'ready' });
       if (init?.method === 'PUT') {
         puts.push(s);
-        return ensureShouldFail ? httpResponse(503) : httpResponse(201);
+        return ensureShouldFail ? httpResponse(503) : httpResponse(201, { status: 'created' });
       }
       return httpResponse(200, { message_id: 'm' });
     }));
@@ -188,12 +181,11 @@ describe('DurableTransport.publish — accepted, then 500', () => {
     const transport = new DurableTransport({ url: 'http://mq:3004', retryBaseMs: 1 });
     await transport.connect();
 
-    // Degraded: the ensure fails but the publish is still attempted —
-    // landing the message on a live queue beats refusing delivery.
+    // Degraded: refuse to send until the declared queue policy is accepted.
     await vi.advanceTimersByTimeAsync(0);
     const first = watch(transport.publish('orders-created', envelope()));
     await vi.advanceTimersByTimeAsync(100);
-    expect(first.state()).toBe('resolved');
+    expect(first.state()).toBe('rejected');
     expect(puts).toHaveLength(1);
 
     // Recovered: because the failed ensure was never cached, the next
@@ -219,9 +211,7 @@ describe('DurableTransport.publish — accepted, then 500', () => {
 describe('DurableTransport.publish — backpressure that would park the caller', () => {
   it('clamps an hour-long Retry-After so a publish cannot be parked for an hour', async () => {
     vi.useFakeTimers();
-    // Deterministic jitter: the transport multiplies the wait by
-    // 0.5 + random()*0.5, so pinning random() pins the schedule.
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
     vi.stubGlobal('fetch', messageQueueFetch(() =>
       httpResponse(429, 'slow down', { 'retry-after': '3600' })));
 
@@ -230,11 +220,9 @@ describe('DurableTransport.publish — backpressure that would park the caller',
 
     const publishing = watch(transport.publish('orders-created', envelope()));
 
-    // Retry-After asks for 3600s per attempt; the cap is 300s and jitter
-    // at random()=0.5 makes each wait 225s. Two waits = 450s, so the
-    // publish must have given up well before the first *unclamped* wait
-    // would even have elapsed.
-    await vi.advanceTimersByTimeAsync(460_000);
+    // Two capped five-minute waits precede the third and final attempt.
+    // Honor the server's requested minimum up to that cap; do not jitter early.
+    await vi.advanceTimersByTimeAsync(600_001);
     expect(publishing.state()).toBe('rejected');
     expect(String((publishing.error() as Error).message)).toContain('429');
 
@@ -243,12 +231,12 @@ describe('DurableTransport.publish — backpressure that would park the caller',
     expect(transport.getMetrics('orders-created')).toEqual({
       sent: 0, received: 0, failed: 1, inFlight: 0,
     });
-    randomSpy.mockRestore();
+
   });
 
   it('does not settle early: the clamped waits are actually observed', async () => {
     vi.useFakeTimers();
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
     vi.stubGlobal('fetch', messageQueueFetch(() =>
       httpResponse(429, 'slow down', { 'retry-after': '3600' })));
 
@@ -258,14 +246,14 @@ describe('DurableTransport.publish — backpressure that would park the caller',
 
     await vi.advanceTimersByTimeAsync(400_000);
     expect(publishing.state()).toBe('pending');
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(200_001);
     expect(publishing.state()).toBe('rejected');
-    randomSpy.mockRestore();
+
   });
 });
 
 // ---------------------------------------------------------------------------
-// /health must answer even when a dependency probe does not
+// /ready must answer even when a dependency probe does not
 // ---------------------------------------------------------------------------
 
 describe('makeHealthHandler — one check that never answers', () => {

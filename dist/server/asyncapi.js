@@ -227,6 +227,6 @@ function addressFor(transport, entry) {
     // `entry.queue ?? DurableTransport.eventNameToQueueName(name)`). The old
     // fallback here was the raw event name, which is NOT a queue name —
     // `activity.recorded` publishes to `activity-recorded`.
-    return entry.queue ?? durable_js_1.DurableTransport.eventNameToQueueName(entry.name);
+    return entry.queue ?? durable_js_1.DurableTransport.eventNameToQueueName(entry.name, entry.fifo);
 }
 //# sourceMappingURL=asyncapi.js.map

@@ -1,3 +1,4 @@
+import { queueResponse } from './helpers/queue-http';
 // tests/ensure-queue-put.test.ts
 //
 // Phase 4.2 — DurableTransport.ensureQueue uses PUT and handles
@@ -31,7 +32,7 @@ describe('DurableTransport.ensureQueue (Phase 4.2)', () => {
   });
 
   it('passes declared retention + fifo as snake_case config fields', async () => {
-    fetchMock.mockResolvedValue(new Response('', { status: 201 }));
+    fetchMock.mockResolvedValue(queueResponse(201, { status: 'created' }));
     const transport = new DurableTransport({ url: 'http://mq:3004' });
     await transport.ensureQueue('configured-q', { retention: 86_400, fifo: true });
 
@@ -45,7 +46,7 @@ describe('DurableTransport.ensureQueue (Phase 4.2)', () => {
   });
 
   it('auto-creates a paired DLQ when dlqAfterAttempts is declared', async () => {
-    fetchMock.mockResolvedValue(new Response('', { status: 201 }));
+    fetchMock.mockResolvedValue(queueResponse(201, { status: 'created' }));
     const transport = new DurableTransport({ url: 'http://mq:3004' });
     await transport.ensureQueue('main-q', { dlqAfterAttempts: 3 });
 
@@ -61,7 +62,7 @@ describe('DurableTransport.ensureQueue (Phase 4.2)', () => {
   });
 
   it('honors a custom dlqQueueName override', async () => {
-    fetchMock.mockResolvedValue(new Response('', { status: 201 }));
+    fetchMock.mockResolvedValue(queueResponse(201, { status: 'created' }));
     const transport = new DurableTransport({ url: 'http://mq:3004' });
     await transport.ensureQueue('main-q', {
       dlqAfterAttempts: 5,
@@ -85,7 +86,7 @@ describe('DurableTransport.ensureQueue (Phase 4.2)', () => {
     expect(puts).toHaveLength(1);
   });
 
-  it('treats 409 conflict as success but logs the conflicts list', async () => {
+  it('rejects 409 policy conflicts', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       status: 'conflict',
       error: 'configuration_conflict',
@@ -94,50 +95,72 @@ describe('DurableTransport.ensureQueue (Phase 4.2)', () => {
     const transport = new DurableTransport({ url: 'http://mq:3004' });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await transport.ensureQueue('drift-q', { fifo: true });
+    await expect(transport.ensureQueue('drift-q', { fifo: true })).rejects.toThrow('ConfigurationConflict');
 
     expect(warnSpy).toHaveBeenCalled();
     const msg = warnSpy.mock.calls[0].join(' ');
     expect(msg).toContain('drift-q');
-    expect(msg).toContain('fifo_queue');
+    expect(msg).toContain('required policy was not accepted');
     warnSpy.mockRestore();
   });
 
-  it('returns gracefully when the PUT errors out (no throw)', async () => {
+  it('propagates PUT network failures', async () => {
     fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
     const transport = new DurableTransport({ url: 'http://mq:3004' });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await expect(transport.ensureQueue('unreachable-q')).resolves.toBeUndefined();
+    await expect(transport.ensureQueue('unreachable-q')).rejects.toThrow('TransportError');
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
 
-  it('falls back to main-only when DLQ ensure fails', async () => {
+  it('refuses to create the main queue when its DLQ cannot be ensured', async () => {
     // First PUT (DLQ) fails network; second PUT (main) succeeds.
     fetchMock
       .mockResolvedValueOnce(new Response('boom', { status: 500 }))
-      .mockResolvedValueOnce(new Response('', { status: 201 }));
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }));
     const transport = new DurableTransport({ url: 'http://mq:3004' });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await transport.ensureQueue('main-orphan', { dlqAfterAttempts: 3 });
+    await expect(transport.ensureQueue('main-orphan', { dlqAfterAttempts: 3 })).rejects.toThrow('500');
 
     const puts = findPutCalls();
-    expect(puts).toHaveLength(2);
-    const mainBody = JSON.parse((puts[1][1].body as string));
-    expect(mainBody.configuration.redrive_policy).toBeUndefined();
-    expect(warnSpy.mock.calls.some((c) =>
-      c.join(' ').includes('main queue "main-orphan" will be created WITHOUT redrive_policy'),
-    )).toBe(true);
+    expect(puts).toHaveLength(1);
+    expect(puts[0][0]).toContain('main-orphan-dlq');
     warnSpy.mockRestore();
   });
 
   it('subsequent ensureQueue calls hit the in-memory cache (no extra PUT)', async () => {
-    fetchMock.mockResolvedValue(new Response('', { status: 201 }));
+    fetchMock.mockResolvedValue(queueResponse(201, { status: 'created' }));
     const transport = new DurableTransport({ url: 'http://mq:3004' });
     await transport.ensureQueue('cached-q');
     await transport.ensureQueue('cached-q');
     await transport.ensureQueue('cached-q');
     expect(findPutCalls()).toHaveLength(1);
   });
+});
+
+it('bounds derived FIFO DLQ names and retains the complete policy after send discovers queue deletion', async () => {
+  const name = `${'a'.repeat(75)}.fifo`;
+  const puts: { queue: string; configuration: unknown }[] = [];
+  let sends = 0;
+  fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+    if (url.endsWith('/ready')) return queueResponse(200, { status: 'ready' });
+    if (init.method === 'PUT') {
+      puts.push({ queue: url.split('/').at(-1)!, configuration: JSON.parse(String(init.body)).configuration });
+      return queueResponse(201, { status: 'created' });
+    }
+    return ++sends === 1 ? queueResponse(404, { error_code: 'QueueDoesNotExist' }) : queueResponse(201, { message_id: 'sent' });
+  });
+  const transport = new DurableTransport({ url: 'http://mq:3004', retryBaseMs: 0 });
+  await transport.connect();
+  await transport.publish(name, { eventName: 'work', payload: {}, metadata: { id: 'stable', producer: 'test', timestamp: 1 } },
+    { fifo: true, dlqAfterAttempts: 2, retention: 60 }, { groupId: 'team' });
+  expect(puts).toHaveLength(4);
+  expect(puts[0].queue).toMatch(/-dlq\.fifo$/);
+  expect(puts[0].queue.length).toBeLessThanOrEqual(80);
+  expect(puts[0].configuration).toEqual({ fifo_queue: true });
+  expect(puts.slice(0, 2)).toEqual(puts.slice(2));
+  expect(puts[1].configuration).toEqual({ fifo_queue: true, message_retention_period_seconds: 60,
+    redrive_policy: { dead_letter_target_arn: `arn:message-queue:queue:${puts[0].queue}`, max_receive_count: 2 } });
+  await transport.disconnect();
 });

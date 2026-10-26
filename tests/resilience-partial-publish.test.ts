@@ -1,3 +1,4 @@
+import { queueResponse } from './helpers/queue-http';
 // tests/resilience-partial-publish.test.ts
 //
 // Failures that land in the middle of a publish: Redis stops answering
@@ -58,11 +59,11 @@ function stubMessageQueue(state: MqState, registryStatus = 200): ReturnType<type
     if (s.includes('/api/events/bulk') || s.includes('/api/heartbeat') || s.includes('/api/manifests')) {
       return new Response(JSON.stringify({ ok: true }), { status: registryStatus });
     }
-    if (s.endsWith('/health')) return new Response('ok', { status: 200 });
-    if (init?.method === 'PUT') return new Response('{}', { status: 201 });
+    if (s.endsWith('/ready')) return queueResponse(200, { status: 'ready' });
+    if (init?.method === 'PUT') return queueResponse(201, { status: 'created' });
     if (s.includes('/messages') && init?.method === 'POST') {
       state.posts++;
-      return new Response('{}', { status: state.postStatus });
+      return queueResponse(state.postStatus, state.postStatus < 300 ? { message_id: 'sent' } : {});
     }
     return new Response('{}', { status: 200 });
   });
@@ -339,7 +340,7 @@ describe('registry sync against a registry that answers 500', () => {
   it('schema-freshness reports "unknown", not "fresh", when the registry is degraded', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
       const s = String(url);
-      if (s.endsWith('/health')) return new Response('ok', { status: 200 });
+      if (s.endsWith('/ready')) return queueResponse(200, { status: 'ready' });
       if (s.includes('/api/events/')) return new Response('upstream error', { status: 502 });
       return new Response('{}', { status: 200 });
     }));

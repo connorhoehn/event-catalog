@@ -1,4 +1,4 @@
-import type { DurableTransportConfig } from '../client/durable';
+import type { DurableTransportConfig, DurableHandlerContext, DurablePublishOptions } from '../client/durable';
 export type TransportType = 'signal' | 'durable' | 'both';
 export type CompatibilityMode = 'backward' | 'forward' | 'full' | 'none';
 /**
@@ -128,7 +128,7 @@ export interface EventCatalogConfig {
     redis: {
         url: string;
     };
-    messageQueue: Pick<DurableTransportConfig, 'url' | 'requestHeaders'>;
+    messageQueue: Omit<DurableTransportConfig, 'logger'>;
     serviceName: string;
     registryUrl?: string;
     /**
@@ -177,7 +177,7 @@ export interface PublishHook {
     beforePublish?(envelope: EventEnvelope, entry: RegistryEntry): Promise<void> | void;
     afterPublish?(envelope: EventEnvelope, entry: RegistryEntry): Promise<void> | void;
 }
-export interface PublishOptions {
+export interface PublishOptions extends Pick<DurablePublishOptions, 'groupId' | 'deduplicationId' | 'delaySeconds' | 'signal' | 'timeoutMs'> {
     headers?: Record<string, string>;
     correlationId?: string;
     timestamp?: number;
@@ -199,7 +199,7 @@ export interface EventEnvelope<T = unknown> {
     payload: T;
     metadata: EventMetadata;
 }
-export type EventHandler<T = unknown> = (envelope: EventEnvelope<T>) => Promise<void> | void;
+export type EventHandler<T = unknown> = (envelope: EventEnvelope<T>, context?: DurableHandlerContext) => Promise<void> | void;
 export interface Subscription {
     unsubscribe(): Promise<void>;
     /**

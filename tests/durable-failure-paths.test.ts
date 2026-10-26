@@ -1,3 +1,4 @@
+import { queueResponse } from './helpers/queue-http';
 // tests/durable-failure-paths.test.ts
 //
 // Operational failure behaviour of DurableTransport that tests/durable.test.ts
@@ -23,14 +24,14 @@ function envelope(overrides: Partial<EventEnvelope> = {}): EventEnvelope {
   };
 }
 
-const okRes = { ok: true, status: 200, headers: headers(), json: async () => ({}), text: async () => '' };
-const putOk = { status: 201, ok: true, json: async () => ({}), text: async () => '' };
+const okRes = queueResponse(200, { message_id: 'sent' });
+const putOk = queueResponse(201, { status: 'created' });
 
 /** Fetch mock that answers queue PUTs with 201 and delegates everything else. */
 function fetchMock(handler: (url: string, init?: RequestInit) => unknown): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'PUT') return putOk;
-    if (String(url).endsWith('/health')) return okRes;
+    if (String(url).endsWith('/ready')) return queueResponse(200, { status: 'ready' });
     return handler(String(url), init);
   });
 }
@@ -77,7 +78,7 @@ describe('DurableTransport.publish — network-error retry arm', () => {
 
     const t = await connected({ retryAttempts: 3 });
     await expect(t.publish('job-queued', envelope())).rejects.toThrow(
-      /failed after 3 attempts: ECONNREFUSED/,
+      /failed after 3 attempts: Queue request TransportError/,
     );
     expect(t.getMetrics('job-queued')).toMatchObject({ sent: 0, failed: 1 });
   });
@@ -101,7 +102,7 @@ describe('DurableTransport.publish — network-error retry arm', () => {
     const f = fetchMock(() => {
       const step = script[i++];
       if (step === 'throw') throw new Error('socket hang up');
-      if (step === 'fail') return { ok: false, status: 500, headers: headers(), text: async () => 'boom' };
+      if (step === 'fail') return queueResponse(500, 'boom', {});
       return okRes;
     });
     vi.stubGlobal('fetch', f);
@@ -137,7 +138,7 @@ describe('DurableTransport.publish — 429 backpressure / Retry-After parsing', 
     let posts = 0;
     const f = fetchMock(() => {
       posts++;
-      if (posts === 1) return { ok: false, status: 429, headers: headers({ 'retry-after': 'whenever' }) };
+      if (posts === 1) return queueResponse(429, {}, { 'retry-after': 'whenever' });
       return okRes;
     });
     vi.stubGlobal('fetch', f);
@@ -157,7 +158,7 @@ describe('DurableTransport.publish — 429 backpressure / Retry-After parsing', 
     const past = new Date(Date.now() - 60_000).toUTCString();
     const f = fetchMock(() => {
       posts++;
-      if (posts === 1) return { ok: false, status: 429, headers: headers({ 'retry-after': past }) };
+      if (posts === 1) return queueResponse(429, {}, { 'retry-after': past });
       return okRes;
     });
     vi.stubGlobal('fetch', f);
@@ -172,7 +173,7 @@ describe('DurableTransport.publish — 429 backpressure / Retry-After parsing', 
   });
 
   it('counts backpressure per queue, and getBackpressureCount() with no arg returns the full map', async () => {
-    const f = fetchMock(() => ({ ok: false, status: 429, headers: headers({ 'retry-after': '0' }) }));
+    const f = fetchMock(() => (queueResponse(429, {}, { 'retry-after': '0' })));
     vi.stubGlobal('fetch', f);
 
     const t = await connected({ retryAttempts: 2, retryBaseMs: 1 });
@@ -194,12 +195,12 @@ describe('DurableTransport.publish — 429 backpressure / Retry-After parsing', 
   });
 
   it('gives up after maxAttempts of sustained 429 and records a failure', async () => {
-    const f = fetchMock(() => ({ ok: false, status: 429, headers: headers({ 'retry-after': '0' }) }));
+    const f = fetchMock(() => (queueResponse(429, {}, { 'retry-after': '0' })));
     vi.stubGlobal('fetch', f);
 
     const t = await connected({ retryAttempts: 2, retryBaseMs: 1 });
     await expect(t.publish('job-queued', envelope())).rejects.toThrow(
-      /failed after 2 attempts: message-queue returned 429/,
+      /failed after 2 attempts: Queue POST request failed \(429/,
     );
     expect(t.getMetrics('job-queued')).toMatchObject({ failed: 1 });
   });
@@ -212,10 +213,10 @@ describe('DurableTransport.disconnect', () => {
     const aborts: boolean[] = [];
     const f = vi.fn(async (url: string, init?: RequestInit & { signal?: AbortSignal }) => {
       if (init?.method === 'PUT') return putOk;
-      if (String(url).endsWith('/health')) return okRes;
+      if (String(url).endsWith('/ready')) return queueResponse(200, { status: 'ready' });
       // Poll GET — record whether the signal was already aborted.
       aborts.push(Boolean(init?.signal?.aborted));
-      return { ok: true, status: 200, json: async () => ({ messages: [] }) };
+      return queueResponse(200, { messages: [] });
     });
     vi.stubGlobal('fetch', f);
 
@@ -250,9 +251,9 @@ describe('DurableTransport poll loop — failure arms', () => {
     let polls = 0;
     const f = vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'PUT') return putOk;
-      if (String(url).endsWith('/health')) return okRes;
+      if (String(url).endsWith('/ready')) return queueResponse(200, { status: 'ready' });
       polls++;
-      return { ok: false, status: 503, json: async () => ({}) };
+      return queueResponse(503, {});
     });
     vi.stubGlobal('fetch', f);
 
@@ -274,20 +275,16 @@ describe('DurableTransport poll loop — failure arms', () => {
     const f = vi.fn(async (url: string, init?: RequestInit) => {
       const u = String(url);
       if (init?.method === 'PUT') return putOk;
-      if (u.endsWith('/health')) return okRes;
+      if (u.endsWith('/ready')) return queueResponse(200, { status: 'ready' });
       if (init?.method === 'DELETE') {
         deleted.push(u);
-        return { ok: true, status: 200 };
+        return queueResponse(200, { success: true });
       }
-      if (served) return { ok: true, status: 200, json: async () => ({ messages: [] }) };
+      if (served) return queueResponse(200, { messages: [] });
       served = true;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          messages: [{ message_id: 'm-bad', body: '{not json', receipt_handle: 'r-1' }],
-        }),
-      };
+      return queueResponse(200, {
+          messages: [{ message_id: 'm-bad', body: '{not json', approximate_receive_count: 1, receipt_handle: 'r-1' }],
+        });
     });
     vi.stubGlobal('fetch', f);
 
@@ -316,17 +313,13 @@ describe('DurableTransport poll loop — failure arms', () => {
     let batch = 0;
     const f = vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'PUT') return putOk;
-      if (String(url).endsWith('/health')) return okRes;
-      if (init?.method === 'DELETE') return { ok: true, status: 200 };
-      if (batch >= 4) return { ok: true, status: 200, json: async () => ({ messages: [] }) };
+      if (String(url).endsWith('/ready')) return queueResponse(200, { status: 'ready' });
+      if (init?.method === 'DELETE') return queueResponse(200, { success: true });
+      if (batch >= 4) return queueResponse(200, { messages: [] });
       const id = `m-${batch++}`;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          messages: [{ message_id: id, body: JSON.stringify(envelope()), receipt_handle: `r-${id}` }],
-        }),
-      };
+      return queueResponse(200, {
+          messages: [{ message_id: id, body: JSON.stringify(envelope()), approximate_receive_count: 1, receipt_handle: `r-${id}` }],
+        });
     });
     vi.stubGlobal('fetch', f);
 
@@ -358,17 +351,13 @@ describe('DurableTransport poll loop — failure arms', () => {
     let served = false;
     const f = vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'PUT') return putOk;
-      if (String(url).endsWith('/health')) return okRes;
-      if (init?.method === 'DELETE') return { ok: true, status: 200 };
-      if (served) return { ok: true, status: 200, json: async () => ({ messages: [] }) };
+      if (String(url).endsWith('/ready')) return queueResponse(200, { status: 'ready' });
+      if (init?.method === 'DELETE') return queueResponse(200, { success: true });
+      if (served) return queueResponse(200, { messages: [] });
       served = true;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          messages: [{ message_id: 'm-1', body: JSON.stringify(envelope()), receipt_handle: 'r-1' }],
-        }),
-      };
+      return queueResponse(200, {
+          messages: [{ message_id: 'm-1', body: JSON.stringify(envelope()), approximate_receive_count: 1, receipt_handle: 'r-1' }],
+        });
     });
     vi.stubGlobal('fetch', f);
 
@@ -399,10 +388,10 @@ describe('DurableTransport.getQueueAttributes', () => {
     vi.stubGlobal('fetch', f);
     const t = new DurableTransport({ url: 'http://mq:3004' });
 
-    f.mockResolvedValueOnce({ ok: true, json: async () => ({ approximate_number_of_messages: 7 }) });
+    f.mockResolvedValueOnce(queueResponse(200, { attributes: { approximate_number_of_messages: 7 } }));
     expect(await t.getQueueAttributes('q')).toEqual({ approximate_number_of_messages: 7 });
 
-    f.mockResolvedValueOnce({ ok: false, status: 404 });
+    f.mockResolvedValueOnce(queueResponse(404, {}));
     expect(await t.getQueueAttributes('q')).toBeNull();
 
     f.mockRejectedValueOnce(new Error('ECONNREFUSED'));

@@ -240,6 +240,16 @@ describe('MetricsObserver', () => {
       });
     });
 
+    it('uses the declared queue and parses string broker counts without inventing invalid values', async () => {
+      registry.declare({ name: 'order.placed', schema: {}, transport: 'durable', producer: 'shop', queue: 'custom-orders' });
+      const durable = makeDurable({ ApproximateNumberOfMessages: '5', ApproximateNumberOfMessagesNotVisible: '-2', ApproximateAgeOfOldestMessage: '20' });
+      const metrics = makeMetrics();
+      const observer = new MetricsObserver({ registry, signal: makeSignal() as any, durable: durable as any, metrics: metrics as any, durablePollIntervalMs: 100 });
+      await observer.start(); await vi.advanceTimersByTimeAsync(101); await observer.stop();
+      expect(durable.getQueueAttributes).toHaveBeenCalledWith('custom-orders');
+      expect(metrics.updateDurableStats).toHaveBeenCalledWith('order.placed', { queueDepth: 5, messagesInFlight: undefined, oldestMessageAge: 20 });
+    });
+
     it('calls recordPublish for each new sent-delta', async () => {
       registry.declare({ name: 'ship.event', schema: {}, transport: 'durable', producer: 'svc' });
 

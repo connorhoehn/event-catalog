@@ -77,7 +77,9 @@ class Registry {
      */
     aliasIndex = null;
     constructor(redis) {
-        this.schemaValidator = new messaging_queue_1.JsonSchemaValidator({ mode: 'auto' });
+        // Pin the catalog's established keyword semantics. Optional/transitive AJV
+        // installation must not silently change the publish or compatibility gate.
+        this.schemaValidator = new messaging_queue_1.JsonSchemaValidator({ mode: 'fallback' });
         this.redis = redis ?? null;
     }
     async load() {

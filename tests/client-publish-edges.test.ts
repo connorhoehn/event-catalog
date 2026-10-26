@@ -1,3 +1,4 @@
+import { queueResponse } from './helpers/queue-http';
 // tests/client-publish-edges.test.ts
 //
 // EventCatalog publish/subscribe edge behaviour that the happy-path suites
@@ -52,8 +53,8 @@ function urlOf(u: string | URL | Request): string {
 function stubFetch(onSend: (url: string) => Response | Promise<Response>): void {
   fetchMock.mockImplementation(async (u: string | URL | Request, opts?: RequestInit) => {
     const s = urlOf(u);
-    if (s.includes('/health')) return new Response('ok', { status: 200 });
-    if (opts?.method === 'PUT') return new Response('{}', { status: 200 });
+    if (s.includes('/ready')) return queueResponse(200, { status: 'ready' });
+    if (opts?.method === 'PUT') return queueResponse(200, { status: 'noop' });
     if (s.includes('/messages') && opts?.method === 'POST') return onSend(s);
     return new Response('{}', { status: 200 });
   });
@@ -103,7 +104,7 @@ describe('EventCatalog.publish — partial fan-out failure', () => {
     await catalog.getSignalTransport().subscribe('orders:created', e => { seen.push(e); });
 
     await expect(catalog.publish('orders:created', { orderId: 'o-1' })).rejects.toThrow(
-      /message-queue returned 500/,
+      /Queue POST request failed \(500/,
     );
 
     // Promise.allSettled means the signal leg was NOT short-circuited by
@@ -119,7 +120,7 @@ describe('EventCatalog.publish — partial fan-out failure', () => {
   });
 
   it('records a successful publish exactly once on the entry metadata', async () => {
-    stubFetch(() => new Response('{}', { status: 200 }));
+    stubFetch(() => queueResponse(200, { message_id: 'sent' }));
     catalog = new EventCatalog(baseConfig() as never);
     await catalog.connect();
     catalog.declare(orderDecl);
@@ -133,7 +134,7 @@ describe('EventCatalog.publish — partial fan-out failure', () => {
   });
 
   it('counts every publish under concurrency without losing an increment', async () => {
-    stubFetch(() => new Response('{}', { status: 200 }));
+    stubFetch(() => queueResponse(200, { message_id: 'sent' }));
     catalog = new EventCatalog(baseConfig() as never);
     await catalog.connect();
     catalog.declare({ ...orderDecl, transport: 'signal' });
@@ -149,7 +150,7 @@ describe('EventCatalog.publish — partial fan-out failure', () => {
 
   it('mixes successes and failures correctly when both are in flight', async () => {
     let n = 0;
-    stubFetch(() => (++n % 2 === 0 ? new Response('nope', { status: 500 }) : new Response('{}', { status: 200 })));
+    stubFetch(() => (++n % 2 === 0 ? new Response('nope', { status: 500 }) : queueResponse(200, { message_id: 'sent' })));
     catalog = new EventCatalog(baseConfig() as never);
     await catalog.connect();
     catalog.declare({ ...orderDecl, transport: 'durable' });
@@ -175,7 +176,7 @@ describe('EventCatalog.publish — validation rejection paths', () => {
     channels.clear();
     fetchMock.mockReset();
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    stubFetch(() => new Response('{}', { status: 200 }));
+    stubFetch(() => queueResponse(200, { message_id: 'sent' }));
     catalog = new EventCatalog(baseConfig() as never);
     await catalog.connect();
   });
@@ -275,7 +276,7 @@ describe('EventCatalog.publish — hooks', () => {
   beforeEach(() => {
     channels.clear();
     fetchMock.mockReset();
-    stubFetch(() => new Response('{}', { status: 200 }));
+    stubFetch(() => queueResponse(200, { message_id: 'sent' }));
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
@@ -415,7 +416,7 @@ describe('EventCatalog.subscribe — rejection paths', () => {
   beforeEach(() => {
     channels.clear();
     fetchMock.mockReset();
-    stubFetch(() => new Response('{}', { status: 200 }));
+    stubFetch(() => queueResponse(200, { message_id: 'sent' }));
   });
 
   it('throws when the event was never declared', async () => {
@@ -485,7 +486,7 @@ describe('EventCatalog.subscribe — rejection paths', () => {
       if (s.includes('/subscribers') && opts?.method === 'DELETE') {
         return new Response('gone', { status: 503, statusText: 'Service Unavailable' });
       }
-      if (s.includes('/health')) return new Response('ok', { status: 200 });
+      if (s.includes('/ready')) return queueResponse(200, { status: 'ready' });
       return new Response('{}', { status: 200 });
     });
 

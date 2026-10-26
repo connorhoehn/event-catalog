@@ -12,6 +12,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.9.0] - 2026-10-26
+
+- Adopt message-queue 0.4.0's shared client under its actual package identity. Signing, wire validation, POST receive, request/body deadlines, cancellation, readiness and attribute reads now use the owner implementation. Remove the incorrectly named optional MQ peer.
+- **Behavior change:** refuse queue-policy conflicts, missing required DLQs and failed setup. Cache the full policy, preserve it during recreation and create FIFO DLQs with valid matching names. Publish no message after setup fails.
+- Carry FIFO partition/group and deduplication fields through catalog publish. A retry retains the envelope ID as its default FIFO dedup ID. Expose explicit group/dedup/delay/timeout/signal options; derive `.fifo` queue names when the declaration does not override its queue.
+- Renew every acquired receipt, including queued batch members; serialize renew/ACK and use rotated receipts. Supply handlers with cancellation, message identity and broker receive count. Lease loss and uncertain ACKs do not consume the handler poison budget or authorize deletion.
+- Stop intake immediately and drain accepted work within `drainTimeoutMs` (default 30 seconds). Callable unsubscribe remains compatible and exposes `.done`; catalog unsubscribe/disconnect await bounded completion. Paused subscriptions no longer ACK skipped work. Subscriber and metrics paths honor declared queue names.
+- Interpret broker string counts in metrics. Explicitly preserve the catalog's existing fallback schema semantics: the queue dependency installs AJV, which must not silently switch the validator or reject all schemas carrying format annotations.
+- Nine real DynamoDB Local / separate-process broker tests cover competing claims during slow batches, renewal loss, graceful/bounded drain, uncertain and lost ACK responses, broker crash, FIFO deduplication, poison movement and strict policy setup. Packed root/durable import/require and consumer types are verified on Node 20.0.0 and 25.9.0. Broker production durability/subscription/scale acceptance and host pin adoption remain separate work.
+
 ## [0.8.8] - 2026-10-25
 
 - Retain failed subscriber messages at the broker. The capped diagnostic buffer and `onDeadLetter` callbacks no longer authorize source deletion; configure broker redrive for durable dead-letter movement.

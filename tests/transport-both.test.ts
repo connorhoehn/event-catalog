@@ -1,3 +1,4 @@
+import { queueResponse } from './helpers/queue-http';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ---------- In-memory Redis pub/sub simulator ----------
@@ -55,14 +56,14 @@ function durableMessageCalls() {
 function defaultFetchMock() {
   fetchMock.mockImplementation(async (url: string | URL | Request, opts?: RequestInit) => {
     const s = urlStr(url);
-    if (s.includes('/health')) return new Response('ok', { status: 200 });
+    if (s.includes('/ready')) return queueResponse(200, { status: 'ready' });
     if (s.includes('/queues') && opts?.method === 'PUT' && !s.includes('/messages'))
-      return new Response(JSON.stringify({ queue_name: 'test' }), { status: 200 });
+      return queueResponse(200, { status: 'noop' });
     if (s.includes('/attributes'))
-      return new Response(JSON.stringify({ approximate_number_of_messages: 0 }), { status: 200 });
+      return queueResponse(200, { attributes: { ApproximateNumberOfMessages: '0' } });
     if (s.includes('/messages') && opts?.method === 'POST')
       return new Response(JSON.stringify({ message_id: 'msg-1' }), { status: 200 });
-    if (s.includes('/api/events')) return new Response('ok', { status: 200 });
+    if (s.includes('/api/events')) return queueResponse(200, { status: 'ready' });
     return new Response('not found', { status: 404 });
   });
 }
@@ -172,14 +173,14 @@ describe("transport: 'both' fan-out", () => {
   it('failure mode: durable fails — publish rejects but signal was still sent (Promise.allSettled semantics)', async () => {
     fetchMock.mockImplementation(async (url: string | URL | Request, opts?: RequestInit) => {
       const s = urlStr(url);
-      if (s.includes('/health')) return new Response('ok', { status: 200 });
+      if (s.includes('/ready')) return queueResponse(200, { status: 'ready' });
       if (s.includes('/queues') && opts?.method === 'PUT' && !s.includes('/messages'))
-        return new Response(JSON.stringify({ queue_name: 'test' }), { status: 200 });
+        return queueResponse(200, { status: 'noop' });
       if (s.includes('/attributes'))
-        return new Response(JSON.stringify({ approximate_number_of_messages: 0 }), { status: 200 });
+        return queueResponse(200, { attributes: { ApproximateNumberOfMessages: '0' } });
       if (s.includes('/messages') && opts?.method === 'POST')
         return new Response('queue unavailable', { status: 500 });
-      if (s.includes('/api/events')) return new Response('ok', { status: 200 });
+      if (s.includes('/api/events')) return queueResponse(200, { status: 'ready' });
       return new Response('not found', { status: 404 });
     });
 

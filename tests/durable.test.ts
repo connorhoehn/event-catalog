@@ -1,3 +1,4 @@
+import { queueResponse } from './helpers/queue-http';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { EventEnvelope } from '../src/types/index.js';
 import { DurableTransport } from '../src/client/durable.js';
@@ -46,7 +47,7 @@ describe('DurableTransport', () => {
     let fetchSpy: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
-      fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+      fetchSpy = vi.fn().mockResolvedValue(queueResponse(200, { status: 'ready' }));
       vi.stubGlobal('fetch', fetchSpy);
     });
 
@@ -60,7 +61,7 @@ describe('DurableTransport', () => {
     });
 
     it('sets connected=true after connect(), even when health ping returns non-ok', async () => {
-      fetchSpy.mockResolvedValue({ ok: false, status: 503 });
+      fetchSpy.mockResolvedValue(queueResponse(503, {}));
       const t = new DurableTransport({ url: 'http://mq:3004' });
       await t.connect();
       expect(t.isConnected()).toBe(true);
@@ -81,11 +82,11 @@ describe('DurableTransport', () => {
       // One string, not (message, cause): the warning has to name the env
       // var and the degraded-mode consequence, which only reads well inline.
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('message-queue not reachable at http://mq:3004/health'),
+        expect.stringContaining('message-queue not reachable at http://mq:3004/ready'),
       );
       const warned = warnSpy.mock.calls[0]![0] as string;
       expect(warned).toContain('MESSAGE_QUEUE_URL');
-      expect(warned).toContain('ECONNREFUSED');
+      expect(warned).toContain('TransportError');
       warnSpy.mockRestore();
     });
 
@@ -102,7 +103,7 @@ describe('DurableTransport', () => {
     let fetchSpy: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
-      fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+      fetchSpy = vi.fn().mockResolvedValue(queueResponse(200, { status: 'ready' }));
       vi.stubGlobal('fetch', fetchSpy);
     });
 
@@ -123,7 +124,7 @@ describe('DurableTransport', () => {
     let fetchSpy: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
-      fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+      fetchSpy = vi.fn().mockResolvedValue(queueResponse(200, { status: 'ready' }));
       vi.stubGlobal('fetch', fetchSpy);
       vi.useFakeTimers();
     });
@@ -144,7 +145,7 @@ describe('DurableTransport', () => {
     it('returns connected with latencyMs on ok response', async () => {
       const t = new DurableTransport({ url: 'http://mq:3004' });
       await t.connect();
-      fetchSpy.mockResolvedValue({ ok: true });
+      fetchSpy.mockResolvedValue(queueResponse(200, { status: 'ready' }));
       const result = await t.healthCheck();
       expect(result.status).toBe('connected');
       expect(typeof result.latencyMs).toBe('number');
@@ -153,7 +154,7 @@ describe('DurableTransport', () => {
     it('returns degraded on non-ok response', async () => {
       const t = new DurableTransport({ url: 'http://mq:3004' });
       await t.connect();
-      fetchSpy.mockResolvedValue({ ok: false, status: 500 });
+      fetchSpy.mockResolvedValue(queueResponse(500, {}));
       const result = await t.healthCheck();
       expect(result.status).toBe('degraded');
     });
@@ -166,15 +167,14 @@ describe('DurableTransport', () => {
       expect(result.status).toBe('disconnected');
     });
 
-    it('returns degraded when fetch throws AbortError (internal 2 s timeout fires)', async () => {
+    it('returns degraded when the internal request deadline fires', async () => {
       const t = new DurableTransport({ url: 'http://mq:3004' });
       await t.connect();
 
-      const abortError = new Error('The operation was aborted');
-      abortError.name = 'AbortError';
-      fetchSpy.mockRejectedValue(abortError);
-
-      const result = await t.healthCheck();
+      fetchSpy.mockImplementation(() => new Promise(() => {}));
+      const pending = t.healthCheck();
+      await vi.advanceTimersByTimeAsync(2000);
+      const result = await pending;
       expect(result.status).toBe('degraded');
     });
   });
@@ -184,7 +184,7 @@ describe('DurableTransport — getQueueAttributes()', () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+    fetchSpy = vi.fn().mockResolvedValue(queueResponse(200, { status: 'ready' }));
     vi.stubGlobal('fetch', fetchSpy);
   });
 
@@ -194,15 +194,15 @@ describe('DurableTransport — getQueueAttributes()', () => {
 
   it('returns parsed attributes on ok response', async () => {
     const attrs = { ApproximateNumberOfMessages: 7, ApproximateNumberOfMessagesNotVisible: 2 };
-    fetchSpy.mockResolvedValue({ ok: true, json: async () => attrs });
+    fetchSpy.mockResolvedValue(queueResponse(200, { attributes: attrs }));
     const t = new DurableTransport({ url: 'http://mq:3004' });
     const result = await t.getQueueAttributes('my-queue');
     expect(result).toEqual(attrs);
-    expect(fetchSpy).toHaveBeenCalledWith('http://mq:3004/api/v1/queues/my-queue/attributes');
+    expect(fetchSpy).toHaveBeenCalledWith('http://mq:3004/api/v1/queues/my-queue/attributes', expect.objectContaining({ method: 'GET' }));
   });
 
   it('returns null on non-ok response', async () => {
-    fetchSpy.mockResolvedValue({ ok: false, status: 404 });
+    fetchSpy.mockResolvedValue(queueResponse(404, {}));
     const t = new DurableTransport({ url: 'http://mq:3004' });
     const result = await t.getQueueAttributes('missing-queue');
     expect(result).toBeNull();
@@ -216,10 +216,10 @@ describe('DurableTransport — getQueueAttributes()', () => {
   });
 
   it('URL-encodes special characters in queue name', async () => {
-    fetchSpy.mockResolvedValue({ ok: true, json: async () => ({}) });
+    fetchSpy.mockResolvedValue(queueResponse(200, { attributes: {} }));
     const t = new DurableTransport({ url: 'http://mq:3004' });
     await t.getQueueAttributes('my queue/name');
-    expect(fetchSpy).toHaveBeenCalledWith('http://mq:3004/api/v1/queues/my%20queue%2Fname/attributes');
+    expect(fetchSpy).toHaveBeenCalledWith('http://mq:3004/api/v1/queues/my%20queue%2Fname/attributes', expect.objectContaining({ method: 'GET' }));
   });
 });
 
@@ -310,9 +310,9 @@ describe('DurableTransport — publish()', () => {
 
   it('POSTs to the correct endpoint and increments the sent metric', async () => {
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                 // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })    // ensureQueue PUT
-      .mockResolvedValueOnce({ ok: true });                // publish POST
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                 // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))    // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { message_id: 'sent' }));                // publish POST
     vi.stubGlobal('fetch', fetchSpy);
 
     const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts: 1, retryBaseMs: 0 });
@@ -329,10 +329,10 @@ describe('DurableTransport — publish()', () => {
   });
 
   it('increments the failed metric and rethrows on non-ok response', async () => {
-    const failResponse = { ok: false, status: 500 };
+    const failResponse = queueResponse(500, {});
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })   // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))   // ensureQueue PUT
       .mockResolvedValue(failResponse);                   // all publish POST attempts → fail
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -350,52 +350,15 @@ describe('DurableTransport — publish()', () => {
     expect(metrics.sent).toBe(0);
   });
 
-  it('logs warning on 409 conflict from ensureQueue PUT but publishes successfully', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                                         // connect /health
-      .mockResolvedValueOnce({                                                      // ensureQueue PUT → 409
-        ok: false, status: 409,
-        json: async () => ({ conflicts: { retention: [300, 600] } }),
-        text: async () => '',
-      })
-      .mockResolvedValueOnce({ ok: true });                                         // publish POST
+  it.each([409, 503])('refuses to publish when queue setup returns %s', async status => {
+    const fetchSpy = vi.fn().mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))
+      .mockResolvedValue(queueResponse(status, {}));
     vi.stubGlobal('fetch', fetchSpy);
-
-    const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts: 1, retryBaseMs: 0 });
+    const t = new DurableTransport({ url: 'http://mq:3004', logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } });
     await t.connect();
-    await t.publish('test-queue', makeEnvelope());
-
-    const warnCall = warnSpy.mock.calls.find(c =>
-      typeof c[0] === 'string' && (c[0] as string).includes('differing config'),
-    );
-    expect(warnCall).toBeDefined();
-    const metrics = t.getMetrics('test-queue') as { sent: number };
-    expect(metrics.sent).toBe(1);
-
-    warnSpy.mockRestore();
-  });
-
-  it('logs warning when ensureQueue PUT throws (network error) but still attempts publish', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                           // connect /health
-      .mockRejectedValueOnce(new Error('ECONNREFUSED'))             // ensureQueue PUT throws
-      .mockResolvedValueOnce({ ok: true });                          // publish POST succeeds
-    vi.stubGlobal('fetch', fetchSpy);
-
-    const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts: 1, retryBaseMs: 0 });
-    await t.connect();
-    await t.publish('test-queue', makeEnvelope());
-
-    const warnCall = warnSpy.mock.calls.find(c =>
-      typeof c[0] === 'string' && (c[0] as string).includes('ensureQueue'),
-    );
-    expect(warnCall).toBeDefined();
-    const metrics = t.getMetrics('test-queue') as { sent: number };
-    expect(metrics.sent).toBe(1);
-
-    warnSpy.mockRestore();
+    await expect(t.publish('test-queue', makeEnvelope())).rejects.toThrow('Queue PUT request failed');
+    expect(fetchSpy.mock.calls.some(([, init]) => init.method === 'POST')).toBe(false);
+    expect(t.getMetrics('test-queue')).toMatchObject({ sent: 0, failed: 1 });
   });
 });
 
@@ -408,7 +371,7 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     return {
       message_id: id,
       body: JSON.stringify(envelope),
-      receipt_handle: `rh-${id}`,
+      approximate_receive_count: 1, receipt_handle: `rh-${id}`,
     };
   }
 
@@ -417,11 +380,11 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     const queueMsg = makeQueueMessage('msg-1', envelope);
 
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                                          // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll (1 msg)
-      .mockResolvedValueOnce({ ok: true })                                          // DELETE on success
-      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                                          // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))                             // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { messages: [queueMsg] })) // poll (1 msg)
+      .mockResolvedValueOnce(queueResponse(200, { success: true }))                                          // DELETE on success
+      .mockResolvedValue(queueResponse(200, { messages: [] }));       // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -454,10 +417,10 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     const queueMsg = makeQueueMessage('msg-flaky', makeEnvelope());
 
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                                          // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll (1 msg)
-      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                                          // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))                             // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { messages: [queueMsg] })) // poll (1 msg)
+      .mockResolvedValue(queueResponse(200, { messages: [] }));       // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -492,11 +455,11 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     const queueMsg = makeQueueMessage('msg-poison', envelope);
 
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                                          // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail (attempt 1)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 2 → fail (attempt 2) → dead-letter
-      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                                          // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))                             // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { messages: [queueMsg] })) // poll 1 → fail (attempt 1)
+      .mockResolvedValueOnce(queueResponse(200, { messages: [queueMsg] })) // poll 2 → fail (attempt 2) → dead-letter
+      .mockResolvedValue(queueResponse(200, { messages: [] }));       // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -536,11 +499,11 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     const queueMsg = makeQueueMessage('msg-drain', envelope);
 
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                                          // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail (attempt 1)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 2 → dead-letter
-      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                                          // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))                             // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { messages: [queueMsg] })) // poll 1 → fail (attempt 1)
+      .mockResolvedValueOnce(queueResponse(200, { messages: [queueMsg] })) // poll 2 → dead-letter
+      .mockResolvedValue(queueResponse(200, { messages: [] }));       // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -569,11 +532,11 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     const queueMsg = makeQueueMessage('msg-dispose', envelope);
 
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                                          // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail (attempt 1)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 2 → fail (attempt 2) → dead-letter
-      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                                          // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))                             // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { messages: [queueMsg] })) // poll 1 → fail (attempt 1)
+      .mockResolvedValueOnce(queueResponse(200, { messages: [queueMsg] })) // poll 2 → fail (attempt 2) → dead-letter
+      .mockResolvedValue(queueResponse(200, { messages: [] }));       // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -602,10 +565,10 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     const queueMsg = makeQueueMessage('msg-cb-throws', envelope);
 
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                                          // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [queueMsg] }) }) // poll 1 → fail → dead-letter
-      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });       // subsequent polls
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                                          // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))                             // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { messages: [queueMsg] })) // poll 1 → fail → dead-letter
+      .mockResolvedValue(queueResponse(200, { messages: [] }));       // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -640,9 +603,9 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
 
   it('unsubscribe() aborts the poll loop and stops further fetches', async () => {
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                                    // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })                       // ensureQueue PUT
-      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) }); // polls → always empty
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                                    // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))                       // ensureQueue PUT
+      .mockResolvedValue(queueResponse(200, { messages: [] })); // polls → always empty
 
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -668,14 +631,14 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     const badMsg = {
       message_id: 'msg-bad-json',
       body: 'not-json',
-      receipt_handle: 'rh-bad-json',
+      approximate_receive_count: 1, receipt_handle: 'rh-bad-json',
     };
 
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                                                  // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })                                     // ensureQueue PUT
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [badMsg] }) })      // poll → bad body → dead-letter
-      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });               // subsequent polls
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                                                  // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))                                     // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { messages: [badMsg] }))      // poll → bad body → dead-letter
+      .mockResolvedValue(queueResponse(200, { messages: [] }));               // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -702,14 +665,14 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const fetchSpy = vi.fn()
-        .mockResolvedValueOnce({ ok: true })              // connect /health
-        .mockResolvedValueOnce({ ok: true, status: 201 }) // ensureQueue PUT
+        .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))              // connect /ready
+        .mockResolvedValueOnce(queueResponse(201, { status: 'created' })) // ensureQueue PUT
         // pollRetryManager has maxRetries:2 → 3 total attempts, all rejected
         .mockRejectedValueOnce(new Error('ECONNREFUSED'))
         .mockRejectedValueOnce(new Error('ECONNREFUSED'))
         .mockRejectedValueOnce(new Error('ECONNREFUSED'))
         // second poll cycle succeeds with no messages
-        .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });
+        .mockResolvedValue(queueResponse(200, { messages: [] }));
 
       vi.stubGlobal('fetch', fetchSpy);
 
@@ -741,13 +704,13 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     const msgB = makeQueueMessage('msg-b', makeEnvelope({ eventName: 'event.b' }));
 
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                                                   // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })                                      // ensureQueue PUT
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgA] }) })         // poll 1 → msg-a attempt 1 (warn)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgA] }) })         // poll 2 → msg-a attempt 2 → dead-letter
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgB] }) })         // poll 3 → msg-b attempt 1 (warn)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [msgB] }) })         // poll 4 → msg-b attempt 2 → dead-letter
-      .mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });                // subsequent polls
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                                                   // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))                                      // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { messages: [msgA] }))         // poll 1 → msg-a attempt 1 (warn)
+      .mockResolvedValueOnce(queueResponse(200, { messages: [msgA] }))         // poll 2 → msg-a attempt 2 → dead-letter
+      .mockResolvedValueOnce(queueResponse(200, { messages: [msgB] }))         // poll 3 → msg-b attempt 1 (warn)
+      .mockResolvedValueOnce(queueResponse(200, { messages: [msgB] }))         // poll 4 → msg-b attempt 2 → dead-letter
+      .mockResolvedValue(queueResponse(200, { messages: [] }));                // subsequent polls
 
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -774,8 +737,8 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
     vi.useFakeTimers();
 
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })                                          // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 })                             // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))                                          // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' }))                             // ensureQueue PUT
       .mockRejectedValueOnce(new Error('ECONNREFUSED'))                             // poll attempt 1/3
       .mockRejectedValueOnce(new Error('ECONNREFUSED'))                             // poll attempt 2/3
       .mockRejectedValueOnce(new Error('ECONNREFUSED'));                            // poll attempt 3/3 → catch(pollErr)
@@ -797,7 +760,6 @@ describe('DurableTransport — subscribe() + pollLoop()', () => {
 
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('poll failed for "test-queue"'),
-      expect.stringContaining('ECONNREFUSED'),
     );
     expect(handler).not.toHaveBeenCalled();
 
@@ -821,68 +783,34 @@ describe('DurableTransport — ensureQueue() warn paths', () => {
   });
 
   async function makeConnected(url = 'http://mq:3004') {
-    fetchSpy.mockResolvedValueOnce({ ok: true }); // health ping
+    fetchSpy.mockResolvedValueOnce(queueResponse(200, { status: 'ready' })); // health ping
     const t = new DurableTransport({ url });
     await t.connect();
     return t;
   }
 
-  it('logs warn when DLQ putQueue fails (dlqAfterAttempts declared)', async () => {
+  it.each([409, 500, 503])('logs and propagates queue-policy failure %s without caching or downgrading it', async status => {
     const t = await makeConnected();
-    fetchSpy
-      .mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'error' }) // DLQ PUT → fail
-      .mockResolvedValueOnce({ ok: true, status: 201 });                            // main queue PUT → ok
-
+    fetchSpy.mockResolvedValue(queueResponse(status, {}));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await t.ensureQueue('my-queue', { dlqAfterAttempts: 3 });
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('DLQ ensure for "my-queue-dlq" failed'),
-    );
-    warnSpy.mockRestore();
+    try {
+      await expect(t.ensureQueue('my-queue', { dlqAfterAttempts: 3 })).rejects.toThrow('Queue PUT request failed');
+      await expect(t.ensureQueue('my-queue', { dlqAfterAttempts: 3 })).rejects.toThrow('Queue PUT request failed');
+      expect(fetchSpy.mock.calls.slice(1).map(call => call[0])).toEqual([
+        'http://mq:3004/api/v1/queues/my-queue-dlq', 'http://mq:3004/api/v1/queues/my-queue-dlq',
+      ]);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('required policy was not accepted'));
+    } finally { warnSpy.mockRestore(); }
   });
 
-  it('logs warn and accepts drift when queue already exists with differing config (409)', async () => {
+  it('propagates queue setup network errors without leaking raw error contents', async () => {
     const t = await makeConnected();
-    fetchSpy.mockResolvedValueOnce({
-      ok: false, status: 409,
-      json: async () => ({ conflicts: { retention: 'mismatch' } }),
-    });
-
+    fetchSpy.mockRejectedValueOnce(new Error('ECONNRESET secret'));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await t.ensureQueue('existing-queue');
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('"existing-queue" exists with differing config'),
-      expect.stringContaining('mismatch'),
-    );
-    warnSpy.mockRestore();
-  });
-
-  it('logs warn when PUT returns a non-200/201/409 status', async () => {
-    const t = await makeConnected();
-    fetchSpy.mockResolvedValueOnce({
-      ok: false, status: 503,
-      text: async () => 'service unavailable',
-    });
-
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await t.ensureQueue('flaky-queue');
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('ensureQueue "flaky-queue" failed: 503 service unavailable'),
-    );
-    warnSpy.mockRestore();
-  });
-
-  it('logs warn when PUT fetch throws a network error', async () => {
-    const t = await makeConnected();
-    fetchSpy.mockRejectedValueOnce(new Error('ECONNRESET'));
-
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await t.ensureQueue('error-queue');
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('ensureQueue "error-queue" error:'),
-      'ECONNRESET',
-    );
-    warnSpy.mockRestore();
+    try {
+      await expect(t.ensureQueue('error-queue')).rejects.toThrow('TransportError');
+      expect(warnSpy.mock.calls.flat().join(' ')).not.toContain('secret');
+    } finally { warnSpy.mockRestore(); }
   });
 });
 
@@ -902,21 +830,17 @@ describe('DurableTransport — 429 backpressure handling', () => {
   });
 
   function make429(retryAfter: string | null = '5'): Response {
-    return {
-      ok: false,
-      status: 429,
-      headers: makeHeaders(retryAfter !== null ? { 'retry-after': retryAfter } : {}),
-    } as unknown as Response;
+    return queueResponse(429, {}, retryAfter !== null ? { 'retry-after': retryAfter } : {}) as unknown as Response;
   }
 
   function makeOk(): Response {
-    return { ok: true, status: 200 } as unknown as Response;
+    return queueResponse(200, { message_id: 'sent' });
   }
 
   async function makeConnectedTransport(retryAttempts = 3, retryBaseMs = 10) {
     const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: true })               // connect /health
-      .mockResolvedValueOnce({ ok: true, status: 201 }); // ensureQueue PUT
+      .mockResolvedValueOnce(queueResponse(200, { status: 'ready' }))               // connect /ready
+      .mockResolvedValueOnce(queueResponse(201, { status: 'created' })); // ensureQueue PUT
     vi.stubGlobal('fetch', fetchSpy);
     const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts, retryBaseMs });
     await t.connect();
@@ -945,7 +869,7 @@ describe('DurableTransport — 429 backpressure handling', () => {
       typeof c[0] === 'string' && (c[0] as string).includes('mq_backpressure_observed_total'),
     );
     expect(warnCalls.length).toBeGreaterThanOrEqual(1);
-    expect(String(warnCalls[0]![0])).toContain('retry-after 5s');
+    expect(String(warnCalls[0]![0])).toContain('retry-after 5000ms');
     warnSpy.mockRestore();
   });
 
@@ -972,11 +896,11 @@ describe('DurableTransport — 429 backpressure handling', () => {
       typeof c[0] === 'string' && (c[0] as string).includes('mq_backpressure_observed_total'),
     );
     // retry-after header was ~10s, logged as "10s" (allow 9 or 10 due to real-clock drift)
-    expect(String(warnCalls[0]![0])).toMatch(/retry-after \d+s/);
+    expect(String(warnCalls[0]![0])).toMatch(/retry-after \d+ms/);
     warnSpy.mockRestore();
   });
 
-  it('429 with no Retry-After header: falls back to RetryManager exponential default', async () => {
+  it('429 with no Retry-After header: falls back to shared exponential backoff', async () => {
     const { t, fetchSpy } = await makeConnectedTransport(3, 10);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -995,7 +919,7 @@ describe('DurableTransport — 429 backpressure handling', () => {
     warnSpy.mockRestore();
   });
 
-  it('429 with absurd Retry-After (10 hours): capped at 5 min with cap-exceeded warn', async () => {
+  it('429 with absurd Retry-After (10 hours): capped at 5 min with bounded wait', async () => {
     const { t, fetchSpy } = await makeConnectedTransport(3, 10);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -1009,7 +933,7 @@ describe('DurableTransport — 429 backpressure handling', () => {
     await publishPromise;
 
     const capWarn = warnSpy.mock.calls.find(c =>
-      typeof c[0] === 'string' && (c[0] as string).includes('exceeds cap'),
+      typeof c[0] === 'string' && (c[0] as string).includes('retry-after 300000ms'),
     );
     expect(capWarn).toBeDefined();
     expect(String(capWarn![0])).toContain('300000ms');

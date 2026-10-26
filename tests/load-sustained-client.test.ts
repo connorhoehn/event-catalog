@@ -1,3 +1,4 @@
+import { queueResponse } from './helpers/queue-http';
 // tests/load-sustained-client.test.ts
 //
 // Failure modes that only appear after the process has been up a while.
@@ -137,7 +138,12 @@ describe('sustained load — caller-keyed maps stay bounded', () => {
   });
 
   it('DurableTransport: 5000 distinct queue names bound metrics and the ensure cache', async () => {
-    fetchMock.mockImplementation(async () => new Response('{}', { status: 200 }));
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/ready')) return queueResponse(200, { status: 'ready' });
+      if (init?.method === 'PUT') return queueResponse(201, { status: 'created' });
+      if (url.endsWith('/messages/receive')) return queueResponse(200, { messages: [] });
+      return queueResponse(201, { message_id: 'sent' });
+    });
     const t = new DurableTransport({ url: 'http://mq:3004', retryAttempts: 1, retryBaseMs: 0 });
     await t.connect();
 
@@ -163,7 +169,7 @@ describe('sustained load — caller-keyed maps stay bounded', () => {
       if (opts?.method === 'POST') {
         return new Response('slow down', { status: 429, headers: { 'Retry-After': '0' } });
       }
-      return new Response('{}', { status: 200 });
+      return queueResponse(200, { status: 'noop' });
     });
 
     for (let i = 0; i < 2_000; i++) {
@@ -281,7 +287,12 @@ describe('sustained load — a failing transport does not become a log storm', (
 describe('timer and listener lifecycle', () => {
   beforeEach(() => {
     fetchMock.mockReset();
-    fetchMock.mockImplementation(async () => new Response('{}', { status: 200 }));
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/ready')) return queueResponse(200, { status: 'ready' });
+      if (init?.method === 'PUT') return queueResponse(201, { status: 'created' });
+      if (url.endsWith('/messages/receive')) return queueResponse(200, { messages: [] });
+      return queueResponse(201, { message_id: 'sent' });
+    });
   });
 
   it('disconnect() releases the re-sync interval, the heartbeat and every poller', async () => {

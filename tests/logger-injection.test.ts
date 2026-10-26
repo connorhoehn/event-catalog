@@ -1,3 +1,4 @@
+import { queueResponse } from './helpers/queue-http';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { EventEnvelope } from '../src/types/index.js';
 import type { CatalogLogger, LogFields } from '../src/utils/logger.js';
@@ -193,44 +194,34 @@ describe('default logger reproduces the pre-logger console output exactly', () =
 
     expect(warnSpy.mock.calls).toEqual([
       [
-        '[durable-transport] message-queue not reachable at http://localhost:3004/health '
-        + '(check MESSAGE_QUEUE_URL): ECONNREFUSED. Continuing in degraded mode — '
+        '[durable-transport] message-queue not reachable at http://localhost:3004/ready '
+        + '(check MESSAGE_QUEUE_URL): Queue request TransportError. Continuing in degraded mode — '
         + 'durable publishes will retry and then throw until it recovers.',
       ],
     ]);
   });
 
-  it('DurableTransport: a queue-config 409 still logs the conflicts JSON as a second argument', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      status: 409,
-      ok: false,
-      json: async () => ({ conflicts: ['fifo_queue'] }),
-    }));
+  it('DurableTransport: a queue-config 409 logs the rejected policy without broker body contents', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(queueResponse(409, { conflicts: ['fifo_queue'] })));
     const transport = new DurableTransport({ url: 'http://localhost:3004' });
 
-    await transport.ensureQueue('orders');
+    await expect(transport.ensureQueue('orders')).rejects.toThrow('Queue PUT request failed');
 
     expect(warnSpy.mock.calls).toEqual([
       [
-        '[durable-transport] queue "orders" exists with differing config — accepting drift:',
-        '["fifo_queue"]',
+        '[durable-transport] ensureQueue "orders" failed; required policy was not accepted',
       ],
     ]);
   });
 
   it('DurableTransport: an ensureQueue non-2xx is still a single-argument warn', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      status: 500,
-      ok: false,
-      text: async () => 'boom',
-      json: async () => ({}),
-    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(queueResponse(500, {})));
     const transport = new DurableTransport({ url: 'http://localhost:3004' });
 
-    await transport.ensureQueue('orders');
+    await expect(transport.ensureQueue('orders')).rejects.toThrow('Queue PUT request failed');
 
     expect(warnSpy.mock.calls).toEqual([
-      ['[durable-transport] ensureQueue "orders" failed: 500 boom'],
+      ['[durable-transport] ensureQueue "orders" failed; required policy was not accepted'],
     ]);
   });
 
@@ -289,37 +280,32 @@ describe('injected logger', () => {
     });
   });
 
-  it('carries queue, status and body on an ensureQueue failure', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      status: 503,
-      ok: false,
-      text: async () => 'unavailable',
-      json: async () => ({}),
-    }));
+  it('carries queue and sanitized error on an ensureQueue failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(queueResponse(503, {})));
     const { logger, lines } = recordingLogger();
     const transport = new DurableTransport({ url: 'http://localhost:3004', logger });
 
-    await transport.ensureQueue('orders');
+    await expect(transport.ensureQueue('orders')).rejects.toThrow('Queue PUT request failed');
 
     expect(warnSpy).not.toHaveBeenCalled();
     expect(lines[0].fields).toMatchObject({
       queue: 'orders',
-      status: 503,
-      body: 'unavailable',
+      error: 'Queue PUT request failed (503, HttpError)',
       ensureQueueFailures: 1,
     });
   });
 
   it('carries attempt/maxAttempts and the error on a durable handler failure', async () => {
-    const messages = [{ message_id: 'm-1', body: JSON.stringify(envelope()), receipt_handle: 'r-1' }];
+    const messages = [{ message_id: 'm-1', body: JSON.stringify(envelope()), approximate_receive_count: 1, receipt_handle: 'r-1' }];
     let polled = false;
-    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: string) => {
-      if (String(url).includes('/messages?')) {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') return queueResponse(201, { status: 'created' });
+      if (String(url).includes('/messages/receive')) {
         const body = polled ? { messages: [] } : { messages };
         polled = true;
-        return { ok: true, status: 200, json: async () => body };
+        return queueResponse(200, body);
       }
-      return { ok: true, status: 200, json: async () => ({}), text: async () => '' };
+      return queueResponse(200, { status: 'ready' });
     }));
 
     const { logger, lines } = recordingLogger();
@@ -330,7 +316,7 @@ describe('injected logger', () => {
       { pollingInterval: 5 },
     );
     await vi.waitFor(() => expect(lines.length).toBeGreaterThan(0), { timeout: 2000 });
-    cancel();
+    cancel(); await cancel.done;
 
     const handlerLine = lines.find(l => l.message.includes('handler error'));
     expect(handlerLine).toBeDefined();

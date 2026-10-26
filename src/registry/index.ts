@@ -78,7 +78,9 @@ export class Registry implements IRegistry {
   private aliasIndex: Map<string, string> | null = null;
 
   constructor(redis?: RedisClientType) {
-    this.schemaValidator = new JsonSchemaValidator({ mode: 'auto' });
+    // Pin the catalog's established keyword semantics. Optional/transitive AJV
+    // installation must not silently change the publish or compatibility gate.
+    this.schemaValidator = new JsonSchemaValidator({ mode: 'fallback' });
     this.redis = redis ?? null;
   }
 

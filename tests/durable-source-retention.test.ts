@@ -23,13 +23,13 @@ it('retains a poison message at the broker after the client and its diagnostic b
   let deletes = 0;
   server = createServer((req, res) => {
     res.setHeader('content-type', 'application/json');
-    if (req.method === 'DELETE') { deletes++; sourceBody = undefined; res.end('{}'); return; }
-    if (req.url?.includes('/messages?')) {
-      const messages = eligible && sourceBody ? [{ message_id: 'm-1', receipt_handle: 'r-1', body: sourceBody }] : [];
+    if (req.method === 'DELETE') { deletes++; sourceBody = undefined; res.end('{"success":true}'); return; }
+    if (req.url?.includes('/messages/receive')) {
+      const messages = eligible && sourceBody ? [{ message_id: 'm-1', receipt_handle: 'r-1', approximate_receive_count: 1, body: sourceBody }] : [];
       eligible = false;
       res.end(JSON.stringify({ messages })); return;
     }
-    req.resume(); res.end('{}');
+    req.resume(); res.end(JSON.stringify({ status: req.method === 'PUT' ? 'created' : 'ready' }));
   });
   await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -52,6 +52,6 @@ it('retains a poison message at the broker after the client and its diagnostic b
   const handler = vi.fn(async () => {});
   replacement.subscribe('jobs', handler, { pollingInterval: 5 });
   await vi.waitFor(() => expect(deletes).toBe(1));
-  expect(handler).toHaveBeenCalledWith(envelope);
+  expect(handler).toHaveBeenCalledWith(envelope, expect.objectContaining({ messageId: 'm-1', receiveCount: 1 }));
   expect(sourceBody).toBeUndefined();
 });

@@ -278,5 +278,5 @@ function addressFor(transport: 'signal' | 'durable', entry: RegistryEntry): stri
   // `entry.queue ?? DurableTransport.eventNameToQueueName(name)`). The old
   // fallback here was the raw event name, which is NOT a queue name —
   // `activity.recorded` publishes to `activity-recorded`.
-  return entry.queue ?? DurableTransport.eventNameToQueueName(entry.name);
+  return entry.queue ?? DurableTransport.eventNameToQueueName(entry.name, entry.fifo);
 }

@@ -1,3 +1,6 @@
+import { type SendOptions, type RequestOptions } from '@connorhoehnslalom/message-queue/client';
+import { type DurableHandlerContext } from './durable-lease';
+export type { DurableHandlerContext } from './durable-lease';
 import type { EventEnvelope } from '../types/index';
 import { type CatalogLogger } from '../utils/logger';
 /** Re-exported so consumers can type a logger without reaching into a subpath. */
@@ -14,7 +17,9 @@ export interface DurableTransportConfig {
         url: string;
         method: string;
         body: string;
-    }) => Record<string, string>;
+    }) => Record<string, string> | Promise<Record<string, string>>;
+    /** Maximum wait for accepted handlers during disconnect/unsubscribe. Default 30000. */
+    drainTimeoutMs?: number;
     /** Total publish attempts before giving up (not *extra* retries). Default 3. */
     retryAttempts?: number;
     /** Base for the exponential publish back-off, in ms. Default 100. */
@@ -49,6 +54,9 @@ export interface DurableSubscribeOptions {
     pollingInterval?: number;
     batchSize?: number;
     visibilityTimeout?: number;
+    queueOptions?: EnsureQueueOptions;
+    /** Pauses intake; acquired but unstarted messages are left for redelivery. */
+    isPaused?: () => boolean;
 }
 /**
  * Subset of an event-catalog EventDeclaration's durable-side config that
@@ -76,32 +84,17 @@ interface QueueMetrics {
     failed: number;
     inFlight: number;
 }
-type MessageHandler = (envelope: EventEnvelope) => Promise<void>;
+type MessageHandler = (envelope: EventEnvelope, context: DurableHandlerContext) => Promise<void>;
+export type DurablePublishOptions = SendOptions;
+export type DurableSubscription = (() => void) & {
+    readonly done: Promise<void>;
+};
 export type DeadLetterCallback = (message: DeadLetteredMessage) => void;
-/**
- * HTTP transport to the `message-queue` service for `transport: 'durable'`
- * events.
- *
- * Failure semantics (the mirror image of {@link SignalTransport}):
- *   - **`publish()` throws on every failure** — not connected, network
- *     error, non-2xx, or sustained 429 backpressure — after exhausting
- *     `retryAttempts`. Nothing is silently dropped on the publish path.
- *   - **`connect()` never throws.** An unreachable message-queue is warned
- *     and the transport still reports connected; the failure resurfaces on
- *     the first publish. This is deliberate: a service should boot with a
- *     degraded durable bus rather than crash-loop.
- *   - **`ensureQueue()` never throws.** Queue-config drift (HTTP 409) is
- *     warned and accepted; a failed ensure still lets the publish proceed.
- *   - **`subscribe()` never throws.** Poll failures are retried with
- *     back-off forever; a handler that fails `maxProcessingAttempts` times
- *     records a diagnostic in {@link getDLQ}. Only the broker's redrive policy
- *     may move a failed message; the subscriber never deletes it for a failure.
- */
+/** Durable event policy over the MQ-owned wire client. Broker storage owns delivery. */
 export declare class DurableTransport {
-    private readonly requestHeaders?;
+    private readonly client;
+    private readonly drainTimeoutMs;
     private readonly url;
-    /** message-queue's canonical versioned queue surface (Roadmap 4.1). */
-    private readonly queuesBase;
     private readonly retryAttempts;
     private readonly retryBaseMs;
     /** Per-attempt ceiling on a publish POST. See the constructor note. */
@@ -109,7 +102,6 @@ export declare class DurableTransport {
     private readonly acknowledgementTimeoutMs;
     private readonly maxProcessingAttempts;
     private readonly dlqCapacity;
-    private readonly pollRetryManager;
     private connected;
     /**
      * Keyed by a monotonic id, not by queue name: two `subscribe()` calls on
@@ -122,6 +114,7 @@ export declare class DurableTransport {
     private queueMetrics;
     private evictedQueueMetrics;
     private ensuredQueues;
+    private queuePolicies;
     private readonly deadLetterMessages;
     private readonly messageAttempts;
     private evictedMessageAttempts;
@@ -148,7 +141,7 @@ export declare class DurableTransport {
     private readonly log;
     constructor(config: DurableTransportConfig);
     /**
-     * Probe `GET {url}/health` and mark the transport connected.
+     * Probe `GET {url}/ready` and mark the transport connected.
      *
      * Never throws, and marks itself connected **even when the probe fails**
      * — the warning names the URL so an operator can check
@@ -158,11 +151,11 @@ export declare class DurableTransport {
     connect(): Promise<void>;
     /**
      * Abort every active poll loop and mark the transport disconnected.
-     * Never throws. In-memory DLQ contents survive; in-flight messages are
-     * left for the queue's visibility timeout to redeliver.
+     * Waits for accepted handlers within the configured drain budget. Unfinished
+     * deliveries are left for broker visibility expiry; diagnostics remain local.
      */
     disconnect(): Promise<void>;
-    /** Poll loops still running. Should be 0 after `disconnect()`. */
+    /** Active intake loops; draining handlers are awaited by disconnect/done. */
     getActivePollerCount(): number;
     /**
      * Publishes currently awaiting message-queue, and the high-water mark.
@@ -198,43 +191,14 @@ export declare class DurableTransport {
         deadLetteredTotal: number;
         suppressedWarnings: number;
     };
-    /**
-     * Idempotent queue ensure via PUT (message-queue Phase 4.1 contract).
-     * Maps event-catalog's declared queue config (retention/fifo/dlqAfterAttempts)
-     * onto message-queue's QueueConfiguration shape. Three response codes
-     * are handled distinctly:
-     *
-     *   201 — created with the requested config.
-     *   200 — already existed with matching config (no change).
-     *   409 — already existed with DIFFERING config; conflict body logged
-     *         at warn level. The publish path still proceeds — operator
-     *         must decide whether to delete-and-recreate or accept the
-     *         drift. We do NOT auto-mutate the existing queue.
-     *
-     * When `dlqAfterAttempts` is declared, the paired DLQ queue is
-     * auto-created first under the name `${queueName}-dlq` (conventional;
-     * mirrors AWS SQS-redrive naming). If the DLQ ensure fails the main
-     * queue is still attempted without redrive_policy — better to land
-     * messages on the live queue than to refuse delivery.
-     */
-    ensureQueue(queueName: string, options?: EnsureQueueOptions): Promise<void>;
-    private rememberEnsuredQueue;
+    /** Strict full-policy ensure. No publish after a missing DLQ or configuration conflict. */
+    ensureQueue(queueName: string, options?: EnsureQueueOptions, requestOptions?: RequestOptions): Promise<void>;
     /**
      * `ensureQueue` runs on every publish until it succeeds, so a
      * message-queue outage puts these warnings on the per-publish path.
      * Count every failure; log a bounded sample.
      */
     private warnEnsureQueue;
-    /**
-     * Map an event-catalog declaration's queue-config fields to
-     * message-queue's snake_case QueueConfiguration shape.
-     */
-    private buildQueueConfig;
-    /**
-     * Single PUT to /api/v1/queues/{name}. Returns true on 200/201, false on 409
-     * (logs the conflict diff) or any other status / network error.
-     */
-    private putQueue;
     /**
      * Increment and return the module-level backpressure counter for a queue.
      * Exposed via `DurableTransport.getBackpressureCount()` for tests/metrics.
@@ -251,36 +215,10 @@ export declare class DurableTransport {
     static getBackpressureTotal(): number;
     /** Reset backpressure counters (useful in tests). */
     static resetBackpressureCounters(): void;
-    /**
-     * POST an envelope to a message-queue queue, ensuring the queue exists
-     * first. Retries up to `retryAttempts` times with exponential back-off,
-     * honouring a server `Retry-After` on HTTP 429 (clamped to 5 minutes and
-     * jittered).
-     *
-     * Nothing is dropped: if this resolves, message-queue accepted the
-     * message; if it rejects, it did not.
-     *
-     * @throws when the transport is not connected, or after the final
-     *   attempt fails — the message contains the queue name, the attempt
-     *   count, and the underlying status or network error.
-     */
-    publish(queueName: string, envelope: EventEnvelope, queueOptions?: EnsureQueueOptions): Promise<void>;
-    private publishInner;
-    /**
-     * Start a long-poll loop against a queue. Synchronous and non-throwing:
-     * the queue ensure and the loop itself start in the background, so a
-     * message-queue outage at subscribe time is not an error here.
-     *
-     * A handler rejection causes redelivery. After `maxProcessingAttempts`
-     * rejections for the same message a diagnostic is recorded (see
-     * {@link getDLQ} / {@link onDeadLetter}). The source is retained for the
-     * broker's redrive policy or redelivery. Diagnostic attempt counts are
-     * process-local, so a restart resets them.
-     *
-     * @returns a cancel function that aborts the poll loop. It does not wait
-     *   for an in-flight handler to finish.
-     */
-    subscribe(queueName: string, handler: MessageHandler, options?: DurableSubscribeOptions): () => void;
+    /** Success means accepted. A failed/uncertain response can still redeliver. */
+    publish(queueName: string, envelope: EventEnvelope, queueOptions?: EnsureQueueOptions, options?: DurablePublishOptions): Promise<void>;
+    /** Stop intake synchronously; `done` includes bounded draining of accepted handlers. */
+    subscribe(queueName: string, handler: MessageHandler, options?: DurableSubscribeOptions): DurableSubscription;
     /**
      * Fetch a queue's attributes from message-queue. Never throws — returns
      * `null` on any non-2xx or network error, so `null` does not distinguish
@@ -319,7 +257,7 @@ export declare class DurableTransport {
      */
     isConnected(): boolean;
     /**
-     * Probe `GET {url}/health` with a 2s timeout. Never throws.
+     * Probe `GET {url}/ready` with a 2s timeout. Never throws.
      * `'degraded'` = timed out or non-2xx; `'disconnected'` = not connected
      * or the request errored.
      */
@@ -328,10 +266,7 @@ export declare class DurableTransport {
         latencyMs: number;
     }>;
     private pollLoop;
-    private request;
-    private acknowledge;
-    /** Unconditional sleep without an abort signal (used in publish retry loop). */
-    private sleepMs;
+    private recordHandlerFailure;
     private sleep;
     private incrementMetric;
     private decrementInFlight;
@@ -342,6 +277,6 @@ export declare class DurableTransport {
      * Note the mapping is lossy — `a:b` and `a.b` derive the same queue. Set
      * `queue` on the declaration when you need them kept apart.
      */
-    static eventNameToQueueName(eventName: string): string;
+    static eventNameToQueueName(eventName: string, fifo?: boolean): string;
 }
 //# sourceMappingURL=durable.d.ts.map

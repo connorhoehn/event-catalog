@@ -132,7 +132,7 @@ export function makeRoutesDeps(overrides: DegradedDepsOverrides = {}): RoutesDep
  * A `fetch` stand-in for the message-queue HTTP surface.
  *
  * `handler` sees only the interesting calls: the queue-ensure PUT and
- * the `/health` probe are answered for you, because every publish makes
+ * the `/ready` probe are answered for you, because every publish makes
  * them and no test is about them.
  */
 export function messageQueueFetch(
@@ -141,10 +141,10 @@ export function messageQueueFetch(
   return vi.fn(async (url: string | URL, init?: RequestInit) => {
     const s = String(url);
     if (init?.method === 'PUT') {
-      return { status: 201, ok: true, json: async () => ({}), text: async () => '' };
+      return httpResponse(201, { status: 'created' });
     }
-    if (s.endsWith('/health')) {
-      return { ok: true, status: 200, json: async () => ({}), text: async () => 'ok' };
+    if (s.endsWith('/ready')) {
+      return httpResponse(200, { status: 'ready' });
     }
     return handler(s, init);
   });
