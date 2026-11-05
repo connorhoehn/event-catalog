@@ -5,6 +5,7 @@ import {
   fetchEvents,
   memberIsRequired,
   resetServer,
+  collectionSearch,
   seedRegistry,
   setBundleRegistry,
   trackPageErrors,
@@ -110,10 +111,10 @@ test('the filter box narrows the list and says so when nothing matches', async (
   await page.goto('/bundles');
   await expect(bundleRow(page, target.name, target.version)).toHaveCount(1);
 
-  await page.getByPlaceholder('Filter bundles…').fill(target.name);
+  await (await collectionSearch(page, 'Filter bundles…')).fill(target.name);
   await expect(page.getByRole('link', { name: target.name, exact: true })).toBeVisible();
 
-  await page.getByPlaceholder('Filter bundles…').fill('zzz-no-such-bundle');
+  await (await collectionSearch(page, 'Filter bundles…')).fill('zzz-no-such-bundle');
   await expect(page.getByText('No bundle matches "zzz-no-such-bundle".')).toBeVisible();
   // Filtering to nothing is an empty RESULT, never an error.
   await expect(page.getByText('Error loading bundles')).toHaveCount(0);

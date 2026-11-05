@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { armDurableFailure, publishedToDurable, resetServer, seedDlq, trackPageErrors } from './helpers';
+import { armDurableFailure, collectionSearch, publishedToDurable, resetServer, seedDlq, trackPageErrors } from './helpers';
 
 /**
  * DLQ browser round-trips.
@@ -114,14 +114,14 @@ test('the event-name filter scopes the listing server-side', async ({ page, requ
   await page.goto('/dlq');
   await expect(page.getByText('2 entries')).toBeVisible();
 
-  await page.getByPlaceholder('Filter by event name...').fill('billing.invoice.paid');
+  await (await collectionSearch(page, 'Filter by event name...')).fill('billing.invoice.paid');
 
   await expect(page.getByText('1 entries')).toBeVisible();
   await expect(page.getByRole('row').filter({ hasText: 'billing.invoice.paid' })).toHaveCount(1);
   await expect(page.getByRole('row').filter({ hasText: 'test.beta' })).toHaveCount(0);
 
   // A filter that matches nothing gets a scoped empty state, not a blank page.
-  await page.getByPlaceholder('Filter by event name...').fill('nope.no.such.event');
+  await (await collectionSearch(page, 'Filter by event name...')).fill('nope.no.such.event');
   await expect(page.getByText('No DLQ entries for "nope.no.such.event".')).toBeVisible();
 });
 

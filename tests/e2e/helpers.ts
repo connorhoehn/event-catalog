@@ -3,7 +3,7 @@
 // Everything here talks to the `/__e2e__` control plane in test-server.ts.
 // Not a spec file — playwright.config.ts only collects `*.spec.ts`.
 
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 
 export interface TapInput {
   eventName?: string;
@@ -231,4 +231,18 @@ export async function setCoordinator(
 ): Promise<void> {
   const res = await request.post('/__e2e__/coordinator', { data: { state } });
   expect(res.ok(), 'failed to set the coordinator state').toBeTruthy();
+}
+
+/**
+ * The collection search field. Since ui-components 2.503.0 a CollectionToolbar
+ * search is collapsed to an icon button until opened (and stays open while it
+ * holds a value), so open it first when the field is not on screen.
+ */
+export async function collectionSearch(page: Page, placeholder: string): Promise<Locator> {
+  const field = page.getByPlaceholder(placeholder);
+  if (!(await field.isVisible())) {
+    await page.locator('button[aria-keyshortcuts="/"]').first().click();
+  }
+  await expect(field).toBeVisible();
+  return field;
 }

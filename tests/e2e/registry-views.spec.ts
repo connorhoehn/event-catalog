@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { trackPageErrors } from './helpers';
+import { collectionSearch, trackPageErrors } from './helpers';
 
 /**
  * Namespaces and Subscribers, rendered against the live registry rather than
@@ -63,11 +63,11 @@ test('the namespace filter box narrows the grid', async ({ page }) => {
   await page.goto('/namespaces');
   await expect(page.getByRole('button').filter({ hasText: 'billing' })).toHaveCount(1);
 
-  await page.getByPlaceholder('Filter by namespace…').fill('bill');
+  await (await collectionSearch(page, 'Filter by namespace…')).fill('bill');
   await expect(page.getByRole('button').filter({ hasText: 'billing' })).toHaveCount(1);
   await expect(page.getByRole('button').filter({ hasText: 'test' })).toHaveCount(0);
 
-  await page.getByPlaceholder('Filter by namespace…').fill('zzz');
+  await (await collectionSearch(page, 'Filter by namespace…')).fill('zzz');
   await expect(page.getByText('No namespace matches "zzz".')).toBeVisible();
 });
 
