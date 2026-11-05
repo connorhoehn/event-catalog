@@ -54,8 +54,8 @@ describe('.view-canvas — the graph container', () => {
 
 describe('bundler config — one copy of the graph library', () => {
   it('dedupes @xyflow/react, react and react-dom', () => {
-    // `@ui` resolves to ui-components' SOURCE, so ui-components' own import
-    // of @xyflow/react resolves from ITS node_modules: a second module
+    // ui-components imports @xyflow/react itself; if that ever resolves to
+    // a different copy than the app's (a `file:` link, a nested install), it is a second module
     // instance, a second React context, and ReactFlowProvider populating the
     // one `useStore` does not read. The symptom is not a bad layout — it is
     // "you have not used ReactFlowProvider as an ancestor" and a white

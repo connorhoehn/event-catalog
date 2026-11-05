@@ -10,7 +10,6 @@
 *
 
 !event-catalog
-!ui-components
 
 # --- event-catalog -----------------------------------------------------------
 # Sources, lockfiles and contracts/ only. node_modules and the two dist trees
@@ -27,22 +26,6 @@ event-catalog/openapi
 event-catalog/.dev-logs
 event-catalog/src/admin/node_modules
 event-catalog/src/admin/dist
-
-# --- ui-components -----------------------------------------------------------
-# src/ and node_modules/ are build inputs: the admin's Vite config aliases
-# `@ui` at ui-components/SOURCE, so that source's own imports resolve out of
-# ui-components/node_modules.
-#
-# dist/ is NOT used by the bundle, but it must be present anyway: npm runs
-# ui-components' `prepare` script when it links the `file:` dependency, and
-# that script is `test -f dist/index.js || (vite build && ...)`. With dist/
-# absent it tries to rebuild ui-components inside the image using the host's
-# darwin rolldown binary and dies. `npm ci --ignore-scripts` does not
-# suppress it. Shipping the prebuilt dist/ makes the guard short-circuit.
-ui-components/coverage
-ui-components/storybook-static
-ui-components/playwright-report
-ui-components/test-results
 
 # --- never, anywhere ---------------------------------------------------------
 **/.git

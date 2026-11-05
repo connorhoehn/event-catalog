@@ -1,4 +1,4 @@
-import Banner from '@ui/components/shared/Banner';
+import { Banner } from '@connorhoehnslalom/ui-components/shared';
 import { AUTH_BANNER_BODY, AUTH_BANNER_TITLE, useAuthRequired } from '../auth';
 
 /**

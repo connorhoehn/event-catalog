@@ -300,7 +300,10 @@ describe('FlowView — sampling and filters', () => {
 
 describe('FlowView — edge pulsing', () => {
   it('activates both edges incident to a firing event, then fades them', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // Fake only what the fade reads. React 19's scheduler runs on
+    // setImmediate/MessageChannel; faking those stalls the commit that
+    // applies the pulse, so the edges never leave 'default'.
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     try {
       mount();
       await screen.findByTestId('graph');

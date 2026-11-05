@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import Chip from '@ui/components/shared/Chip';
-import ErrorState from '@ui/components/shared/ErrorState';
-import SkeletonCard from '@ui/components/shared/SkeletonCard';
-import LiveRegion from '@ui/components/shared/LiveRegion';
+import { useParams, Link } from 'react-router';
+import { Chip, ErrorState, SkeletonCard, LiveRegion } from '@connorhoehnslalom/ui-components/shared';
 import { api, type EventEntry, type EventStats } from '../api';
 import { FingerprintChip } from './FingerprintChip';
 import { SchemaDiffToggle } from './SchemaDiff';

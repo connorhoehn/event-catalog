@@ -4,7 +4,7 @@
 // this view has shipped were invisible to markup assertions on a stub:
 //
 //   1. Two copies of @xyflow/react (one from this app, one pulled in through
-//      `@ui`'s source) put ReactFlowProvider's context in a different module
+//      the library's former source alias) put ReactFlowProvider's context in a different module
 //      instance than the one `useStore` reads, so NamespaceClusters threw
 //      "you have not used ReactFlowProvider as an ancestor" and the route
 //      white-screened. A stub makes that unreachable; rendering the real

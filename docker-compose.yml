@@ -7,8 +7,7 @@
 # `ssh: [default]` blocks forward it; without them the builds fail with
 # `npm error syscall spawn git`.
 #
-# Note the event-catalog build context is `..` — the admin UI takes
-# ../ui-components as a `file:` dependency. event-catalog/Dockerfile.dockerignore
+# Note the event-catalog build context is `..`; event-catalog/Dockerfile.dockerignore
 # is what stops that from uploading every sibling repo.
 
 services:

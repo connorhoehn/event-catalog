@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useId, useState } from 'react';
-import { Link } from 'react-router-dom';
-import Chip from '@ui/components/shared/Chip';
-import EmptyState from '@ui/components/shared/EmptyState';
-import ErrorState from '@ui/components/shared/ErrorState';
-import SkeletonCard from '@ui/components/shared/SkeletonCard';
-import LiveRegion from '@ui/components/shared/LiveRegion';
-import Sparkline from '@ui/components/shared/Sparkline';
-import { Button } from '@ui/components/ui/Button';
+import { Link } from 'react-router';
+import { Chip, EmptyState, ErrorState, SkeletonCard, LiveRegion, Sparkline, Button } from '@connorhoehnslalom/ui-components/shared';
 import { api, type EventEntry } from '../api';
 
 /** 60s publish-rate trend. Delegates the SVG to the shared Sparkline; the

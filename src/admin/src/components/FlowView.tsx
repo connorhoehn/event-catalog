@@ -23,12 +23,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import Chip from '@ui/components/shared/Chip';
-import ErrorState from '@ui/components/shared/ErrorState';
-import LoadingState from '@ui/components/shared/LoadingState';
-import LiveRegion from '@ui/components/shared/LiveRegion';
-import { Button } from '@ui/components/ui/Button';
-import AnimatedEdge from '@ui/components/pipelines/canvas/edges/AnimatedEdge';
+import { Chip, ErrorState, LoadingState, LiveRegion, Button } from '@connorhoehnslalom/ui-components/shared';
+import { AnimatedEdge } from '@connorhoehnslalom/ui-components/pipelines';
 
 import { api, type TopologyGraph } from '../api';
 import EventNode from './topology/EventNode';

@@ -1,20 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
-
-const uiComponentsSrc = path.resolve(__dirname, '../../../ui-components/src');
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      '@ui': uiComponentsSrc,
-    },
-    // `@ui` resolves to ui-components' SOURCE, so its own imports of these
-    // peer deps resolve from ui-components/node_modules — a second copy of
-    // @xyflow/react whose React context is not the one ReactFlowProvider
-    // populates ("you have not used ReactFlowProvider as an ancestor", and a
-    // white-screened /topology + /flow). Force one instance of each.
+    // ui-components is installed from a packed tarball and lists these as
+    // peers, so there should only ever be one copy — but a second
+    // @xyflow/react (e.g. from a stray `file:` link) puts ReactFlowProvider's
+    // context in a different module instance ("you have not used
+    // ReactFlowProvider as an ancestor", a white-screened /topology + /flow).
+    // Force one instance of each.
     dedupe: ['@xyflow/react', 'react', 'react-dom'],
   },
   server: {
@@ -55,7 +50,7 @@ export default defineConfig({
           if (/[\\/]node_modules[\\/](@xyflow|dagre|graphlib|d3-)/.test(id)) {
             return 'vendor-graph';
           }
-          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) {
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|scheduler)[\\/]/.test(id)) {
             return 'vendor-react';
           }
           return undefined;

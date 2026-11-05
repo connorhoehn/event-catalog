@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import Chip from '@ui/components/shared/Chip';
-import Banner from '@ui/components/shared/Banner';
-import ErrorState from '@ui/components/shared/ErrorState';
-import SkeletonCard from '@ui/components/shared/SkeletonCard';
-import LiveRegion from '@ui/components/shared/LiveRegion';
-import { Button } from '@ui/components/ui/Button';
+import { Link } from 'react-router';
+import { Chip, Banner, ErrorState, SkeletonCard, LiveRegion, Button } from '@connorhoehnslalom/ui-components/shared';
 import { api, isTransportUp, transportTone, type EventEntry, type HealthStatus } from '../api';
 
 type RegistryHealth = Awaited<ReturnType<typeof api.getRegistryHealth>>;

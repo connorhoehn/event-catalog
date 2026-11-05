@@ -10,11 +10,8 @@
 // not *what's flowing*.
 
 import { useId, useState } from 'react';
-import { Link } from 'react-router-dom';
-import Chip from '@ui/components/shared/Chip';
-import Banner from '@ui/components/shared/Banner';
-import LiveRegion from '@ui/components/shared/LiveRegion';
-import { Button } from '@ui/components/ui/Button';
+import { Link } from 'react-router';
+import { Chip, Banner, LiveRegion, Button } from '@connorhoehnslalom/ui-components/shared';
 import { useAuditTap, type AuditEvent, type AuditEventKind } from './topology/useAuditTap';
 
 const kindMeta: Record<AuditEventKind, { label: string; tone: 'success' | 'danger' | 'info' | 'neutral'; verb: string }> = {

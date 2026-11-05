@@ -1,9 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import Chip from '@ui/components/shared/Chip';
-import EmptyState from '@ui/components/shared/EmptyState';
-import ErrorState from '@ui/components/shared/ErrorState';
-import LoadingState from '@ui/components/shared/LoadingState';
-import { Button } from '@ui/components/ui/Button';
+import { Chip, EmptyState, ErrorState, LoadingState, Button } from '@connorhoehnslalom/ui-components/shared';
 import { api, type EventEntry, type EventStats } from '../api';
 
 interface LiveMessage {

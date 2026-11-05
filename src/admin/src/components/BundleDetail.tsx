@@ -11,13 +11,8 @@
 // class on the wrapper, not a colour.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
-import Banner from '@ui/components/shared/Banner';
-import Chip from '@ui/components/shared/Chip';
-import ErrorState from '@ui/components/shared/ErrorState';
-import LiveRegion from '@ui/components/shared/LiveRegion';
-import SkeletonCard from '@ui/components/shared/SkeletonCard';
-import { Button } from '@ui/components/ui/Button';
+import { Link, useParams, useSearchParams } from 'react-router';
+import { Banner, Chip, ErrorState, LiveRegion, SkeletonCard, Button } from '@connorhoehnslalom/ui-components/shared';
 import { api, isRequired, type FeatureBundleEntry } from '../api';
 import { FingerprintChip } from './FingerprintChip';
 import { transportTone } from './BundlesView';

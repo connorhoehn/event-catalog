@@ -7,7 +7,7 @@
 
 import type { ReactElement } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { vi } from 'vitest';
 
 /** One canned answer for a route. */

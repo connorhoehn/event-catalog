@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useId, useState } from 'react';
-import Chip from '@ui/components/shared/Chip';
-import Banner from '@ui/components/shared/Banner';
-import EmptyState from '@ui/components/shared/EmptyState';
-import ErrorState from '@ui/components/shared/ErrorState';
-import SkeletonCard from '@ui/components/shared/SkeletonCard';
-import LiveRegion from '@ui/components/shared/LiveRegion';
-import { Button } from '@ui/components/ui/Button';
+import { Chip, Banner, EmptyState, ErrorState, SkeletonCard, LiveRegion, Button } from '@connorhoehnslalom/ui-components/shared';
 import { api, type DLQEntry } from '../api';
 
 export function DLQBrowser() {

@@ -2,15 +2,12 @@
 
 # event-catalog service image.
 #
-# BUILD CONTEXT: the PARENT directory holding event-catalog/ and
-# ui-components/ as siblings — the admin UI takes ui-components as a `file:`
-# dependency and Vite aliases `@ui` at its source tree. docker-compose.yml
-# sets `context: ..` for this reason. Ignore rules live in
+# BUILD CONTEXT: the PARENT directory of event-catalog/ (docker-compose.yml
+# sets `context: ..`; every COPY is prefixed `event-catalog/`). Ignore rules live in
 # Dockerfile.dockerignore (BuildKit prefers it over the context root's
 # .dockerignore, which is what keeps the other sibling repos out).
 #
-# SSH IS REQUIRED. distributed-core and two of ui-components' dependencies are
-# private `github:` pins, so npm shells out to git over SSH:
+# SSH IS REQUIRED. distributed-core is a private `github:` pin, so npm shells out to git over SSH:
 #
 #   docker build --ssh default -f event-catalog/Dockerfile -t event-catalog ..
 #   docker compose build          # compose passes `ssh: [default]`
@@ -56,31 +53,16 @@ RUN npm run build && npm run build:cli
 # -----------------------------------------------------------------------------
 FROM base AS admin-builder
 
-# `file:../../../ui-components` resolved from /app/src/admin lands on
-# /ui-components, and vite.config.ts aliases @ui at /ui-components/src.
-COPY ui-components/ /ui-components/
-# The admin aliases library source, whose imports resolve from this directory.
-# Install its locked dependency graph in Linux; never rely on a host node_modules.
-WORKDIR /ui-components
-RUN --mount=type=ssh npm ci --ignore-scripts
-
+# ui-components is a vendored tarball (src/admin/vendor/), so the admin
+# install needs nothing outside this repo.
 WORKDIR /app/src/admin
 COPY event-catalog/src/admin/package.json event-catalog/src/admin/package-lock.json* ./
-# --ignore-scripts because npm runs `prepare` for the `file:` ui-components
-# link, and ui-components' prepare rebuilds itself with rolldown — whose
-# native binding in the copied-in node_modules is the host's darwin build.
-# The bundle never needs it: vite.config.ts aliases @ui at ui-components/src,
-# not at its dist.
-RUN --mount=type=ssh npm ci --ignore-scripts
+COPY event-catalog/src/admin/vendor/ ./vendor/
+RUN npm ci --ignore-scripts
 
 COPY event-catalog/src/admin/ ./
-# `npm run build` is `tsc && vite build`. Only the bundle is wanted here:
-# that `tsc` also typechecks ui-components' SOURCE through the @ui alias,
-# against a tsconfig that has no @types/node in this stage, so it fails on
-# ui-components' own `process.env` reads. Typechecking the admin app is a CI
-# gate (`npm run build:admin` on a dev machine), not a deployment gate — an
-# image should not become unbuildable because a sibling library's types
-# drifted.
+# Only the bundle is wanted here; typechecking the admin app is a CI gate
+# (`npm run build:admin` on a dev machine), not a deployment gate.
 RUN npx vite build \
  && test -f dist/index.html   # fail the build here, not at the first 404
 

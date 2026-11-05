@@ -1,8 +1,6 @@
 import { Suspense, lazy, useEffect, useRef } from 'react';
-import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
-import SkeletonCard from '@ui/components/shared/SkeletonCard';
-import SkipLink from '@ui/components/shared/SkipLink';
-import LiveRegion from '@ui/components/shared/LiveRegion';
+import { Routes, Route, NavLink, useLocation } from 'react-router';
+import { SkeletonCard, SkipLink, LiveRegion } from '@connorhoehnslalom/ui-components/shared';
 import { Dashboard } from './components/Dashboard';
 import { AuthNotice } from './components/AuthNotice';
 

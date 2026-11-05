@@ -13,14 +13,8 @@
 // did not answer" must never look the same.
 
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import Banner from '@ui/components/shared/Banner';
-import Chip from '@ui/components/shared/Chip';
-import EmptyState from '@ui/components/shared/EmptyState';
-import ErrorState from '@ui/components/shared/ErrorState';
-import LoadingState from '@ui/components/shared/LoadingState';
-import ProgressBar from '@ui/components/shared/ProgressBar';
-import { Button } from '@ui/components/ui/Button';
+import { Link } from 'react-router';
+import { Banner, Chip, EmptyState, ErrorState, LoadingState, ProgressBar, Button } from '@connorhoehnslalom/ui-components/shared';
 import { api, type EventEntry, type FeatureBundleEntry } from '../api';
 import {
   computeCoverage,

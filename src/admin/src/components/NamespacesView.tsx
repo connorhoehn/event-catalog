@@ -10,12 +10,8 @@
 // so re-fetching on each click would be wasteful.
 
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import Chip from '@ui/components/shared/Chip';
-import EmptyState from '@ui/components/shared/EmptyState';
-import ErrorState from '@ui/components/shared/ErrorState';
-import LoadingState from '@ui/components/shared/LoadingState';
-import { Button } from '@ui/components/ui/Button';
+import { Link } from 'react-router';
+import { Chip, EmptyState, ErrorState, LoadingState, Button } from '@connorhoehnslalom/ui-components/shared';
 import { api } from '../api';
 
 interface NamespaceRow {
