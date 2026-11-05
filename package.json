@@ -59,6 +59,7 @@
     "build": "tsc",
     "build:cli": "tsc --target ES2022 --module node16 --moduleResolution node16 --outDir ./dist --rootDir ./src --strict --declaration --declarationMap --sourceMap --esModuleInterop --skipLibCheck --resolveJsonModule --isolatedModules --noFallthroughCasesInSwitch src/cli/bundle-create.ts src/cli/bundle-diff.ts src/cli/lint-crd.ts src/cli/index.ts",
     "build:admin": "cd src/admin && npm run build",
+    "lint:admin": "cd src/admin && npm run lint",
     "start": "node dist/cli/index.js",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -80,10 +80,37 @@ assume cross-service events are declared and validated here.
   v0.4.0. `DurableTransport` imports `/client`; `MESSAGE_QUEUE_URL` is the
   broker's bare origin. Queue policy is strict; subscriber leases renew and
   shutdown drains within a configured budget. See README's 0.9.0 section.
-- **`@connorhoehn/ui-components`** — admin UI shared components (Vite). The
-  topology + flow views import `PipelineCanvas`'s underlying primitives
-  (`@xyflow/react` + `AnimatedEdge`) to match the gateway's
+- **`@connorhoehnslalom/ui-components`** — the admin UI's component library
+  (the slalom scope is correct; its peer `@connorhoehn/realtime-modules` is a
+  different, never-renamed repo — do not "fix" either scope). Installed from a
+  vendored tarball, `src/admin/vendor/connorhoehnslalom-ui-components-<ver>.tgz`
+  via `file:`; there is no source alias. To upgrade: drop the new tarball in
+  `vendor/`, `npm install --save file:vendor/<tgz>` in `src/admin`, delete the
+  old one. The topology + flow views use `AnimatedEdge` from its
+  `/pipelines` subpath with `@xyflow/react` to match the gateway's
   pipeline-replay visual language.
+
+## Admin UI (`src/admin`)
+
+Before writing or changing any admin page, read
+`src/admin/node_modules/@connorhoehnslalom/ui-components/docs/COMPONENT_INDEX.md`
+and follow the library's `ui-page-build` skill
+(`node_modules/@connorhoehnslalom/ui-components/skills/ui-page-build/SKILL.md`):
+
+- Start every routed view from one page template (`CollectionPage`,
+  `MasterDetailPage`, `DetailPage`, `DashboardPage`, `SettingsPage`, or
+  `PageFrame`) inside the app's single `AppShell layout="fill"` (`App.tsx`).
+- Controls come from the library: `DataTable`, `Select`, `Input`,
+  `SearchInput`, `NumberInput`, `Checkbox`, `Button` with an explicit
+  `variant`. No raw `<table>`/`<select>`/`<input>`/`<button>`, no
+  `style={{}}`, no new rules in `src/styles.css` for something the library
+  draws. Missing primitive → add it to ui-components first.
+- Gate: `npm run typecheck && npm test && npm run lint && npm run build` in
+  `src/admin` (`npm run lint:admin` from the root). Lint is the library's
+  ESLint plugin (`eslint.config.js`, `configs.recommended`).
+- The library `Select` is a combobox over a portaled listbox, not a native
+  `<select>`; unit tests drive it with `readOptions`/`chooseOption` from
+  `src/test/helpers.tsx`.
 
 ## agent-hub retired (2026-08-16)
 

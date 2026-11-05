@@ -157,14 +157,13 @@ the registry too.
 ## Deployment
 
 ```bash
-# Context is the PARENT directory: the admin UI takes ../ui-components as a
-# file: dependency. Dockerfile.dockerignore keeps the other sibling repos out.
+# Context is the PARENT directory (every COPY is prefixed event-catalog/);
+# Dockerfile.dockerignore keeps the sibling repos out.
 docker build --ssh default -f event-catalog/Dockerfile -t event-catalog ..
 ```
 
-- **SSH forwarding is required.** `distributed-core` and two of
-  ui-components' dependencies are private `github:` pins, so npm shells out to
-  git over SSH. Without a key in your agent the build fails with
+- **SSH forwarding is required.** `distributed-core` is a private `github:`
+  pin, so npm shells out to git over SSH. Without a key in your agent the build fails with
   `npm error syscall spawn git` or `Permission denied (publickey)`.
 - Three stages: server compile, admin bundle, runtime. Only production
   dependencies reach the final image, and the git/ssh/gcc toolchain is added
