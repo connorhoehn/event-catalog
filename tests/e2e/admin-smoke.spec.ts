@@ -83,11 +83,12 @@ test('every nav destination renders without an uncaught error', async ({ page })
 
   for (const route of routes) {
     await page.goto(route);
-    // The sidebar is the shell; if React tore the tree down it goes with it.
-    await expect(page.getByRole('heading', { name: 'Event Catalog' })).toBeVisible();
-    // Each view owns an <h2>; waiting on one proves the lazy chunk resolved
-    // and the route rendered rather than sitting on the Suspense skeleton.
-    await expect(page.locator('main h2').first()).toBeVisible();
+    // The AppShell nav is the shell; if React tore the tree down it goes with it.
+    await expect(page.getByRole('navigation', { name: 'Views' })).toBeVisible();
+    // Each view's page template owns a heading (h1, or h2 on a detail
+    // page); waiting on one proves the lazy chunk resolved and the route
+    // rendered rather than sitting on the Suspense skeleton.
+    await expect(page.locator('main h1, main h2').first()).toBeVisible();
   }
 
   expect(errors).toEqual([]);

@@ -52,12 +52,15 @@ function firstHealthy(bundles: ServerBundle[]): ServerBundle {
 }
 
 /** The bundles table row owning a given bundle name, matched on the exact link. */
-function bundleRow(page: Page, name: string) {
+function bundleRow(page: Page, name: string, version?: string) {
   // `filter({ hasText })` would match `agentic-pipeline-signal` for
-  // `agentic-pipeline`; the link's accessible name is exact.
-  return page
+  // `agentic-pipeline`; the link's accessible name is exact. Several bundles
+  // ship more than one version (crdt-document 1.0.0 + 1.1.0), one row each,
+  // so a version narrows it to one.
+  const rows = page
     .getByRole('row')
     .filter({ has: page.getByRole('link', { name, exact: true }) });
+  return version ? rows.filter({ hasText: version }) : rows;
 }
 
 test('the bundle list renders every bundle the server actually holds', async ({ page, request }) => {
@@ -80,7 +83,7 @@ test('the bundle list renders every bundle the server actually holds', async ({ 
   await expect(page.getByText('No bundles registered')).toHaveCount(0);
 
   for (const bundle of bundles) {
-    const row = bundleRow(page, bundle.name);
+    const row = bundleRow(page, bundle.name, bundle.version);
     await expect(row, `row for ${bundle.name}`).toHaveCount(1);
     await expect(row).toContainText(bundle.version);
     await expect(row).toContainText(bundle.transport);
@@ -105,7 +108,7 @@ test('the filter box narrows the list and says so when nothing matches', async (
   const target = firstHealthy(bundles);
 
   await page.goto('/bundles');
-  await expect(bundleRow(page, target.name)).toHaveCount(1);
+  await expect(bundleRow(page, target.name, target.version)).toHaveCount(1);
 
   await page.getByPlaceholder('Filter bundles…').fill(target.name);
   await expect(page.getByRole('link', { name: target.name, exact: true })).toBeVisible();
@@ -176,7 +179,7 @@ test('a deprecated bundle is unmistakable in the list and on its page', async ({
   const deprecated = stale!.deprecated!;
 
   await page.goto('/bundles');
-  const row = bundleRow(page, stale!.name);
+  const row = bundleRow(page, stale!.name, stale!.version);
   // Not colour alone: the row says the word, the date, and the replacement.
   await expect(row).toContainText('deprecated');
   await expect(row).toContainText(`since ${deprecated.since}`);

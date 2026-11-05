@@ -41,6 +41,7 @@ import {
 } from './test/fixtures/registry';
 import { GRAPH_MIN_ZOOM, graphExtent, layoutGraph } from './components/topology/layout';
 import { TopologyView } from './components/TopologyView';
+import { chooseOption, readOptions } from './test/helpers';
 import { EventList } from './components/EventList';
 import { NamespacesView } from './components/NamespacesView';
 import { BundlesView } from './components/BundlesView';
@@ -183,8 +184,9 @@ describe('TopologyView at 216 events', () => {
       await screen.findByText(`${REAL_EVENT_COUNT} events`, {}, { timeout: 30_000 });
     });
 
-    const select = screen.getByLabelText('namespace') as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(['', ...realNamespaces]);
+    const select = screen.getByLabelText('namespace');
+    const options = await readOptions(userEvent.setup(), select);
+    expect(options.map((o) => o.value)).toEqual(['', ...realNamespaces]);
   }, 60_000);
 
   it('keeps the full namespace list after a filtered fetch narrows the graph', async () => {
@@ -196,9 +198,10 @@ describe('TopologyView at 216 events', () => {
     renderWithRouter(<TopologyView />);
     await screen.findByText(`${REAL_EVENT_COUNT} events`, {}, { timeout: 30_000 });
 
-    const select = screen.getByLabelText('namespace') as HTMLSelectElement;
+    const user = userEvent.setup();
+    const select = screen.getByLabelText('namespace');
     await timed('TopologyView namespace filter', async () => {
-      await userEvent.selectOptions(select, 'sfu');
+      await chooseOption(user, select, 'sfu');
       await screen.findByText(
         `${scoped.nodes.filter((n) => n.type === 'event').length} events`,
         {},
@@ -208,7 +211,7 @@ describe('TopologyView at 216 events', () => {
 
     // The bug this pins: options derived from the *current* response vanish
     // the moment a namespace is picked.
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(['', ...realNamespaces]);
+    expect((await readOptions(user, select)).map((o) => o.value)).toEqual(['', ...realNamespaces]);
   }, 60_000);
 });
 
@@ -288,7 +291,8 @@ describe('Bundles and coverage against the whole catalog', () => {
       renderWithRouter(<BundlesView />);
       await screen.findByText(`${REAL_BUNDLE_COUNT} total`, {}, { timeout: 30_000 });
     });
-    expect(screen.getAllByRole('rowheader').length).toBe(REAL_BUNDLE_COUNT);
+    // DataTable has no row-header cells; count body rows (all but the header).
+    expect(screen.getAllByRole('row').length - 1).toBe(REAL_BUNDLE_COUNT);
   }, 60_000);
 
   it('diffs 226 events against 18 bundles and groups the gap by namespace', async () => {

@@ -7,7 +7,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { Chip, EmptyState, ErrorState, LoadingState, Button } from '@connorhoehnslalom/ui-components/shared';
+import {
+  Chip,
+  CollectionPage,
+  DataTable,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  Button,
+  Inline,
+  type DataTableColumn,
+} from '@connorhoehnslalom/ui-components/shared';
 import { api } from '../api';
 
 type Filter = 'all' | 'fresh' | 'stale';
@@ -96,24 +106,29 @@ export function SubscribersView() {
   }, [liveRows]);
 
   return (
-    <div className="subscribers-view view-column">
-      <div className="view-toolbar">
-        <h2>Subscribers</h2>
-        <Chip tone="success">{counts.fresh} fresh</Chip>
-        <Chip tone="warning">{counts.aging} aging</Chip>
-        <Chip tone="danger">{counts.stale} stale</Chip>
-
-        {/* A toggle group: `aria-pressed` is what tells a screen reader which
-            filter is currently on. Before, the only signal was the button's
-            fill colour. */}
-        <div className="view-toolbar-right" role="group" aria-label="Freshness filter">
+    <CollectionPage
+      title="Subscribers"
+      gutter="page"
+      className="subscribers-view"
+      badge={
+        <Inline gap="sm">
+          <Chip tone="success">{counts.fresh} fresh</Chip>
+          <Chip tone="warning">{counts.aging} aging</Chip>
+          <Chip tone="danger">{counts.stale} stale</Chip>
+        </Inline>
+      }
+      headerActions={
+        /* A toggle group: `aria-pressed` is what tells a screen reader which
+           filter is currently on. Before, the only signal was the button's
+           fill colour. */
+        <Inline gap="sm" role="group" aria-label="Freshness filter">
           <Button aria-pressed={filter === 'all'} variant={filter === 'all' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('all')}>all</Button>
           <Button aria-pressed={filter === 'fresh'} variant={filter === 'fresh' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('fresh')}>fresh</Button>
           <Button aria-pressed={filter === 'stale'} variant={filter === 'stale' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('stale')}>stale</Button>
           <Button variant="ghost" size="sm" onClick={load}>Refresh</Button>
-        </div>
-      </div>
-
+        </Inline>
+      }
+    >
       {error ? (
         <ErrorState
           title="Error loading subscribers"
@@ -133,35 +148,29 @@ export function SubscribersView() {
           }
         />
       ) : (
-        <div className="view-scroll tight">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th scope="col">Status</th>
-                <th scope="col">Event</th>
-                <th scope="col">Service</th>
-                <th scope="col">Last seen</th>
-                <th scope="col">Age</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r, i) => (
-                <tr key={`${r.eventName}-${r.serviceName}-${i}`}>
-                  <td>{statusChip(r.ageSeconds)}</td>
-                  <td>
-                    <Link to={`/events/${encodeURIComponent(r.eventName)}`} className="link-plain medium">
-                      {r.eventName}
-                    </Link>
-                  </td>
-                  <td className="cell-mono">{r.serviceName}</td>
-                  <td className="cell-timestamp">{new Date(r.lastSeenAt).toLocaleString()}</td>
-                  <td className="cell-mono">{formatAge(r.ageSeconds)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          data={filtered}
+          columns={COLUMNS}
+          keyField={(r) => `${r.eventName}-${r.serviceName}`}
+          staticRows="A subscription has no page of its own; the event name links to its event."
+        />
       )}
-    </div>
+    </CollectionPage>
   );
 }
+
+const COLUMNS: DataTableColumn<Row>[] = [
+  { key: 'status', header: 'Status', render: (r) => statusChip(r.ageSeconds) },
+  {
+    key: 'eventName',
+    header: 'Event',
+    render: (r) => (
+      <Link to={`/events/${encodeURIComponent(r.eventName)}`} className="link-plain medium">
+        {r.eventName}
+      </Link>
+    ),
+  },
+  { key: 'serviceName', header: 'Service', className: 'cell-mono' },
+  { key: 'lastSeenAt', header: 'Last seen', className: 'cell-timestamp', render: (r) => new Date(r.lastSeenAt).toLocaleString() },
+  { key: 'age', header: 'Age', className: 'cell-mono', render: (r) => formatAge(r.ageSeconds) },
+];

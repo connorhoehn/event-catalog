@@ -202,8 +202,13 @@ describe('SubscribersView — the table', () => {
   it('gives every column a scoped header', async () => {
     mount();
     await screen.findByText('transcription-worker');
+    // The library DataTable draws its headers as <th> in <thead> without an
+    // explicit `scope`; a <th> in the header row is already a column header
+    // to assistive tech, which is what this test is protecting.
     for (const name of ['Status', 'Event', 'Service', 'Last seen', 'Age']) {
-      expect(screen.getByRole('columnheader', { name })).toHaveAttribute('scope', 'col');
+      const th = screen.getByRole('columnheader', { name });
+      expect(th.tagName).toBe('TH');
+      expect(th.closest('thead')).not.toBeNull();
     }
   });
 

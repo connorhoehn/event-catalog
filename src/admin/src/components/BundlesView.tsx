@@ -10,9 +10,17 @@
 // members, so the member count and the required count are read off the
 // payload rather than fetched per row.
 
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { Link } from 'react-router';
-import { Chip, EmptyState, ErrorState, LoadingState, Button } from '@connorhoehnslalom/ui-components/shared';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router';
+import {
+  Button,
+  Chip,
+  CollectionPage,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  type DataTableColumn,
+} from '@connorhoehnslalom/ui-components/shared';
 import { api, isRequired, type FeatureBundleEntry } from '../api';
 import { FingerprintChip } from './FingerprintChip';
 
@@ -36,7 +44,7 @@ export function BundlesView() {
   // operator to look for a registration bug that may not exist.
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const searchId = useId();
+  const navigate = useNavigate();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -63,37 +71,107 @@ export function BundlesView() {
 
   const deprecatedCount = bundles.filter((b) => b.deprecated).length;
 
+  const columns: DataTableColumn<FeatureBundleEntry>[] = [
+    {
+      key: 'name',
+      header: 'Bundle',
+      render: (bundle) => (
+        <>
+          <Link to={bundleHref(bundle)} className="link-plain semibold">
+            {bundle.name}
+          </Link>
+          {bundle.description ? <div className="event-desc">{bundle.description}</div> : null}
+        </>
+      ),
+    },
+    { key: 'version', header: 'Version', className: 'cell-mono' },
+    {
+      key: 'transport',
+      header: 'Transport',
+      render: (bundle) => (
+        <Chip tone={transportTone(bundle.transport)} size="xs">
+          {bundle.transport}
+        </Chip>
+      ),
+    },
+    {
+      key: 'events',
+      header: 'Events',
+      className: 'cell-mono',
+      render: (bundle) => (
+        <>
+          {bundle.events.length}
+          <span className="bundle-required-note"> ({bundle.events.filter(isRequired).length} required)</span>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      /* Not colour alone: a deprecated row carries the word, the date and
+         the replacement in this cell. */
+      render: (bundle) =>
+        bundle.deprecated ? (
+          <span className="bundle-status">
+            <Chip tone="danger" size="xs">deprecated</Chip>
+            <span className="bundle-deprecated-meta">
+              since {bundle.deprecated.since}
+              {bundle.deprecated.replacement ? ` — use ${bundle.deprecated.replacement}` : ''}
+            </span>
+          </span>
+        ) : (
+          <Chip tone="success" size="xs">active</Chip>
+        ),
+    },
+    {
+      key: 'fingerprint',
+      header: 'Fingerprint',
+      render: (bundle) => <FingerprintChip fingerprint={bundle.fingerprint} label="" />,
+    },
+  ];
+
+  // Three states, kept apart: an error is never an empty inventory, and an
+  // in-flight first load is never "no bundles registered".
+  const firstLoad = loading && bundles.length === 0 && !error;
+
   return (
-    <div className="bundles-view view-column">
-      <div className="view-toolbar">
-        <h2>Feature Bundles</h2>
-        <Chip tone="info">{bundles.length} total</Chip>
-        {deprecatedCount > 0 ? <Chip tone="danger">{deprecatedCount} deprecated</Chip> : null}
-        <label className="sr-only" htmlFor={searchId}>Filter bundles by name or description</label>
-        <input
-          id={searchId}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Filter bundles…"
-          className="ns-filter-input"
-        />
-        <div className="view-toolbar-right">
+    <CollectionPage
+      className="bundles-view"
+      title="Feature Bundles"
+      gutter="page"
+      headerActions={
+        <>
           <Link to="/coverage" className="link-plain medium">
             Coverage gaps
           </Link>
           <Button variant="ghost" size="sm" onClick={load}>Refresh</Button>
-        </div>
-      </div>
-
-      {error ? (
-        <ErrorState
-          title="Error loading bundles"
-          description={error}
-          action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
-        />
-      ) : loading && bundles.length === 0 ? (
-        <LoadingState label="Loading bundles…" />
-      ) : filtered.length === 0 ? (
+        </>
+      }
+      toolbar={{
+        label: 'Bundle controls',
+        search: {
+          value: search,
+          onChange: setSearch,
+          placeholder: 'Filter bundles…',
+          'aria-label': 'Filter bundles by name or description',
+        },
+        summary: (
+          <>
+            <Chip tone="info">{bundles.length} total</Chip>
+            {deprecatedCount > 0 ? <Chip tone="danger">{deprecatedCount} deprecated</Chip> : null}
+          </>
+        ),
+      }}
+      error={
+        error ? (
+          <ErrorState
+            title="Error loading bundles"
+            description={error}
+            action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
+          />
+        ) : undefined
+      }
+      empty={
         <EmptyState
           icon="📦"
           title="No bundles registered"
@@ -103,72 +181,19 @@ export function BundlesView() {
               : 'The catalog server registered no FeatureBundles at boot. Bundles are declared in src/declarations/bundles and must be registered into the server’s bundle registry before a CRD can pin one.'
           }
         />
-      ) : (
-        <div className="view-scroll tight">
-          <table className="data-table bundles-table">
-            <thead>
-              <tr>
-                <th scope="col">Bundle</th>
-                <th scope="col">Version</th>
-                <th scope="col">Transport</th>
-                <th scope="col">Events</th>
-                <th scope="col">Status</th>
-                <th scope="col">Fingerprint</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((bundle) => {
-                const required = bundle.events.filter(isRequired).length;
-                return (
-                  <tr
-                    key={`${bundle.name}@${bundle.version}`}
-                    /* Not colour alone: the row also carries a "deprecated"
-                       chip and the replacement in the Status cell. */
-                    className={bundle.deprecated ? 'bundle-row deprecated' : 'bundle-row'}
-                  >
-                    <th scope="row">
-                      <Link to={bundleHref(bundle)} className="link-plain semibold">
-                        {bundle.name}
-                      </Link>
-                      {bundle.description ? (
-                        <div className="event-desc">{bundle.description}</div>
-                      ) : null}
-                    </th>
-                    <td className="cell-mono">{bundle.version}</td>
-                    <td>
-                      <Chip tone={transportTone(bundle.transport)} size="xs">
-                        {bundle.transport}
-                      </Chip>
-                    </td>
-                    <td className="cell-mono">
-                      {bundle.events.length}
-                      <span className="bundle-required-note"> ({required} required)</span>
-                    </td>
-                    <td>
-                      {bundle.deprecated ? (
-                        <span className="bundle-status">
-                          <Chip tone="danger" size="xs">deprecated</Chip>
-                          <span className="bundle-deprecated-meta">
-                            since {bundle.deprecated.since}
-                            {bundle.deprecated.replacement
-                              ? ` — use ${bundle.deprecated.replacement}`
-                              : ''}
-                          </span>
-                        </span>
-                      ) : (
-                        <Chip tone="success" size="xs">active</Chip>
-                      )}
-                    </td>
-                    <td>
-                      <FingerprintChip fingerprint={bundle.fingerprint} label="" />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+      }
+      table={
+        firstLoad
+          ? undefined
+          : {
+              data: filtered,
+              columns,
+              keyField: (bundle) => `${bundle.name}@${bundle.version}`,
+              onRowClick: (bundle) => navigate(bundleHref(bundle)),
+            }
+      }
+    >
+      {firstLoad ? <LoadingState label="Loading bundles…" /> : null}
+    </CollectionPage>
   );
 }

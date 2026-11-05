@@ -124,8 +124,9 @@ describe('Dashboard — rollups', () => {
       },
     });
     await screen.findByText('Registered Events');
+    // StatCard draws the label and the value as the card's two children.
     const cardValue = (label: string) =>
-      screen.getByText(label).closest('.stat-card')!.querySelector('.stat-value')!.textContent;
+      screen.getByText(label).nextElementSibling!.textContent;
     expect(cardValue('Registered Events')).toBe('3');
     expect(cardValue('Signal (Ephemeral)')).toBe('1');
     expect(cardValue('Durable (At-Least-Once)')).toBe('2');

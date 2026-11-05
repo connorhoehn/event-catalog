@@ -1,5 +1,24 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { trackPageErrors } from './helpers';
+
+// The namespace filter is the library Select: a combobox trigger over a
+// listbox portaled to <body>, not a native <select>. Its options exist only
+// while it is open, so reading them opens and closes it.
+async function namespaceOptions(page: Page): Promise<string[]> {
+  await page.getByLabel('namespace').click();
+  const labels = await page
+    .getByRole('listbox')
+    .getByRole('option')
+    .evaluateAll((els) => els.map((e) => (e.textContent ?? '').replace(/^✓/, '').trim()));
+  await page.keyboard.press('Escape');
+  return labels;
+}
+
+async function chooseNamespace(page: Page, label: string): Promise<void> {
+  await page.getByLabel('namespace').click();
+  await page.getByRole('listbox').getByRole('option', { name: label, exact: true }).click();
+}
+
 
 /**
  * The topology graph against real declaration data.
@@ -54,7 +73,7 @@ test('the canvas draws every node and service the registry reports', async ({ pa
 
 // `Registry.getTopology()` now stamps `namespace` onto every event node's
 // metadata, which is what TopologyView and FlowView build their namespace
-// <select> from and what NamespaceClusters uses to draw the Phase E8.4
+// filter from and what NamespaceClusters uses to draw the Phase E8.4
 // cluster overlay.
 test(
   'the namespace filter narrows the graph via the server',
@@ -63,10 +82,9 @@ test(
     await expect(page.getByRole('heading', { name: 'Event Topology' })).toBeVisible();
 
     // The dropdown should be populated from the namespaces present in the data.
-    const select = page.getByRole('combobox');
-    await expect(select.locator('option')).toHaveText(['all', 'billing', 'test']);
+    await expect.poll(() => namespaceOptions(page)).toEqual(['all', 'billing', 'test']);
 
-    await select.selectOption('billing');
+    await chooseNamespace(page, 'billing');
 
     const scoped = (await (await request.get('/api/topology?namespace=billing')).json()) as {
       nodes: Array<{ id: string; type: string }>;

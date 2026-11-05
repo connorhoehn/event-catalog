@@ -142,13 +142,17 @@ describe('BundleDetail — the member list', () => {
     expect(within(rowFor('ws.chat.sent')).getByText('current')).toBeInTheDocument();
   });
 
-  it('scopes every header cell', async () => {
+  it('heads every column, and every member row opens its event', async () => {
+    // The library DataTable draws <th> in <thead> (implicit column scope) and
+    // has no row-header cell; each row is itself activatable instead.
     mount(liveBundle.name, routeFor(liveBundle));
     await screen.findByRole('heading', { name: liveBundle.name });
-    for (const th of screen.getAllByRole('columnheader')) {
-      expect(th).toHaveAttribute('scope', 'col');
-    }
-    expect(screen.getAllByRole('rowheader')).toHaveLength(liveBundle.events.length);
+    expect(screen.getAllByRole('columnheader').map((th) => th.textContent)).toEqual([
+      'Event', 'Requirement', 'Pinned schema version',
+    ]);
+    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(liveBundle.events.length);
+    for (const row of rows) expect(row).toHaveAttribute('tabindex', '0');
   });
 });
 

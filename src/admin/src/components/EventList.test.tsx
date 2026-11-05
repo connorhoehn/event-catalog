@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EventList } from './EventList';
-import { mockFetch, renderWithRouter, type RouteTable } from '../test/helpers';
+import { chooseOption, mockFetch, renderWithRouter, type RouteTable } from '../test/helpers';
 import { realEvents, realRoutes } from '../test/fixtures/registry';
 
 const event = (name: string, over: Record<string, unknown> = {}) => ({
@@ -142,7 +142,9 @@ describe('EventList — filters and bulk actions', () => {
     const user = userEvent.setup();
     const { calls } = mount();
     await screen.findByText('a:one');
-    await user.selectOptions(screen.getByLabelText('Transport'), 'durable');
+    // The filters live in the collection toolbar's Filters popover.
+    await user.click(screen.getByRole('button', { name: /Filters/ }));
+    await chooseOption(user, screen.getByLabelText('Transport'), 'durable');
     await waitFor(() => expect(calls.some((c) => c.includes('transport=durable'))).toBe(true));
   });
 
@@ -150,9 +152,14 @@ describe('EventList — filters and bulk actions', () => {
     const user = userEvent.setup();
     mount();
     await screen.findByText('a:one');
-    expect(screen.queryByRole('group', { name: /Bulk actions/ })).not.toBeInTheDocument();
+    // The bulk actions replace the toolbar's resting controls while a
+    // selection exists (CollectionToolbar `selection`).
+    expect(screen.queryByLabelText('Event controls: selection')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Deprecate' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: 'Select a:one' }));
-    expect(screen.getByRole('group', { name: 'Bulk actions for 1 selected events' })).toBeInTheDocument();
+    const bar = screen.getByLabelText('Event controls: selection');
+    expect(bar).toHaveTextContent('1 selected');
+    expect(within(bar).getByRole('button', { name: 'Deprecate' })).toBeInTheDocument();
   });
 
   it('refuses a bulk deprecate with no reason and says why', async () => {
@@ -179,7 +186,7 @@ describe('EventList — filters and bulk actions', () => {
     // comment in EventList.tsx; this message used to be unmounted in the same
     // commit that set it.
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Deprecated 1 event(s).'));
-    expect(screen.queryByRole('group', { name: /Bulk actions/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Event controls: selection')).not.toBeInTheDocument();
     const call = fn.mock.calls.find(([url]) => String(url).includes('bulk/deprecate'))!;
     expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({
       names: ['a:one'],

@@ -7,7 +7,7 @@
 // existing GET /api/topology endpoint; transformation to ReactFlow
 // node/edge format happens client-side.
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -21,7 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Chip, EmptyState, ErrorState, LoadingState, Button } from '@connorhoehnslalom/ui-components/shared';
+import { Chip, EmptyState, ErrorState, LoadingState, Button, FormField, Inline, PageFrame, Select } from '@connorhoehnslalom/ui-components/shared';
 import { AnimatedEdge } from '@connorhoehnslalom/ui-components/pipelines';
 
 import { api, type TopologyGraph } from '../api';
@@ -29,6 +29,9 @@ import EventNode from './topology/EventNode';
 import ServiceNode from './topology/ServiceNode';
 import { GRAPH_MIN_ZOOM, layoutGraph } from './topology/layout';
 import { NamespaceClusters } from './topology/NamespaceClusters';
+
+/** Kept in every state, so the view always has its heading landmark. */
+const TITLE = 'Event Topology';
 
 const nodeTypes: NodeTypes = {
   event: EventNode,
@@ -105,7 +108,6 @@ export function TopologyView() {
   // only "ws" — the other options vanished from the list that had just been
   // used to pick one, and the only way back to another namespace was "all".
   const [allNamespaces, setAllNamespaces] = useState<string[]>([]);
-  const namespaceId = useId();
   const seenNamespaces = useRef<Set<string>>(new Set());
   // Bumped by Retry. The error card previously replaced the whole toolbar,
   // filter included, so a failed load left the view with no control at all —
@@ -168,8 +170,7 @@ export function TopologyView() {
   // always has its <h2> landmark, whatever the API did.
   if (error) {
     return (
-      <div className="topology-view view-column">
-        <div className="page-header view-toolbar"><h2>Event Topology</h2></div>
+      <PageFrame title={TITLE} body="fill" className="topology-view">
         <ErrorState
           title="Error loading the topology"
           description={error}
@@ -179,42 +180,42 @@ export function TopologyView() {
             </Button>
           }
         />
-      </div>
+      </PageFrame>
     );
   }
   if (!topology) {
     return (
-      <div className="topology-view view-column">
-        <div className="page-header view-toolbar"><h2>Event Topology</h2></div>
+      <PageFrame title={TITLE} body="fill" className="topology-view">
         <LoadingState label="Loading topology…" />
-      </div>
+      </PageFrame>
     );
   }
 
   return (
-    <div className="topology-view view-column">
-      <div className="page-header view-toolbar">
-        <h2>Event Topology</h2>
-        <Chip tone="neutral">{topology.nodes.filter((n) => n.type === 'event').length} events</Chip>
-        <Chip tone="neutral">{topology.nodes.filter((n) => n.type === 'service').length} services</Chip>
-        <div className="view-toolbar-right">
-          <label className="view-toolbar-label" htmlFor={namespaceId}>namespace</label>
-          <select
-            id={namespaceId}
-            value={filter.namespace}
-            onChange={(e) => setFilter({ namespace: e.target.value })}
-            className="view-select"
-          >
-            <option value="">all</option>
-            {allNamespaces.map((ns) => (
-              <option key={ns} value={ns}>
-                {ns}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
+    <PageFrame
+      title={TITLE}
+      body="fill"
+      className="topology-view"
+      badge={
+        <Inline gap="sm" align="center">
+          <Chip tone="neutral">{topology.nodes.filter((n) => n.type === 'event').length} events</Chip>
+          <Chip tone="neutral">{topology.nodes.filter((n) => n.type === 'service').length} services</Chip>
+        </Inline>
+      }
+      actions={
+        <FormField label="namespace" layout="inline">
+          {({ id }) => (
+            <Select
+              id={id}
+              size="sm"
+              value={filter.namespace}
+              onChange={(e) => setFilter({ namespace: e.target.value })}
+              options={[{ value: '', label: 'all' }, ...allNamespaces.map((ns) => ({ value: ns, label: ns }))]}
+            />
+          )}
+        </FormField>
+      }
+    >
       {topology.nodes.length === 0 ? (
         <EmptyState
           icon="🕸️"
@@ -253,6 +254,6 @@ export function TopologyView() {
           </ReactFlowProvider>
         </div>
       )}
-    </div>
+    </PageFrame>
   );
 }

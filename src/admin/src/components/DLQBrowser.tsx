@@ -1,5 +1,19 @@
-import { useCallback, useEffect, useId, useState } from 'react';
-import { Chip, Banner, EmptyState, ErrorState, SkeletonCard, LiveRegion, Button } from '@connorhoehnslalom/ui-components/shared';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Chip,
+  Banner,
+  Checkbox,
+  CollectionPage,
+  DataTable,
+  EmptyState,
+  ErrorState,
+  SkeletonCard,
+  LiveRegion,
+  Button,
+  Inline,
+  Stack,
+  type DataTableColumn,
+} from '@connorhoehnslalom/ui-components/shared';
 import { api, type DLQEntry } from '../api';
 
 export function DLQBrowser() {
@@ -13,7 +27,6 @@ export function DLQBrowser() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResult, setBatchResult] = useState<string | null>(null);
-  const filterId = useId();
   // A failed fetch and a failed action are different things: the first means
   // "the table below is not the truth", the second means "the table is fine,
   // this one row did not move". Only the first should replace the table.
@@ -104,47 +117,104 @@ export function DLQBrowser() {
     }
   };
 
-  return (
-    <div className="dlq-browser">
-      <div className="page-header">
-        <h2>Dead-Letter Queue</h2>
-        {/* Same reason: a count from a fetch that failed is not a count. */}
-        <Chip tone="neutral">{loadFailed ? 'unavailable' : `${entries.length} entries`}</Chip>
-        {source === 'in-memory' && <Chip tone="warning">in-memory fallback</Chip>}
-      </div>
-
-      <div className="filters">
-        <label className="field-label" htmlFor={filterId}>Event name</label>
-        <input
-          id={filterId}
-          type="text"
-          placeholder="Filter by event name..."
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
+  const columns: DataTableColumn<DLQEntry>[] = [
+    {
+      key: 'select',
+      header: (
+        <Checkbox aria-label="Select all" checked={allSelected} onChange={toggleSelectAll} />
+      ),
+      render: entry => (
+        <Checkbox
+          aria-label={`Select ${entry.eventName}`}
+          checked={selected.has(entry.id)}
+          onChange={() => toggleSelected(entry.id)}
         />
-        <Button variant="secondary" size="sm" onClick={load} disabled={loading}>
-          Refresh
-        </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={replaySelected}
-          disabled={selected.size === 0 || batchBusy}
-        >
-          {batchBusy ? 'Replaying…' : `Replay selected (${selected.size})`}
-        </Button>
-      </div>
+      ),
+    },
+    { key: 'eventName', header: 'Event', className: 'mono' },
+    { key: 'attempts', header: 'Attempts', className: 'mono' },
+    {
+      key: 'deadAt',
+      header: 'Dead At',
+      render: entry => (typeof entry.deadAt === 'string' ? entry.deadAt : new Date(entry.deadAt).toISOString()),
+    },
+    { key: 'error', header: 'Error', className: 'error-text' },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: entry => (
+        // The visible label is the same on every row, so the accessible name
+        // has to carry which row it belongs to.
+        <Inline gap="sm">
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-label={`Replay ${entry.eventName}`}
+            onClick={() => replay(entry.id)}
+            disabled={busyId === entry.id}
+          >
+            Replay
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            aria-label={`Delete dead letter for ${entry.eventName}`}
+            onClick={() => remove(entry.id)}
+            disabled={busyId === entry.id}
+          >
+            Delete
+          </Button>
+        </Inline>
+      ),
+    },
+  ];
 
+  return (
+    <CollectionPage
+      title="Dead-Letter Queue"
+      gutter="page"
+      badge={
+        <Inline gap="sm">
+          {/* Same reason: a count from a fetch that failed is not a count. */}
+          <Chip tone="neutral">{loadFailed ? 'unavailable' : `${entries.length} entries`}</Chip>
+          {source === 'in-memory' && <Chip tone="warning">in-memory fallback</Chip>}
+        </Inline>
+      }
+      toolbar={{
+        label: 'Dead-letter controls',
+        search: {
+          value: filter,
+          onChange: setFilter,
+          placeholder: 'Filter by event name...',
+          'aria-label': 'Event name',
+        },
+        children: (
+          <>
+            <Button variant="secondary" size="sm" onClick={load} disabled={loading}>
+              Refresh
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={replaySelected}
+              disabled={selected.size === 0 || batchBusy}
+            >
+              {batchBusy ? 'Replaying…' : `Replay selected (${selected.size})`}
+            </Button>
+          </>
+        ),
+      }}
+    >
       {/* One role=alert for action failures; the fetch failure below replaces
           the table instead, so the two never both claim to explain the page. */}
       {error && !loadFailed && <Banner variant="error">{error}</Banner>}
       {batchResult && <Banner variant="info">{batchResult}</Banner>}
 
       {loading && entries.length === 0 && (
-        <div className="skeleton-stack tight" aria-busy="true">
+        <Stack gap="sm" aria-busy="true">
           {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} height={44} />)}
           <LiveRegion role="none" message="Loading dead letters…" />
-        </div>
+        </Stack>
       )}
 
       {!loading && loadFailed && (
@@ -170,66 +240,14 @@ export function DLQBrowser() {
           and the operator would go act on rows that may since have been
           redriven by someone else. A failed fetch has no table. */}
       {!loadFailed && entries.length > 0 && (
-        <table className="dlq-table">
-          <thead>
-            <tr>
-              <th scope="col">
-                <input
-                  type="checkbox"
-                  aria-label="Select all"
-                  checked={allSelected}
-                  onChange={toggleSelectAll}
-                />
-              </th>
-              <th scope="col">Event</th>
-              <th scope="col">Attempts</th>
-              <th scope="col">Dead At</th>
-              <th scope="col">Error</th>
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map(entry => (
-              <tr key={entry.id}>
-                <td>
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${entry.eventName}`}
-                    checked={selected.has(entry.id)}
-                    onChange={() => toggleSelected(entry.id)}
-                  />
-                </td>
-                <td className="mono">{entry.eventName}</td>
-                <td className="mono">{entry.attempts}</td>
-                <td>{typeof entry.deadAt === 'string' ? entry.deadAt : new Date(entry.deadAt).toISOString()}</td>
-                <td className="error-text">{entry.error}</td>
-                <td>
-                  {/* The visible label is the same on every row, so the
-                      accessible name has to carry which row it belongs to. */}
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    aria-label={`Replay ${entry.eventName}`}
-                    onClick={() => replay(entry.id)}
-                    disabled={busyId === entry.id}
-                  >
-                    Replay
-                  </Button>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    aria-label={`Delete dead letter for ${entry.eventName}`}
-                    onClick={() => remove(entry.id)}
-                    disabled={busyId === entry.id}
-                  >
-                    Delete
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable
+          className="dlq-table"
+          data={entries}
+          columns={columns}
+          keyField={entry => entry.id}
+          staticRows="A dead letter has no page of its own; its actions are in the row."
+        />
       )}
-    </div>
+    </CollectionPage>
   );
 }

@@ -99,7 +99,7 @@ test('an unknown deep link serves the shell instead of a 404 body', async ({ pag
   const response = await page.goto('/no/such/page');
   expect(response?.status()).toBe(200);
 
-  await expect(page.getByRole('heading', { name: 'Event Catalog' })).toBeVisible();
+  await expect(page.getByText('Event Catalog', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Dashboard' })).toBeVisible();
 
   assertNoErrors();

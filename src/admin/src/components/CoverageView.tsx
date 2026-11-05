@@ -12,9 +12,23 @@
 // Either failing is an error, not an empty view: "no gaps" and "the registry
 // did not answer" must never look the same.
 
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { Link } from 'react-router';
-import { Banner, Chip, EmptyState, ErrorState, LoadingState, ProgressBar, Button } from '@connorhoehnslalom/ui-components/shared';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router';
+import {
+  Banner,
+  Button,
+  Chip,
+  DataTable,
+  EmptyState,
+  ErrorState,
+  FormField,
+  Inline,
+  Input,
+  LoadingState,
+  PageFrame,
+  ProgressBar,
+  toneVar,
+} from '@connorhoehnslalom/ui-components/shared';
 import { api, type EventEntry, type FeatureBundleEntry } from '../api';
 import {
   computeCoverage,
@@ -27,9 +41,9 @@ const LOOKUP_LIMIT = 50;
 
 /** Fill colour for a coverage bar. The number next to it says the same thing. */
 function barColor(covered: number, total: number): string {
-  if (total === 0 || covered === total) return 'var(--success)';
-  if (covered === 0) return 'var(--error)';
-  return 'var(--warning)';
+  if (total === 0 || covered === total) return toneVar('success');
+  if (covered === 0) return toneVar('danger');
+  return toneVar('warning');
 }
 
 /** The bundles covering one event, or the fact that none do. */
@@ -63,7 +77,8 @@ export function CoverageView() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [gapsOnly, setGapsOnly] = useState(true);
   const [query, setQuery] = useState('');
-  const lookupId = useId();
+  const navigate = useNavigate();
+  const openEvent = (row: CoverageRow) => navigate(`/events/${encodeURIComponent(row.name)}`);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -109,21 +124,26 @@ export function CoverageView() {
   const searching = query.trim().length > 0;
 
   return (
-    <div className="coverage-view view-column">
-      <div className="view-toolbar">
-        <h2>Bundle Coverage</h2>
-        <Chip tone="neutral">{coverage.total} events</Chip>
-        <Chip tone="success">{coverage.covered} covered</Chip>
-        <Chip tone={coverage.uncovered > 0 ? 'danger' : 'success'}>
-          {coverage.uncovered} uncovered
-        </Chip>
-        <Chip tone="info">{coverage.bundleCount} bundles</Chip>
-        <div className="view-toolbar-right">
+    <PageFrame
+      className="coverage-view"
+      title="Bundle Coverage"
+      badge={
+        <Inline gap="xs" align="center" wrap>
+          <Chip tone="neutral">{coverage.total} events</Chip>
+          <Chip tone="success">{coverage.covered} covered</Chip>
+          <Chip tone={coverage.uncovered > 0 ? 'danger' : 'success'}>
+            {coverage.uncovered} uncovered
+          </Chip>
+          <Chip tone="info">{coverage.bundleCount} bundles</Chip>
+        </Inline>
+      }
+      actions={
+        <>
           <Link to="/bundles" className="link-plain medium">All bundles</Link>
           <Button variant="ghost" size="sm" onClick={load}>Refresh</Button>
-        </div>
-      </div>
-
+        </>
+      }
+    >
       {error ? (
         <ErrorState
           title="Error loading coverage"
@@ -162,16 +182,17 @@ export function CoverageView() {
           ) : null}
 
           <div className="coverage-controls">
-            <label className="field-label" htmlFor={lookupId}>
-              Is this event covered?
-            </label>
-            <input
-              id={lookupId}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Look up an event by name…"
-              className="ns-filter-input wide"
-            />
+            <FormField label="Is this event covered?">
+              {(wiring) => (
+                <Input
+                  {...wiring}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Look up an event by name…"
+                  className="ns-filter-input wide"
+                />
+              )}
+            </FormField>
             <div role="group" aria-label="Which namespaces to list">
               <Button
                 size="sm"
@@ -200,34 +221,34 @@ export function CoverageView() {
                   : `${matches.length}${matches.length === LOOKUP_LIMIT ? '+' : ''} matching event${matches.length === 1 ? '' : 's'}`}
               </h3>
               {matches.length > 0 ? (
-                <table className="data-table coverage-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Event</th>
-                      <th scope="col">Namespace</th>
-                      <th scope="col">Transport</th>
-                      <th scope="col">In bundles</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {matches.map((row) => (
-                      <tr key={row.name} className={row.covered ? undefined : 'uncovered'}>
-                        <th scope="row">
-                          <Link to={`/events/${encodeURIComponent(row.name)}`} className="link-plain medium">
-                            {row.name}
-                          </Link>
-                        </th>
-                        <td>{row.namespace}</td>
-                        <td>
-                          <Chip tone={row.transport === 'durable' ? 'warning' : 'info'} size="xs">
-                            {row.transport}
-                          </Chip>
-                        </td>
-                        <td><CoverageCell row={row} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <DataTable<CoverageRow>
+                  className="coverage-table"
+                  data={matches}
+                  keyField={(row) => row.name}
+                  onRowClick={openEvent}
+                  columns={[
+                    {
+                      key: 'name',
+                      header: 'Event',
+                      render: (row) => (
+                        <Link to={`/events/${encodeURIComponent(row.name)}`} className="link-plain medium">
+                          {row.name}
+                        </Link>
+                      ),
+                    },
+                    { key: 'namespace', header: 'Namespace' },
+                    {
+                      key: 'transport',
+                      header: 'Transport',
+                      render: (row) => (
+                        <Chip tone={row.transport === 'durable' ? 'warning' : 'info'} size="xs">
+                          {row.transport}
+                        </Chip>
+                      ),
+                    },
+                    { key: 'bundles', header: 'In bundles', render: (row) => <CoverageCell row={row} /> },
+                  ]}
+                />
               ) : null}
             </section>
           ) : visibleGroups.length === 0 ? (
@@ -245,6 +266,7 @@ export function CoverageView() {
               {visibleGroups.map((group) => (
                 <CoverageGroup
                   key={group.namespace}
+                  onOpenEvent={openEvent}
                   group={group}
                   expanded={expanded.has(group.namespace)}
                   onToggle={() => toggle(group.namespace)}
@@ -254,7 +276,7 @@ export function CoverageView() {
           )}
         </div>
       )}
-    </div>
+    </PageFrame>
   );
 }
 
@@ -262,17 +284,20 @@ function CoverageGroup({
   group,
   expanded,
   onToggle,
+  onOpenEvent,
 }: {
   group: NamespaceCoverage;
   expanded: boolean;
   onToggle: () => void;
+  onOpenEvent: (row: CoverageRow) => void;
 }) {
   const bodyId = `coverage-body-${group.namespace}`;
   return (
     <li className="coverage-group">
       <h3 className="coverage-group-heading">
-        <button
+        <Button
           type="button"
+          variant="ghost"
           className="coverage-group-toggle"
           aria-expanded={expanded}
           aria-controls={bodyId}
@@ -289,7 +314,7 @@ function CoverageGroup({
               {group.onlyDeprecated} only in a deprecated bundle
             </Chip>
           ) : null}
-        </button>
+        </Button>
       </h3>
 
       <ProgressBar
@@ -308,32 +333,33 @@ function CoverageGroup({
               Every event in this namespace belongs to a bundle.
             </p>
           ) : (
-            <table className="data-table coverage-table">
-              <thead>
-                <tr>
-                  <th scope="col">Uncovered event</th>
-                  <th scope="col">Transport</th>
-                  <th scope="col">Producer</th>
-                </tr>
-              </thead>
-              <tbody>
-                {group.uncoveredEvents.map((row) => (
-                  <tr key={row.name}>
-                    <th scope="row">
-                      <Link to={`/events/${encodeURIComponent(row.name)}`} className="link-plain medium">
-                        {row.name}
-                      </Link>
-                    </th>
-                    <td>
-                      <Chip tone={row.transport === 'durable' ? 'warning' : 'info'} size="xs">
-                        {row.transport}
-                      </Chip>
-                    </td>
-                    <td className="cell-mono">{row.producer}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable<CoverageRow>
+              className="coverage-table"
+              data={group.uncoveredEvents}
+              keyField={(row) => row.name}
+              onRowClick={onOpenEvent}
+              columns={[
+                {
+                  key: 'name',
+                  header: 'Uncovered event',
+                  render: (row) => (
+                    <Link to={`/events/${encodeURIComponent(row.name)}`} className="link-plain medium">
+                      {row.name}
+                    </Link>
+                  ),
+                },
+                {
+                  key: 'transport',
+                  header: 'Transport',
+                  render: (row) => (
+                    <Chip tone={row.transport === 'durable' ? 'warning' : 'info'} size="xs">
+                      {row.transport}
+                    </Chip>
+                  ),
+                },
+                { key: 'producer', header: 'Producer', className: 'cell-mono' },
+              ]}
+            />
           )}
         </div>
       ) : null}

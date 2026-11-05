@@ -1,6 +1,22 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router';
-import { Chip, ErrorState, SkeletonCard, LiveRegion } from '@connorhoehnslalom/ui-components/shared';
+import { useParams, Link, useNavigate } from 'react-router';
+import {
+  Banner,
+  Chip,
+  DetailPage,
+  DetailSection,
+  Disclosure,
+  EmptyState,
+  ErrorState,
+  Inline,
+  KeyValue,
+  LiveRegion,
+  SkeletonCard,
+  Stack,
+  StatStrip,
+  type BreadcrumbItem,
+  type KeyValueItem,
+} from '@connorhoehnslalom/ui-components/shared';
 import { api, type EventEntry, type EventStats } from '../api';
 import { FingerprintChip } from './FingerprintChip';
 import { SchemaDiffToggle } from './SchemaDiff';
@@ -56,217 +72,214 @@ export function EventDetail() {
     return () => clearInterval(interval);
   }, [name]);
 
+  // The trail's "Events" crumb is a client-side route change, not a reload.
+  const navigate = useNavigate();
+  const eventsCrumb: BreadcrumbItem = {
+    label: 'Events',
+    href: '/events',
+    onClick: (e) => {
+      e.preventDefault();
+      navigate('/events');
+    },
+  };
+  const decodedName = name ? decodeURIComponent(name) : '';
+
   if (error) {
     return (
-      <div className="event-detail">
-        <nav className="breadcrumb" aria-label="Breadcrumb">
-          <Link to="/events">Events</Link>
-        </nav>
+      <DetailPage title={decodedName} breadcrumbs={[eventsCrumb, { label: decodedName }]}>
         <ErrorState
           title="Error loading this event"
           description={error}
           action={<Link to="/events">Back to all events</Link>}
         />
-      </div>
+      </DetailPage>
     );
   }
   if (!event) {
     return (
-      <div className="skeleton-stack" aria-busy="true">
+      <Stack gap="md" aria-busy="true">
         <SkeletonCard height={40} />
         <SkeletonCard height={200} />
         <SkeletonCard height={200} />
         <LiveRegion role="none" message="Loading event…" />
-      </div>
+      </Stack>
     );
   }
 
+  const registration: KeyValueItem[] = [
+    {
+      label: 'Declared Producer',
+      value: Array.isArray(event.producer) ? event.producer.join(', ') : event.producer,
+    },
+  ];
+  if (observedProducers && observedProducers.observed.length > 0) {
+    registration.push({
+      label: 'Observed Producers',
+      value: (
+        <Inline gap="xs" wrap>
+          {observedProducers.observed.map(p => (
+            <Chip
+              key={p}
+              tone={observedProducers.undeclaredProducers.includes(p) ? 'warning' : 'success'}
+              size="xs"
+              title={observedProducers.undeclaredProducers.includes(p) ? 'Undeclared publisher' : 'Declared publisher'}
+            >
+              {p}
+            </Chip>
+          ))}
+        </Inline>
+      ),
+    });
+  }
+  if (observedProducers && observedProducers.deadDeclaredProducers.length > 0) {
+    registration.push({
+      label: 'Dead Declared',
+      value: (
+        <Inline gap="xs" wrap>
+          {observedProducers.deadDeclaredProducers.map(p => (
+            <Chip key={p} tone="neutral" size="xs" title="Declared but never published">
+              {p}
+            </Chip>
+          ))}
+        </Inline>
+      ),
+    });
+  }
+  registration.push(
+    {
+      label: 'Transport',
+      value: event.transport === 'signal' ? 'Signal (Redis Pub/Sub — Ephemeral)' : 'Durable (Message Queue — At-Least-Once)',
+    },
+    { label: 'Registered', value: new Date(event.metadata.createdAt).toLocaleString() },
+    { label: 'Subscribers', value: event.subscribers.length > 0 ? event.subscribers.join(', ') : 'None' },
+  );
+  if (event.tags && event.tags.length > 0) {
+    registration.push({
+      label: 'Tags',
+      value: (
+        <Inline gap="xs" wrap>
+          {event.tags.map(t => (
+            <Chip key={t} tone="purple" size="xs">{t}</Chip>
+          ))}
+        </Inline>
+      ),
+    });
+  }
+
   return (
-    <div className="event-detail">
-      <nav className="breadcrumb" aria-label="Breadcrumb">
-        <Link to="/events">Events</Link> / <span aria-current="page">{event.name}</span>
-      </nav>
-
-      <div className="detail-header chips">
-        <h2>{event.name}</h2>
-        <Chip tone={event.transport === 'signal' ? 'info' : 'warning'}>
-          {event.transport}
-        </Chip>
-        {event.namespace ? <Chip tone="purple">{event.namespace}</Chip> : null}
-        {event.version ? <Chip tone="neutral">v{event.version}</Chip> : null}
-        <FingerprintChip fingerprint={event.schemaFingerprint} />
-        {event.deprecation ? <Chip tone="danger">deprecated</Chip> : null}
-        {observedProducers?.mismatch ? (
-          <Chip tone="warning" title={`Undeclared: ${observedProducers.undeclaredProducers.join(', ') || 'none'} | Dead declared: ${observedProducers.deadDeclaredProducers.join(', ') || 'none'}`}>
-            producer mismatch
+    <DetailPage
+      title={event.name}
+      breadcrumbs={[eventsCrumb, { label: event.name }]}
+      description={event.description || undefined}
+      badge={
+        <Inline gap="xs" wrap align="center">
+          <Chip tone={event.transport === 'signal' ? 'info' : 'warning'}>
+            {event.transport}
           </Chip>
-        ) : null}
-      </div>
-
-      {event.description && <p className="description">{event.description}</p>}
-
+          {event.namespace ? <Chip tone="purple">{event.namespace}</Chip> : null}
+          {event.version ? <Chip tone="neutral">v{event.version}</Chip> : null}
+          <FingerprintChip fingerprint={event.schemaFingerprint} />
+          {event.deprecation ? <Chip tone="danger">deprecated</Chip> : null}
+          {observedProducers?.mismatch ? (
+            <Chip tone="warning" title={`Undeclared: ${observedProducers.undeclaredProducers.join(', ') || 'none'} | Dead declared: ${observedProducers.deadDeclaredProducers.join(', ') || 'none'}`}>
+              producer mismatch
+            </Chip>
+          ) : null}
+        </Inline>
+      }
+    >
       {event.deprecation && (
-        <div className="deprecation-notice">
-          <strong>Deprecated</strong>
-          <span className="deprecation-meta">
-            on {new Date(event.deprecation.deprecatedAt).toLocaleString()}
-            {event.deprecation.by ? ` by ${event.deprecation.by}` : ''}
-          </span>
-          {event.deprecation.reason && (
-            <div className="deprecation-reason">{event.deprecation.reason}</div>
-          )}
-        </div>
+        <Banner variant="warning" layout="stacked" title="Deprecated">
+          on {new Date(event.deprecation.deprecatedAt).toLocaleString()}
+          {event.deprecation.by ? ` by ${event.deprecation.by}` : ''}
+          {event.deprecation.reason && <div>{event.deprecation.reason}</div>}
+        </Banner>
       )}
 
-      <div className="detail-grid">
-        <section className="detail-section">
-          <h3>Live Metrics</h3>
-          {/* Repolled every two seconds. Announcing each poll would make the
-              page unusable, so the numbers themselves are NOT a live region;
-              a coalesced summary is spoken at most once every 15s instead. */}
-          <LiveRegion
-            throttleMs={15_000}
-            message={
-              stats
-                ? `Metrics update: ${stats.publishRate.toFixed(2)} per second, ${stats.publishCount} total, ${stats.errorCount} errors.`
-                : ''
-            }
+      <DetailSection title="Live Metrics" first variant="heading">
+        {/* Repolled every two seconds. Announcing each poll would make the
+            page unusable, so the numbers themselves are NOT a live region;
+            a coalesced summary is spoken at most once every 15s instead. */}
+        <LiveRegion
+          throttleMs={15_000}
+          message={
+            stats
+              ? `Metrics update: ${stats.publishRate.toFixed(2)} per second, ${stats.publishCount} total, ${stats.errorCount} errors.`
+              : ''
+          }
+        />
+        <StatStrip
+          aria-label="Live metrics"
+          items={[
+            { label: 'Publish Rate', value: stats ? `${stats.publishRate.toFixed(2)}/s` : '—' },
+            { label: 'Total Published', value: stats ? stats.publishCount.toLocaleString() : '—' },
+            { label: 'Subscribers', value: stats ? stats.subscriberCount : '—' },
+            {
+              label: 'Errors',
+              value: stats ? stats.errorCount : '—',
+              tone: (stats?.errorCount ?? 0) > 0 ? 'danger' : 'default',
+            },
+            ...(stats?.queueDepth !== undefined ? [{ label: 'Queue Depth', value: stats.queueDepth }] : []),
+          ]}
+        />
+      </DetailSection>
+
+      <DetailSection title="Schema" variant="heading">
+        <pre className="schema-viewer">
+          {JSON.stringify(event.schema, null, 2)}
+        </pre>
+      </DetailSection>
+
+      {event.schemaHistory && event.schemaHistory.length > 0 ? (
+        <DetailSection title={`Schema History (${event.schemaHistory.length})`} variant="heading">
+          <Stack gap="sm">
+            {event.schemaHistory.map((h) => (
+              <Inline key={h.version} gap="sm" align="center" wrap>
+                <Chip tone="neutral">v{h.version}</Chip>
+                <FingerprintChip fingerprint={h.fingerprint} label="" />
+                <span className="schema-history-time">
+                  {new Date(h.updatedAt).toLocaleString()}
+                </span>
+                <SchemaDiffToggle before={h.schema} after={event.schema} />
+              </Inline>
+            ))}
+          </Stack>
+        </DetailSection>
+      ) : null}
+
+      <DetailSection title="Registration" variant="heading">
+        <KeyValue items={registration} aria-label="Registration" />
+      </DetailSection>
+
+      <DetailSection title={`Recent Messages (${history.length})`} variant="heading">
+        {historyError ? (
+          <ErrorState
+            title="Couldn't load recent messages"
+            description={historyError}
           />
-          <div className="metrics-grid">
-            <div className="metric">
-              <div className="metric-value">{stats ? `${stats.publishRate.toFixed(2)}/s` : '—'}</div>
-              <div className="metric-label">Publish Rate</div>
-            </div>
-            <div className="metric">
-              <div className="metric-value">{stats ? stats.publishCount.toLocaleString() : '—'}</div>
-              <div className="metric-label">Total Published</div>
-            </div>
-            <div className="metric">
-              <div className="metric-value">{stats ? stats.subscriberCount : '—'}</div>
-              <div className="metric-label">Subscribers</div>
-            </div>
-            <div className="metric">
-              <div className={`metric-value${(stats?.errorCount ?? 0) > 0 ? ' text-error' : ''}`}>
-                {stats ? stats.errorCount : '—'}
-              </div>
-              <div className="metric-label">Errors</div>
-            </div>
-            {stats?.queueDepth !== undefined && (
-              <div className="metric">
-                <div className="metric-value">{stats.queueDepth}</div>
-                <div className="metric-label">Queue Depth</div>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="detail-section">
-          <h3>Schema</h3>
-          <pre className="schema-viewer">
-            {JSON.stringify(event.schema, null, 2)}
-          </pre>
-        </section>
-
-        {event.schemaHistory && event.schemaHistory.length > 0 ? (
-          <section className="detail-section">
-            <h3>Schema History ({event.schemaHistory.length})</h3>
-            <ul className="schema-history">
-              {event.schemaHistory.map((h) => (
-                <li key={h.version}>
-                  <div className="schema-history-row">
-                    <Chip tone="neutral">v{h.version}</Chip>
-                    <FingerprintChip fingerprint={h.fingerprint} label="" />
-                    <span className="schema-history-time">
-                      {new Date(h.updatedAt).toLocaleString()}
-                    </span>
-                    <SchemaDiffToggle before={h.schema} after={event.schema} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-
-        <section className="detail-section">
-          <h3>Registration</h3>
-          <dl className="info-list">
-            <dt>Declared Producer</dt>
-            <dd>{Array.isArray(event.producer) ? event.producer.join(', ') : event.producer}</dd>
-            {observedProducers && observedProducers.observed.length > 0 ? (
-              <>
-                <dt>Observed Producers</dt>
-                <dd className="chip-row">
-                  {observedProducers.observed.map(p => (
-                    <Chip
-                      key={p}
-                      tone={observedProducers.undeclaredProducers.includes(p) ? 'warning' : 'success'}
-                      size="xs"
-                      title={observedProducers.undeclaredProducers.includes(p) ? 'Undeclared publisher' : 'Declared publisher'}
-                    >
-                      {p}
-                    </Chip>
-                  ))}
-                </dd>
-              </>
-            ) : null}
-            {observedProducers && observedProducers.deadDeclaredProducers.length > 0 ? (
-              <>
-                <dt>Dead Declared</dt>
-                <dd className="chip-row">
-                  {observedProducers.deadDeclaredProducers.map(p => (
-                    <Chip key={p} tone="neutral" size="xs" title="Declared but never published">
-                      {p}
-                    </Chip>
-                  ))}
-                </dd>
-              </>
-            ) : null}
-            <dt>Transport</dt>
-            <dd>{event.transport === 'signal' ? 'Signal (Redis Pub/Sub — Ephemeral)' : 'Durable (Message Queue — At-Least-Once)'}</dd>
-            <dt>Registered</dt>
-            <dd>{new Date(event.metadata.createdAt).toLocaleString()}</dd>
-            <dt>Subscribers</dt>
-            <dd>{event.subscribers.length > 0 ? event.subscribers.join(', ') : 'None'}</dd>
-            {event.tags && event.tags.length > 0 ? (
-              <>
-                <dt>Tags</dt>
-                <dd>
-                  {event.tags.map(t => (
-                    <Chip key={t} tone="purple" size="xs" className="tag-chip">{t}</Chip>
-                  ))}
-                </dd>
-              </>
-            ) : null}
-          </dl>
-        </section>
-
-        <section className="detail-section full-width">
-          <h3>Recent Messages ({history.length})</h3>
-          {historyError ? (
-            <ErrorState
-              title="Couldn't load recent messages"
-              description={historyError}
-            />
-          ) : history.length === 0 ? (
-            <div className="empty-state">No recent messages captured.</div>
-          ) : (
-            <div className="message-list">
-              {history.map((msg, i) => (
-                <details key={i} className="message-item">
-                  <summary>
+        ) : history.length === 0 ? (
+          <EmptyState title="No recent messages captured." />
+        ) : (
+          <Stack gap="xs">
+            {history.map((msg, i) => (
+              <Disclosure
+                key={i}
+                summary={
+                  <>
                     Message #{history.length - i}
                     {(msg as Record<string, unknown>).metadata
                       ? ` — ${new Date(((msg as Record<string, unknown>).metadata as Record<string, unknown>).timestamp as number).toLocaleTimeString()}`
                       : null
                     }
-                  </summary>
-                  <pre>{JSON.stringify(msg, null, 2)}</pre>
-                </details>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
-    </div>
+                  </>
+                }
+              >
+                <pre>{JSON.stringify(msg, null, 2)}</pre>
+              </Disclosure>
+            ))}
+          </Stack>
+        )}
+      </DetailSection>
+    </DetailPage>
   );
 }

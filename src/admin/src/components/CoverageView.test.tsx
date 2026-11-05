@@ -148,9 +148,10 @@ describe('CoverageView — the gap, grouped so it is legible', () => {
     const body = document.getElementById(`coverage-body-${worstNamespace.namespace}`)!;
     const rows = within(body).getAllByRole('row').slice(1);
     expect(rows).toHaveLength(worstNamespace.uncovered);
-    for (const th of within(body).getAllByRole('columnheader')) {
-      expect(th).toHaveAttribute('scope', 'col');
-    }
+    // DataTable heads its columns in <thead> (implicit column scope).
+    expect(within(body).getAllByRole('columnheader').map((th) => th.textContent)).toEqual([
+      'Uncovered event', 'Transport', 'Producer',
+    ]);
   });
 
   it('can show the fully-covered namespaces too', async () => {

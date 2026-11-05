@@ -9,9 +9,9 @@
 // slow path — registry mutations that change *what's declared*,
 // not *what's flowing*.
 
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router';
-import { Chip, Banner, LiveRegion, Button } from '@connorhoehnslalom/ui-components/shared';
+import { Chip, Banner, LiveRegion, Button, FormField, Inline, PageFrame, Select } from '@connorhoehnslalom/ui-components/shared';
 import { useAuditTap, type AuditEvent, type AuditEventKind } from './topology/useAuditTap';
 
 const kindMeta: Record<AuditEventKind, { label: string; tone: 'success' | 'danger' | 'info' | 'neutral'; verb: string }> = {
@@ -25,8 +25,6 @@ const kindMeta: Record<AuditEventKind, { label: string; tone: 'success' | 'dange
 export function AuditView() {
   const [kindFilter, setKindFilter] = useState<AuditEventKind | ''>('');
   const [namespaceFilter, setNamespaceFilter] = useState('');
-  const kindId = useId();
-  const namespaceId = useId();
 
   const tap = useAuditTap({
     kind: kindFilter || undefined,
@@ -37,56 +35,63 @@ export function AuditView() {
   const namespaces = new Set<string>();
   for (const e of tap.events) if (e.namespace) namespaces.add(e.namespace);
 
+  const kindOptions = [
+    { value: '', label: 'all' },
+    ...(Object.keys(kindMeta) as AuditEventKind[]).map((k) => ({ value: k, label: k })),
+  ];
+  const namespaceOptions = [
+    { value: '', label: 'all' },
+    ...[...namespaces].sort().map((ns) => ({ value: ns, label: ns })),
+  ];
+
   return (
-    <div className="audit-view view-column">
-      <div className="view-toolbar">
-        <h2>Registry Changes</h2>
-        <Chip tone={tap.isLive ? 'success' : 'neutral'}>{tap.isLive ? 'live' : 'paused'}</Chip>
-        <Chip tone="neutral">{tap.events.length} events</Chip>
-        {tap.error && (
-          <span role="status">
-            <Chip tone="warning">{tap.error}</Chip>
-          </span>
-        )}
-
-        <div className="view-toolbar-right">
-          <label className="view-toolbar-label" htmlFor={kindId}>kind</label>
-          <select
-            id={kindId}
-            value={kindFilter}
-            onChange={(e) => setKindFilter(e.target.value as AuditEventKind | '')}
-            className="view-select"
-          >
-            <option value="">all</option>
-            <option value="event.declared">event.declared</option>
-            <option value="event.version.bumped">event.version.bumped</option>
-            <option value="event.removed">event.removed</option>
-            <option value="subscriber.added">subscriber.added</option>
-            <option value="subscriber.removed">subscriber.removed</option>
-          </select>
-
-          <label className="view-toolbar-label spaced" htmlFor={namespaceId}>namespace</label>
-          <select
-            id={namespaceId}
-            value={namespaceFilter}
-            onChange={(e) => setNamespaceFilter(e.target.value)}
-            className="view-select"
-          >
-            <option value="">all</option>
-            {[...namespaces].sort().map((ns) => (
-              <option key={ns} value={ns}>{ns}</option>
-            ))}
-          </select>
-
+    <PageFrame
+      title="Registry Changes"
+      className="audit-view"
+      badge={
+        <Inline gap="sm">
+          <Chip tone={tap.isLive ? 'success' : 'neutral'}>{tap.isLive ? 'live' : 'paused'}</Chip>
+          <Chip tone="neutral">{tap.events.length} events</Chip>
+          {tap.error && (
+            <span role="status">
+              <Chip tone="warning">{tap.error}</Chip>
+            </span>
+          )}
+        </Inline>
+      }
+      actions={
+        <Inline gap="sm" align="center">
+          <FormField label="kind" layout="inline">
+            {(w) => (
+              <Select
+                id={w.id}
+                size="sm"
+                value={kindFilter}
+                onChange={(e) => setKindFilter(e.target.value as AuditEventKind | '')}
+                options={kindOptions}
+              />
+            )}
+          </FormField>
+          <FormField label="namespace" layout="inline">
+            {(w) => (
+              <Select
+                id={w.id}
+                size="sm"
+                value={namespaceFilter}
+                onChange={(e) => setNamespaceFilter(e.target.value)}
+                options={namespaceOptions}
+              />
+            )}
+          </FormField>
           {tap.isLive ? (
             <Button variant="secondary" size="sm" onClick={tap.pause}>Pause</Button>
           ) : (
             <Button variant="primary" size="sm" onClick={tap.resume}>Resume</Button>
           )}
           <Button variant="ghost" size="sm" onClick={tap.clear}>Clear</Button>
-        </div>
-      </div>
-
+        </Inline>
+      }
+    >
       {tap.events.length === 0 ? (
         <Banner variant="info">
           Waiting for the next registry mutation. Try declaring an event via{' '}
@@ -116,7 +121,7 @@ export function AuditView() {
           </ul>
         </div>
       )}
-    </div>
+    </PageFrame>
   );
 }
 

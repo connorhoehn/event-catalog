@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useId, useState } from 'react';
-import { Link } from 'react-router';
-import { Chip, EmptyState, ErrorState, SkeletonCard, LiveRegion, Sparkline, Button } from '@connorhoehnslalom/ui-components/shared';
+import { Link, useNavigate } from 'react-router';
+import {
+  Button,
+  Checkbox,
+  Chip,
+  CollectionPage,
+  DataTable,
+  EmptyState,
+  ErrorState,
+  Input,
+  LiveRegion,
+  SkeletonCard,
+  Sparkline,
+  Stack,
+  type DataTableColumn,
+} from '@connorhoehnslalom/ui-components/shared';
 import { api, type EventEntry } from '../api';
 
 /** 60s publish-rate trend. Delegates the SVG to the shared Sparkline; the
@@ -18,7 +32,7 @@ function RateSparkline({ data, label }: { data: number[]; label: string }) {
   // "Publish Rate" column next door; the trend is what this summarises.
   return (
     <span role="img" aria-label={`60 second publish-rate trend for ${label}`}>
-      <Sparkline data={data} width={52} height={16} color="var(--blue-500)" baseline="zero" />
+      <Sparkline data={data} width={52} height={16} color="var(--color-info)" baseline="zero" />
     </span>
   );
 }
@@ -34,9 +48,8 @@ export function EventList() {
   const [bulkReason, setBulkReason] = useState('');
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
-  const transportFilterId = useId();
-  const producerFilterId = useId();
   const bulkReasonId = useId();
+  const navigate = useNavigate();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -99,73 +112,175 @@ export function EventList() {
     window.open(url, '_blank');
   };
 
+  const columns: DataTableColumn<EventEntry>[] = [
+    {
+      key: 'select',
+      header: (
+        <Checkbox
+          aria-label="Select all events"
+          checked={allSelected}
+          onChange={toggleAll}
+        />
+      ),
+      width: '2.5rem',
+      render: event => (
+        <Checkbox
+          aria-label={`Select ${event.name}`}
+          checked={selected.has(event.name)}
+          onChange={() => toggleOne(event.name)}
+        />
+      ),
+    },
+    {
+      key: 'name',
+      header: 'Name',
+      render: event => (
+        <>
+          <Link to={`/events/${encodeURIComponent(event.name)}`} className="event-name">
+            {event.name}
+          </Link>
+          {event.description && <div className="event-desc">{event.description}</div>}
+        </>
+      ),
+    },
+    {
+      key: 'transport',
+      header: 'Transport',
+      render: event => (
+        <Chip tone={event.transport === 'signal' ? 'info' : 'warning'} size="xs">
+          {event.transport}
+        </Chip>
+      ),
+    },
+    {
+      key: 'producer',
+      header: 'Producer',
+      render: event => (Array.isArray(event.producer) ? event.producer.join(', ') : event.producer),
+    },
+    { key: 'subscribers', header: 'Subscribers', numeric: true, render: event => event.subscribers.length },
+    {
+      key: 'sparkline',
+      header: 'Sparkline (60s)',
+      render: event => <RateSparkline data={rateHistory[event.name] ?? []} label={event.name} />,
+    },
+    // An event with no stats yet rendered a bare "/s".
+    {
+      key: 'rate',
+      header: 'Publish Rate',
+      numeric: true,
+      render: event => (event.stats ? `${event.stats.publishRate.toFixed(2)}/s` : '—'),
+    },
+    {
+      key: 'total',
+      header: 'Total',
+      numeric: true,
+      render: event => event.stats?.publishCount.toLocaleString() ?? '0',
+    },
+    {
+      key: 'errors',
+      header: 'Errors',
+      numeric: true,
+      render: event => (
+        <span className={(event.stats?.errorCount ?? 0) > 0 ? 'text-error' : undefined}>
+          {event.stats?.errorCount ?? 0}
+        </span>
+      ),
+    },
+    {
+      key: 'lastSeen',
+      header: 'Last Seen',
+      render: event => (event.stats?.lastPublishedAt ? timeAgo(event.stats.lastPublishedAt) : 'never'),
+    },
+  ];
+
+  const producerOptions = [
+    { value: '', label: 'All Producers' },
+    ...producers.map(p => ({ value: p, label: p })),
+  ];
+
   return (
-    <div className="event-list">
-      <div className="page-header">
-        <h2>Registered Events</h2>
-        <Chip tone="neutral">{events.length} events</Chip>
-      </div>
-
-      {/* Both selects were unlabelled: the only clue to what they filtered was
-          the currently-selected option, which a screen reader reads as a bare
-          value with no question attached to it. */}
-      <div className="filters">
-        <label className="field-label" htmlFor={transportFilterId}>Transport</label>
-        <select
-          id={transportFilterId}
-          value={filter.transport ?? ''}
-          onChange={e => setFilter(f => ({ ...f, transport: e.target.value || undefined }))}
-        >
-          <option value="">All Transports</option>
-          <option value="signal">Signal (Ephemeral)</option>
-          <option value="durable">Durable (At-Least-Once)</option>
-        </select>
-
-        <label className="field-label" htmlFor={producerFilterId}>Producer</label>
-        <select
-          id={producerFilterId}
-          value={filter.producer ?? ''}
-          onChange={e => setFilter(f => ({ ...f, producer: e.target.value || undefined }))}
-        >
-          <option value="">All Producers</option>
-          {producers.map(p => <option key={p} value={p}>{p}</option>)}
-        </select>
-      </div>
-
-      {/* wave26-f — bulk actions toolbar (only visible when events are selected) */}
-      {selected.size > 0 && (
-        <div className="bulk-bar" role="group" aria-label={`Bulk actions for ${selected.size} selected events`}>
-          <Chip tone="info" size="xs">{selected.size} selected</Chip>
-          <label className="sr-only" htmlFor={bulkReasonId}>Deprecation reason</label>
-          <input
-            id={bulkReasonId}
-            type="text"
-            placeholder="Deprecation reason (required for deprecate)"
-            value={bulkReason}
-            onChange={e => setBulkReason(e.target.value)}
-            className="bulk-bar-input"
+    <CollectionPage
+      title="Registered Events"
+      gutter="page"
+      badge={<Chip tone="neutral">{events.length} events</Chip>}
+      toolbar={{
+        label: 'Event controls',
+        // Both filters carry their label (they were once unlabelled, and a
+        // screen reader read the selected option as a bare value).
+        filters: [
+          {
+            id: 'transport',
+            label: 'Transport',
+            value: filter.transport ?? '',
+            onChange: v => setFilter(f => ({ ...f, transport: v || undefined })),
+            options: [
+              { value: '', label: 'All Transports' },
+              { value: 'signal', label: 'Signal (Ephemeral)' },
+              { value: 'durable', label: 'Durable (At-Least-Once)' },
+            ],
+          },
+          {
+            id: 'producer',
+            label: 'Producer',
+            value: filter.producer ?? '',
+            onChange: v => setFilter(f => ({ ...f, producer: v || undefined })),
+            options: producerOptions,
+          },
+        ],
+        // wave26-f — bulk actions, drawn in place of the filters while
+        // something is selected.
+        selection: {
+          count: selected.size,
+          onClear: () => setSelected(new Set()),
+          actions: (
+            <>
+              <label className="sr-only" htmlFor={bulkReasonId}>Deprecation reason</label>
+              <Input
+                id={bulkReasonId}
+                type="text"
+                size="sm"
+                placeholder="Deprecation reason (required for deprecate)"
+                value={bulkReason}
+                onChange={e => setBulkReason(e.target.value)}
+              />
+              <Button variant="danger" size="sm" onClick={handleBulkDeprecate} disabled={bulkPending}>
+                {bulkPending ? 'Deprecating…' : 'Deprecate'}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={handleBulkExport}>
+                Export JSON
+              </Button>
+            </>
+          ),
+        },
+      }}
+      error={
+        // Failed is not the same as empty. A 500 once rendered the error
+        // banner and then "No events registered" below it, which reads as
+        // "the registry is fine, it is just empty".
+        !loading && error ? (
+          <ErrorState
+            title="Error loading events"
+            description={error}
+            action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
           />
-          <Button variant="danger" size="sm" onClick={handleBulkDeprecate} disabled={bulkPending}>
-            {bulkPending ? 'Deprecating…' : 'Deprecate'}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={handleBulkExport}>
-            Export JSON
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-            Clear selection
-          </Button>
-        </div>
-      )}
-
+        ) : undefined
+      }
+      empty={
+        <EmptyState
+          icon="📡"
+          title="No events registered"
+          body="Services declare events at startup via the SDK. Once a service connects, its events will appear here."
+        />
+      }
+      isEmpty={!loading && events.length === 0}
+    >
       {/* The outcome of a bulk action is the one thing here the operator did
           ask for and must not miss, so it is announced.
 
-          It lives OUTSIDE the toolbar because a successful deprecate clears
-          the selection, and the toolbar only renders while something is
-          selected — so the success message was mounted and unmounted in the
-          same commit and no operator ever saw it. Deprecating forty events
-          gave exactly as much feedback as deprecating none; only the two
-          failure paths, which leave the selection intact, showed anything. */}
+          It lives OUTSIDE the selection toolbar because a successful
+          deprecate clears the selection, and the toolbar only shows the bulk
+          actions while something is selected — so a message inside it would
+          be mounted and unmounted in the same commit. */}
       {bulkResult && (
         <p
           role="status"
@@ -174,98 +289,24 @@ export function EventList() {
           {bulkResult}
         </p>
       )}
-
       {loading && (
-        <div className="skeleton-stack tight" aria-busy="true">
+        <Stack gap="sm" aria-busy="true">
           {Array.from({ length: 5 }).map((_, i) => (
             <SkeletonCard key={i} height={48} />
           ))}
           <LiveRegion role="none" message="Loading events…" />
-        </div>
+        </Stack>
       )}
-
-      {/* Failed is not the same as empty. Until now a 500 rendered the error
-          banner and then "No events registered" below it, which reads as
-          "the registry is fine, it is just empty". */}
-      {!loading && error && (
-        <ErrorState
-          title="Error loading events"
-          description={error}
-          action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
-        />
-      )}
-
       {!loading && !error && (
-        <table className="events-table">
-          <thead>
-            <tr>
-              <th scope="col" className="col-select">
-                <input
-                  type="checkbox"
-                  aria-label="Select all events"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                />
-              </th>
-              <th scope="col">Name</th>
-              <th scope="col">Transport</th>
-              <th scope="col">Producer</th>
-              <th scope="col">Subscribers</th>
-              <th scope="col">Sparkline (60s)</th>
-              <th scope="col">Publish Rate</th>
-              <th scope="col">Total</th>
-              <th scope="col">Errors</th>
-              <th scope="col">Last Seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.map(event => (
-              <tr key={event.name} className={event.stats?.errorCount ? 'has-errors' : ''}>
-                <td>
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${event.name}`}
-                    checked={selected.has(event.name)}
-                    onChange={() => toggleOne(event.name)}
-                  />
-                </td>
-                <th scope="row">
-                  <Link to={`/events/${encodeURIComponent(event.name)}`} className="event-name">
-                    {event.name}
-                  </Link>
-                  {event.description && <div className="event-desc">{event.description}</div>}
-                </th>
-                <td>
-                  <Chip tone={event.transport === 'signal' ? 'info' : 'warning'} size="xs">
-                    {event.transport}
-                  </Chip>
-                </td>
-                <td>{Array.isArray(event.producer) ? event.producer.join(', ') : event.producer}</td>
-                <td>{event.subscribers.length}</td>
-                <td><RateSparkline data={rateHistory[event.name] ?? []} label={event.name} /></td>
-                {/* An event with no stats yet rendered a bare "/s". */}
-                <td className="mono">
-                  {event.stats ? `${event.stats.publishRate.toFixed(2)}/s` : '—'}
-                </td>
-                <td className="mono">{event.stats?.publishCount.toLocaleString() ?? '0'}</td>
-                <td className={`mono ${(event.stats?.errorCount ?? 0) > 0 ? 'text-error' : ''}`}>
-                  {event.stats?.errorCount ?? 0}
-                </td>
-                <td>{event.stats?.lastPublishedAt ? timeAgo(event.stats.lastPublishedAt) : 'never'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      {events.length === 0 && !loading && !error && (
-        <EmptyState
-          icon="📡"
-          title="No events registered"
-          body="Services declare events at startup via the SDK. Once a service connects, its events will appear here."
+        <DataTable
+          striped
+          data={events}
+          columns={columns}
+          keyField={event => event.name}
+          onRowClick={event => navigate(`/events/${encodeURIComponent(event.name)}`)}
         />
       )}
-    </div>
+    </CollectionPage>
   );
 }
 

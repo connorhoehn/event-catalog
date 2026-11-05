@@ -73,13 +73,20 @@ describe('BundlesView — the inventory at real scale', () => {
     expect(within(row).getByText(liveBundle.transport)).toBeInTheDocument();
   });
 
-  it('gives every column a scope so the table is navigable', async () => {
+  it('gives every column a header and every row an activatable target', async () => {
+    // The library DataTable draws <th> in <thead> (implicit column scope)
+    // and has no row-header cell, so the row's own name is its link, and
+    // the row itself opens the bundle.
     mount();
     await screen.findByRole('link', { name: liveBundle.name });
-    for (const th of screen.getAllByRole('columnheader')) {
-      expect(th).toHaveAttribute('scope', 'col');
+    expect(screen.getAllByRole('columnheader').map((th) => th.textContent)).toEqual([
+      'Bundle', 'Version', 'Transport', 'Events', 'Status', 'Fingerprint',
+    ]);
+    const rows = screen.getAllByRole('row').slice(1);
+    for (const row of rows) {
+      expect(within(row).getAllByRole('link').length).toBeGreaterThan(0);
+      expect(row).toHaveAttribute('tabindex', '0');
     }
-    expect(screen.getAllByRole('rowheader').length).toBe(REAL_BUNDLE_COUNT);
   });
 
   it('shows the fingerprint short and expands it on demand', async () => {
@@ -97,7 +104,6 @@ describe('BundlesView — the inventory at real scale', () => {
     mount();
     const link = await screen.findByRole('link', { name: deprecatedBundle.name });
     const row = link.closest('tr')!;
-    expect(row).toHaveClass('deprecated');
     expect(within(row).getByText('deprecated')).toBeInTheDocument();
     const meta = within(row).getByText(new RegExp(`since ${deprecatedBundle.deprecated!.since}`));
     // The replacement has to be on the row itself: an operator scanning the
@@ -106,7 +112,7 @@ describe('BundlesView — the inventory at real scale', () => {
     expect(meta).toHaveTextContent(deprecatedBundle.deprecated!.replacement!);
     // …and a live bundle is not dressed up the same way.
     const liveRow = screen.getByRole('link', { name: liveBundle.name }).closest('tr')!;
-    expect(liveRow).not.toHaveClass('deprecated');
+    expect(within(liveRow).queryByText('deprecated')).not.toBeInTheDocument();
     expect(within(liveRow).getByText('active')).toBeInTheDocument();
   });
 

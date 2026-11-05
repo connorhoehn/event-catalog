@@ -1,5 +1,5 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import { Chip, EmptyState, ErrorState, LoadingState, Button } from '@connorhoehnslalom/ui-components/shared';
+import { useEffect, useRef, useState } from 'react';
+import { Chip, Checkbox, EmptyState, ErrorState, LoadingState, Button, Inline, PageFrame, Select } from '@connorhoehnslalom/ui-components/shared';
 import { api, type EventEntry, type EventStats } from '../api';
 
 interface LiveMessage {
@@ -9,6 +9,12 @@ interface LiveMessage {
   payload: unknown;
   id: string;
 }
+
+const BUFFER_OPTIONS = [
+  { value: '50', label: '50 messages' },
+  { value: '100', label: '100 messages' },
+  { value: '500', label: '500 messages' },
+];
 
 export function LiveInspector() {
   const [events, setEvents] = useState<EventEntry[]>([]);
@@ -26,7 +32,6 @@ export function LiveInspector() {
   // counter climbed on a catalog that was completely idle. Remembering what
   // we've already shown per event turns the poll back into a tail.
   const seenRef = useRef<Map<string, Set<string>>>(new Map());
-  const capId = useId();
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
 
@@ -113,10 +118,11 @@ export function LiveInspector() {
   const durableEvents = events.filter(e => e.transport === 'durable');
 
   return (
-    <div className="live-inspector">
-      <div className="page-header">
-        <h2>Live Inspector</h2>
-        <div className="controls">
+    <PageFrame
+      title="Live Inspector"
+      className="live-inspector"
+      actions={
+        <Inline gap="sm" align="center" className="controls">
           <Button
             variant={paused ? 'primary' : 'ghost'}
             size="sm"
@@ -127,15 +133,16 @@ export function LiveInspector() {
           <Button variant="danger" size="sm" onClick={() => setMessages([])}>
             Clear
           </Button>
-          <label className="sr-only" htmlFor={capId}>Message buffer size</label>
-          <select id={capId} value={maxMessages} onChange={e => setMaxMessages(parseInt(e.target.value))}>
-            <option value={50}>50 messages</option>
-            <option value={100}>100 messages</option>
-            <option value={500}>500 messages</option>
-          </select>
-        </div>
-      </div>
-
+          <Select
+            aria-label="Message buffer size"
+            size="sm"
+            value={String(maxMessages)}
+            onChange={e => setMaxMessages(parseInt(e.target.value))}
+            options={BUFFER_OPTIONS}
+          />
+        </Inline>
+      }
+    >
       {loadError && (
         <ErrorState title="Error loading the event list" description={loadError} />
       )}
@@ -148,8 +155,7 @@ export function LiveInspector() {
           <div className="event-checkboxes" role="group" aria-labelledby="li-signal">
             {signalEvents.map(e => (
               <label key={e.name} className="event-checkbox">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={selectedEvents.has(e.name)}
                   onChange={() => toggleEvent(e.name)}
                 />
@@ -170,8 +176,7 @@ export function LiveInspector() {
           <div className="event-checkboxes" role="group" aria-labelledby="li-durable">
             {durableEvents.map(e => (
               <label key={e.name} className="event-checkbox">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={selectedEvents.has(e.name)}
                   onChange={() => toggleEvent(e.name)}
                 />
@@ -223,6 +228,6 @@ export function LiveInspector() {
           )}
         </div>
       </div>
-    </div>
+    </PageFrame>
   );
 }

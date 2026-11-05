@@ -1,6 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { Chip, Banner, ErrorState, SkeletonCard, LiveRegion, Button } from '@connorhoehnslalom/ui-components/shared';
+import {
+  Banner,
+  Button,
+  Chip,
+  DashboardPage,
+  DataTable,
+  ErrorState,
+  Inline,
+  KPIGrid,
+  LiveRegion,
+  PageSection,
+  SkeletonCard,
+  Stack,
+  StatCard,
+  Text,
+} from '@connorhoehnslalom/ui-components/shared';
 import { api, isTransportUp, transportTone, type EventEntry, type HealthStatus } from '../api';
 
 type RegistryHealth = Awaited<ReturnType<typeof api.getRegistryHealth>>;
@@ -38,27 +53,30 @@ export function Dashboard() {
   // failed dashboard had no landmark heading to orient a screen reader.
   if (loading) {
     return (
-      <div className="dashboard">
-        <h2>Dashboard</h2>
-        <div className="stats-grid" aria-busy="true">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <SkeletonCard key={i} height={90} />
-          ))}
-        </div>
-        <LiveRegion role="none" message="Loading dashboard…" />
-      </div>
+      <DashboardPage
+        title="Dashboard"
+        kpis={
+          <Stack gap="md" aria-busy="true">
+            <KPIGrid columns={3}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <SkeletonCard key={i} height={90} />
+              ))}
+            </KPIGrid>
+            <LiveRegion role="none" message="Loading dashboard…" />
+          </Stack>
+        }
+      />
     );
   }
   if (error) {
     return (
-      <div className="dashboard">
-        <h2>Dashboard</h2>
+      <DashboardPage title="Dashboard">
         <ErrorState
           title="Error loading the dashboard"
           description={`The catalog API did not answer: ${error}`}
           action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
         />
-      </div>
+      </DashboardPage>
     );
   }
 
@@ -74,213 +92,173 @@ export function Dashboard() {
   const neverPublished = events.filter(e => !e.metadata?.lastPublishedAt);
   const deprecatedActive = deprecated.filter(e => e.subscribers.length > 0 || e.stats?.publishCount);
 
+  const deprecatedRows = deprecated
+    .slice()
+    .sort((a, b) => (b.deprecation?.deprecatedAt ?? '').localeCompare(a.deprecation?.deprecatedAt ?? ''))
+    .slice(0, 10);
+  const recentRows = events
+    .filter(e => e.stats?.lastPublishedAt)
+    .sort((a, b) => (b.stats?.lastPublishedAt ?? '').localeCompare(a.stats?.lastPublishedAt ?? ''))
+    .slice(0, 10);
+
   return (
-    <div className="dashboard">
-      <h2>Dashboard</h2>
+    <DashboardPage
+      title="Dashboard"
+      kpis={
+        <Stack gap="md">
+          <KPIGrid columns={3}>
+            <StatCard label="Registered Events" value={events.length} />
+            <StatCard label="Signal (Ephemeral)" value={signalEvents.length} accent />
+            <StatCard label="Durable (At-Least-Once)" value={durableEvents.length} />
+            <StatCard label="Services" value={producers.length} />
+            <StatCard label="Total Publishes" value={totalPublishes.toLocaleString()} />
+            <StatCard label="Errors" value={totalErrors} danger={totalErrors > 0} />
+          </KPIGrid>
 
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-value">{events.length}</div>
-          <div className="stat-label">Registered Events</div>
-        </div>
-        <div className="stat-card signal">
-          <div className="stat-value">{signalEvents.length}</div>
-          <div className="stat-label">Signal (Ephemeral)</div>
-        </div>
-        <div className="stat-card durable">
-          <div className="stat-value">{durableEvents.length}</div>
-          <div className="stat-label">Durable (At-Least-Once)</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{producers.length}</div>
-          <div className="stat-label">Services</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{totalPublishes.toLocaleString()}</div>
-          <div className="stat-label">Total Publishes</div>
-        </div>
-        <div className="stat-card error">
-          <div className="stat-value">{totalErrors}</div>
-          <div className="stat-label">Errors</div>
-        </div>
-      </div>
-
-      {/* wave25-d — lifecycle rollups. Only render when there's anything to
-         flag, so a healthy catalog doesn't get a row of zero-value cards. */}
-      {(deprecated.length > 0 || orphans.length > 0 || neverPublished.length > 0) && (
-        <div className="stats-grid secondary">
-          {deprecated.length > 0 && (
-            <Link to="/events" className="stat-card deprecated">
-              <div className="stat-value">{deprecated.length}</div>
-              <div className="stat-label">Deprecated{deprecatedActive.length > 0 ? ` (${deprecatedActive.length} still active)` : ''}</div>
-            </Link>
+          {/* wave25-d — lifecycle rollups. Only render when there's anything to
+             flag, so a healthy catalog doesn't get a row of zero-value cards. */}
+          {(deprecated.length > 0 || orphans.length > 0 || neverPublished.length > 0) && (
+            <KPIGrid columns={3}>
+              {deprecated.length > 0 && (
+                <StatCard
+                  to="/events"
+                  as={Link}
+                  danger
+                  label={`Deprecated${deprecatedActive.length > 0 ? ` (${deprecatedActive.length} still active)` : ''}`}
+                  value={deprecated.length}
+                />
+              )}
+              {orphans.length > 0 && (
+                <StatCard label="Orphans (no subscribers)" value={orphans.length} danger />
+              )}
+              {neverPublished.length > 0 && (
+                <StatCard label="Never published" value={neverPublished.length} />
+              )}
+            </KPIGrid>
           )}
-          {orphans.length > 0 && (
-            <div className="stat-card orphans">
-              <div className="stat-value">{orphans.length}</div>
-              <div className="stat-label">Orphans (no subscribers)</div>
-            </div>
-          )}
-          {neverPublished.length > 0 && (
-            <div className="stat-card never-published">
-              <div className="stat-value">{neverPublished.length}</div>
-              <div className="stat-label">Never published</div>
-            </div>
-          )}
-        </div>
-      )}
 
-      {/* wave26-e — poisoned events alert. Only render when events are actively poisoned. */}
-      {poisonedEvents.length > 0 && (
-        <div className="poison-alert">
-          <Banner variant="error" title={`${poisonedEvents.length} Poisoned Event${poisonedEvents.length > 1 ? 's' : ''} — Failures Exceeding Threshold`}>
-            <ul className="poison-list">
-              {poisonedEvents.map(p => (
-                <li key={p.eventName}>
-                  <Link to={`/events/${encodeURIComponent(p.eventName)}`}>{p.eventName}</Link>
-                  {' — '}{p.failuresInWindow} failures in {Math.round(p.windowMs / 60000)}m
-                  {' (threshold: '}{p.threshold}{')'}
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    className="btn-dismiss"
-                    aria-label={`Dismiss poison alert for ${p.eventName}`}
-                    onClick={() => {
-                      api.clearPoison(p.eventName).then(() => {
-                        setPoisonedEvents(prev => prev.filter(x => x.eventName !== p.eventName));
-                      }).catch(() => {});
-                    }}
-                  >
-                    dismiss
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </Banner>
-        </div>
-      )}
-
+          {/* wave26-e — poisoned events alert. Only render when events are actively poisoned. */}
+          {poisonedEvents.length > 0 && (
+            <Banner variant="error" title={`${poisonedEvents.length} Poisoned Event${poisonedEvents.length > 1 ? 's' : ''} — Failures Exceeding Threshold`}>
+              <ul className="poison-list">
+                {poisonedEvents.map(p => (
+                  <li key={p.eventName}>
+                    <Link to={`/events/${encodeURIComponent(p.eventName)}`}>{p.eventName}</Link>
+                    {' — '}{p.failuresInWindow} failures in {Math.round(p.windowMs / 60000)}m
+                    {' (threshold: '}{p.threshold}{')'}
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      className="btn-dismiss"
+                      aria-label={`Dismiss poison alert for ${p.eventName}`}
+                      onClick={() => {
+                        api.clearPoison(p.eventName).then(() => {
+                          setPoisonedEvents(prev => prev.filter(x => x.eventName !== p.eventName));
+                        }).catch(() => {});
+                      }}
+                    >
+                      dismiss
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </Banner>
+          )}
+        </Stack>
+      }
+    >
       {health && (
-        <section className="transport-status" aria-labelledby="dash-transport-status">
-          <h3 id="dash-transport-status">Transport Status</h3>
-          <div className="status-row">
-            <span aria-hidden="true" className={`status-dot ${isTransportUp(health.redis.status) ? 'green' : 'red'}`} />
-            <span>Redis (Signal): </span>
-            <Chip tone={transportTone(health.redis.status)} size="xs">
-              {health.redis.status}
-            </Chip>
-          </div>
-          <div className="status-row">
-            <span aria-hidden="true" className={`status-dot ${isTransportUp(health.messageQueue.status) ? 'green' : 'red'}`} />
-            <span>Message Queue (Durable): </span>
-            <Chip tone={transportTone(health.messageQueue.status)} size="xs">
-              {health.messageQueue.status}
-            </Chip>
-          </div>
-          <div className="status-row">
-            <span>Uptime: {formatUptime(health.uptime)}</span>
-          </div>
-        </section>
+        <PageSection title="Transport Status" size="sm">
+          <Stack gap="sm">
+            <Inline gap="sm" align="center" className="status-row">
+              <span aria-hidden="true" className={`status-dot ${isTransportUp(health.redis.status) ? 'green' : 'red'}`} />
+              <Text size="sm">Redis (Signal): </Text>
+              <Chip tone={transportTone(health.redis.status)} size="xs">
+                {health.redis.status}
+              </Chip>
+            </Inline>
+            <Inline gap="sm" align="center" className="status-row">
+              <span aria-hidden="true" className={`status-dot ${isTransportUp(health.messageQueue.status) ? 'green' : 'red'}`} />
+              <Text size="sm">Message Queue (Durable): </Text>
+              <Chip tone={transportTone(health.messageQueue.status)} size="xs">
+                {health.messageQueue.status}
+              </Chip>
+            </Inline>
+            <Text size="sm">Uptime: {formatUptime(health.uptime)}</Text>
+          </Stack>
+        </PageSection>
       )}
 
       {/* wave26-b — registry health summary card */}
       {registryHealth && (
-        <section className="transport-status registry-health" aria-labelledby="dash-registry-health">
-          <h3 id="dash-registry-health">Registry Health</h3>
-          <div className="stats-grid nested">
-            <div className="stat-card">
-              <div className="stat-value">{registryHealth.registrySize}</div>
-              <div className="stat-label">Registry Size</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-value">{registryHealth.namespaceCount}</div>
-              <div className="stat-label">Namespaces</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-value">{registryHealth.deprecatedCount}</div>
-              <div className="stat-label">Deprecated</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-value">{registryHealth.orphanCount}</div>
-              <div className="stat-label">Orphans</div>
-            </div>
+        <PageSection title="Registry Health" size="sm" className="md:col-span-2">
+          <KPIGrid columns={registryHealth.manifestCount !== null ? 3 : 4} dense>
+            <StatCard size="sm" label="Registry Size" value={registryHealth.registrySize} />
+            <StatCard size="sm" label="Namespaces" value={registryHealth.namespaceCount} />
+            <StatCard size="sm" label="Deprecated" value={registryHealth.deprecatedCount} />
+            <StatCard size="sm" label="Orphans" value={registryHealth.orphanCount} />
             {registryHealth.manifestCount !== null && (
-              <div className="stat-card">
-                <div className="stat-value">{registryHealth.manifestCount}</div>
-                <div className="stat-label">Pinned Manifests</div>
-              </div>
+              <StatCard size="sm" label="Pinned Manifests" value={registryHealth.manifestCount} />
             )}
-          </div>
-        </section>
+          </KPIGrid>
+        </PageSection>
       )}
 
       {deprecated.length > 0 && (
-        <section className="recent-events deprecated-events" aria-labelledby="dash-deprecated">
-          <h3 id="dash-deprecated">Deprecated Events</h3>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Event</th>
-                <th scope="col">Reason</th>
-                <th scope="col">Subscribers</th>
-                <th scope="col">Deprecated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deprecated
-                .slice()
-                .sort((a, b) => (b.deprecation?.deprecatedAt ?? '').localeCompare(a.deprecation?.deprecatedAt ?? ''))
-                .slice(0, 10)
-                .map(e => (
-                  <tr key={e.name}>
-                    <td>
-                      <Link to={`/events/${encodeURIComponent(e.name)}`}>{e.name}</Link>{' '}
-                      <Chip tone="danger" size="xs">deprecated</Chip>
-                    </td>
-                    <td className="reason">{e.deprecation?.reason ?? '—'}</td>
-                    <td>{e.subscribers.length}</td>
-                    <td>{e.deprecation?.deprecatedAt ? timeAgo(e.deprecation.deprecatedAt) : '—'}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </section>
+        <PageSection title="Deprecated Events" size="sm" className="md:col-span-2 lg:col-span-3">
+          <DataTable
+            data={deprecatedRows}
+            keyField={e => e.name}
+            staticRows="Each row's event name links to its detail page"
+            size="sm"
+            columns={[
+              {
+                key: 'event',
+                header: 'Event',
+                render: e => (
+                  <>
+                    <Link to={`/events/${encodeURIComponent(e.name)}`}>{e.name}</Link>{' '}
+                    <Chip tone="danger" size="xs">deprecated</Chip>
+                  </>
+                ),
+              },
+              { key: 'reason', header: 'Reason', render: e => e.deprecation?.reason ?? '—' },
+              { key: 'subscribers', header: 'Subscribers', numeric: true, render: e => e.subscribers.length },
+              {
+                key: 'deprecated',
+                header: 'Deprecated',
+                render: e => (e.deprecation?.deprecatedAt ? timeAgo(e.deprecation.deprecatedAt) : '—'),
+              },
+            ]}
+          />
+        </PageSection>
       )}
 
-      <section className="recent-events" aria-labelledby="dash-recent">
-        <h3 id="dash-recent">Recently Active Events</h3>
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Event</th>
-              <th scope="col">Transport</th>
-              <th scope="col">Producer</th>
-              <th scope="col">Rate</th>
-              <th scope="col">Last Seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {events
-              .filter(e => e.stats?.lastPublishedAt)
-              .sort((a, b) => (b.stats?.lastPublishedAt ?? '').localeCompare(a.stats?.lastPublishedAt ?? ''))
-              .slice(0, 10)
-              .map(e => (
-                <tr key={e.name}>
-                  <td><Link to={`/events/${encodeURIComponent(e.name)}`}>{e.name}</Link></td>
-                  <td>
-                    <Chip tone={e.transport === 'signal' ? 'info' : 'warning'} size="xs">
-                      {e.transport}
-                    </Chip>
-                  </td>
-                  <td>{e.producer}</td>
-                  <td className="mono">{e.stats ? `${e.stats.publishRate.toFixed(1)}/s` : '—'}</td>
-                  <td>{e.stats?.lastPublishedAt ? timeAgo(e.stats.lastPublishedAt) : '—'}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      </section>
-    </div>
+      <PageSection title="Recently Active Events" size="sm" className="md:col-span-2 lg:col-span-3">
+        <DataTable
+          data={recentRows}
+          keyField={e => e.name}
+          staticRows="Each row's event name links to its detail page"
+          size="sm"
+          emptyMessage="No events published yet."
+          columns={[
+            { key: 'event', header: 'Event', render: e => <Link to={`/events/${encodeURIComponent(e.name)}`}>{e.name}</Link> },
+            {
+              key: 'transport',
+              header: 'Transport',
+              render: e => (
+                <Chip tone={e.transport === 'signal' ? 'info' : 'warning'} size="xs">
+                  {e.transport}
+                </Chip>
+              ),
+            },
+            { key: 'producer', header: 'Producer' },
+            { key: 'rate', header: 'Rate', numeric: true, render: e => (e.stats ? `${e.stats.publishRate.toFixed(1)}/s` : '—') },
+            { key: 'lastSeen', header: 'Last Seen', render: e => (e.stats?.lastPublishedAt ? timeAgo(e.stats.lastPublishedAt) : '—') },
+          ]}
+        />
+      </PageSection>
+    </DashboardPage>
   );
 }
 

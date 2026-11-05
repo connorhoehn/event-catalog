@@ -98,7 +98,7 @@ describe('DeclarationViewer — selecting a declaration', () => {
     const row = await screen.findByRole('button', { name: /call:caption:line/ });
     row.focus();
     await user.keyboard('{Enter}');
-    expect(row).toHaveAttribute('aria-current', 'true');
+    expect(row).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('region')).toBeInTheDocument();
   });
 
@@ -108,7 +108,7 @@ describe('DeclarationViewer — selecting a declaration', () => {
     await user.click(await screen.findByRole('button', { name: /call:caption:line/ }));
     await user.click(screen.getByRole('button', { name: /pipeline:step:started/ }));
     expect(screen.getByRole('button', { name: /call:caption:line/ })).not.toHaveAttribute('aria-current');
-    expect(screen.getByRole('button', { name: /pipeline:step:started/ })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('button', { name: /pipeline:step:started/ })).toHaveAttribute('aria-current', 'page');
   });
 
   it('links out to the full event page with the name encoded', async () => {

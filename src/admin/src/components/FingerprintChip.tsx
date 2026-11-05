@@ -5,6 +5,7 @@
 // naturally next to a version chip in the EventDetail header.
 
 import { useId, useState } from 'react';
+import { Button } from '@connorhoehnslalom/ui-components/shared';
 
 interface FingerprintChipProps {
   fingerprint: string | undefined;
@@ -38,8 +39,10 @@ export function FingerprintChip({ fingerprint, label = 'fingerprint' }: Fingerpr
   // which one a click belongs to.
   return (
     <span className="fingerprint-chip">
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="sm"
         className="fingerprint-toggle"
         aria-expanded={expanded}
         aria-controls={valueId}
@@ -49,16 +52,18 @@ export function FingerprintChip({ fingerprint, label = 'fingerprint' }: Fingerpr
         <span id={valueId} className="fingerprint-value">
           {expanded ? fingerprint : short + (fingerprint.length > 12 ? '…' : '')}
         </span>
-      </button>
+      </Button>
       {expanded ? (
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={onCopy}
           aria-label={`Copy full ${label || 'fingerprint'} to clipboard`}
           className={`fingerprint-copy${copied ? ' copied' : ''}`}
         >
           {copied ? 'copied' : 'copy'}
-        </button>
+        </Button>
       ) : null}
     </span>
   );

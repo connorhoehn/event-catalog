@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
-import { installMockEventSource, mockFetch, MockEventSource, renderWithRouter } from '../test/helpers';
+import { chooseOption, installMockEventSource, readOptions, mockFetch, MockEventSource, renderWithRouter } from '../test/helpers';
 
 vi.mock('@xyflow/react', () => ({
   ReactFlow: ({ nodes, edges, children }: { nodes: unknown[]; edges: Array<{ id: string; data?: Record<string, unknown> }>; children?: ReactNode }) => (
@@ -238,10 +238,11 @@ describe('FlowView — sampling and filters', () => {
   });
 
   it('offers each namespace present in the topology, plus "all"', async () => {
+    const user = userEvent.setup();
     mount();
     await screen.findByTestId('graph');
     const select = screen.getByLabelText('namespace');
-    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['all', 'call']);
+    expect((await readOptions(user, select)).map((o) => o.label)).toEqual(['all', 'call']);
   });
 
   it('keeps every namespace in the list after one of them narrows the graph', async () => {
@@ -274,15 +275,15 @@ describe('FlowView — sampling and filters', () => {
     await screen.findByTestId('graph');
 
     const select = screen.getByLabelText('namespace');
-    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+    expect((await readOptions(user, select)).map((o) => o.label)).toEqual([
       'all',
       'call',
       'pipeline',
     ]);
 
-    await user.selectOptions(select, 'call');
+    await chooseOption(user, select, 'call');
     await waitFor(() => expect(MockEventSource.latest.url).toContain('namespace=call'));
-    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+    expect((await readOptions(user, select)).map((o) => o.label)).toEqual([
       'all',
       'call',
       'pipeline',
@@ -293,7 +294,7 @@ describe('FlowView — sampling and filters', () => {
     const user = userEvent.setup();
     mount();
     await screen.findByTestId('graph');
-    await user.selectOptions(screen.getByLabelText('namespace'), 'call');
+    await chooseOption(user, screen.getByLabelText('namespace'), 'call');
     await waitFor(() => expect(MockEventSource.latest.url).toContain('namespace=call'));
   });
 });

@@ -1,6 +1,25 @@
 import { test, expect, type Page } from '@playwright/test';
 import { emitTap, resetServer, seedRegistry, trackPageErrors, waitForFlowClients } from './helpers';
 
+// The namespace filter is the library Select: a combobox trigger over a
+// listbox portaled to <body>, not a native <select>. Its options exist only
+// while it is open, so reading them opens and closes it.
+async function namespaceOptions(page: Page): Promise<string[]> {
+  await page.getByLabel('namespace').click();
+  const labels = await page
+    .getByRole('listbox')
+    .getByRole('option')
+    .evaluateAll((els) => els.map((e) => (e.textContent ?? '').replace(/^✓/, '').trim()));
+  await page.keyboard.press('Escape');
+  return labels;
+}
+
+async function chooseNamespace(page: Page, label: string): Promise<void> {
+  await page.getByLabel('namespace').click();
+  await page.getByRole('listbox').getByRole('option', { name: label, exact: true }).click();
+}
+
+
 /**
  * The live flow view, on the real registry, under a real burst.
  *
@@ -139,15 +158,14 @@ test('the namespace filter narrows a live firehose to one namespace', async ({ p
 
   await page.goto('/flow');
   await waitForFlowClients(request, 1);
-  const select = page.getByRole('combobox');
-  await expect(select.locator('option')).toHaveText(['all', ...allNamespaces]);
+  await expect.poll(() => namespaceOptions(page)).toEqual(['all', ...allNamespaces]);
 
-  await select.selectOption(smallNs);
+  await chooseNamespace(page, smallNs);
   await waitForFlowClients(request, 1);
   // Narrowing the graph must not empty the control that narrowed it. The
   // filtered topology mentions one namespace, and the options used to be
   // rebuilt from it — so choosing one deleted the other eight.
-  await expect(select.locator('option')).toHaveText(['all', ...allNamespaces]);
+  await expect.poll(() => namespaceOptions(page)).toEqual(['all', ...allNamespaces]);
 
   await emitTap(request, { eventName: outsider, count: 30 });
   await emitTap(request, { eventName: members[0]!, count: 2 });

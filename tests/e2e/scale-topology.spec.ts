@@ -1,5 +1,24 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { seedRegistry, trackPageErrors } from './helpers';
+
+// The namespace filter is the library Select: a combobox trigger over a
+// listbox portaled to <body>, not a native <select>. Its options exist only
+// while it is open, so reading them opens and closes it.
+async function namespaceOptions(page: Page): Promise<string[]> {
+  await page.getByLabel('namespace').click();
+  const labels = await page
+    .getByRole('listbox')
+    .getByRole('option')
+    .evaluateAll((els) => els.map((e) => (e.textContent ?? '').replace(/^✓/, '').trim()));
+  await page.keyboard.press('Escape');
+  return labels;
+}
+
+async function chooseNamespace(page: Page, label: string): Promise<void> {
+  await page.getByLabel('namespace').click();
+  await page.getByRole('listbox').getByRole('option', { name: label, exact: true }).click();
+}
+
 
 /**
  * The topology graph against the REAL registry — every declaration in
@@ -77,8 +96,7 @@ test('every namespace in the real catalog is offered by the filter, and stays of
   expect(namespaces.length).toBeGreaterThan(5);
 
   await page.goto('/topology');
-  const select = page.getByRole('combobox');
-  await expect(select.locator('option')).toHaveText(['all', ...namespaces]);
+  await expect.poll(() => namespaceOptions(page)).toEqual(['all', ...namespaces]);
 
   // Pick the smallest namespace: the filtered response mentions only that
   // one, and the dropdown used to be rebuilt from the response — so choosing
@@ -91,12 +109,12 @@ test('every namespace in the real catalog is offered by the filter, and stays of
   }
   const smallest = [...counts.entries()].sort((a, b) => a[1] - b[1])[0]![0];
 
-  await select.selectOption(smallest);
+  await chooseNamespace(page, smallest);
   await expect(page.getByText(`${counts.get(smallest)} events`)).toBeVisible();
-  await expect(select.locator('option')).toHaveText(['all', ...namespaces]);
+  await expect.poll(() => namespaceOptions(page)).toEqual(['all', ...namespaces]);
 
   // …and back to the whole graph.
-  await select.selectOption('');
+  await chooseNamespace(page, 'all');
   await expect(page.getByText(`${realEventCount} events`)).toBeVisible();
 });
 

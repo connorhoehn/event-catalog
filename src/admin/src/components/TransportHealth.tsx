@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
-import { Chip, EmptyState, ErrorState, SkeletonCard, LiveRegion, Button } from '@connorhoehnslalom/ui-components/shared';
+import {
+  Button,
+  Chip,
+  DataTable,
+  EmptyState,
+  ErrorState,
+  KeyValue,
+  LiveRegion,
+  PageFrame,
+  PageSection,
+  SkeletonCard,
+  Stack,
+} from '@connorhoehnslalom/ui-components/shared';
 import {
   api,
   coordinatorExplanation,
@@ -54,24 +66,23 @@ export function TransportHealth() {
   if (!health) {
     if (error) {
       return (
-        <div className="transport-health">
-          <div className="page-header">
-            <h2>Transport Health</h2>
-          </div>
+        <PageFrame title="Transport Health" className="transport-health">
           <ErrorState
             title="Error loading transport health"
             description={error}
             action={<Button variant="secondary" size="sm" onClick={refresh}>Retry</Button>}
           />
-        </div>
+        </PageFrame>
       );
     }
     return (
-      <div className="skeleton-stack" aria-busy="true">
-        <SkeletonCard height={120} />
-        <SkeletonCard height={120} />
-        <LiveRegion role="none" message="Loading transport health…" />
-      </div>
+      <PageFrame title="Transport Health" className="transport-health">
+        <Stack gap="md" aria-busy="true">
+          <SkeletonCard height={120} />
+          <SkeletonCard height={120} />
+          <LiveRegion role="none" message="Loading transport health…" />
+        </Stack>
+      </PageFrame>
     );
   }
 
@@ -92,11 +103,11 @@ export function TransportHealth() {
     : 'Registry replication: not reported.';
 
   return (
-    <div className="transport-health">
-      <div className="page-header">
-        <h2>Transport Health</h2>
-        <Button variant="ghost" size="sm" onClick={refresh}>Refresh</Button>
-      </div>
+    <PageFrame
+      title="Transport Health"
+      className="transport-health"
+      actions={<Button variant="ghost" size="sm" onClick={refresh}>Refresh</Button>}
+    >
 
       <LiveRegion message={healthSummary} throttleMs={5_000} />
       <LiveRegion message={replicationSummary} throttleMs={5_000} />
@@ -138,74 +149,60 @@ export function TransportHealth() {
         </div>
       </div>
 
-      <section className="transport-section" aria-labelledby="th-signal">
-        <h3 id="th-signal">Signal Channels (Redis Pub/Sub)</h3>
+      <PageSection title="Signal Channels (Redis Pub/Sub)" size="sm" divided>
         {channels.length === 0 ? (
           <EmptyState icon="📡" title="No active signal channels" />
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Channel</th>
-                <th scope="col">Publishes</th>
-                <th scope="col">Subscribers</th>
-                <th scope="col">Last Activity</th>
-              </tr>
-            </thead>
-            <tbody>
-              {channels.map(ch => (
-                <tr key={ch.channel}>
-                  <td className="mono">{ch.channel}</td>
-                  <td>{ch.publishCount.toLocaleString()}</td>
-                  <td>{ch.subscriberCount}</td>
-                  <td>{ch.lastPublishedAt ? timeAgo(ch.lastPublishedAt) : 'never'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            data={channels}
+            keyField={ch => ch.channel}
+            staticRows="Channels are live transport counters with no detail page"
+            size="sm"
+            columns={[
+              { key: 'channel', header: 'Channel', className: 'mono' },
+              { key: 'publishCount', header: 'Publishes', numeric: true, render: ch => ch.publishCount.toLocaleString() },
+              { key: 'subscriberCount', header: 'Subscribers', numeric: true },
+              { key: 'lastPublishedAt', header: 'Last Activity', render: ch => (ch.lastPublishedAt ? timeAgo(ch.lastPublishedAt) : 'never') },
+            ]}
+          />
         )}
-      </section>
+      </PageSection>
 
-      <section className="transport-section" aria-labelledby="th-durable">
-        <h3 id="th-durable">Durable Queues (Message Queue)</h3>
+      <PageSection title="Durable Queues (Message Queue)" size="sm" divided>
         {queues.length === 0 ? (
           <EmptyState icon="📬" title="No active durable queues" />
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Queue</th>
-                <th scope="col">Sent</th>
-                <th scope="col">Received</th>
-                <th scope="col">In Flight</th>
-                <th scope="col">Failed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {queues.map(q => (
-                <tr key={q.queue} className={q.failed > 0 ? 'has-errors' : ''}>
-                  <td className="mono">{q.queue}</td>
-                  <td>{q.sent.toLocaleString()}</td>
-                  <td>{q.received.toLocaleString()}</td>
-                  <td>{q.inFlight}</td>
-                  <td className={q.failed > 0 ? 'text-error' : ''}>{q.failed}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            data={queues}
+            keyField={q => q.queue}
+            staticRows="Queues are live transport counters with no detail page"
+            size="sm"
+            columns={[
+              { key: 'queue', header: 'Queue', className: 'mono' },
+              { key: 'sent', header: 'Sent', numeric: true, render: q => q.sent.toLocaleString() },
+              { key: 'received', header: 'Received', numeric: true, render: q => q.received.toLocaleString() },
+              { key: 'inFlight', header: 'In Flight', numeric: true },
+              {
+                key: 'failed',
+                header: 'Failed',
+                numeric: true,
+                render: q => (q.failed > 0 ? <span className="text-error">{q.failed}</span> : q.failed),
+              },
+            ]}
+          />
         )}
-      </section>
+      </PageSection>
 
-      <section className="transport-section" aria-labelledby="th-system">
-        <h3 id="th-system">System</h3>
-        <dl className="info-list">
-          <dt>Uptime</dt>
-          <dd>{formatUptime(health.uptime)}</dd>
-          <dt>Registered Events</dt>
-          <dd>{health.eventCount}</dd>
-        </dl>
-      </section>
-    </div>
+      <PageSection title="System" size="sm" divided>
+        <KeyValue
+          aria-label="System"
+          items={[
+            { label: 'Uptime', value: formatUptime(health.uptime) },
+            { label: 'Registered Events', value: health.eventCount },
+          ]}
+        />
+      </PageSection>
+    </PageFrame>
   );
 }
 

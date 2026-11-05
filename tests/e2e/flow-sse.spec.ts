@@ -1,6 +1,25 @@
 import { test, expect, type Page } from '@playwright/test';
 import { emitTap, resetServer, trackPageErrors, waitForFlowClients } from './helpers';
 
+// The namespace filter is the library Select: a combobox trigger over a
+// listbox portaled to <body>, not a native <select>. Its options exist only
+// while it is open, so reading them opens and closes it.
+async function namespaceOptions(page: Page): Promise<string[]> {
+  await page.getByLabel('namespace').click();
+  const labels = await page
+    .getByRole('listbox')
+    .getByRole('option')
+    .evaluateAll((els) => els.map((e) => (e.textContent ?? '').replace(/^✓/, '').trim()));
+  await page.keyboard.press('Escape');
+  return labels;
+}
+
+async function chooseNamespace(page: Page, label: string): Promise<void> {
+  await page.getByLabel('namespace').click();
+  await page.getByRole('listbox').getByRole('option', { name: label, exact: true }).click();
+}
+
+
 /**
  * Phase E8 — the live flow view, end to end.
  *
@@ -118,9 +137,8 @@ test('the namespace filter is applied by the server, not the browser', async ({ 
   await waitForFlowClients(request, 1);
 
   // Selecting a namespace should re-open the stream with ?namespace=billing.
-  const select = page.getByRole('combobox');
-  await expect(select.locator('option')).toHaveText(['all', 'billing', 'test'], { timeout: 5_000 });
-  await select.selectOption('billing');
+  await expect.poll(() => namespaceOptions(page), { timeout: 5_000 }).toEqual(['all', 'billing', 'test']);
+  await chooseNamespace(page, 'billing');
   await waitForFlowClients(request, 1);
 
   await emitTap(request, { eventName: 'test.alpha' });

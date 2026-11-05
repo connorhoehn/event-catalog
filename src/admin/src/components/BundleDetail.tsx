@@ -11,9 +11,22 @@
 // class on the wrapper, not a colour.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router';
-import { Banner, Chip, ErrorState, LiveRegion, SkeletonCard, Button } from '@connorhoehnslalom/ui-components/shared';
-import { api, isRequired, type FeatureBundleEntry } from '../api';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import {
+  Banner,
+  Button,
+  Chip,
+  DataTable,
+  DetailPage,
+  ErrorState,
+  Inline,
+  LiveRegion,
+  PageSection,
+  SkeletonCard,
+  Stack,
+  type BreadcrumbItem,
+} from '@connorhoehnslalom/ui-components/shared';
+import { api, isRequired, type FeatureBundleEntry, type BundleEventRef } from '../api';
 import { FingerprintChip } from './FingerprintChip';
 import { transportTone } from './BundlesView';
 
@@ -54,37 +67,42 @@ export function BundleDetail() {
 
   useEffect(() => { load(); }, [load]);
 
-  const crumb = (
-    <nav className="breadcrumb" aria-label="Breadcrumb">
-      <Link to="/bundles">Bundles</Link>
-      {' / '}
-      <span aria-current="page">{name ? decodeURIComponent(name) : 'Bundle'}</span>
-    </nav>
-  );
+  const navigate = useNavigate();
+  const displayName = name ? decodeURIComponent(name) : 'Bundle';
+  // The trail navigates client-side; the href is there for open-in-new-tab.
+  const crumbs: BreadcrumbItem[] = [
+    {
+      label: 'Bundles',
+      href: '/bundles',
+      onClick: (e) => {
+        e.preventDefault();
+        navigate('/bundles');
+      },
+    },
+    { label: displayName },
+  ];
 
   if (error) {
     return (
-      <div className="bundle-detail">
-        {crumb}
+      <DetailPage className="bundle-detail" title="Bundle" breadcrumbs={crumbs}>
         <ErrorState
           title="Error loading this bundle"
           description={error}
           action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
         />
-      </div>
+      </DetailPage>
     );
   }
 
   if (loading || !bundle) {
     return (
-      <div className="bundle-detail">
-        {crumb}
-        <div className="skeleton-stack" aria-busy="true">
+      <DetailPage className="bundle-detail" title="Bundle" breadcrumbs={crumbs}>
+        <Stack gap="md" aria-busy="true">
           <SkeletonCard height={40} />
           <SkeletonCard height={220} />
           <LiveRegion role="none" message="Loading bundle…" />
-        </div>
-      </div>
+        </Stack>
+      </DetailPage>
     );
   }
 
@@ -95,83 +113,84 @@ export function BundleDetail() {
     : null;
 
   return (
-    <div className={`bundle-detail${bundle.deprecated ? ' deprecated' : ''}`}>
-      {crumb}
+    <DetailPage
+      className={`bundle-detail${bundle.deprecated ? ' deprecated' : ''}`}
+      title={bundle.name}
+      breadcrumbs={crumbs}
+      description={bundle.description || undefined}
+      badge={
+        <Inline gap="xs" align="center" wrap>
+          <Chip tone="neutral">v{bundle.version}</Chip>
+          <Chip tone={transportTone(bundle.transport)}>{bundle.transport}</Chip>
+          <Chip tone="neutral">{bundle.events.length} events</Chip>
+          {bundle.deprecated ? <Chip tone="danger">deprecated</Chip> : null}
+          <FingerprintChip fingerprint={bundle.fingerprint} />
+        </Inline>
+      }
+    >
+      <Stack gap="md">
+        {bundle.deprecated ? (
+          <Banner
+            variant="error"
+            layout="stacked"
+            title={`Deprecated bundle — do not pin a new CRD to ${bundle.name}@${bundle.version}`}
+            className="bundle-deprecation-banner"
+          >
+            Deprecated since {bundle.deprecated.since}.{' '}
+            {replacement ? (
+              <>
+                Use{' '}
+                <Link
+                  to={`/bundles/${encodeURIComponent(replacement.name)}${replacement.version ? `?version=${encodeURIComponent(replacement.version)}` : ''}`}
+                  className="link-plain semibold"
+                >
+                  {bundle.deprecated.replacement}
+                </Link>{' '}
+                instead.
+              </>
+            ) : (
+              'No replacement was named — check with the owning service before pinning.'
+            )}
+          </Banner>
+        ) : null}
 
-      {bundle.deprecated ? (
-        <Banner
-          variant="error"
-          layout="stacked"
-          title={`Deprecated bundle — do not pin a new CRD to ${bundle.name}@${bundle.version}`}
-          className="bundle-deprecation-banner"
-        >
-          Deprecated since {bundle.deprecated.since}.{' '}
-          {replacement ? (
-            <>
-              Use{' '}
-              <Link
-                to={`/bundles/${encodeURIComponent(replacement.name)}${replacement.version ? `?version=${encodeURIComponent(replacement.version)}` : ''}`}
-                className="link-plain semibold"
-              >
-                {bundle.deprecated.replacement}
-              </Link>{' '}
-              instead.
-            </>
-          ) : (
-            'No replacement was named — check with the owning service before pinning.'
-          )}
-        </Banner>
-      ) : null}
-
-      <div className="detail-header chips">
-        <h2>{bundle.name}</h2>
-        <Chip tone="neutral">v{bundle.version}</Chip>
-        <Chip tone={transportTone(bundle.transport)}>{bundle.transport}</Chip>
-        <Chip tone="neutral">{bundle.events.length} events</Chip>
-        {bundle.deprecated ? <Chip tone="danger">deprecated</Chip> : null}
-        <FingerprintChip fingerprint={bundle.fingerprint} />
-      </div>
-
-      {bundle.description ? <p className="description">{bundle.description}</p> : null}
-
-      <section className="detail-section full-width" aria-labelledby="bundle-members-heading">
-        <h3 id="bundle-members-heading">
-          Member events
-          <span className="bundle-member-summary">
-            {' '}— {required} required, {optional} optional
-          </span>
-        </h3>
-        <table className="data-table bundle-members-table">
-          <thead>
-            <tr>
-              <th scope="col">Event</th>
-              <th scope="col">Requirement</th>
-              <th scope="col">Pinned schema version</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bundle.events.map((ref) => (
-              <tr key={ref.name}>
-                <th scope="row">
+        <PageSection title={`Member events — ${required} required, ${optional} optional`} size="md">
+          <DataTable<BundleEventRef>
+            data={bundle.events}
+            keyField={(ref) => ref.name}
+            onRowClick={(ref) => navigate(`/events/${encodeURIComponent(ref.name)}`)}
+            columns={[
+              {
+                key: 'name',
+                header: 'Event',
+                render: (ref) => (
                   <Link to={`/events/${encodeURIComponent(ref.name)}`} className="link-plain medium">
                     {ref.name}
                   </Link>
-                </th>
-                <td>
-                  {isRequired(ref) ? (
+                ),
+              },
+              {
+                key: 'requirement',
+                header: 'Requirement',
+                render: (ref) =>
+                  isRequired(ref) ? (
                     <Chip tone="info" size="xs">required</Chip>
                   ) : (
                     <Chip tone="neutral" size="xs">optional</Chip>
-                  )}
-                </td>
-                {/* An unpinned member floats to whatever the registry holds —
-                    which is a real, different state from "pinned to v1". */}
-                <td className="cell-mono">{ref.version !== undefined ? `v${ref.version}` : 'current'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-    </div>
+                  ),
+              },
+              {
+                // An unpinned member floats to whatever the registry holds —
+                // which is a real, different state from "pinned to v1".
+                key: 'version',
+                header: 'Pinned schema version',
+                className: 'cell-mono',
+                render: (ref) => (ref.version !== undefined ? `v${ref.version}` : 'current'),
+              },
+            ]}
+          />
+        </PageSection>
+      </Stack>
+    </DetailPage>
   );
 }

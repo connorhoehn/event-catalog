@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AuditView } from './AuditView';
-import { installMockEventSource, MockEventSource, renderWithRouter } from '../test/helpers';
+import { chooseOption, installMockEventSource, MockEventSource, readOptions, renderWithRouter } from '../test/helpers';
 
 const frame = (over: Record<string, unknown> = {}) => ({
   kind: 'event.declared',
@@ -107,14 +107,14 @@ describe('AuditView — filters', () => {
   it('offers the namespaces it has actually seen', async () => {
     renderWithRouter(<AuditView />);
     emit(frame({ namespace: 'pipeline' }), frame({ namespace: 'call' }));
-    const select = screen.getByLabelText('namespace') as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(['', 'call', 'pipeline']);
+    const options = await readOptions(userEvent.setup(), screen.getByLabelText('namespace'));
+    expect(options.map((o) => o.value)).toEqual(['', 'call', 'pipeline']);
   });
 
   it('asks the server to filter by kind', async () => {
     const user = userEvent.setup();
     renderWithRouter(<AuditView />);
-    await user.selectOptions(screen.getByLabelText('kind'), 'event.removed');
+    await chooseOption(user, screen.getByLabelText('kind'), 'event.removed');
     expect(MockEventSource.latest.url).toContain('kind=event.removed');
   });
 
@@ -129,7 +129,7 @@ describe('AuditView — filters', () => {
     emit(frame({ namespace: 'ws', eventName: 'ws:frame:sent' }));
     expect(rows()).toHaveLength(2);
 
-    await user.selectOptions(screen.getByLabelText('namespace'), 'ws');
+    await chooseOption(user, screen.getByLabelText('namespace'), 'ws');
     expect(screen.queryByRole('link', { name: 'pipeline:step:started' })).not.toBeInTheDocument();
     expect(screen.getByText(/Waiting for the next registry mutation/)).toBeInTheDocument();
 

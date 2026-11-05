@@ -9,7 +9,7 @@
 // bar (pause/resume + sample knob + filters) and the edge-state
 // dict driven by useFlowTap.
 
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -23,7 +23,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Chip, ErrorState, LoadingState, LiveRegion, Button } from '@connorhoehnslalom/ui-components/shared';
+import { Chip, ErrorState, LoadingState, LiveRegion, Button, FormField, Inline, NumberInput, PageFrame, Select } from '@connorhoehnslalom/ui-components/shared';
 import { AnimatedEdge } from '@connorhoehnslalom/ui-components/pipelines';
 
 import { api, type TopologyGraph } from '../api';
@@ -32,6 +32,9 @@ import ServiceNode from './topology/ServiceNode';
 import { GRAPH_MIN_ZOOM, layoutGraph } from './topology/layout';
 import { NamespaceClusters } from './topology/NamespaceClusters';
 import { useFlowTap, type TapEvent } from './topology/useFlowTap';
+
+/** Kept in every state, so the view always has its heading landmark. */
+const TITLE = 'Live Flow';
 
 const nodeTypes: NodeTypes = {
   event: EventNode,
@@ -107,8 +110,6 @@ export function FlowView() {
   // losing their place mid-incident.
   const [allNamespaces, setAllNamespaces] = useState<string[]>([]);
   const seenNamespaces = useRef<Set<string>>(new Set());
-  const namespaceId = useId();
-  const sampleId = useId();
 
   // An empty or nonsense box means "no sampling", i.e. every event — never
   // zero, which the server would read as a divisor and which means nothing.
@@ -304,62 +305,71 @@ export function FlowView() {
 
   if (error) {
     return (
-      <div className="flow-view view-column">
-        <div className="page-header view-toolbar"><h2>Live Flow</h2></div>
+      <PageFrame title={TITLE} body="fill" className="flow-view">
         <ErrorState title="Error loading the flow graph" description={error} />
-      </div>
+      </PageFrame>
     );
   }
   if (!topology) {
     return (
-      <div className="flow-view view-column">
-        <div className="page-header view-toolbar"><h2>Live Flow</h2></div>
+      <PageFrame title={TITLE} body="fill" className="flow-view">
         <LoadingState label="Loading flow…" />
-      </div>
+      </PageFrame>
     );
   }
 
   return (
-    <div className="flow-view view-column">
-      <div className="page-header view-toolbar">
-        <h2>Live Flow</h2>
-        <Chip tone={tap.isLive ? 'success' : 'neutral'}>{tap.isLive ? 'live' : 'paused'}</Chip>
-        <Chip tone="neutral">{tap.events.length} events in buffer</Chip>
-        {/* A dead stream is worth interrupting for — it is the difference
-            between "nothing is happening" and "you are not being told what is
-            happening". role=status keeps it polite; the graph is still valid. */}
-        {tap.error && (
-          <span role="status">
-            <Chip tone="warning">{tap.error}</Chip>
-          </span>
-        )}
-        <div className="view-toolbar-right">
-          <label className="view-toolbar-label" htmlFor={namespaceId}>namespace</label>
-          <select
-            id={namespaceId}
-            value={namespace}
-            onChange={(e) => setNamespace(e.target.value)}
-            className="view-select"
-          >
-            <option value="">all</option>
-            {allNamespaces.map((ns) => (
-              <option key={ns} value={ns}>
-                {ns}
-              </option>
-            ))}
-          </select>
+    <PageFrame
+      title={TITLE}
+      body="fill"
+      className="flow-view"
+      badge={
+        <Inline gap="sm" align="center">
+          <Chip tone={tap.isLive ? 'success' : 'neutral'}>{tap.isLive ? 'live' : 'paused'}</Chip>
+          <Chip tone="neutral">{tap.events.length} events in buffer</Chip>
+          {/* A dead stream is worth interrupting for — it is the difference
+              between "nothing is happening" and "you are not being told what is
+              happening". role=status keeps it polite; the graph is still valid. */}
+          {tap.error && (
+            <span role="status">
+              <Chip tone="warning">{tap.error}</Chip>
+            </span>
+          )}
+        </Inline>
+      }
+      actions={
+        <Inline gap="md" align="center" wrap={false}>
+          <FormField label="namespace" layout="inline">
+            {({ id }) => (
+              <Select
+                id={id}
+                size="sm"
+                value={namespace}
+                onChange={(e) => setNamespace(e.target.value)}
+                options={[{ value: '', label: 'all' }, ...allNamespaces.map((ns) => ({ value: ns, label: ns }))]}
+              />
+            )}
+          </FormField>
 
-          <label className="view-toolbar-label spaced" htmlFor={sampleId}>sample 1/N</label>
-          <input
-            id={sampleId}
-            type="number"
-            min={1}
-            max={1000}
-            value={sampleText}
-            onChange={(e) => setSampleText(e.target.value)}
-            onBlur={() => setSampleText(String(sample))}
-            className="view-number-input"
-          />
+          <FormField label="sample 1/N" layout="inline">
+            {({ id }) => (
+              // The box holds what the operator typed (cleared, half-typed)
+              // and is normalised to the effective sample when focus leaves
+              // it; the blur handler sits on the wrapper because NumberInput
+              // only clamps to min/max on blur and leaves an empty box empty.
+              <Inline gap="none" onBlur={() => setSampleText(String(sample))}>
+                <NumberInput
+                  id={id}
+                  size="sm"
+                  min={1}
+                  max={1000}
+                  value={sampleText === '' ? undefined : Number(sampleText)}
+                  onChange={(v) => setSampleText(String(v))}
+                  onClear={() => setSampleText('')}
+                />
+              </Inline>
+            )}
+          </FormField>
 
           {tap.isLive ? (
             <Button variant="secondary" size="sm" onClick={tap.pause}>
@@ -373,9 +383,9 @@ export function FlowView() {
           <Button variant="ghost" size="sm" onClick={tap.clear}>
             Clear
           </Button>
-        </div>
-      </div>
-
+        </Inline>
+      }
+    >
       <div className="view-canvas">
         <ReactFlowProvider>
           <ReactFlow
@@ -400,7 +410,7 @@ export function FlowView() {
       </div>
 
       <FlowTicker events={tap.events} />
-    </div>
+    </PageFrame>
   );
 }
 

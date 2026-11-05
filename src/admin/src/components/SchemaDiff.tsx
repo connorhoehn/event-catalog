@@ -7,6 +7,7 @@
 // 'context' for the renderer to color.
 
 import { useId, useMemo, useState } from 'react';
+import { Button } from '@connorhoehnslalom/ui-components/shared';
 
 interface SchemaDiffProps {
   before: Record<string, unknown>;
@@ -110,15 +111,17 @@ export function SchemaDiffToggle({ before, after }: SchemaDiffProps) {
   const panelId = useId();
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant="secondary"
+        size="sm"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls={panelId}
         className={`btn-diff-toggle${open ? ' open' : ''}`}
       >
         {open ? 'hide diff' : 'diff'}
-      </button>
+      </Button>
       {open ? (
         <div id={panelId}>
           <SchemaDiff before={before} after={after} />

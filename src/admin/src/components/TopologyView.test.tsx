@@ -16,10 +16,10 @@
 //      instead — it is a CSS invariant, not a render one.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TopologyView } from './TopologyView';
-import { mockFetch, renderWithRouter, type RouteTable } from '../test/helpers';
+import { chooseOption, mockFetch, readOptions, renderWithRouter, type RouteTable } from '../test/helpers';
 
 const FULL = {
   nodes: [
@@ -50,9 +50,9 @@ function mount(routes: RouteTable = { '/api/topology': { body: FULL } }) {
   return mock;
 }
 
-const namespaceSelect = () => screen.getByLabelText('namespace') as HTMLSelectElement;
-const namespaceOptions = () =>
-  Array.from(namespaceSelect().options).map((o) => o.value);
+const namespaceSelect = () => screen.getByLabelText('namespace');
+const namespaceOptions = async (user: ReturnType<typeof userEvent.setup>) =>
+  (await readOptions(user, namespaceSelect())).map((o) => o.value);
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -144,9 +144,10 @@ describe('TopologyView — the graph itself', () => {
 
 describe('TopologyView — the namespace filter', () => {
   it('offers every namespace in the catalog', async () => {
+    const user = userEvent.setup();
     mount();
     await screen.findByText('call:caption:line');
-    expect(namespaceOptions()).toEqual(['', 'call', 'pipeline']);
+    expect(await namespaceOptions(user)).toEqual(['', 'call', 'pipeline']);
   });
 
   it('refetches the topology scoped to the chosen namespace', async () => {
@@ -156,7 +157,7 @@ describe('TopologyView — the namespace filter', () => {
       '/api/topology': { body: FULL },
     });
     await screen.findByText('pipeline:step:started');
-    await user.selectOptions(namespaceSelect(), 'call');
+    await chooseOption(user, namespaceSelect(), 'call');
     await waitFor(() =>
       expect(screen.queryByText('pipeline:step:started')).not.toBeInTheDocument(),
     );
@@ -174,11 +175,11 @@ describe('TopologyView — the namespace filter', () => {
       '/api/topology': { body: FULL },
     });
     await screen.findByText('pipeline:step:started');
-    await user.selectOptions(namespaceSelect(), 'call');
+    await chooseOption(user, namespaceSelect(), 'call');
     await waitFor(() =>
       expect(screen.queryByText('pipeline:step:started')).not.toBeInTheDocument(),
     );
-    expect(namespaceOptions()).toEqual(['', 'call', 'pipeline']);
+    expect(await namespaceOptions(user)).toEqual(['', 'call', 'pipeline']);
   });
 
   it('says the namespace is empty, not that the catalog is', async () => {
@@ -188,7 +189,7 @@ describe('TopologyView — the namespace filter', () => {
       '/api/topology': { body: FULL },
     });
     await screen.findByText('pipeline:step:started');
-    await user.selectOptions(namespaceSelect(), 'call');
+    await chooseOption(user, namespaceSelect(), 'call');
     expect(await screen.findByText('No events in the "call" namespace')).toBeInTheDocument();
     expect(screen.queryByText('No events registered yet')).not.toBeInTheDocument();
   });
@@ -214,10 +215,11 @@ describe('TopologyView — the namespace filter', () => {
 
 describe('TopologyView — toolbar accessibility', () => {
   it('names the namespace select for a screen reader', async () => {
+    const user = userEvent.setup();
     mount();
     await screen.findByText('call:caption:line');
     const select = namespaceSelect();
-    expect(select.tagName).toBe('SELECT');
-    expect(within(select).getByRole('option', { name: 'all' })).toBeInTheDocument();
+    expect(select).toHaveRole('combobox');
+    expect((await readOptions(user, select)).map((o) => o.label)).toContain('all');
   });
 });
