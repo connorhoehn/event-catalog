@@ -1,6 +1,7 @@
-import { Suspense, lazy, useEffect, useRef } from 'react';
+import { Suspense, lazy, useEffect, useRef, type AnchorHTMLAttributes } from 'react';
 import { Routes, Route, NavLink, useLocation } from 'react-router';
-import { SkeletonCard, SkipLink, LiveRegion } from '@connorhoehnslalom/ui-components/shared';
+import { AppShell } from '@connorhoehnslalom/ui-components';
+import { NavRail, SkeletonCard, SkipLink, Inline, LiveRegion, Stack, Text, type NavRailItem } from '@connorhoehnslalom/ui-components/shared';
 import { Dashboard } from './components/Dashboard';
 import { AuthNotice } from './components/AuthNotice';
 
@@ -67,18 +68,38 @@ function routeName(pathname: string): string {
  *  shimmer rectangles say nothing on their own. */
 function RouteFallback() {
   return (
-    <div className="skeleton-stack" aria-busy="true">
+    <Stack gap="md" aria-busy="true">
       {Array.from({ length: 4 }).map((_, i) => (
         <SkeletonCard key={i} height={64} />
       ))}
       <LiveRegion role="none" message="Loading view…" />
-    </div>
+    </Stack>
+  );
+}
+
+/** The nav entry the current path belongs to, so exactly one item lights
+ *  (`/events/x` lights Events; `/` lights only Dashboard). */
+function activeNavPath(pathname: string): string | undefined {
+  return NAV.find(n => (n.end ? pathname === n.to : pathname.startsWith(n.to)))?.to;
+}
+
+const NAV_ITEMS: NavRailItem[] = NAV.map(n => ({ to: n.to, label: n.label }));
+
+/** Rail links go through the router's NavLink, so a click is a client-side
+ *  route change and `aria-current` follows the route. */
+function renderNavLink(item: NavRailItem, props: AnchorHTMLAttributes<HTMLAnchorElement>) {
+  const { href: _href, ...rest } = props;
+  const end = NAV.find(n => n.to === item.to)?.end;
+  return (
+    <NavLink to={item.to ?? '/'} end={end} {...rest}>
+      {props.children}
+    </NavLink>
   );
 }
 
 export function App() {
   const { pathname } = useLocation();
-  const mainRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
   const firstRender = useRef(true);
 
   // A client-side route swap replaces <main>'s contents while focus stays on
@@ -99,33 +120,39 @@ export function App() {
   }, [pathname]);
 
   return (
-    <div className="app">
+    <AppShell
+      layout="fill"
+      header={
+        <Inline gap="sm" align="center">
+          <Text as="span" size="lg" weight="semibold">Event Catalog</Text>
+          <Text as="span" size="sm" tone="tertiary">v0.1.1</Text>
+        </Inline>
+      }
+      sidebar={
+        <NavRail
+          aria-label="Views"
+          items={NAV_ITEMS}
+          activeHref={activeNavPath(pathname)}
+          match="exact"
+          renderLink={renderNavLink}
+          className="flex-1"
+        />
+      }
+      sidebarWidth={220}
+    >
       <SkipLink targetId="main-content" />
       {/* Announces the destination of a client-side navigation, which is
           otherwise silent. `polite` because the user asked for it and is not
-          in the middle of anything else. Sits outside <main> so it is never
-          replaced by the route it describes. */}
+          in the middle of anything else. Sits outside the routed region so
+          it is never replaced by the route it describes. */}
       <LiveRegion role="none" message={`${routeName(pathname)} view`} />
 
-      <nav className="sidebar" aria-label="Views">
-        <div className="sidebar-header">
-          <h1>Event Catalog</h1>
-          <span className="version">v0.1.1</span>
-        </div>
-        <ul className="nav-links">
-          {NAV.map(item => (
-            <li key={item.to}>
-              <NavLink to={item.to} end={item.end}>
-                {item.label}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-      </nav>
-
-      <main className="content" id="main-content" ref={mainRef} tabIndex={-1}>
-        {/* Inside <main> so the skip link reaches it, above <Routes> so a
-            route swap cannot unmount it. */}
+      {/* AppShell owns the <main> landmark; this is the programmatic focus
+          target inside it (see the effect above). `flex-1 min-h-0` so the
+          page templates under it get a definite height in `fill` layout. */}
+      <div id="main-content" ref={mainRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
+        {/* Inside the focus target so the skip link reaches it, above
+            <Routes> so a route swap cannot unmount it. */}
         <AuthNotice />
         <Suspense fallback={<RouteFallback />}>
           <Routes>
@@ -146,7 +173,7 @@ export function App() {
             <Route path="/transports" element={<TransportHealth />} />
           </Routes>
         </Suspense>
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

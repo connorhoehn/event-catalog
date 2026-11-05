@@ -6,7 +6,8 @@
 // "what does the server say" rather than "how do I wire a mock".
 
 import type { ReactElement } from 'react';
-import { render, type RenderOptions } from '@testing-library/react';
+import { render, screen, within, type RenderOptions } from '@testing-library/react';
+import type { UserEvent } from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { vi } from 'vitest';
 
@@ -126,4 +127,41 @@ export function installMockEventSource(): typeof MockEventSource {
 /** Render inside a router — several views use <Link>. */
 export function renderWithRouter(ui: ReactElement, options?: RenderOptions) {
   return render(<MemoryRouter>{ui}</MemoryRouter>, options);
+}
+
+// ---------------------------------------------------------------------------
+// The library Select
+//
+// ui-components' `Select` is a button trigger (role="combobox") over a
+// listbox portaled to <body>, not a native <select>: there is no `.options`
+// and `userEvent.selectOptions` does not apply. These two helpers are the
+// equivalent reads and writes. Option values are on `data-value`.
+// ---------------------------------------------------------------------------
+
+/** Open `combobox`, read its options, close it again. */
+export async function readOptions(
+  user: UserEvent,
+  combobox: HTMLElement,
+): Promise<Array<{ value: string; label: string; selected: boolean }>> {
+  await user.click(combobox);
+  const list = await screen.findByRole('listbox');
+  const out = within(list).getAllByRole('option').map((o) => ({
+    value: o.getAttribute('data-value') ?? '',
+    label: (o.textContent ?? '').replace(/^✓/, '').trim(),
+    selected: o.getAttribute('aria-selected') === 'true',
+  }));
+  await user.keyboard('{Escape}');
+  return out;
+}
+
+/** Open `combobox` and pick the option whose `data-value` (or label) is `value`. */
+export async function chooseOption(user: UserEvent, combobox: HTMLElement, value: string): Promise<void> {
+  await user.click(combobox);
+  const list = await screen.findByRole('listbox');
+  const options = within(list).getAllByRole('option');
+  const hit =
+    options.find((o) => o.getAttribute('data-value') === value) ??
+    options.find((o) => (o.textContent ?? '').replace(/^✓/, '').trim() === value);
+  if (!hit) throw new Error(`no option ${JSON.stringify(value)} in ${options.map((o) => o.getAttribute('data-value')).join(', ')}`);
+  await user.click(hit);
 }
