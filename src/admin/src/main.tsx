@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
-import { ThemeProvider } from '@connorhoehnslalom/ui-components';
+import { ThemeProvider } from '@connorhoehnslalom/ui-components/shared';
 import { App } from './App';
 import '@connorhoehnslalom/ui-components/styles.css';
 import './styles.css';
