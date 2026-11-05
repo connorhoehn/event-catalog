@@ -13,20 +13,12 @@
   --text: #e4e4e7;
   --text-muted: #9ca3af;
 
-  /* --accent is a FILL that carries white text (the active nav item), so it
-     has to be dark enough for white to clear 4.5:1 — indigo-500 only managed
-     4.47:1. Text-coloured links need the opposite, a value light enough to
-     clear 4.5:1 against the surfaces, which is why --link exists separately
-     rather than every link reusing --accent (3.7:1, a fail). */
-  --accent: #4f46e5;        /* white on this: 6.3:1 */
-  --accent-hover: #6366f1;
+  /* --link is light enough to clear 4.5:1 as text against the surfaces;
+     --accent is a fill. */
   --link: #a5b4fc;          /* on --bg-surface: 8.3:1 */
-  --link-hover: #c7d2fe;
 
   --signal: #06b6d4;
-  --signal-bg: #083344;
   --durable: #f59e0b;
-  --durable-bg: #451a03;
 
   /* Status colours come in two strengths. The saturated value is for dots,
      borders and fills, where only 3:1 against the adjacent surface matters;
@@ -45,7 +37,6 @@
   --focus-ring: #fbbf24;
 
   --radius: 8px;
-  --sidebar-width: 220px;
 
   /* Slate/accent ramp used by the wave2x views (topology, flow, audit,
      namespaces, subscribers, schema diff). These panels were authored
@@ -53,103 +44,13 @@
      rather than the dark chrome tokens above. Declared here so the values
      live in one place instead of being re-typed per component. */
   --slate-50: #f8fafc;
-  --slate-100: #f1f5f9;
-  --slate-200: #e2e8f0;
   --slate-300: #cbd5e1;
   --slate-400: #94a3b8;
-  --slate-500: #64748b;
   --slate-600: #475569;
-  --slate-700: #334155;
   --slate-900: #0f172a;
-  --red-50: #fef2f2;
-  --red-100: #fee2e2;
-  --red-200: #fecaca;
-  --red-300: #fca5a5;
   --red-700: #b91c1c;
-  --red-900: #7f1d1d;
-  --green-100: #dcfce7;
-  --green-600: #16a34a;
-  --green-700: #15803d;
-  --green-900: #14532d;
-  --emerald-500: #10b981;
-  --blue-50: #eff6ff;
-  --blue-200: #bfdbfe;
-  --blue-300: #93c5fd;
-  --blue-500: #3b82f6;
-  --blue-700: #1d4ed8;
   --sky-500: #0ea5e9;
-  --amber-600: #d97706;
 }
-
-/* Page Header */
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-}
-
-.page-header h2 { font-size: 1.5rem; font-weight: 600; }
-.count { color: var(--text-muted); font-size: 0.9rem; }
-
-/* Stats Grid */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.stat-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1.25rem;
-}
-
-.stat-card.signal { border-color: var(--signal); }
-.stat-card.durable { border-color: var(--durable); }
-.stat-card.error { border-color: var(--error); }
-
-.stat-value { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.25rem; }
-.stat-label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-
-/* Badges */
-.badge {
-  display: inline-block;
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  text-transform: uppercase;
-}
-
-.badge.signal { background: var(--signal-bg); color: var(--signal); }
-.badge.durable { background: var(--durable-bg); color: var(--durable); }
-
-/* Tables */
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-
-th, td {
-  padding: 0.625rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-}
-
-th {
-  font-weight: 500;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-tr:hover td { background: var(--bg-hover); }
-tr.has-errors { background: rgba(239, 68, 68, 0.05); }
 
 .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8rem; }
 .text-error { color: var(--error-text); }
@@ -164,8 +65,6 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
 }
 
 .status-dot.large { width: 12px; height: 12px; }
-.status-dot.green { background: var(--success); }
-.status-dot.red { background: var(--error); }
 
 .status-row {
   display: flex;
@@ -173,80 +72,6 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
   margin-bottom: 0.5rem;
   font-size: 0.9rem;
 }
-
-/* Filters */
-.filters {
-  display: flex;
-  gap: 0.75rem;
-  margin-bottom: 1.5rem;
-}
-
-.filters select {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.5rem 0.75rem;
-  color: var(--text);
-  font-size: 0.875rem;
-}
-
-/* Buttons */
-.btn {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.5rem 1rem;
-  color: var(--text);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
-}
-
-.btn:hover { background: var(--bg-hover); border-color: var(--accent); }
-.btn-pause { border-color: var(--durable); }
-.btn-resume { border-color: var(--success); }
-.btn-clear { border-color: var(--error); }
-
-/* Event Detail */
-.breadcrumb {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  margin-bottom: 1rem;
-}
-
-.breadcrumb a { color: var(--link); }
-
-.detail-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-}
-
-.detail-section {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1.25rem;
-}
-
-.detail-section.full-width { grid-column: 1 / -1; }
-.detail-section h3 { margin-bottom: 1rem; font-size: 0.95rem; }
-
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-  gap: 1rem;
-}
-
-.metric-value { font-size: 1.5rem; font-weight: 700; }
-.metric-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
 
 .schema-viewer {
   background: var(--bg);
@@ -259,105 +84,6 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
   max-height: 300px;
   overflow-y: auto;
 }
-
-.info-list dt { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.75rem; }
-.info-list dd { font-size: 0.9rem; }
-
-.tag {
-  display: inline-block;
-  background: var(--bg-hover);
-  border-radius: 4px;
-  padding: 0.1rem 0.4rem;
-  margin-right: 0.25rem;
-  font-size: 0.75rem;
-}
-
-/* Message list */
-.message-item {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  margin-bottom: 0.5rem;
-}
-
-.message-item summary {
-  padding: 0.5rem 0.75rem;
-  cursor: pointer;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-}
-
-.message-item pre {
-  padding: 0.75rem;
-  background: var(--bg);
-  font-size: 0.75rem;
-  overflow-x: auto;
-}
-
-/* Topology */
-.topology-canvas {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1rem;
-  min-height: 500px;
-}
-
-.topology-svg { width: 100%; height: 500px; }
-
-.topology-svg .edge { stroke: #555; stroke-width: 1.5; }
-.topology-svg .publish-edge { stroke: var(--signal); }
-.topology-svg .subscribe-edge { stroke: var(--durable); stroke-dasharray: 4; }
-
-.topology-svg .service-node rect {
-  fill: var(--bg-hover);
-  stroke: var(--accent);
-  stroke-width: 2;
-}
-
-.topology-svg .event-node ellipse {
-  fill: var(--bg-hover);
-  stroke: var(--signal);
-  stroke-width: 2;
-}
-
-.topology-svg .event-node.durable ellipse { stroke: var(--durable); }
-.topology-svg .node.selected rect,
-.topology-svg .node.selected ellipse { stroke-width: 3; }
-
-.topology-svg text {
-  fill: var(--text);
-  font-size: 11px;
-  font-family: -apple-system, system-ui, sans-serif;
-}
-
-.legend {
-  display: flex;
-  gap: 1rem;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-.legend-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-right: 0.35rem;
-}
-
-.legend-dot.service { background: var(--accent); }
-.legend-dot.event-signal { background: var(--signal); }
-.legend-dot.event-durable { background: var(--durable); }
-
-.node-detail-panel {
-  margin-top: 1rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1.25rem;
-}
-
-.node-detail-panel ul { padding-left: 1.25rem; margin-top: 0.5rem; }
 
 /* Live Inspector */
 .inspector-layout {
@@ -473,16 +199,6 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
 .transport-info h3 { margin-bottom: 0.5rem; }
 .transport-info p { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem; }
 
-.transport-section {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1.25rem;
-  margin-bottom: 1rem;
-}
-
-.transport-section h3 { margin-bottom: 1rem; }
-
 /* Controls */
 .controls {
   display: flex;
@@ -523,12 +239,6 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
   color: var(--error);
 }
 
-.loading {
-  text-align: center;
-  padding: 2rem;
-  color: var(--text-muted);
-}
-
 .event-name {
   color: var(--link);
   text-decoration: none;
@@ -546,47 +256,6 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
    NamespacesView — each is a fixed toolbar over a scrolling (or canvas) body.
    Declared after .page-header so the two can be combined on one element.
    ========================================================================== */
-
-.view-column {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.view-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.view-toolbar-right {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.view-toolbar-label {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.view-toolbar-label.spaced { margin-left: 8px; }
-
-.view-select {
-  padding: 4px 8px;
-  border-radius: 4px;
-  border: 1px solid var(--slate-300);
-}
-
-.view-number-input {
-  width: 64px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  border: 1px solid var(--slate-300);
-}
 
 .view-scroll {
   flex: 1;
@@ -607,18 +276,6 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
   min-height: 500px;
 }
 
-/* Compact data table used by the slate-surfaced views. */
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.data-table th,
-.data-table td { padding: 6px 8px; }
-.data-table thead tr { border-bottom: 1px solid var(--border-strong); text-align: left; }
-.data-table tbody tr { border-bottom: 1px solid var(--border); }
-
 .cell-mono { font-family: ui-monospace, monospace; font-size: 12px; }
 .cell-timestamp { font-size: 11px; color: var(--text-muted); }
 
@@ -627,79 +284,9 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
 .link-plain.medium { font-weight: 500; }
 .link-plain.semibold { font-weight: 600; }
 
-/* Skeleton placeholder stacks (EventDetail, EventList, TransportHealth). */
-.skeleton-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.skeleton-stack.tight { gap: 8px; }
-
-/* ==========================================================================
-   Buttons on light surfaces
-   The dark-chrome `.btn` above doesn't read on the slate panels, so the
-   bulk-action / confirm buttons get their own small family.
-   ========================================================================== */
-
-.btn-mini {
-  font-size: 11px;
-  padding: 2px 8px;
-  background: transparent;
-  border: 1px solid;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.btn-mini.danger { border-color: var(--red-700); color: var(--red-700); }
-.btn-mini.info { border-color: var(--blue-700); color: var(--blue-700); }
-
-.btn-solid {
-  padding: 4px 12px;
-  font-size: 13px;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.btn-solid.sm { font-size: 12px; padding: 4px 10px; }
-.btn-solid.danger { background: var(--red-700); }
-.btn-solid.info { background: var(--blue-700); }
-.btn-solid:disabled { opacity: 0.6; }
-
-.btn-outline-muted {
-  font-size: 12px;
-  padding: 4px 8px;
-  background: transparent;
-  color: var(--slate-500);
-  border: 1px solid var(--slate-300);
-  border-radius: 4px;
-  cursor: pointer;
-}
-
 /* ==========================================================================
    Dashboard
    ========================================================================== */
-
-.stats-grid.secondary { margin-top: 12px; }
-.stats-grid.nested { margin-top: 8px; }
-
-.stat-card.deprecated {
-  border-left: 3px solid var(--red-700);
-  text-decoration: none;
-  color: inherit;
-}
-
-.stat-card.deprecated .stat-value { color: var(--error-text); }
-.stat-card.orphans { border-left: 3px solid var(--amber-600); }
-.stat-card.orphans .stat-value { color: var(--amber-600); }
-.stat-card.never-published { border-left: 3px solid var(--border-strong); }
-.stat-card.never-published .stat-value { color: var(--text-muted); }
-
-.registry-health { margin-top: 12px; }
-
-.poison-alert { margin: 12px 0; }
 
 .poison-list {
   margin: 6px 0 0;
@@ -721,28 +308,9 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
   cursor: pointer;
 }
 
-.deprecated-events { margin-top: 16px; }
-.deprecated-events .reason { color: var(--text-muted); }
-
 /* ==========================================================================
    Event detail
    ========================================================================== */
-
-.detail-header.chips { gap: 8px; flex-wrap: wrap; }
-
-.deprecation-notice {
-  margin: 8px 0 16px;
-  padding: 10px 14px;
-  border: 1px solid var(--color-danger-border);
-  background: var(--color-danger-bg);
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--color-danger-fg);
-}
-
-.deprecation-notice strong { color: var(--color-danger-fg); }
-.deprecation-meta { color: var(--color-danger-fg); margin-left: 8px; }
-.deprecation-reason { margin-top: 4px; color: var(--color-danger-fg); }
 
 .schema-history {
   list-style: none;
@@ -755,48 +323,11 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
 
 .schema-history li { display: flex; flex-direction: column; gap: 4px; }
 
-.schema-history-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .schema-history-time { font-size: 11px; color: var(--text-muted); }
-
-.chip-row {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.tag-chip { margin-right: 4px; }
 
 /* ==========================================================================
    Event list — bulk actions + sparkline column
    ========================================================================== */
-
-.bulk-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--color-info-bg);
-  border: 1px solid var(--color-info-border);
-  border-radius: 6px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.bulk-bar-input {
-  flex: 1;
-  min-width: 200px;
-  padding: 4px 8px;
-  font-size: 13px;
-  background: var(--bg-input);
-  color: var(--text);
-  border: 1px solid var(--color-info-border);
-  border-radius: 4px;
-}
 
 /* Sits under the bulk toolbar rather than inside it — a successful action
    clears the selection, which unmounts the toolbar, so a message nested in it
@@ -805,7 +336,6 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
 .bulk-result.error { color: var(--error-text); }
 .bulk-msg { font-size: 12px; color: var(--success-text); margin-bottom: 6px; }
 
-.col-select { width: 32px; }
 .sparkline-empty { color: var(--text-muted); font-size: 10px; }
 
 /* ==========================================================================
@@ -819,12 +349,6 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
   border-radius: 4px;
   font-size: 13px;
   width: 220px;
-}
-
-.ns-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
 }
 
 .ns-card {
@@ -860,41 +384,11 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
   font-size: 11px;
 }
 
-.ns-card-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
 .ns-card-meta { font-size: 11px; color: var(--text-muted); }
 
 .ns-card-body {
   padding: 0 14px 12px;
   border-top: 1px solid var(--border);
-}
-
-.ns-bulk-actions {
-  display: flex;
-  gap: 6px;
-  padding: 8px 0;
-  flex-wrap: wrap;
-}
-
-.ns-bulk-confirm {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 8px;
-  align-items: center;
-}
-
-.ns-bulk-input {
-  flex: 1;
-  padding: 4px 8px;
-  font-size: 12px;
-  background: var(--bg-input);
-  color: var(--text);
-  border: 1px solid var(--color-danger-border);
-  border-radius: 4px;
 }
 
 .ns-event-list { list-style: none; margin: 0; padding: 0; }
@@ -994,8 +488,6 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
   cursor: pointer;
 }
 
-.btn-diff-toggle.open { background: var(--accent); color: #fff; border-color: var(--accent); }
-
 /* ==========================================================================
    Fingerprint chip
    ========================================================================== */
@@ -1088,9 +580,6 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
   box-shadow: 0 0 0 3px rgba(71, 85, 105, 0.13);
 }
 
-.rf-event-node .react-flow__handle,
-.rf-service-node .react-flow__handle { background: var(--tone); }
-
 .rf-node-kind {
   font-size: 10px;
   color: var(--tone);
@@ -1159,22 +648,14 @@ tr.has-errors { background: rgba(239, 68, 68, 0.05); }
   outline: none;
 }
 
-/* Rows the operator can act on: make the whole row show that it holds focus,
-   not just the 8px link inside it. */
-tr:focus-within td { background: var(--bg-hover); }
-
 /* ==========================================================================
    Form controls on dark chrome
    Selects and text inputs were unstyled, so they rendered as white boxes on a
    near-black page — and the DLQ / namespace filter inputs had no label at all.
    ========================================================================== */
 
-.filters input[type='text'],
-.view-select,
-.view-number-input,
 .ns-filter-input,
-.controls select,
-.filters select {
+.controls select {
   background: var(--bg-input);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
@@ -1184,28 +665,10 @@ tr:focus-within td { background: var(--bg-hover); }
   padding: 0.4rem 0.6rem;
 }
 
-.filters input[type='text']::placeholder,
 .ns-filter-input::placeholder {
   /* Placeholder text is still text: #6b7280 would have been 3.4:1. */
   color: var(--text-muted);
   opacity: 1;
-}
-
-.filters input[type='text'] { min-width: 240px; }
-
-/* Native checkboxes follow `color-scheme: dark`; this only enlarges the hit
-   target, which was 13px in the DLQ and event-list select columns. */
-input[type='checkbox'] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent-hover);
-  cursor: pointer;
-}
-
-/* Label bound to a control — the visible half of the pairing. */
-.field-label {
-  font-size: 12px;
-  color: var(--text-muted);
 }
 
 /* ==========================================================================
@@ -1214,18 +677,6 @@ input[type='checkbox'] {
    one now differs in SHAPE as well as hue, and every dot is decorative: the
    state is always also spelled out in the adjacent chip.
    ========================================================================== */
-
-.status-dot.green {
-  background: var(--success);
-  border-radius: 50%;
-}
-
-.status-dot.red {
-  background: var(--error);
-  /* Square, and ringed, so it is distinguishable at a glance in greyscale. */
-  border-radius: 2px;
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.35);
-}
 
 /* Transport on the graph nodes. The label already spells out
    "signal" / "durable"; this makes the left rule differ in weight and style
@@ -1241,258 +692,11 @@ input[type='checkbox'] {
 }
 
 /* ==========================================================================
-   ui-components utility shim
-   ---------------------------------------------------------------------------
-   This app imports @ui components from source but does NOT run Tailwind over
-   its own bundle, so every utility class those components emit resolves to
-   nothing: Chips rendered as bare inline text, Banners as undecorated divs,
-   Buttons as UA buttons. That is why "status chip contrast" had nothing to
-   measure — the chips had no background at all.
-
-   Rather than hand-roll replacements (which the component rules forbid), this
-   block defines the small set of utilities those components actually emit,
-   mapped onto the dark tokens above. Every tone pair below is >= 4.5:1.
-
-   ThemeProvider writes --color-primary / -danger / -success / -info /
-   -warning inline on <html>, but not the -bg / -fg / -border roles, so the
-   tone surfaces are declared here.
-   ========================================================================== */
-
-:root {
-  --color-neutral-bg: #262b3a;  --color-neutral-fg: #d4d8e3;  --color-neutral-border: #3a4157;
-  --color-success-bg: #06301f;  --color-success-fg: #6ee7b7;  --color-success-border: #14603f;
-  --color-warning-bg: #3a2a06;  --color-warning-fg: #fcd34d;  --color-warning-border: #7c5a10;
-  --color-caution-bg:  #3a2308; --color-caution-fg:  #fdba74; --color-caution-border:  #7c4a12;
-  --color-danger-bg:  #3b1113;  --color-danger-fg:  #fca5a5;  --color-danger-border:  #7f2426;
-  --color-info-bg:    #06283a;  --color-info-fg:    #7dd3fc;  --color-info-border:    #0b5478;
-  --color-accent-bg:  #241d5e;  --color-accent-fg:  #c7d2fe;  --color-accent-border:  #443a9e;
-}
-
-/* layout / typography */
-.inline-flex { display: inline-flex; }
-.inline-block { display: inline-block; }
-.flex { display: flex; }
-.flex-col { flex-direction: column; }
-.flex-1 { flex: 1 1 0%; }
-.items-center { align-items: center; }
-.items-start { align-items: flex-start; }
-.justify-center { justify-content: center; }
-.self-start { align-self: flex-start; }
-.shrink-0 { flex-shrink: 0; }
-.gap-1 { gap: 4px; }
-.gap-2 { gap: 8px; }
-.gap-3 { gap: 12px; }
-.w-full { width: 100%; }
-.text-center { text-align: center; }
-.whitespace-nowrap { white-space: nowrap; }
-.font-semibold { font-weight: 600; }
-.font-medium { font-weight: 500; }
-.font-mono { font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace; }
-.font-\[inherit\] { font-family: inherit; }
-.uppercase { text-transform: uppercase; }
-.tracking-wide { letter-spacing: 0.025em; }
-.leading-\[1\.4\] { line-height: 1.4; }
-.leading-normal { line-height: 1.5; }
-.rounded-sm { border-radius: 4px; }
-.rounded-md { border-radius: 6px; }
-.rounded-lg { border-radius: 8px; }
-.rounded-full { border-radius: 9999px; }
-.cursor-pointer { cursor: pointer; }
-.cursor-not-allowed { cursor: not-allowed; }
-.opacity-50 { opacity: 0.5; }
-.border { border-width: 1px; border-style: solid; }
-.border-2 { border-width: 2px; border-style: solid; }
-.border-none { border: none; }
-.border-transparent { border-color: transparent; }
-.overflow-x-auto { overflow-x: auto; }
-.m-0 { margin: 0; }
-.mb-2 { margin-bottom: 8px; }
-.mt-2\.5 { margin-top: 10px; }
-.mt-3 { margin-top: 12px; }
-.p-8 { padding: 32px; }
-.px-1\.5 { padding-left: 6px; padding-right: 6px; }
-.px-2 { padding-left: 8px; padding-right: 8px; }
-.px-2\.5 { padding-left: 10px; padding-right: 10px; }
-.px-3 { padding-left: 12px; padding-right: 12px; }
-.px-3\.5 { padding-left: 14px; padding-right: 14px; }
-.px-4 { padding-left: 16px; padding-right: 16px; }
-.px-5 { padding-left: 20px; padding-right: 20px; }
-.py-px { padding-top: 1px; padding-bottom: 1px; }
-.py-0\.5 { padding-top: 2px; padding-bottom: 2px; }
-.py-1 { padding-top: 4px; padding-bottom: 4px; }
-.py-2 { padding-top: 8px; padding-bottom: 8px; }
-.py-2\.5 { padding-top: 10px; padding-bottom: 10px; }
-.text-\[10px\] { font-size: 10px; }
-.text-\[11px\] { font-size: 11px; }
-.text-\[12px\] { font-size: 12px; }
-.text-\[13px\] { font-size: 13px; }
-.text-\[15px\] { font-size: 15px; }
-.text-\[17px\] { font-size: 17px; }
-.text-\[52px\] { font-size: 52px; line-height: 1; }
-.text-xs { font-size: 12px; }
-.text-sm { font-size: 13px; }
-.min-h-\[220px\] { min-height: 220px; }
-.max-w-\[340px\] { max-width: 340px; }
-.max-w-\[420px\] { max-width: 420px; }
-.w-\[14px\] { width: 14px; }
-.h-\[14px\] { height: 14px; }
-.w-\[20px\] { width: 20px; }
-.h-\[20px\] { height: 20px; }
-.w-\[28px\] { width: 28px; }
-.h-\[28px\] { height: 28px; }
-.animate-spin { animation: ui-spin 0.8s linear infinite; }
-
-/* ProgressBar (used by the coverage bars). Without these its track has no
-   height and no surface, so the bar rendered as an invisible 0px line and the
-   fill — whose width IS the datum — had nothing to sit in. */
-.justify-between { justify-content: space-between; }
-.mb-1 { margin-bottom: 4px; }
-.h-1\.5 { height: 6px; }
-.h-2 { height: 8px; }
-.h-full { height: 100%; }
-.overflow-hidden { overflow: hidden; }
-.tabular-nums { font-variant-numeric: tabular-nums; }
-.transition-all { transition: all 0.3s ease; }
-.duration-300 { transition-duration: 0.3s; }
-.bg-\[var\(--color-surface-hover\)\] { background: var(--bg-hover); }
-.text-\[var\(--color-text-secondary\)\] { color: var(--text-muted); }
-.text-\[var\(--color-text-tertiary\)\] { color: var(--text-muted); }
-
-@keyframes ui-spin { to { transform: rotate(360deg); } }
-
-/* semantic text + surfaces */
-.text-white { color: #ffffff; }
-.text-text-primary,
-.text-neutral { color: var(--text); }
-.text-text-secondary,
-.text-text-tertiary { color: var(--text-muted); }
-.text-current { color: inherit; }
-.bg-transparent { background: transparent; }
-.bg-surface { background: var(--bg-surface); }
-.bg-surface-inset { background: var(--bg-input); }
-.bg-surface-panel { background: var(--bg-hover); }
-.bg-surface-inverse { background: var(--bg); }
-.text-text-inverse { color: var(--text); }
-.border-border { border-color: var(--border); }
-.border-border-emphasis { border-color: var(--border-strong); }
-.hover\:bg-surface-hover:hover { background: var(--bg-hover); }
-.hover\:bg-surface-panel:hover { background: var(--bg-hover); }
-.hover\:bg-surface-inverse:hover { background: var(--bg); }
-
-/* tone surfaces — soft tint + readable foreground */
-.bg-neutral-bg { background: var(--color-neutral-bg); }
-.text-neutral-fg { color: var(--color-neutral-fg); }
-.border-neutral-border { border-color: var(--color-neutral-border); }
-.bg-success-bg { background: var(--color-success-bg); }
-.text-success-fg { color: var(--color-success-fg); }
-.border-success-border { border-color: var(--color-success-border); }
-.bg-warning-bg { background: var(--color-warning-bg); }
-.text-warning-fg { color: var(--color-warning-fg); }
-.border-warning-border { border-color: var(--color-warning-border); }
-.bg-caution-bg { background: var(--color-caution-bg); }
-.text-caution-fg { color: var(--color-caution-fg); }
-.border-caution-border { border-color: var(--color-caution-border); }
-.bg-danger-bg,
-.hover\:bg-danger-bg:hover { background: var(--color-danger-bg); }
-.text-danger-fg { color: var(--color-danger-fg); }
-.border-danger-border { border-color: var(--color-danger-border); }
-.bg-info-bg { background: var(--color-info-bg); }
-.text-info-fg { color: var(--color-info-fg); }
-.border-info-border { border-color: var(--color-info-border); }
-.bg-accent-bg { background: var(--color-accent-bg); }
-.text-accent-fg { color: var(--color-accent-fg); }
-.border-accent-border { border-color: var(--color-accent-border); }
-
-/* solid fills that carry white text — these must be DARK enough for white to
-   clear 4.5:1, which the theme's own --color-primary (#8b91ff, 2.8:1) is not,
-   so they resolve to the app's own accent scale instead. */
-.bg-primary { background: var(--accent); }
-.hover\:bg-primary-hover:hover { background: var(--accent-hover); }
-.bg-neutral { background: #52586e; }
-.bg-success { background: #15803d; }
-.bg-warning { background: #92620a; }
-.bg-caution { background: #92500a; }
-.bg-danger { background: #b91c1c; }
-.bg-info { background: #0369a1; }
-.bg-accent { background: var(--accent); }
-
-/* SkeletonCard: the gradient utilities do not resolve, so give the shimmer a
-   real surface rather than an invisible one. */
-[data-testid='skeleton-card'] {
-  background: linear-gradient(90deg, var(--bg-surface), var(--bg-hover), var(--bg-surface));
-  background-size: 400px 100%;
-  animation: skeleton-shimmer 1.4s ease-in-out infinite;
-}
-
-@keyframes skeleton-shimmer {
-  0% { background-position: -200px 0; }
-  100% { background-position: 400px 0; }
-}
-
-/* ErrorState's headline colour arrives as an arbitrary-value class that is
-   not worth escaping; hook it by its structural class instead. */
-[data-testid='error-state'] > .text-\[17px\] { color: var(--error-text); }
-
-/* ==========================================================================
    Declaration viewer
    The list rows were clickable <li>s with no styling at all; they are real
    buttons now, so they need the UA chrome removed and a selected state that
    is not purely a colour change.
    ========================================================================== */
-
-.declaration-grid {
-  display: grid;
-  grid-template-columns: minmax(240px, 320px) 1fr;
-  gap: 1rem;
-  align-items: start;
-}
-
-.declaration-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  max-height: 70vh;
-  overflow-y: auto;
-}
-
-.declaration-list li + li { border-top: 1px solid var(--border); }
-
-.decl-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  /* The selected row is marked by a left rule as well as a fill, so it is
-     still identifiable without colour. */
-  border-left: 3px solid transparent;
-  padding: 0.6rem 0.75rem;
-  font: inherit;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.decl-row:hover { background: var(--bg-hover); }
-
-.decl-row[aria-current='true'] {
-  background: var(--bg-hover);
-  border-left-color: var(--accent-hover);
-  font-weight: 600;
-}
-
-.decl-name { font-size: 0.875rem; }
-
-.decl-meta {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
 
 .declaration-detail {
   background: var(--bg-surface);
@@ -1503,16 +707,6 @@ input[type='checkbox'] {
 
 .declaration-detail:focus { outline: none; }
 
-.declaration-detail-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-}
-
-.declaration-detail-header a { color: var(--link); }
-.declaration-detail .detail-section { margin-top: 1rem; }
 .declaration-detail h4 { font-size: 0.85rem; margin-bottom: 0.5rem; }
 
 .history-header {
@@ -1526,16 +720,6 @@ input[type='checkbox'] {
 /* ==========================================================================
    Odds and ends introduced by the semantics pass
    ========================================================================== */
-
-/* Row headers (`<th scope="row">` on the event name) inherit the uppercase
-   muted styling meant for column headers; the row header is body copy. */
-tbody th {
-  text-transform: none;
-  letter-spacing: normal;
-  font-weight: 400;
-  font-size: 0.875rem;
-  color: var(--text);
-}
 
 /* The audit feed is a list now so the row count is announced. */
 .audit-list { list-style: none; margin: 0; padding: 0; }
@@ -1559,28 +743,6 @@ tbody th {
    only needs its position back. */
 .btn-dismiss { margin-left: 8px; }
 
-/* Filter rows now carry visible labels. */
-.filters { align-items: center; flex-wrap: wrap; }
-.filters .field-label { margin-right: -0.35rem; }
-
-/* ReactFlow chrome on the dark canvas. The library ships light-mode defaults,
-   so the minimap and the zoom controls arrived as white boxes floating over a
-   near-black graph. */
-.react-flow__minimap {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.react-flow__controls-button {
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border);
-  fill: var(--text);
-}
-
-.react-flow__controls-button:hover { background: var(--bg-hover); }
-.react-flow__attribution { display: none; }
-
 /* ==========================================================================
    Feature bundles + coverage
    A bundle is what a CRD pins, so the two states an operator must not misread
@@ -1588,17 +750,6 @@ tbody th {
    chip; the rules here only add a second, non-colour cue (a left rule, a
    struck-through name) so they survive a greyscale screenshot.
    ========================================================================== */
-
-.bundles-table th[scope='row'] { min-width: 200px; }
-
-.bundle-row.deprecated {
-  /* The whole row is tinted AND rules off, because the deprecation chip sits
-     four columns to the right of the name an operator is scanning. */
-  background: color-mix(in srgb, var(--color-danger-bg) 45%, transparent);
-  border-left: 3px solid var(--error);
-}
-
-.bundle-row.deprecated th[scope='row'] a { text-decoration: line-through; }
 
 .bundle-status {
   display: inline-flex;
@@ -1617,19 +768,6 @@ tbody th {
 .bundle-detail { padding: 1.5rem; }
 
 .bundle-detail .bundle-deprecation-banner { margin-bottom: 1rem; }
-
-.bundle-detail.deprecated .detail-header h2 {
-  text-decoration: line-through;
-  text-decoration-color: var(--error);
-}
-
-.bundle-member-summary {
-  font-weight: 400;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-}
-
-.bundle-members-table { margin-top: 0.25rem; }
 
 /* --- coverage ----------------------------------------------------------- */
 
@@ -1714,8 +852,6 @@ tbody th {
 .coverage-bar { margin-bottom: 2px; }
 
 .coverage-table { margin-top: 4px; }
-
-.coverage-table tr.uncovered th[scope='row'] { border-left: 3px solid var(--error); padding-left: 5px; }
 
 .coverage-bundle-links {
   display: inline-flex;
