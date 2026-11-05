@@ -108,6 +108,10 @@ and follow the library's `ui-page-build` skill
 - Gate: `npm run typecheck && npm test && npm run lint && npm run build` in
   `src/admin` (`npm run lint:admin` from the root). Lint is the library's
   ESLint plugin (`eslint.config.js`, `configs.recommended`).
+- Import from subpaths (`/shared`, `/pipelines`, …) per COMPONENT_INDEX;
+  only root-only names (`AppShell`, `ThemeProvider`) come from the root.
+  `vite.config.ts` marks the library's JS side-effect free so the root
+  import doesn't pull the whole barrel into the entry chunk.
 - The library `Select` is a combobox over a portaled listbox, not a native
   `<select>`; unit tests drive it with `readOptions`/`chooseOption` from
   `src/test/helpers.tsx`.

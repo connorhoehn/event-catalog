@@ -34,6 +34,19 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     rollupOptions: {
+      // ui-components' package.json declares no `sideEffects`, so Rollup
+      // must assume every chunk the root barrel imports has side effects and
+      // keeps all of them: AppShell and ThemeProvider are root-only, and
+      // importing them dragged tiptap, yjs, prosemirror and the social and
+      // graph chunks into the entry (1,024 kB). Treat the library's JS chunks
+      // as side-effect free (its CSS arrives through styles.css, which this
+      // rule does not match) so tree-shaking drops what the app never
+      // references (entry: 257 kB). If a library feature ever relies on an
+      // import-time side effect, the e2e suite's per-route render is what
+      // catches it. Remove this once the package declares `sideEffects`.
+      treeshake: {
+        moduleSideEffects: (id: string) => !/[\\/]@connorhoehnslalom[\\/]ui-components[\\/]dist[\\/].*\.js$/.test(id),
+      },
       output: {
         // Topology and Flow are both lazy routes and both import
         // @xyflow/react + dagre. Naming that vendor code explicitly keeps it
