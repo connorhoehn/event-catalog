@@ -1,3 +1,7 @@
+## 0.10.3 — 2026-11-07
+
+- Bump distributed-core to 0.51.1. Regenerated contracts/asyncapi.registry.yaml, whose info.version was stale (0.9.0) against package.json.
+
 ## Unreleased — durable document protocol
 
 - Declare correlated CRDT durable commit/error receipts and idempotent canvas seed request/receipt, with generated TypeScript and AsyncAPI contracts.
