@@ -8,6 +8,7 @@ import { DurableTransport } from '../../client/durable.js';
 import { toDlqWireEntry, type DlqWireEntry } from '../dlq-store.js';
 import { badRequest, RouteLog, type RoutesDeps } from './_shared.js';
 import { MAX_DLQ_REPLAY_IDS, withinArrayLimit } from './limits.js';
+import { createValidatingPublisher, ValidationError } from '../../utils/validating-publisher.js';
 
 const MAX_DLQ_LIMIT = 1000;
 
@@ -48,6 +49,10 @@ function filterWireEntries(
 const DLQ_LIST_DEGRADED_MESSAGE =
   'DLQ store unavailable — serving this instance\'s in-memory mirror, '
   + 'which holds only what it dead-lettered since start. Check the server logs.';
+
+const DLQ_REPLAY_INVALID_MESSAGE =
+  'Replay refused — the payload does not pass the event\'s current schema '
+  + '(or the event is not declared). The entry stays in the DLQ.';
 
 const DLQ_REPLAY_FAILED_MESSAGE =
   'Replay failed — the durable transport rejected the message. '
@@ -111,7 +116,29 @@ function parseDlqLimit(
 
 export function createDlqHandlers(deps: RoutesDeps) {
   const log = new RouteLog(deps.logger);
-  const { durable, dlqStore } = deps;
+  const { durable, dlqStore, registry } = deps;
+
+  /**
+   * Re-publish a dead-lettered entry. The payload is re-validated against
+   * the event's current schema first (strict: an invalid payload or an
+   * undeclared event throws ValidationError and nothing is published).
+   * A replay goes out signed as the catalog, so it must never carry a
+   * payload the catalog would not accept from a producer.
+   */
+  async function republish(entry: { id: string; eventName: string; payload: unknown }): Promise<void> {
+    const queueName = DurableTransport.eventNameToQueueName(entry.eventName);
+    const publish = createValidatingPublisher<unknown>(
+      registry,
+      entry.eventName,
+      (payload) => durable.publish(queueName, {
+        eventName: entry.eventName,
+        payload,
+        metadata: { id: entry.id, producer: 'dlq-replay', timestamp: Date.now() },
+      }),
+      { mode: 'strict', logger: deps.logger },
+    );
+    await publish(entry.payload);
+  }
 
   // Durable transport dead-letter queue (persisted)
   async function list(req: Request, res: Response): Promise<void> {
@@ -212,16 +239,15 @@ export function createDlqHandlers(deps: RoutesDeps) {
         failed.push({ id, error: 'not found' });
         continue;
       }
-      const queueName = DurableTransport.eventNameToQueueName(entry.eventName);
       try {
-        await durable.publish(queueName, {
-          eventName: entry.eventName,
-          payload: entry.payload,
-          metadata: { id: entry.id, producer: 'dlq-replay', timestamp: Date.now() },
-        });
+        await republish(entry);
         await dlqStore.remove(entry.id);
         replayed.push({ id: entry.id, eventName: entry.eventName });
       } catch (err) {
+        if (err instanceof ValidationError) {
+          failed.push({ id, error: DLQ_REPLAY_INVALID_MESSAGE });
+          continue;
+        }
         failed.push({
           id,
           error: redact(log, `DLQ batch replay failed for "${id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
@@ -252,16 +278,19 @@ export function createDlqHandlers(deps: RoutesDeps) {
       return;
     }
 
-    const queueName = DurableTransport.eventNameToQueueName(entry.eventName);
     try {
-      await durable.publish(queueName, {
-        eventName: entry.eventName,
-        payload: entry.payload,
-        metadata: { id: entry.id, producer: 'dlq-replay', timestamp: Date.now() },
-      });
+      await republish(entry);
       await dlqStore.remove(entry.id);
       res.json({ replayed: entry.id, eventName: entry.eventName });
     } catch (err) {
+      if (err instanceof ValidationError) {
+        res.status(422).json({
+          error: 'ReplayRejected',
+          message: DLQ_REPLAY_INVALID_MESSAGE,
+          validationErrors: err.validationErrors,
+        });
+        return;
+      }
       res.status(500).json({
         error: redact(log, `DLQ replay failed for "${entry.id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
       });

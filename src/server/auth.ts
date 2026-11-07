@@ -1,35 +1,29 @@
 // src/server/auth.ts
 //
-// Optional shared-secret authentication for the admin API.
+// Shared-secret authentication for the admin API.
 //
-// WHY THIS IS OPT-IN
+// WHEN IT IS ON
 //
-// The catalog has always shipped with an open API: it is meant to sit on
-// a private in-cluster network, and the admin UI, the `syncToRemoteRegistry`
-// call every producer makes at boot, and every CI job that snapshots or
-// pins a manifest all talk to it without a credential. Turning auth on by
-// default would break all of them on upgrade. So this module ships the
-// capability and nothing turns it on: with `EVENT_CATALOG_AUTH_TOKEN`
-// unset, `resolveAuthMiddleware()` returns `undefined`, no middleware is
-// installed, and the request path is byte-for-byte what it was before.
+// Whenever `EVENT_CATALOG_AUTH_TOKEN` is set. `startServer` additionally
+// refuses to boot without a token (or an injected middleware) in
+// production and whenever `MQ_SERVICE_AUTH_SECRET` is configured: with the
+// queue secret set, a dead-letter replay is re-published to the message
+// queue signed as the catalog itself, so an open admin API would let
+// anyone publish under the catalog's identity. With neither set (local
+// development) no middleware is installed and the API stays open.
 //
 // WHAT IT GATES WHEN IT IS ON
 //
-// Mutating requests only — every method outside {@link SAFE_METHODS}.
-// That is the whole reason a read-only deployment stays usable: the admin
-// UI, `GET /api/events`, the `/api/flow` and `/api/audit` SSE streams,
-// `/health` and `/metrics` are all GETs and are never challenged. The
+// Every request under `/api`, reads included — dead-letter payloads,
+// schemas, subscriber lists and the SSE streams are all data another
+// service produced. The only exceptions are the health routes
+// ({@link OPEN_HEALTH_PATHS}, GET/HEAD only) and CORS preflights. The
 // gated set is decided in exactly one place ({@link requiresAuth}) rather
-// than per-route, so reviewing "what is protected" is reading one
-// function, and a route added tomorrow under src/server/routes/ is
-// covered the moment it accepts a POST.
+// than per route, so a route added tomorrow under src/server/routes/ is
+// covered the moment it is mounted.
 //
-// `/health` and `/metrics` are additionally named in
-// {@link ALWAYS_OPEN_PATHS}. They are served off the root router, outside
-// the `/api` prefix this middleware is mounted on, so today they cannot
-// reach it at all — the list is there so that if the mount point ever
-// moves, a liveness probe or a Prometheus scraper cannot be locked out by
-// a change made somewhere else.
+// The admin UI holds no token; an operator reaches it through an
+// authenticating reverse proxy that injects the bearer header.
 //
 // COMPARISON
 //
@@ -46,18 +40,15 @@ import { LogThrottle } from '../utils/bounded.js';
 import { LogWriter, type CatalogLogger } from '../utils/logger.js';
 
 /**
- * Methods that never mutate registry state and are therefore never
- * challenged. HEAD and OPTIONS ride along with GET: OPTIONS is the CORS
- * preflight (answered before this middleware runs anyway) and HEAD is a
- * GET without a body.
+ * Health probes stay open (GET/HEAD only) so a liveness check cannot fail
+ * because a token was rotated. `/health` and `/metrics` are served off the
+ * root router, outside the `/api` prefix this middleware is mounted on;
+ * they are listed so a moved mount point cannot lock out a probe or a
+ * Prometheus scraper. `/api/health` is the health route under the prefix.
+ * Nothing else under `/api` is open, `/api/health/registry` and
+ * `/api/metrics` included — they describe the registry's internals.
  */
-export const SAFE_METHODS: readonly string[] = ['GET', 'HEAD', 'OPTIONS'];
-
-/**
- * Paths that stay open regardless of method. A liveness probe and a
- * metrics scraper must never be able to fail because a token was rotated.
- */
-export const ALWAYS_OPEN_PATHS: readonly string[] = ['/health', '/metrics'];
+export const OPEN_HEALTH_PATHS: readonly string[] = ['/health', '/metrics', '/api/health'];
 
 /**
  * Shortest token accepted at boot. 16 characters is not a cryptographic
@@ -69,6 +60,13 @@ export const MIN_AUTH_TOKEN_LENGTH = 16;
 
 /** Name of the variable that turns this on. Unset means off. */
 export const AUTH_TOKEN_ENV_VAR = 'EVENT_CATALOG_AUTH_TOKEN';
+
+/**
+ * The message-queue service-auth secret. When it is set the catalog signs
+ * its publishes (including dead-letter replays) as itself, so the admin
+ * API must not be open: `startServer` refuses to boot without a token.
+ */
+export const QUEUE_SECRET_ENV_VAR = 'MQ_SERVICE_AUTH_SECRET';
 
 // ─── Token shape (validated at boot, in src/cli/config.ts) ──────────────────
 
@@ -172,8 +170,13 @@ function normalizePath(path: string): string {
  * decides for itself.
  */
 export function requiresAuth(method: string, path: string): boolean {
-  if (SAFE_METHODS.includes(method.toUpperCase())) return false;
-  if (ALWAYS_OPEN_PATHS.includes(normalizePath(path))) return false;
+  const verb = method.toUpperCase();
+  // CORS preflight carries no credentials by spec and is answered before
+  // this middleware runs anyway.
+  if (verb === 'OPTIONS') return false;
+  if ((verb === 'GET' || verb === 'HEAD') && OPEN_HEALTH_PATHS.includes(normalizePath(path))) {
+    return false;
+  }
   return true;
 }
 
@@ -211,7 +214,7 @@ export interface BearerAuthOptions {
  * Rate ceiling on rejection lines, keyed by source address.
  *
  * This is a per-request path on the one endpoint family an attacker can
- * hammer: every unauthenticated POST/DELETE writes a line, so a scanner
+ * hammer: every unauthenticated request writes a line, so a scanner
  * or a misconfigured producer retrying its boot sync is an unbounded log
  * source reachable by anyone who can open a socket. Ten lines a minute
  * per source still shows an operator that something is being rejected
@@ -230,8 +233,9 @@ const REJECT_LOG_MAX_SOURCES = 256;
 /**
  * Connect-style middleware for `ServerConfig.authMiddleware`.
  *
- * Admits every safe-method request untouched. Challenges everything else:
- * a correct bearer token calls `next()`, anything else gets a bare 401.
+ * Admits the health routes and CORS preflights untouched. Challenges
+ * everything else, reads included: a correct bearer token calls `next()`,
+ * anything else gets a bare 401.
  * The response body is identical for an absent, malformed and wrong
  * token, so a caller cannot probe the header format or learn that a token
  * was "close". The server-side log line carries source, method and path —
@@ -282,10 +286,10 @@ export function createBearerAuthMiddleware(options: BearerAuthOptions): Middlewa
 }
 
 /**
- * Pick the middleware `startServer` installs, and the reason the default
- * is provably unchanged: with no explicit middleware and no configured
- * token this returns `undefined`, and `startServer` then runs the exact
- * request path it ran before this module existed.
+ * Pick the middleware `startServer` installs. With no explicit middleware
+ * and no configured token this returns `undefined`; `startServer` then
+ * refuses to boot in production or with the queue secret set, and runs
+ * open only for local development.
  *
  * An explicit `ServerConfig.authMiddleware` always wins — a library
  * consumer who brings their own JWT check is not second-guessed by an

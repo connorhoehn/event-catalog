@@ -9,6 +9,7 @@ const durable_js_1 = require("../../client/durable.js");
 const dlq_store_js_1 = require("../dlq-store.js");
 const _shared_js_1 = require("./_shared.js");
 const limits_js_1 = require("./limits.js");
+const validating_publisher_js_1 = require("../../utils/validating-publisher.js");
 const MAX_DLQ_LIMIT = 1000;
 /** Mirrors `DLQStore.list()`'s own default so both sources page alike. */
 const DEFAULT_DLQ_LIMIT = 100;
@@ -37,6 +38,8 @@ function filterWireEntries(entries, eventName, limit) {
 // `InternalServerError`; these were the hand-rolled leaks around it.)
 const DLQ_LIST_DEGRADED_MESSAGE = 'DLQ store unavailable — serving this instance\'s in-memory mirror, '
     + 'which holds only what it dead-lettered since start. Check the server logs.';
+const DLQ_REPLAY_INVALID_MESSAGE = 'Replay refused — the payload does not pass the event\'s current schema '
+    + '(or the event is not declared). The entry stays in the DLQ.';
 const DLQ_REPLAY_FAILED_MESSAGE = 'Replay failed — the durable transport rejected the message. '
     + 'Retry once it is healthy; see the server logs for detail.';
 /**
@@ -87,7 +90,23 @@ function parseDlqLimit(raw) {
 }
 function createDlqHandlers(deps) {
     const log = new _shared_js_1.RouteLog(deps.logger);
-    const { durable, dlqStore } = deps;
+    const { durable, dlqStore, registry } = deps;
+    /**
+     * Re-publish a dead-lettered entry. The payload is re-validated against
+     * the event's current schema first (strict: an invalid payload or an
+     * undeclared event throws ValidationError and nothing is published).
+     * A replay goes out signed as the catalog, so it must never carry a
+     * payload the catalog would not accept from a producer.
+     */
+    async function republish(entry) {
+        const queueName = durable_js_1.DurableTransport.eventNameToQueueName(entry.eventName);
+        const publish = (0, validating_publisher_js_1.createValidatingPublisher)(registry, entry.eventName, (payload) => durable.publish(queueName, {
+            eventName: entry.eventName,
+            payload,
+            metadata: { id: entry.id, producer: 'dlq-replay', timestamp: Date.now() },
+        }), { mode: 'strict', logger: deps.logger });
+        await publish(entry.payload);
+    }
     // Durable transport dead-letter queue (persisted)
     async function list(req, res) {
         const eventNameResult = parseDlqEventName(req.query.eventName);
@@ -180,17 +199,16 @@ function createDlqHandlers(deps) {
                 failed.push({ id, error: 'not found' });
                 continue;
             }
-            const queueName = durable_js_1.DurableTransport.eventNameToQueueName(entry.eventName);
             try {
-                await durable.publish(queueName, {
-                    eventName: entry.eventName,
-                    payload: entry.payload,
-                    metadata: { id: entry.id, producer: 'dlq-replay', timestamp: Date.now() },
-                });
+                await republish(entry);
                 await dlqStore.remove(entry.id);
                 replayed.push({ id: entry.id, eventName: entry.eventName });
             }
             catch (err) {
+                if (err instanceof validating_publisher_js_1.ValidationError) {
+                    failed.push({ id, error: DLQ_REPLAY_INVALID_MESSAGE });
+                    continue;
+                }
                 failed.push({
                     id,
                     error: redact(log, `DLQ batch replay failed for "${id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
@@ -217,17 +235,20 @@ function createDlqHandlers(deps) {
             res.status(404).json({ error: `DLQ entry "${req.params.id}" not found` });
             return;
         }
-        const queueName = durable_js_1.DurableTransport.eventNameToQueueName(entry.eventName);
         try {
-            await durable.publish(queueName, {
-                eventName: entry.eventName,
-                payload: entry.payload,
-                metadata: { id: entry.id, producer: 'dlq-replay', timestamp: Date.now() },
-            });
+            await republish(entry);
             await dlqStore.remove(entry.id);
             res.json({ replayed: entry.id, eventName: entry.eventName });
         }
         catch (err) {
+            if (err instanceof validating_publisher_js_1.ValidationError) {
+                res.status(422).json({
+                    error: 'ReplayRejected',
+                    message: DLQ_REPLAY_INVALID_MESSAGE,
+                    validationErrors: err.validationErrors,
+                });
+                return;
+            }
             res.status(500).json({
                 error: redact(log, `DLQ replay failed for "${entry.id}"`, err, DLQ_REPLAY_FAILED_MESSAGE),
             });

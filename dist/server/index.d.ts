@@ -132,9 +132,9 @@ export interface ServerConfig {
     onDeadLetter?: DeadLetterHandler[];
     /**
      * Phase 20-d — optional connect-style middleware gating every `/api`
-     * route. The admin server is unauthenticated by default
-     * (deliberately, for local dev); operators can inject a JWT / API-key
-     * check here without forking startServer. Call `next()` to admit the
+     * route. Without it or `EVENT_CATALOG_AUTH_TOKEN` the server refuses to
+     * boot in production or with `MQ_SERVICE_AUTH_SECRET` set; operators can
+     * inject a JWT / API-key check here without forking startServer. Call `next()` to admit the
      * request; respond on `res` without calling next to reject it.
      *
      * Leave it unset and set `EVENT_CATALOG_AUTH_TOKEN` instead to get the

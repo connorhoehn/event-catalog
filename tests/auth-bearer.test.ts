@@ -13,18 +13,22 @@
 //
 // The rest covers what happens once it IS on: correct token passes, an
 // absent / malformed / wrong one gets an indistinguishable 401, GETs are
-// never challenged (the admin UI and the /api/flow SSE stream are all
-// GETs), /health and /metrics stay open, and the constant-time compare
+// challenged too (dead-letter payloads, schemas and the SSE streams are
+// other services' data; the admin UI sits behind a proxy that injects the
+// token), the health routes stay open, and the constant-time compare
 // survives a length mismatch instead of throwing out of the middleware.
+//
+// "Off by default" now means local development only: startServer refuses
+// to boot without a token in production or with MQ_SERVICE_AUTH_SECRET set
+// (tests/server-production-auth.test.ts, tests/dlq-auth-and-replay-validation.test.ts).
 
 import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import { expressLikeApp } from './helpers/test-app.js';
 import { Router, type Middleware } from '../src/server/http-router.js';
 import {
-  ALWAYS_OPEN_PATHS,
   MIN_AUTH_TOKEN_LENGTH,
-  SAFE_METHODS,
+  OPEN_HEALTH_PATHS,
   createBearerAuthMiddleware,
   extractBearerToken,
   requiresAuth,
@@ -69,6 +73,7 @@ function buildApp(auth: Middleware | undefined): ReturnType<typeof expressLikeAp
   }
   api.get('/events', (_req, res) => { res.status(200).json({ events: [] }); });
   api.get('/flow', (_req, res) => { res.status(200).json({ stream: 'sse' }); });
+  api.get('/health', (_req, res) => { res.status(200).json({ status: 'healthy' }); });
   app.use('/api', api);
 
   app.get('/health', (_req, res) => { res.status(200).json({ status: 'healthy' }); });
@@ -173,12 +178,18 @@ describe('with a token configured', () => {
     expect(bodies[0].body).toEqual({ error: 'Unauthorized' });
   });
 
-  it('never challenges a GET — reads, the admin UI and the SSE streams', async () => {
-    expect((await request(app).get('/api/events')).status).toBe(200);
-    expect((await request(app).get('/api/flow')).status).toBe(200);
-    // ...and a correct token on a GET is fine too, not a "why did you send this".
+  it('challenges GETs too — reads and the SSE streams need the token', async () => {
+    expect((await request(app).get('/api/events')).status).toBe(401);
+    expect((await request(app).get('/api/flow')).status).toBe(401);
+    expect((await request(app).head('/api/events')).status).toBe(401);
     expect((await request(app).get('/api/events').set('Authorization', `Bearer ${TOKEN}`)).status)
       .toBe(200);
+    expect((await request(app).get('/api/flow').set('Authorization', `Bearer ${TOKEN}`)).status)
+      .toBe(200);
+  });
+
+  it('leaves the /api health route open to GET', async () => {
+    expect((await request(app).get('/api/health')).status).toBe(200);
   });
 
   it('leaves /health and /metrics reachable — probes and scrapers cannot be locked out', async () => {
@@ -225,7 +236,8 @@ describe('rejection logging', () => {
       onReject: line => lines.push(line),
     }));
     await request(app).post('/api/events').set('Authorization', `Bearer ${TOKEN}`).send({});
-    await request(app).get('/api/events');
+    await request(app).get('/api/events').set('Authorization', `Bearer ${TOKEN}`);
+    await request(app).get('/api/health');
     expect(lines).toEqual([]);
   });
 
@@ -316,25 +328,28 @@ describe('extractBearerToken', () => {
 });
 
 describe('requiresAuth — the one place the gated set is decided', () => {
-  it('never gates a safe method', () => {
-    for (const method of SAFE_METHODS) {
-      expect(requiresAuth(method, '/api/events')).toBe(false);
-      expect(requiresAuth(method.toLowerCase(), '/api/events')).toBe(false);
-    }
-  });
-
-  it('gates every mutating method', () => {
-    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+  it('gates every method except the CORS preflight, reads included', () => {
+    for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']) {
       expect(requiresAuth(method, '/api/events')).toBe(true);
+      expect(requiresAuth(method.toLowerCase(), '/api/transports/durable/dlq')).toBe(true);
+    }
+    expect(requiresAuth('OPTIONS', '/api/events')).toBe(false);
+  });
+
+  it('leaves the health routes open to GET and HEAD only', () => {
+    for (const path of OPEN_HEALTH_PATHS) {
+      for (const method of ['GET', 'HEAD']) {
+        expect(requiresAuth(method, path)).toBe(false);
+        expect(requiresAuth(method, `${path}/`)).toBe(false);
+        expect(requiresAuth(method, `${path}?verbose=1`)).toBe(false);
+      }
+      expect(requiresAuth('POST', path)).toBe(true);
     }
   });
 
-  it('never gates the probe and scrape endpoints, whatever the method', () => {
-    for (const path of ALWAYS_OPEN_PATHS) {
-      expect(requiresAuth('POST', path)).toBe(false);
-      expect(requiresAuth('POST', `${path}/`)).toBe(false);
-      expect(requiresAuth('POST', `${path}?verbose=1`)).toBe(false);
-    }
+  it('does not open the registry health or metrics snapshot under /api', () => {
+    expect(requiresAuth('GET', '/api/health/registry')).toBe(true);
+    expect(requiresAuth('GET', '/api/metrics')).toBe(true);
   });
 });
 

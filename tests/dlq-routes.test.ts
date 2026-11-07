@@ -87,8 +87,12 @@ function createApp(overrides: Partial<RoutesDeps> = {}) {
         publish: vi.fn(async () => {}),
     } as unknown as RoutesDeps['durable'];
 
+    // Replay re-validates against the registry, so the event must be declared.
+    const registry = new Registry();
+    registry.declare({ name: 'orders.failed', transport: 'durable', producer: 'order-service' });
+
     const deps: RoutesDeps = {
-        registry: new Registry(),
+        registry,
         metrics: new MetricsCollector(60),
         metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
         signal: {

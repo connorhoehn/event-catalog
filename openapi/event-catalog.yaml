@@ -20,8 +20,10 @@ info:
     **Cross-cutting responses** every operation can return, not repeated
     per-operation below:
 
-      - `401` — only when the deployment injects an `authMiddleware`
-        (the catalog ships unauthenticated by design).
+      - `401` — whenever auth is configured (`EVENT_CATALOG_AUTH_TOKEN`
+        or an injected `authMiddleware`), reads included; only the
+        health route is exempt. The server will not start without auth
+        in production or with `MQ_SERVICE_AUTH_SECRET` set.
       - `404 {"error":"NotFound","path":...}` — no route matched.
       - `413` — request body over the 1 MiB `MAX_REQUEST_BODY_BYTES`
         cap; rejected by the HTTP layer before the handler runs. Only
@@ -1351,9 +1353,12 @@ paths:
       tags: [transports]
       summary: Batch-redrive multiple DLQ entries (Phase E5.2)
       description: |
-        Replays N DLQ entries in one call. Each entry is re-published
-        with its original id as the message metadata.id, so partial-
-        failure retries on the same set don't double-deliver downstream.
+        Replays N DLQ entries in one call. Each entry's payload is
+        re-validated against the event's current schema; an invalid one
+        (or an undeclared event) lands in `failed[]` and stays in the DLQ.
+        Valid entries are re-published with their original id as the
+        message metadata.id, so partial-failure retries on the same set
+        don't double-deliver downstream.
 
         Always returns 200 with a per-id breakdown; callers inspect
         `failed[]` to decide retry policy.
@@ -1447,8 +1452,9 @@ paths:
       tags: [transports]
       summary: Redrive a DLQ entry back into its source queue
       description: |
-        Re-publishes the entry's envelope to the original event's queue
-        (derived from `entry.eventName`), then drops the DLQ row on
+        Re-validates the stored payload against the event's current
+        schema, re-publishes the entry's envelope to the original event's
+        queue (derived from `entry.eventName`), then drops the DLQ row on
         success. Idempotency keys are reused so partial-failure retries
         don't duplicate delivery downstream.
       responses:
@@ -1467,6 +1473,22 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: |
+            Replay refused — the payload fails the event's current schema
+            or the event is not declared. Nothing is published and the
+            entry stays in the DLQ.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, message, validationErrors]
+                properties:
+                  error: { type: string, enum: [ReplayRejected] }
+                  message: { type: string }
+                  validationErrors:
+                    type: array
+                    items: { type: string }
         '500':
           description: |
             Replay failed (publish error). The message is redacted — the

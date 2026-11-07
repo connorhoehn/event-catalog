@@ -272,10 +272,16 @@ async function startServer(config = {}) {
         log.warn(text, { component: 'server', ...fields, suppressed }, ...tail);
     };
     // Reuse an injected auth policy or the existing bearer-token middleware.
-    // An unconfigured development registry may remain open; production may not.
+    // An unconfigured development registry may remain open; production may
+    // not, and neither may a catalog holding the message-queue secret — it
+    // signs dead-letter replays as itself, so an open API would publish
+    // under the catalog's identity for anyone.
     const authMiddleware = (0, auth_js_1.resolveAuthMiddleware)(config.authMiddleware, resolved.config.authToken, config.logger);
     if (process.env.NODE_ENV === 'production' && !authMiddleware) {
         throw new Error('EVENT_CATALOG_AUTH_TOKEN or an injected auth middleware is required in production');
+    }
+    if (resolved.config.messageQueueAuthSecret && !authMiddleware) {
+        throw new Error(`EVENT_CATALOG_AUTH_TOKEN or an injected auth middleware is required when ${auth_js_1.QUEUE_SECRET_ENV_VAR} is set`);
     }
     const drainMs = shutdownDrainMs
         ?? (Number(process.env.EVENT_CATALOG_SHUTDOWN_DRAIN_MS) || exports.SHUTDOWN_DRAIN_MS);
@@ -555,16 +561,14 @@ async function startServer(config = {}) {
         // makeRouteResponse never compresses.
         const res = (0, http_router_js_1.makeRouteResponse)(nodeRes, (0, http_router_js_1.compressionFor)(nodeReq, compression));
         if (req.path === '/api' || req.path.startsWith('/api/')) {
-            // Auth gate (optional). Runs before the /api routers, so gating is
-            // decided in ONE place for all ~45 admin endpoints rather than per
-            // route. Two ways to get one: set $EVENT_CATALOG_AUTH_TOKEN for the
-            // built-in shared-secret bearer scheme (src/server/auth.ts — gates
-            // non-GET requests only, so the admin UI and the SSE streams are
-            // untouched), or pass your own JWT / API-key middleware as
-            // `authMiddleware`. Neither is on by default: the catalog ships
-            // unauthenticated on purpose (local dev / in-cluster private
-            // surface) and an upgrade must not start rejecting the producers
-            // that sync declarations at boot.
+            // Auth gate. Runs before the /api routers, so gating is decided in
+            // ONE place for all ~45 admin endpoints rather than per route. Two
+            // ways to get one: set $EVENT_CATALOG_AUTH_TOKEN for the built-in
+            // shared-secret bearer scheme (src/server/auth.ts — gates every
+            // request, reads included, except the health route), or pass your
+            // own JWT / API-key middleware as `authMiddleware`. Boot refuses to
+            // continue without one in production or with the queue secret set;
+            // only local development runs open.
             if (authMiddleware) {
                 const admitted = await runMiddleware(authMiddleware, req, res);
                 if (!admitted) {

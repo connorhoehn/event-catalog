@@ -3,7 +3,11 @@ import type { DLQManager } from '../dlq/DLQManager.js';
 import { type CatalogLogger } from './logger.js';
 export type ValidationMode = 'strict' | 'warn' | 'off';
 export interface ValidatingPublisherOptions {
-    /** default: 'warn' */
+    /**
+     * default: 'strict' — an invalid payload is never published. Pass
+     * 'warn' explicitly to log and publish anyway, or 'off' to skip
+     * validation.
+     */
     mode?: ValidationMode;
     /**
      * Called on any validation failure, in both 'warn' and 'strict' modes.
@@ -41,10 +45,11 @@ export declare class ValidationError extends Error {
 }
 /**
  * Wraps a publish function with pre-flight schema validation against the
- * event-catalog registry. Fail-open by default: in 'warn' mode errors are
- * logged but the publish still proceeds. In 'strict' mode a ValidationError
- * is thrown on schema mismatch. In 'off' mode the payload is passed through
- * without any validation.
+ * event-catalog registry. Fail-closed by default: in 'strict' mode (the
+ * default) a ValidationError is thrown on schema mismatch, or the record is
+ * routed to `dlq` when one is supplied. In 'warn' mode, which callers must
+ * ask for explicitly, errors are logged but the publish still proceeds. In
+ * 'off' mode the payload is passed through without any validation.
  */
 export declare function createValidatingPublisher<T>(registry: Registry, eventName: string, publishFn: (payload: T) => Promise<void>, options?: ValidatingPublisherOptions): (payload: T) => Promise<void>;
 /**

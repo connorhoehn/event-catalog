@@ -56,10 +56,13 @@ SERVER ENVIRONMENT
   SUBSCRIBER_TTL_SECONDS       default 1800 (0 disables the sweeper)
   REDIS_BOOT_CONNECT_ATTEMPTS  default 3
   EVENT_CATALOG_STRICT         default false
-  EVENT_CATALOG_AUTH_TOKEN     unset = admin API unauthenticated (default).
-                               Set it to require "Authorization: Bearer
-                               <token>" on every mutating (non-GET) /api
-                               request. Min 16 chars, no whitespace.
+  EVENT_CATALOG_AUTH_TOKEN     requires "Authorization: Bearer <token>" on
+                               every /api request, reads included (the
+                               health route excepted). Required in
+                               production and whenever
+                               MQ_SERVICE_AUTH_SECRET is set; unset only
+                               for local development. Min 16 chars, no
+                               whitespace.
   ALERT_WEBHOOK_URL            optional http(s) webhook
   DYNAMODB_ENDPOINT            optional; LocalStack / DynamoDB Local
 

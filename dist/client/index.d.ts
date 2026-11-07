@@ -315,6 +315,11 @@ export declare class EventCatalog {
      * the request shape it saw before v0.5.0.
      */
     private registryHeaders;
+    /**
+     * Just the bearer header, for registry reads. The server challenges GETs
+     * too whenever its token is set.
+     */
+    private registryAuthHeaders;
     private isStrict;
     /**
      * Publish a declared event. Validates the payload locally against the

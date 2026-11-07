@@ -64,7 +64,7 @@ describe('createValidatingPublisher', () => {
     });
   });
 
-  describe("mode: 'warn' (default)", () => {
+  describe("mode: 'warn' (explicit)", () => {
     beforeEach(() => {
       vi.spyOn(console, 'warn').mockImplementation(() => {});
     });
@@ -130,20 +130,20 @@ describe('createValidatingPublisher', () => {
       expect(publishFn).toHaveBeenCalledWith(VALID_PAYLOAD);
     });
 
-    it('defaults to warn mode when no mode is provided', async () => {
+    it('defaults to strict mode when no mode is provided', async () => {
       const reg = makeRegistry();
       const publishFn = vi.fn(async () => {});
       const onValidationError = vi.fn();
 
-      // No mode option → defaults to 'warn'
+      // No mode option → defaults to 'strict': the invalid payload is refused.
       const publish = createValidatingPublisher(reg, 'orders.created', publishFn, {
         onValidationError,
       });
 
-      await publish(INVALID_PAYLOAD as never);
+      await expect(publish(INVALID_PAYLOAD as never)).rejects.toBeInstanceOf(ValidationError);
 
       expect(onValidationError).toHaveBeenCalledOnce();
-      expect(publishFn).toHaveBeenCalledOnce();
+      expect(publishFn).not.toHaveBeenCalled();
     });
 
     it('warns about unknown event names but still publishes', async () => {

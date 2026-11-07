@@ -995,8 +995,11 @@ describe('Server Routes', () => {
         }),
       };
 
+      // Replay re-validates against the registry, so the event must be declared.
+      const replayRegistry = new Registry();
+      replayRegistry.declare({ name: 'orders.failed', transport: 'durable', producer: 'order-service' });
       const localApp = createApp({
-        registry,
+        registry: replayRegistry,
         metrics,
         metricsObserver: { observe: async () => {} } as unknown as RoutesDeps['metricsObserver'],
         signal: signal as unknown as RoutesDeps['signal'],

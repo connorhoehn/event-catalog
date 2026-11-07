@@ -790,7 +790,7 @@ export class EventCatalog {
   async getSchemaFingerprint(eventName: string): Promise<string | null> {
     if (!this.config.registryUrl) return null;
     const url = `${this.config.registryUrl}/api/events/${encodeURIComponent(eventName)}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: this.registryAuthHeaders() });
     if (res.status === 404) return null;
     if (!res.ok) {
       throw new Error(`[event-catalog] getSchemaFingerprint("${eventName}"): HTTP ${res.status}`);
@@ -805,12 +805,19 @@ export class EventCatalog {
    * the request shape it saw before v0.5.0.
    */
   private registryHeaders(): Record<string, string> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    return { 'Content-Type': 'application/json', ...this.registryAuthHeaders() };
+  }
+
+  /**
+   * Just the bearer header, for registry reads. The server challenges GETs
+   * too whenever its token is set.
+   */
+  private registryAuthHeaders(): Record<string, string> {
     const token = this.config.authToken ?? process.env.EVENT_CATALOG_AUTH_TOKEN;
     if (typeof token === 'string' && token.trim() !== '') {
-      headers.Authorization = `Bearer ${token.trim()}`;
+      return { Authorization: `Bearer ${token.trim()}` };
     }
-    return headers;
+    return {};
   }
 
   private isStrict(): boolean {

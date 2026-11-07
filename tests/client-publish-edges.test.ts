@@ -540,6 +540,16 @@ describe('EventCatalog.getSchemaFingerprint', () => {
       'http://catalog:3010/api/events/orders%3Acreated',
     );
   });
+  it('sends the bearer token on the read, since the server gates GETs', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ schemaFingerprint: 'abc' }), { status: 200 }));
+    const catalog = new EventCatalog({
+      ...baseConfig(), registryUrl: 'http://catalog:3010', authToken: 'c0ffee0123456789abcdef',
+    } as never);
+
+    await catalog.getSchemaFingerprint('orders:created');
+    const init = fetchMock.mock.calls[0]![1] as RequestInit | undefined;
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer c0ffee0123456789abcdef');
+  });
 });
 
 // ---------------------------------------------------------------------------

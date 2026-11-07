@@ -1,17 +1,15 @@
 import type { Middleware } from './http-router.js';
 import { type CatalogLogger } from '../utils/logger.js';
 /**
- * Methods that never mutate registry state and are therefore never
- * challenged. HEAD and OPTIONS ride along with GET: OPTIONS is the CORS
- * preflight (answered before this middleware runs anyway) and HEAD is a
- * GET without a body.
+ * Health probes stay open (GET/HEAD only) so a liveness check cannot fail
+ * because a token was rotated. `/health` and `/metrics` are served off the
+ * root router, outside the `/api` prefix this middleware is mounted on;
+ * they are listed so a moved mount point cannot lock out a probe or a
+ * Prometheus scraper. `/api/health` is the health route under the prefix.
+ * Nothing else under `/api` is open, `/api/health/registry` and
+ * `/api/metrics` included — they describe the registry's internals.
  */
-export declare const SAFE_METHODS: readonly string[];
-/**
- * Paths that stay open regardless of method. A liveness probe and a
- * metrics scraper must never be able to fail because a token was rotated.
- */
-export declare const ALWAYS_OPEN_PATHS: readonly string[];
+export declare const OPEN_HEALTH_PATHS: readonly string[];
 /**
  * Shortest token accepted at boot. 16 characters is not a cryptographic
  * threshold, it is a "this is obviously a placeholder" threshold — the
@@ -21,6 +19,12 @@ export declare const ALWAYS_OPEN_PATHS: readonly string[];
 export declare const MIN_AUTH_TOKEN_LENGTH = 16;
 /** Name of the variable that turns this on. Unset means off. */
 export declare const AUTH_TOKEN_ENV_VAR = "EVENT_CATALOG_AUTH_TOKEN";
+/**
+ * The message-queue service-auth secret. When it is set the catalog signs
+ * its publishes (including dead-letter replays) as itself, so the admin
+ * API must not be open: `startServer` refuses to boot without a token.
+ */
+export declare const QUEUE_SECRET_ENV_VAR = "MQ_SERVICE_AUTH_SECRET";
 export type AuthTokenResult = {
     readonly ok: true;
     readonly token: string | undefined;
@@ -84,8 +88,9 @@ export interface BearerAuthOptions {
 /**
  * Connect-style middleware for `ServerConfig.authMiddleware`.
  *
- * Admits every safe-method request untouched. Challenges everything else:
- * a correct bearer token calls `next()`, anything else gets a bare 401.
+ * Admits the health routes and CORS preflights untouched. Challenges
+ * everything else, reads included: a correct bearer token calls `next()`,
+ * anything else gets a bare 401.
  * The response body is identical for an absent, malformed and wrong
  * token, so a caller cannot probe the header format or learn that a token
  * was "close". The server-side log line carries source, method and path —
@@ -93,10 +98,10 @@ export interface BearerAuthOptions {
  */
 export declare function createBearerAuthMiddleware(options: BearerAuthOptions): Middleware;
 /**
- * Pick the middleware `startServer` installs, and the reason the default
- * is provably unchanged: with no explicit middleware and no configured
- * token this returns `undefined`, and `startServer` then runs the exact
- * request path it ran before this module existed.
+ * Pick the middleware `startServer` installs. With no explicit middleware
+ * and no configured token this returns `undefined`; `startServer` then
+ * refuses to boot in production or with the queue secret set, and runs
+ * open only for local development.
  *
  * An explicit `ServerConfig.authMiddleware` always wins — a library
  * consumer who brings their own JWT check is not second-guessed by an

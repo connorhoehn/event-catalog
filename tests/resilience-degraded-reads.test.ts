@@ -174,7 +174,11 @@ describe('GET /api/transports/durable/dlq — DynamoDB throttling, not an outage
 
   it('batch replay reports a throttled entry as failed and keeps going', async () => {
     let call = 0;
+    // Replay re-validates against the registry, so the event must be declared.
+    const registry = new Registry();
+    registry.declare({ name: 'orders:failed', transport: 'durable', producer: 'order-service' });
     const app = appFor(makeRoutesDeps({
+      registry,
       dlqStore: {
         findById: vi.fn(async (id: string) => {
           call++;

@@ -23,7 +23,7 @@ import { ensureTable } from './dynamo-setup.js';
 import { startAuditLog } from './audit-log.js';
 import { RedisManifestStore } from './manifest-store.js';
 import { createRoutes } from './routes.js';
-import { resolveAuthMiddleware } from './auth.js';
+import { QUEUE_SECRET_ENV_VAR, resolveAuthMiddleware } from './auth.js';
 import { createBundleRoutes } from './bundle-routes.js';
 import {
   Router,
@@ -280,9 +280,9 @@ export interface ServerConfig {
   onDeadLetter?: DeadLetterHandler[];
   /**
    * Phase 20-d — optional connect-style middleware gating every `/api`
-   * route. The admin server is unauthenticated by default
-   * (deliberately, for local dev); operators can inject a JWT / API-key
-   * check here without forking startServer. Call `next()` to admit the
+   * route. Without it or `EVENT_CATALOG_AUTH_TOKEN` the server refuses to
+   * boot in production or with `MQ_SERVICE_AUTH_SECRET` set; operators can
+   * inject a JWT / API-key check here without forking startServer. Call `next()` to admit the
    * request; respond on `res` without calling next to reject it.
    *
    * Leave it unset and set `EVENT_CATALOG_AUTH_TOKEN` instead to get the
@@ -409,7 +409,10 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   };
 
   // Reuse an injected auth policy or the existing bearer-token middleware.
-  // An unconfigured development registry may remain open; production may not.
+  // An unconfigured development registry may remain open; production may
+  // not, and neither may a catalog holding the message-queue secret — it
+  // signs dead-letter replays as itself, so an open API would publish
+  // under the catalog's identity for anyone.
   const authMiddleware = resolveAuthMiddleware(
     config.authMiddleware,
     resolved.config.authToken,
@@ -417,6 +420,11 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   );
   if (process.env.NODE_ENV === 'production' && !authMiddleware) {
     throw new Error('EVENT_CATALOG_AUTH_TOKEN or an injected auth middleware is required in production');
+  }
+  if (resolved.config.messageQueueAuthSecret && !authMiddleware) {
+    throw new Error(
+      `EVENT_CATALOG_AUTH_TOKEN or an injected auth middleware is required when ${QUEUE_SECRET_ENV_VAR} is set`,
+    );
   }
 
   const drainMs = shutdownDrainMs
@@ -764,16 +772,14 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     const res = makeRouteResponse(nodeRes, compressionFor(nodeReq, compression));
 
     if (req.path === '/api' || req.path.startsWith('/api/')) {
-      // Auth gate (optional). Runs before the /api routers, so gating is
-      // decided in ONE place for all ~45 admin endpoints rather than per
-      // route. Two ways to get one: set $EVENT_CATALOG_AUTH_TOKEN for the
-      // built-in shared-secret bearer scheme (src/server/auth.ts — gates
-      // non-GET requests only, so the admin UI and the SSE streams are
-      // untouched), or pass your own JWT / API-key middleware as
-      // `authMiddleware`. Neither is on by default: the catalog ships
-      // unauthenticated on purpose (local dev / in-cluster private
-      // surface) and an upgrade must not start rejecting the producers
-      // that sync declarations at boot.
+      // Auth gate. Runs before the /api routers, so gating is decided in
+      // ONE place for all ~45 admin endpoints rather than per route. Two
+      // ways to get one: set $EVENT_CATALOG_AUTH_TOKEN for the built-in
+      // shared-secret bearer scheme (src/server/auth.ts — gates every
+      // request, reads included, except the health route), or pass your
+      // own JWT / API-key middleware as `authMiddleware`. Boot refuses to
+      // continue without one in production or with the queue secret set;
+      // only local development runs open.
       if (authMiddleware) {
         const admitted = await runMiddleware(authMiddleware, req, res);
         if (!admitted) {
