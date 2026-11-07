@@ -26,25 +26,25 @@ describe('useFlowTap — stream URL', () => {
   it('opens an unfiltered stream when no filters are set', () => {
     installMockEventSource();
     renderHook(() => useFlowTap({}));
-    expect(MockEventSource.latest.url).toBe('/api/flow');
+    expect(MockEventSource.latest.url).toBe('/admin-api/flow');
   });
 
   it('passes namespace and transport filters through to the server', () => {
     installMockEventSource();
     renderHook(() => useFlowTap({ namespace: 'call', transport: 'durable' }));
-    expect(MockEventSource.latest.url).toBe('/api/flow?namespace=call&transport=durable');
+    expect(MockEventSource.latest.url).toBe('/admin-api/flow?namespace=call&transport=durable');
   });
 
   it('omits sample=1, which is the server default and means "everything"', () => {
     installMockEventSource();
     renderHook(() => useFlowTap({ sample: 1 }));
-    expect(MockEventSource.latest.url).toBe('/api/flow');
+    expect(MockEventSource.latest.url).toBe('/admin-api/flow');
   });
 
   it('sends the sample knob when it is actually sampling', () => {
     installMockEventSource();
     renderHook(() => useFlowTap({ sample: 25 }));
-    expect(MockEventSource.latest.url).toBe('/api/flow?sample=25');
+    expect(MockEventSource.latest.url).toBe('/admin-api/flow?sample=25');
   });
 
   it('reopens the stream when a filter changes and closes the old one', () => {
@@ -55,7 +55,7 @@ describe('useFlowTap — stream URL', () => {
     const first = MockEventSource.latest;
     rerender({ ns: 'pipeline' });
     expect(first.closed).toBe(true);
-    expect(MockEventSource.latest.url).toBe('/api/flow?namespace=pipeline');
+    expect(MockEventSource.latest.url).toBe('/admin-api/flow?namespace=pipeline');
     expect(MockEventSource.instances).toHaveLength(2);
   });
 

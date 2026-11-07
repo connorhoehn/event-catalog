@@ -55,7 +55,7 @@ const tapEvent = (over: Record<string, unknown> = {}) => ({
 });
 
 function mount(topologyResponse: unknown = topology) {
-  mockFetch({ '/api/topology': { body: topologyResponse } });
+  mockFetch({ '/admin-api/topology': { body: topologyResponse } });
   installMockEventSource();
   return renderWithRouter(<FlowView />);
 }
@@ -75,7 +75,7 @@ describe('FlowView — loading / error tri-state', () => {
   });
 
   it('shows an error state, not an empty graph, when the topology fetch fails', async () => {
-    mockFetch({ '/api/topology': { status: 500, text: 'no registry' } });
+    mockFetch({ '/admin-api/topology': { status: 500, text: 'no registry' } });
     installMockEventSource();
     renderWithRouter(<FlowView />);
     const alert = await screen.findByRole('alert');
@@ -210,7 +210,7 @@ describe('FlowView — sampling and filters', () => {
     await user.clear(input);
     await user.type(input, '10');
     expect(input).toHaveValue(10);
-    await waitFor(() => expect(MockEventSource.latest.url).toBe('/api/flow?sample=10'));
+    await waitFor(() => expect(MockEventSource.latest.url).toBe('/admin-api/flow?sample=10'));
   });
 
   it('never sends a sample below 1, which would mean "no events at all"', async () => {
@@ -234,7 +234,7 @@ describe('FlowView — sampling and filters', () => {
     const input = screen.getByLabelText('sample 1/N');
     await user.clear(input);
     await user.type(input, '99999');
-    await waitFor(() => expect(MockEventSource.latest.url).toBe('/api/flow?sample=1000'));
+    await waitFor(() => expect(MockEventSource.latest.url).toBe('/admin-api/flow?sample=1000'));
   });
 
   it('offers each namespace present in the topology, plus "all"', async () => {
@@ -268,7 +268,7 @@ describe('FlowView — sampling and filters', () => {
       edges: [{ from: 'platform-api', to: 'call:caption:line', relation: 'publishes' }],
     };
     let call = 0;
-    mockFetch({ '/api/topology': () => (call++ === 0 ? { body: twoNamespaces } : { body: callOnly }) });
+    mockFetch({ '/admin-api/topology': () => (call++ === 0 ? { body: twoNamespaces } : { body: callOnly }) });
     installMockEventSource();
     const user = userEvent.setup();
     renderWithRouter(<FlowView />);

@@ -14,7 +14,7 @@ const entry = (id: string, eventName: string, over: Record<string, unknown> = {}
   ...over,
 });
 
-const DLQ = '/api/transports/durable/dlq';
+const DLQ = '/admin-api/transports/durable/dlq';
 
 function mount(routes: RouteTable = {}) {
   const mock = mockFetch({

@@ -18,8 +18,8 @@ import {
 } from '../test/fixtures/registry';
 
 const OK: RouteTable = {
-  '/api/events': { body: realEventsResponse },
-  '/api/feature-bundles': { body: realBundlesResponse },
+  '/admin-api/events': { body: realEventsResponse },
+  '/admin-api/feature-bundles': { body: realBundlesResponse },
 };
 
 const expected = computeCoverage(realEvents, realBundles);
@@ -45,8 +45,8 @@ describe('CoverageView — loading / empty / error tri-state', () => {
 
   it('renders an error when the bundle registry 500s — not "everything is covered"', async () => {
     mount({
-      '/api/events': { body: realEventsResponse },
-      '/api/feature-bundles': { status: 500, text: 'bundle registry down' },
+      '/admin-api/events': { body: realEventsResponse },
+      '/admin-api/feature-bundles': { status: 500, text: 'bundle registry down' },
     });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Error loading coverage');
@@ -57,8 +57,8 @@ describe('CoverageView — loading / empty / error tri-state', () => {
 
   it('renders an error when the event catalog 500s — a half answer would understate the gap', async () => {
     mount({
-      '/api/events': { status: 503, text: 'registry starting' },
-      '/api/feature-bundles': { body: realBundlesResponse },
+      '/admin-api/events': { status: 503, text: 'registry starting' },
+      '/admin-api/feature-bundles': { body: realBundlesResponse },
     });
     expect(await screen.findByRole('alert')).toHaveTextContent('registry starting');
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
@@ -68,8 +68,8 @@ describe('CoverageView — loading / empty / error tri-state', () => {
     const user = userEvent.setup();
     let failing = true;
     mount({
-      '/api/events': { body: realEventsResponse },
-      '/api/feature-bundles': () =>
+      '/admin-api/events': { body: realEventsResponse },
+      '/admin-api/feature-bundles': () =>
         failing ? { status: 503, text: 'starting up' } : { body: realBundlesResponse },
     });
     await screen.findByRole('alert');
@@ -85,8 +85,8 @@ describe('CoverageView — loading / empty / error tri-state', () => {
       events: events.map((e) => ({ name: e.name })),
     };
     mount({
-      '/api/events': { body: { events, total: events.length } },
-      '/api/feature-bundles': { body: { bundles: [bundle], total: 1 } },
+      '/admin-api/events': { body: { events, total: events.length } },
+      '/admin-api/feature-bundles': { body: { bundles: [bundle], total: 1 } },
     });
     expect(await screen.findByText('Every namespace is fully covered')).toBeInTheDocument();
   });
@@ -234,8 +234,8 @@ describe('CoverageView — bundle members the catalog does not declare', () => {
       events: [{ name: 'ws.chat.ghost', required: true }],
     };
     mount({
-      '/api/events': { body: realEventsResponse },
-      '/api/feature-bundles': { body: { bundles: [bundle], total: 1 } },
+      '/admin-api/events': { body: realEventsResponse },
+      '/admin-api/feature-bundles': { body: { bundles: [bundle], total: 1 } },
     });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Bundles reference events the catalog does not have');

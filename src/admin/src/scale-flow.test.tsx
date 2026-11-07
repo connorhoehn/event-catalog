@@ -136,7 +136,7 @@ afterAll(() => {
 });
 
 async function mountFlow(topology: TopologyGraph = realTopology): Promise<MockEventSource> {
-  mockFetch({ '/api/topology': { body: topology } });
+  mockFetch({ '/admin-api/topology': { body: topology } });
   installMockEventSource();
   renderWithRouter(<FlowView />);
   await screen.findByTestId('graph', {}, { timeout: 30_000 });

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { App } from '../App';
 import { AuthNotice } from './AuthNotice';
-import { noteResponseStatus, resetAuthState } from '../auth';
+import { isAuthRequired, noteResponseStatus, resetAuthState } from '../auth';
 import { mockFetch } from '../test/helpers';
 import { realRoutes } from '../test/fixtures/registry';
 
@@ -24,22 +24,43 @@ describe('AuthNotice', () => {
     act(() => noteResponseStatus(401));
     const notice = screen.getByTestId('auth-notice');
     expect(notice).toHaveTextContent(/requires an API token/i);
-    expect(notice).toHaveTextContent(/Reads and changes are both refused/i);
-    expect(notice).toHaveTextContent(/proxy/i);
-    // Announced, not just drawn: an operator who was refused a DLQ replay is
-    // most likely looking at the row, not the top of the page.
+    expect(notice).toHaveTextContent(/refused until you sign in/i);
     expect(notice).toHaveAttribute('role', 'alert');
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument();
   });
 
-  it('offers no field to type a token into', () => {
-    render(<AuthNotice />);
+  it('prompts for the token once, posts it to /admin/login, and carries on when accepted', async () => {
+    const fetchFn = vi.fn(async () => ({ ok: true, status: 204 }) as Response);
+    vi.stubGlobal('fetch', fetchFn);
+    const onSignedIn = vi.fn();
+    render(<AuthNotice onSignedIn={onSignedIn} />);
     act(() => noteResponseStatus(401));
-    // It IS rendered — otherwise the two negatives below would pass vacuously.
+
+    const field = screen.getByLabelText('Catalog token');
+    expect(field).toHaveAttribute('type', 'password');
+    await userEvent.type(field, 'the-token-the-token-1234');
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => expect(onSignedIn).toHaveBeenCalled());
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/admin/login');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ token: 'the-token-the-token-1234' });
+    expect(isAuthRequired()).toBe(false);
+  });
+
+  it('keeps the prompt and says so when the token is refused', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401 }) as Response));
+    const onSignedIn = vi.fn();
+    render(<AuthNotice onSignedIn={onSignedIn} />);
+    act(() => noteResponseStatus(401));
+    await userEvent.type(screen.getByLabelText('Catalog token'), 'wrong-token-wrong-token');
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => expect(screen.getByText(/not accepted/i)).toBeInTheDocument());
+    expect(onSignedIn).not.toHaveBeenCalled();
     expect(screen.getByTestId('auth-notice')).toBeInTheDocument();
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    // …and no dismiss control. Nothing the operator can do here clears the
-    // condition, and a closable banner is a forgotten one.
-    expect(screen.queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Catalog token')).toHaveValue('');
   });
 });
 
@@ -50,13 +71,13 @@ describe('the notice is app-wide, not per-view', () => {
     // until that fails too.
     mockFetch({
       ...realRoutes,
-      '/api/health': { body: { status: 'healthy', redis: { status: 'connected' }, messageQueue: { status: 'connected' }, uptime: 1, eventCount: 2 } },
-      '/api/health/registry': { body: { registrySize: 2, namespaceCount: 1, deprecatedCount: 0, orphanCount: 0, manifestCount: null, signal: { status: 'connected' }, durable: { status: 'connected' }, capturedAt: new Date().toISOString() } },
-      '/api/metrics': { body: {} },
-      '/api/deprecated': { body: { count: 0, items: [] } },
-      '/api/events/poisoned': { body: { count: 0, items: [] } },
-      '/api/transports/durable/dlq': { body: { messages: [], total: 0 } },
-      '/api/subscribers': { body: { subscribers: [], total: 0 } },
+      '/admin-api/health': { body: { status: 'healthy', redis: { status: 'connected' }, messageQueue: { status: 'connected' }, uptime: 1, eventCount: 2 } },
+      '/admin-api/health/registry': { body: { registrySize: 2, namespaceCount: 1, deprecatedCount: 0, orphanCount: 0, manifestCount: null, signal: { status: 'connected' }, durable: { status: 'connected' }, capturedAt: new Date().toISOString() } },
+      '/admin-api/metrics': { body: {} },
+      '/admin-api/deprecated': { body: { count: 0, items: [] } },
+      '/admin-api/events/poisoned': { body: { count: 0, items: [] } },
+      '/admin-api/transports/durable/dlq': { body: { messages: [], total: 0 } },
+      '/admin-api/subscribers': { body: { subscribers: [], total: 0 } },
       '/health': { body: { service: 'event-catalog', version: '0', status: 'healthy', checks: [], timestamp: '' } },
     });
 

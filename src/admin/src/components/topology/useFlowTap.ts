@@ -106,7 +106,7 @@ export function useFlowTap(
     if (filters.eventName) qs.set('eventName', filters.eventName);
     if (filters.sample && filters.sample > 1) qs.set('sample', String(filters.sample));
 
-    const url = `/api/flow${qs.toString() ? `?${qs}` : ''}`;
+    const url = `/admin-api/flow${qs.toString() ? `?${qs}` : ''}`;
     const es = new EventSource(url);
     sourceRef.current = es;
     setError(null);

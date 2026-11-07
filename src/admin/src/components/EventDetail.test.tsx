@@ -25,12 +25,12 @@ const entry = (over: Record<string, unknown> = {}) => ({
 });
 
 const DEFAULTS: RouteTable = {
-  [`/api/events/${ENCODED}/history`]: { body: { messages: [], transport: 'signal' } },
-  [`/api/events/${ENCODED}/producers/observed`]: {
+  [`/admin-api/events/${ENCODED}/history`]: { body: { messages: [], transport: 'signal' } },
+  [`/admin-api/events/${ENCODED}/producers/observed`]: {
     body: { eventName: NAME, declared: ['platform-api'], observed: [], undeclaredProducers: [], deadDeclaredProducers: [], mismatch: false },
   },
-  [`/api/events/${ENCODED}/stats`]: { body: entry().stats },
-  [`/api/events/${ENCODED}`]: { body: entry() },
+  [`/admin-api/events/${ENCODED}/stats`]: { body: entry().stats },
+  [`/admin-api/events/${ENCODED}`]: { body: entry() },
 };
 
 function mount(routes: RouteTable = {}) {
@@ -64,7 +64,7 @@ describe('EventDetail — loading / error tri-state', () => {
   });
 
   it('renders an error with a way back, not a blank page', async () => {
-    mount({ [`/api/events/${ENCODED}`]: { status: 404, text: 'not declared' } });
+    mount({ [`/admin-api/events/${ENCODED}`]: { status: 404, text: 'not declared' } });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Error loading this event');
     expect(alert).toHaveTextContent('not declared');
@@ -75,7 +75,7 @@ describe('EventDetail — loading / error tri-state', () => {
   it('decodes the event name before asking for it', async () => {
     const { calls } = mount();
     await screen.findByRole('heading', { name: NAME });
-    expect(calls).toContain(`/api/events/${ENCODED}`);
+    expect(calls).toContain(`/admin-api/events/${ENCODED}`);
   });
 });
 
@@ -86,14 +86,14 @@ describe('EventDetail — a failing /history must not take down the page', () =>
     // `Promise.all` rejection path. A sick transport therefore replaced the
     // schema, the fingerprint, the subscribers and the producer list — none
     // of which depend on the transport — with "Error loading this event".
-    mount({ [`/api/events/${ENCODED}/history`]: { status: 500, text: 'redis down' } });
+    mount({ [`/admin-api/events/${ENCODED}/history`]: { status: 500, text: 'redis down' } });
     expect(await screen.findByRole('heading', { name: NAME })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Schema' })).toBeInTheDocument();
     expect(screen.getByText('transcription-worker')).toBeInTheDocument();
   });
 
   it('reports the history failure inside the Recent Messages section', async () => {
-    mount({ [`/api/events/${ENCODED}/history`]: { status: 500, text: 'redis down' } });
+    mount({ [`/admin-api/events/${ENCODED}/history`]: { status: 500, text: 'redis down' } });
     await screen.findByRole('heading', { name: NAME });
     const messages = section(/Recent Messages/);
     expect(within(messages).getByRole('alert')).toHaveTextContent("Couldn't load recent messages");
@@ -113,7 +113,7 @@ describe('EventDetail — a failing /history must not take down the page', () =>
 
   it('degrades quietly when the observed-producer endpoint is missing', async () => {
     // An older server has no /producers/observed at all.
-    mount({ [`/api/events/${ENCODED}/producers/observed`]: { status: 404, text: 'nope' } });
+    mount({ [`/admin-api/events/${ENCODED}/producers/observed`]: { status: 404, text: 'nope' } });
     expect(await screen.findByRole('heading', { name: NAME })).toBeInTheDocument();
     expect(screen.queryByText('Observed Producers')).not.toBeInTheDocument();
   });
@@ -131,7 +131,7 @@ describe('EventDetail — the header', () => {
 
   it('marks a deprecated event and explains why', async () => {
     mount({
-      [`/api/events/${ENCODED}`]: {
+      [`/admin-api/events/${ENCODED}`]: {
         body: entry({
           deprecation: { deprecatedAt: '2026-08-01T00:00:00.000Z', reason: 'superseded by v2', by: 'connor' },
         }),
@@ -145,7 +145,7 @@ describe('EventDetail — the header', () => {
 
   it('flags a producer mismatch', async () => {
     mount({
-      [`/api/events/${ENCODED}/producers/observed`]: {
+      [`/admin-api/events/${ENCODED}/producers/observed`]: {
         body: {
           eventName: NAME,
           declared: ['platform-api'],
@@ -181,7 +181,7 @@ describe('EventDetail — live metrics', () => {
 
   it('repolls stats and shows the new numbers', async () => {
     let rate = 1.25;
-    mount({ [`/api/events/${ENCODED}/stats`]: () => ({ body: { ...entry().stats, publishRate: rate } }) });
+    mount({ [`/admin-api/events/${ENCODED}/stats`]: () => ({ body: { ...entry().stats, publishRate: rate } }) });
     await screen.findByText('1.25/s');
     rate = 9.5;
     await act(async () => {
@@ -195,7 +195,7 @@ describe('EventDetail — live metrics', () => {
     // event stopped", which is a page-someone conclusion.
     let failing = false;
     mount({
-      [`/api/events/${ENCODED}/stats`]: () =>
+      [`/admin-api/events/${ENCODED}/stats`]: () =>
         failing ? { status: 500, text: 'x' } : { body: entry().stats },
     });
     await screen.findByText('1.25/s');
@@ -208,8 +208,8 @@ describe('EventDetail — live metrics', () => {
 
   it('shows placeholders rather than zeros when there are no stats at all', async () => {
     mount({
-      [`/api/events/${ENCODED}`]: { body: entry({ stats: null }) },
-      [`/api/events/${ENCODED}/stats`]: { status: 404, text: 'no stats' },
+      [`/admin-api/events/${ENCODED}`]: { body: entry({ stats: null }) },
+      [`/admin-api/events/${ENCODED}/stats`]: { status: 404, text: 'no stats' },
     });
     await screen.findByRole('heading', { name: NAME });
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(4);
@@ -225,7 +225,7 @@ describe('EventDetail — schema and history', () => {
 
   it('lists each historical version with a diff toggle', async () => {
     mount({
-      [`/api/events/${ENCODED}`]: {
+      [`/admin-api/events/${ENCODED}`]: {
         body: entry({
           schemaHistory: [
             { version: 1, schema: { type: 'object' }, fingerprint: 'b'.repeat(64), updatedAt: '2026-01-01T00:00:00.000Z' },
@@ -240,7 +240,7 @@ describe('EventDetail — schema and history', () => {
 
   it('renders recent messages as expandable entries, newest numbered highest', async () => {
     mount({
-      [`/api/events/${ENCODED}/history`]: {
+      [`/admin-api/events/${ENCODED}/history`]: {
         body: { messages: [{ payload: { a: 1 } }, { payload: { b: 2 } }], transport: 'signal' },
       },
     });

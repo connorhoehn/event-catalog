@@ -19,6 +19,19 @@ export default defineConfig({
         target: 'http://localhost:3010',
         changeOrigin: true,
       },
+      // Same-origin proxy and sign-in (src/server/admin-session.ts).
+      '/admin-api': {
+        target: 'http://localhost:3010',
+        changeOrigin: true,
+      },
+      '/admin/login': {
+        target: 'http://localhost:3010',
+        changeOrigin: true,
+      },
+      '/admin/logout': {
+        target: 'http://localhost:3010',
+        changeOrigin: true,
+      },
       // The root /health, which is a different endpoint from /api/health: it
       // runs the service-runtime check list, and the `coordinator` check in it
       // is the only place the registry replication state is exposed. Without

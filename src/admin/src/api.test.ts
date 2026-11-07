@@ -1,6 +1,6 @@
 // Status mapping and the health fetch.
 //
-// The bug this file exists to prevent: `/api/health` reports each transport in
+// The bug this file exists to prevent: `/admin-api/health` reports each transport in
 // the transport's own vocabulary ('connected'), and a comparison against the
 // service-runtime vocabulary ('healthy') is silently always-false — so a
 // perfectly healthy system rendered both transports as DOWN and nothing threw.
@@ -78,7 +78,7 @@ describe('api.getHealth', () => {
   };
 
   it('returns the parsed health payload on 200', async () => {
-    mockFetch({ '/api/health': { body: { ...body, status: 'healthy' } } });
+    mockFetch({ '/admin-api/health': { body: { ...body, status: 'healthy' } } });
     const res = await api.getHealth();
     expect(res.redis.status).toBe('connected');
   });
@@ -89,7 +89,7 @@ describe('api.getHealth', () => {
     // that as a failed request replaced "Message Queue: disconnected" with
     // "Error loading the dashboard", which tells the operator nothing about
     // which transport is down.
-    mockFetch({ '/api/health': { status: 503, body } });
+    mockFetch({ '/admin-api/health': { status: 503, body } });
     const res = await api.getHealth();
     expect(res.status).toBe('unhealthy');
     expect(res.messageQueue.status).toBe('disconnected');
@@ -97,44 +97,44 @@ describe('api.getHealth', () => {
   });
 
   it('still throws when a 503 carries no health body (a proxy, not the catalog)', async () => {
-    mockFetch({ '/api/health': { status: 503, text: '<html>502 Bad Gateway</html>' } });
+    mockFetch({ '/admin-api/health': { status: 503, text: '<html>502 Bad Gateway</html>' } });
     await expect(api.getHealth()).rejects.toThrow(/503/);
   });
 
   it('throws on other error statuses', async () => {
-    mockFetch({ '/api/health': { status: 500, text: 'boom' } });
+    mockFetch({ '/admin-api/health': { status: 500, text: 'boom' } });
     await expect(api.getHealth()).rejects.toThrow(/API 500/);
   });
 });
 
 describe('api error surfacing', () => {
   it('includes the status code so the view can say what went wrong', async () => {
-    mockFetch({ '/api/events': { status: 500, text: 'registry exploded' } });
+    mockFetch({ '/admin-api/events': { status: 500, text: 'registry exploded' } });
     await expect(api.getEvents()).rejects.toThrow('API 500: registry exploded');
   });
 
   it('does not swallow a network failure into an empty result', async () => {
-    mockFetch({ '/api/events': { networkError: 'Failed to fetch' } });
+    mockFetch({ '/admin-api/events': { networkError: 'Failed to fetch' } });
     await expect(api.getEvents()).rejects.toThrow('Failed to fetch');
   });
 });
 
 describe('api query building', () => {
   it('omits the query string entirely when no filter is given', async () => {
-    const { calls } = mockFetch({ '/api/events': { body: { events: [], total: 0 } } });
+    const { calls } = mockFetch({ '/admin-api/events': { body: { events: [], total: 0 } } });
     await api.getEvents();
-    expect(calls[0]).toBe('/api/events');
+    expect(calls[0]).toBe('/admin-api/events');
   });
 
   it('encodes event names that contain colons and slashes', async () => {
-    const { calls } = mockFetch({ '/api/events': { body: {} } });
+    const { calls } = mockFetch({ '/admin-api/events': { body: {} } });
     await api.getEvent('pipeline:step/agent:tool');
-    expect(calls[0]).toBe('/api/events/pipeline%3Astep%2Fagent%3Atool');
+    expect(calls[0]).toBe('/admin-api/events/pipeline%3Astep%2Fagent%3Atool');
   });
 
   it('builds the bulk export URL from the selected names', () => {
-    expect(api.bulkExportUrl(['a:b', 'c'])).toBe('/api/events/bulk/export?names=a%3Ab,c');
-    expect(api.bulkExportUrl([])).toBe('/api/events/bulk/export');
+    expect(api.bulkExportUrl(['a:b', 'c'])).toBe('/admin-api/events/bulk/export?names=a%3Ab,c');
+    expect(api.bulkExportUrl([])).toBe('/admin-api/events/bulk/export');
   });
 });
 
@@ -171,7 +171,7 @@ describe('api — the endpoints the views call, and how they fail', () => {
   ])('%s rejects on a 500 rather than resolving to an empty result', async (_name, call) => {
     // The one shape a view must never see from a broken server is a
     // well-formed empty payload — that is what renders as "nothing declared".
-    mockFetch({ '/api': { status: 500, text: 'boom' } });
+    mockFetch({ '/admin-api': { status: 500, text: 'boom' } });
     await expect(call()).rejects.toThrow('API 500: boom');
   });
 
@@ -187,35 +187,35 @@ describe('api — the endpoints the views call, and how they fail', () => {
     ['bulkDeprecate', () => api.bulkDeprecate(['a:b'])],
     ['clearPoison', () => api.clearPoison('a:b')],
   ])('%s surfaces a rejected write instead of reporting success', async (_name, call) => {
-    mockFetch({ '/api': { status: 409, text: 'incompatible schema change' } });
+    mockFetch({ '/admin-api': { status: 409, text: 'incompatible schema change' } });
     await expect(call()).rejects.toThrow('API 409: incompatible schema change');
   });
 
   it('omits the staleAfter filter unless one was asked for', async () => {
-    const { calls } = mockFetch({ '/api/subscribers': { body: { subscribers: [], total: 0 } } });
+    const { calls } = mockFetch({ '/admin-api/subscribers': { body: { subscribers: [], total: 0 } } });
     await api.getSubscribers();
     await api.getSubscribers(0);
     await api.getSubscribers(600);
-    expect(calls).toEqual(['/api/subscribers', '/api/subscribers', '/api/subscribers?staleAfter=600']);
+    expect(calls).toEqual(['/admin-api/subscribers', '/admin-api/subscribers', '/admin-api/subscribers?staleAfter=600']);
   });
 
   it('asks for the full namespace payload only when the caller wants events', async () => {
-    const { calls } = mockFetch({ '/api/namespaces/summary': { body: { count: 0, items: [] } } });
+    const { calls } = mockFetch({ '/admin-api/namespaces/summary': { body: { count: 0, items: [] } } });
     await api.getNamespacesSummary();
     await api.getNamespacesSummary('full');
-    expect(calls).toEqual(['/api/namespaces/summary', '/api/namespaces/summary?detail=full']);
+    expect(calls).toEqual(['/admin-api/namespaces/summary', '/admin-api/namespaces/summary?detail=full']);
   });
 
   it('always sends a DLQ limit, and scopes to one event when asked', async () => {
-    const { calls } = mockFetch({ '/api/transports/durable/dlq': { body: { messages: [], total: 0 } } });
+    const { calls } = mockFetch({ '/admin-api/transports/durable/dlq': { body: { messages: [], total: 0 } } });
     await api.getDLQ();
     await api.getDLQ('call:caption:line', 10);
-    expect(calls[0]).toBe('/api/transports/durable/dlq?limit=100');
-    expect(calls[1]).toBe('/api/transports/durable/dlq?eventName=call%3Acaption%3Aline&limit=10');
+    expect(calls[0]).toBe('/admin-api/transports/durable/dlq?limit=100');
+    expect(calls[1]).toBe('/admin-api/transports/durable/dlq?eventName=call%3Acaption%3Aline&limit=10');
   });
 
   it('encodes the event name in every per-event path', async () => {
-    const { calls } = mockFetch({ '/api': { body: {} } });
+    const { calls } = mockFetch({ '/admin-api': { body: {} } });
     const name = 'pipeline:step/agent:tool';
     await api.getEventStats(name);
     await api.getEventHistory(name);
@@ -224,41 +224,41 @@ describe('api — the endpoints the views call, and how they fail', () => {
     await api.getObservedProducers(name);
     await api.getMetricsHistory(name);
     expect(calls.every((c) => !c.includes('pipeline:step'))).toBe(true);
-    expect(calls[0]).toBe('/api/events/pipeline%3Astep%2Fagent%3Atool/stats');
-    expect(calls[5]).toBe('/api/metrics/history?eventName=pipeline%3Astep%2Fagent%3Atool');
+    expect(calls[0]).toBe('/admin-api/events/pipeline%3Astep%2Fagent%3Atool/stats');
+    expect(calls[5]).toBe('/admin-api/metrics/history?eventName=pipeline%3Astep%2Fagent%3Atool');
   });
 
   it('sends the ids a batch redrive was asked for', async () => {
-    const { fn } = mockFetch({ '/api/transports/durable/dlq/replay': { body: { replayed: [], failed: [], total: 0 } } });
+    const { fn } = mockFetch({ '/admin-api/transports/durable/dlq/replay': { body: { replayed: [], failed: [], total: 0 } } });
     await api.batchReplayDLQ(['a', 'b']);
     expect(JSON.parse(String((fn.mock.calls[0]![1] as RequestInit).body))).toEqual({ ids: ['a', 'b'] });
   });
 
   it('scopes a DLQ clear to one event when given one', async () => {
-    const { calls } = mockFetch({ '/api/transports/durable/dlq/clear': { body: { cleared: 0 } } });
+    const { calls } = mockFetch({ '/admin-api/transports/durable/dlq/clear': { body: { cleared: 0 } } });
     await api.clearDLQ();
     await api.clearDLQ('a:b');
     expect(calls).toEqual([
-      '/api/transports/durable/dlq/clear',
-      '/api/transports/durable/dlq/clear?eventName=a%3Ab',
+      '/admin-api/transports/durable/dlq/clear',
+      '/admin-api/transports/durable/dlq/clear?eventName=a%3Ab',
     ]);
   });
 
   it('asks for the whole metrics history when no event is named', async () => {
-    const { calls } = mockFetch({ '/api/metrics/history': { body: {} } });
+    const { calls } = mockFetch({ '/admin-api/metrics/history': { body: {} } });
     await api.getMetricsHistory();
-    expect(calls[0]).toBe('/api/metrics/history');
+    expect(calls[0]).toBe('/admin-api/metrics/history');
   });
 
   it('passes topology filters through, and omits the ones not set', async () => {
-    const { calls } = mockFetch({ '/api/topology': { body: { nodes: [], edges: [] } } });
+    const { calls } = mockFetch({ '/admin-api/topology': { body: { nodes: [], edges: [] } } });
     await api.getTopology({ namespace: 'call' });
     await api.getTopology({ producer: 'platform-api', transport: 'durable' });
     await api.getTopology({});
     expect(calls).toEqual([
-      '/api/topology?namespace=call',
-      '/api/topology?producer=platform-api&transport=durable',
-      '/api/topology',
+      '/admin-api/topology?namespace=call',
+      '/admin-api/topology?producer=platform-api&transport=durable',
+      '/admin-api/topology',
     ]);
   });
 });
@@ -290,13 +290,13 @@ describe('a 401 from the auth gate', () => {
     // What the views render is `err.message`. Before this, all ten of them
     // showed `API 401: {"error":"Unauthorized"}` — a string that names neither
     // the cause nor anything the operator can do.
-    mockFetch({ '/api': { status: 401, text: '{"error":"Unauthorized"}' } });
+    mockFetch({ '/admin-api': { status: 401, text: '{"error":"Unauthorized"}' } });
     await expect(call()).rejects.toThrow(/requires an API token/i);
     await expect(call()).rejects.not.toThrow(/^API 401/);
   });
 
   it('carries the status so a caller can branch without matching on prose', async () => {
-    mockFetch({ '/api': { status: 401, text: '{"error":"Unauthorized"}' } });
+    mockFetch({ '/admin-api': { status: 401, text: '{"error":"Unauthorized"}' } });
     const err = await api.clearDLQ().catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).status).toBe(401);
@@ -304,7 +304,7 @@ describe('a 401 from the auth gate', () => {
   });
 
   it('does not mistake other failures for the auth gate', async () => {
-    mockFetch({ '/api': { status: 403, text: 'forbidden by policy' } });
+    mockFetch({ '/admin-api': { status: 403, text: 'forbidden by policy' } });
     const err = await api.clearDLQ().catch((e) => e);
     expect(isAuthError(err)).toBe(false);
     expect((err as Error).message).toBe('API 403: forbidden by policy');
@@ -312,14 +312,14 @@ describe('a 401 from the auth gate', () => {
 
   it('trips the app-wide latch so every other view can say so too', async () => {
     expect(isAuthRequired()).toBe(false);
-    mockFetch({ '/api': { status: 401, text: '' } });
+    mockFetch({ '/admin-api': { status: 401, text: '' } });
     await api.replayDLQ('id-1').catch(() => {});
     expect(isAuthRequired()).toBe(true);
     resetAuthState();
   });
 
   it('never puts a credential on the wire — there is none to put', async () => {
-    const { fn } = mockFetch({ '/api': { body: { cleared: 0 } } });
+    const { fn } = mockFetch({ '/admin-api': { body: { cleared: 0 } } });
     await api.clearDLQ();
     const init = fn.mock.calls[0]?.[1] as RequestInit | undefined;
     const headers = (init?.headers ?? {}) as Record<string, string>;

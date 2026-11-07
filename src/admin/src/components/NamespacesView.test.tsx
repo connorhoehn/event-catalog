@@ -23,7 +23,7 @@ const ns = (namespace: string, over: Record<string, unknown> = {}) => ({
 
 const SUMMARY = { count: 2, items: [ns('call'), ns('pipeline')] };
 
-function mount(routes: RouteTable = { '/api/namespaces/summary': { body: SUMMARY } }) {
+function mount(routes: RouteTable = { '/admin-api/namespaces/summary': { body: SUMMARY } }) {
   const mock = mockFetch(routes);
   renderWithRouter(<NamespacesView />);
   return mock;
@@ -43,7 +43,7 @@ describe('NamespacesView — loading / empty / error tri-state', () => {
   });
 
   it('renders an error, not an empty grid, on a 500', async () => {
-    mount({ '/api/namespaces/summary': { status: 500, text: 'registry down' } });
+    mount({ '/admin-api/namespaces/summary': { status: 500, text: 'registry down' } });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Error loading namespaces');
     expect(alert).toHaveTextContent('registry down');
@@ -55,7 +55,7 @@ describe('NamespacesView — loading / empty / error tri-state', () => {
     const user = userEvent.setup();
     let failing = true;
     mount({
-      '/api/namespaces/summary': () =>
+      '/admin-api/namespaces/summary': () =>
         failing ? { status: 503, text: 'starting up' } : { body: SUMMARY },
     });
     await screen.findByRole('alert');
@@ -65,7 +65,7 @@ describe('NamespacesView — loading / empty / error tri-state', () => {
   });
 
   it('says the catalog is empty only when it really is', async () => {
-    mount({ '/api/namespaces/summary': { body: { count: 0, items: [] } } });
+    mount({ '/admin-api/namespaces/summary': { body: { count: 0, items: [] } } });
     expect(await screen.findByText('No namespaces')).toBeInTheDocument();
     expect(screen.getByText(/Declare an event to populate the catalog/)).toBeInTheDocument();
   });
@@ -73,14 +73,14 @@ describe('NamespacesView — loading / empty / error tri-state', () => {
   it('asks for the full detail payload in one round trip', async () => {
     const { calls } = mount();
     await screen.findByText('call');
-    expect(calls[0]).toBe('/api/namespaces/summary?detail=full');
+    expect(calls[0]).toBe('/admin-api/namespaces/summary?detail=full');
   });
 });
 
 describe('NamespacesView — the grid', () => {
   it('summarises each namespace with its counts', async () => {
     mount({
-      '/api/namespaces/summary': {
+      '/admin-api/namespaces/summary': {
         body: { count: 1, items: [ns('call', { eventCount: 9, signalCount: 7, durableCount: 2, deprecatedCount: 1 })] },
       },
     });
@@ -93,7 +93,7 @@ describe('NamespacesView — the grid', () => {
 
   it('pluralises producers and subscribers correctly', async () => {
     mount({
-      '/api/namespaces/summary': {
+      '/admin-api/namespaces/summary': {
         body: { count: 1, items: [ns('call', { producerCount: 1, subscriberCount: 3 })] },
       },
     });
@@ -102,7 +102,7 @@ describe('NamespacesView — the grid', () => {
 
   it('omits a zero-count chip rather than showing "0 durable"', async () => {
     mount({
-      '/api/namespaces/summary': {
+      '/admin-api/namespaces/summary': {
         body: { count: 1, items: [ns('call', { durableCount: 0, deprecatedCount: 0 })] },
       },
     });
@@ -178,8 +178,8 @@ describe('NamespacesView — bulk deprecation', () => {
   it('sends every event in the namespace with the typed reason', async () => {
     const user = userEvent.setup();
     const { fn } = mount({
-      '/api/namespaces/summary': { body: SUMMARY },
-      '/api/events/bulk/deprecate': { body: { deprecated: ['call:one', 'call:two'], notFound: [], total: 2 } },
+      '/admin-api/namespaces/summary': { body: SUMMARY },
+      '/admin-api/events/bulk/deprecate': { body: { deprecated: ['call:one', 'call:two'], notFound: [], total: 2 } },
     });
     await expandCall(user);
     await user.click(screen.getByRole('button', { name: 'Deprecate namespace' }));
@@ -197,8 +197,8 @@ describe('NamespacesView — bulk deprecation', () => {
   it('reports a failed bulk deprecation instead of implying it worked', async () => {
     const user = userEvent.setup();
     mount({
-      '/api/namespaces/summary': { body: SUMMARY },
-      '/api/events/bulk/deprecate': { status: 500, text: 'write failed' },
+      '/admin-api/namespaces/summary': { body: SUMMARY },
+      '/admin-api/events/bulk/deprecate': { status: 500, text: 'write failed' },
     });
     await expandCall(user);
     await user.click(screen.getByRole('button', { name: 'Deprecate namespace' }));
@@ -223,6 +223,6 @@ describe('NamespacesView — bulk deprecation', () => {
     mount();
     await expandCall(user);
     await user.click(screen.getByRole('button', { name: 'Export namespace JSON' }));
-    expect(open).toHaveBeenCalledWith('/api/events/bulk/export?names=call%3Aone,call%3Atwo', '_blank');
+    expect(open).toHaveBeenCalledWith('/admin-api/events/bulk/export?names=call%3Aone,call%3Atwo', '_blank');
   });
 });

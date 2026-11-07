@@ -178,7 +178,7 @@ describe('TopologyView at 216 events', () => {
   });
 
   it('draws the whole catalog and keeps every namespace in the filter', async () => {
-    mockFetch({ '/api/topology': { body: realTopology } });
+    mockFetch({ '/admin-api/topology': { body: realTopology } });
     await timed('TopologyView mount', async () => {
       renderWithRouter(<TopologyView />);
       await screen.findByText(`${REAL_EVENT_COUNT} events`, {}, { timeout: 30_000 });
@@ -193,7 +193,7 @@ describe('TopologyView at 216 events', () => {
     const scoped = buildRealTopology('sfu');
     let call = 0;
     mockFetch({
-      '/api/topology': () => (call++ === 0 ? { body: realTopology } : { body: scoped }),
+      '/admin-api/topology': () => (call++ === 0 ? { body: realTopology } : { body: scoped }),
     });
     renderWithRouter(<TopologyView />);
     await screen.findByText(`${REAL_EVENT_COUNT} events`, {}, { timeout: 30_000 });
@@ -220,8 +220,8 @@ describe('TopologyView at 216 events', () => {
 describe('EventList at 216 rows', () => {
   function mountList() {
     mockFetch({
-      '/api/events': { body: realEventsResponse },
-      '/api/metrics/history': { body: realMetricsHistory },
+      '/admin-api/events': { body: realEventsResponse },
+      '/admin-api/metrics/history': { body: realMetricsHistory },
     });
     renderWithRouter(<EventList />);
   }
@@ -258,7 +258,7 @@ describe('EventList at 216 rows', () => {
 
 describe('NamespacesView with the real, uneven distribution', () => {
   it('renders every namespace card and expands the largest one', async () => {
-    mockFetch({ '/api/namespaces/summary': { body: realNamespaceSummary } });
+    mockFetch({ '/admin-api/namespaces/summary': { body: realNamespaceSummary } });
     await timed('NamespacesView mount', async () => {
       renderWithRouter(<NamespacesView />);
       await screen.findByText(`${realNamespaceSummary.count} total`, {}, { timeout: 30_000 });
@@ -286,7 +286,7 @@ describe('Bundles and coverage against the whole catalog', () => {
   const coverage = computeCoverage(realEvents, realBundles);
 
   it('lists every registered bundle', async () => {
-    mockFetch({ '/api/feature-bundles': { body: realBundlesResponse } });
+    mockFetch({ '/admin-api/feature-bundles': { body: realBundlesResponse } });
     await timed(`BundlesView mount (${REAL_BUNDLE_COUNT} bundles)`, async () => {
       renderWithRouter(<BundlesView />);
       await screen.findByText(`${REAL_BUNDLE_COUNT} total`, {}, { timeout: 30_000 });
@@ -297,8 +297,8 @@ describe('Bundles and coverage against the whole catalog', () => {
 
   it('diffs 226 events against 18 bundles and groups the gap by namespace', async () => {
     mockFetch({
-      '/api/events': { body: realEventsResponse },
-      '/api/feature-bundles': { body: realBundlesResponse },
+      '/admin-api/events': { body: realEventsResponse },
+      '/admin-api/feature-bundles': { body: realBundlesResponse },
     });
     await timed(
       `CoverageView mount (${REAL_EVENT_COUNT} events × ${REAL_BUNDLE_COUNT} bundles)`,
@@ -326,8 +326,8 @@ describe('Bundles and coverage against the whole catalog', () => {
 
   it('looks an event up across the whole catalog without a stall', async () => {
     mockFetch({
-      '/api/events': { body: realEventsResponse },
-      '/api/feature-bundles': { body: realBundlesResponse },
+      '/admin-api/events': { body: realEventsResponse },
+      '/admin-api/feature-bundles': { body: realBundlesResponse },
     });
     renderWithRouter(<CoverageView />);
     await screen.findByText(`${coverage.uncovered} uncovered`, {}, { timeout: 30_000 });

@@ -26,7 +26,7 @@ const MIXED = {
   total: 3,
 };
 
-function mount(routes: RouteTable = { '/api/subscribers': { body: MIXED } }) {
+function mount(routes: RouteTable = { '/admin-api/subscribers': { body: MIXED } }) {
   const mock = mockFetch(routes);
   renderWithRouter(<SubscribersView />);
   return mock;
@@ -60,7 +60,7 @@ describe('SubscribersView — loading / empty / error tri-state', () => {
   });
 
   it('renders an error, not an empty table, on a 500', async () => {
-    mount({ '/api/subscribers': { status: 500, text: 'redis down' } });
+    mount({ '/admin-api/subscribers': { status: 500, text: 'redis down' } });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Error loading subscribers');
     expect(alert).toHaveTextContent('redis down');
@@ -70,7 +70,7 @@ describe('SubscribersView — loading / empty / error tri-state', () => {
   it('recovers on Retry', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     let failing = true;
-    mount({ '/api/subscribers': () => (failing ? { status: 500, text: 'x' } : { body: MIXED }) });
+    mount({ '/admin-api/subscribers': () => (failing ? { status: 500, text: 'x' } : { body: MIXED }) });
     await screen.findByRole('alert');
     failing = false;
     await user.click(screen.getByRole('button', { name: 'Retry' }));
@@ -78,7 +78,7 @@ describe('SubscribersView — loading / empty / error tri-state', () => {
   });
 
   it('distinguishes a registry with no consumers from a broken one', async () => {
-    mount({ '/api/subscribers': { body: { subscribers: [], total: 0 } } });
+    mount({ '/admin-api/subscribers': { body: { subscribers: [], total: 0 } } });
     expect(await screen.findByText('No subscribers in this view')).toBeInTheDocument();
     expect(screen.getByText(/catalog\.subscribe/)).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -108,7 +108,7 @@ describe('SubscribersView — freshness', () => {
 
   it('formats the age in the largest sensible unit', async () => {
     mount({
-      '/api/subscribers': {
+      '/admin-api/subscribers': {
         body: {
           subscribers: [sub('s', 45), sub('m', 5 * 60), sub('h', 3 * 3600), sub('d', 2 * 86400)],
           total: 4,
@@ -123,7 +123,7 @@ describe('SubscribersView — freshness', () => {
 
   it('never shows a negative age for a clock-skewed future heartbeat', async () => {
     mount({
-      '/api/subscribers': {
+      '/admin-api/subscribers': {
         body: { subscribers: [sub('future-worker', -120)], total: 1 },
       },
     });
@@ -161,7 +161,7 @@ describe('SubscribersView — the freshness filter', () => {
   it('agrees with the count chip it sits next to', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mount({
-      '/api/subscribers': {
+      '/admin-api/subscribers': {
         body: {
           subscribers: [sub('a', 40 * 60), sub('b', 10 * 60), sub('c', 11 * 60), sub('d', 20)],
           total: 4,
@@ -175,7 +175,7 @@ describe('SubscribersView — the freshness filter', () => {
 
   it('says the FILTER is empty, not the registry', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    mount({ '/api/subscribers': { body: { subscribers: [sub('live', 10)], total: 1 } } });
+    mount({ '/admin-api/subscribers': { body: { subscribers: [sub('live', 10)], total: 1 } } });
     await screen.findByText('live');
     await user.click(screen.getByRole('button', { name: 'stale' }));
     expect(screen.getByText('No stale subscribers — try a different filter.')).toBeInTheDocument();
@@ -216,7 +216,7 @@ describe('SubscribersView — the table', () => {
     // Rows are keyed on the pair, not the service — collapsing them would
     // hide a subscription.
     mount({
-      '/api/subscribers': {
+      '/admin-api/subscribers': {
         body: {
           subscribers: [sub('worker', 10, 'a:one'), sub('worker', 10, 'a:two')],
           total: 2,

@@ -18,8 +18,8 @@ const event = (name: string, over: Record<string, unknown> = {}) => ({
 
 function mount(routes: RouteTable = {}) {
   const mock = mockFetch({
-    '/api/events': { body: { events: [event('a:one'), event('b:two')], total: 2 } },
-    '/api/metrics/history': { body: {} },
+    '/admin-api/events': { body: { events: [event('a:one'), event('b:two')], total: 2 } },
+    '/admin-api/metrics/history': { body: {} },
     ...routes,
   });
   renderWithRouter(<EventList />);
@@ -46,7 +46,7 @@ describe('EventList — loading / empty / error tri-state', () => {
   it('renders an error state and no empty state when the fetch fails', async () => {
     // A 500 that reads as "No events registered" tells the operator the
     // registry is empty. It is the same pixels for two opposite facts.
-    mount({ '/api/events': { status: 500, text: 'registry down' } });
+    mount({ '/admin-api/events': { status: 500, text: 'registry down' } });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Error loading events');
     expect(alert).toHaveTextContent('registry down');
@@ -56,7 +56,7 @@ describe('EventList — loading / empty / error tri-state', () => {
   });
 
   it('shows the empty state only for a genuinely empty registry', async () => {
-    mount({ '/api/events': { body: { events: [], total: 0 } } });
+    mount({ '/admin-api/events': { body: { events: [], total: 0 } } });
     expect(await screen.findByText('No events registered')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
@@ -65,7 +65,7 @@ describe('EventList — loading / empty / error tri-state', () => {
     const user = userEvent.setup();
     let failing = true;
     mount({
-      '/api/events': () =>
+      '/admin-api/events': () =>
         failing ? { status: 500, text: 'down' } : { body: { events: [event('a:one')], total: 1 } },
     });
     await screen.findByRole('alert');
@@ -77,7 +77,7 @@ describe('EventList — loading / empty / error tri-state', () => {
 
   it('still renders the table when the metrics history endpoint fails', async () => {
     // History is a nice-to-have; losing it must not lose the event list.
-    mount({ '/api/metrics/history': { status: 500, text: 'no history' } });
+    mount({ '/admin-api/metrics/history': { status: 500, text: 'no history' } });
     expect(await screen.findByText('a:one')).toBeInTheDocument();
     expect(screen.getAllByText('no samples yet')).toHaveLength(2);
   });
@@ -85,7 +85,7 @@ describe('EventList — loading / empty / error tri-state', () => {
 
 describe('EventList — sparkline', () => {
   it('says so rather than drawing a line from a single sample', async () => {
-    mount({ '/api/metrics/history': { body: { 'a:one': [4] } } });
+    mount({ '/admin-api/metrics/history': { body: { 'a:one': [4] } } });
     await screen.findByText('a:one');
     expect(screen.getAllByText('no samples yet').length).toBeGreaterThan(0);
     expect(document.querySelector('[data-testid="sparkline"]')).toBeNull();
@@ -95,7 +95,7 @@ describe('EventList — sparkline', () => {
     // The regression: min-based normalisation pinned the smallest sample to
     // the bottom edge, so 100 → 102/s and 0 → 100/s drew the identical
     // full-height ramp. Rates are magnitudes; the baseline has to be zero.
-    mount({ '/api/metrics/history': { body: { 'a:one': [100, 101, 102] } } });
+    mount({ '/admin-api/metrics/history': { body: { 'a:one': [100, 101, 102] } } });
     await screen.findByText('a:one');
     const ys = sparklineYs();
     const swing = Math.max(...ys) - Math.min(...ys);
@@ -103,14 +103,14 @@ describe('EventList — sparkline', () => {
   });
 
   it('still shows a real climb as a climb', async () => {
-    mount({ '/api/metrics/history': { body: { 'a:one': [0, 50, 100] } } });
+    mount({ '/admin-api/metrics/history': { body: { 'a:one': [0, 50, 100] } } });
     await screen.findByText('a:one');
     const ys = sparklineYs();
     expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(10);
   });
 
   it('names the sparkline for a screen reader', async () => {
-    mount({ '/api/metrics/history': { body: { 'a:one': [1, 2, 3] } } });
+    mount({ '/admin-api/metrics/history': { body: { 'a:one': [1, 2, 3] } } });
     expect(
       await screen.findByRole('img', { name: '60 second publish-rate trend for a:one' }),
     ).toBeInTheDocument();
@@ -119,7 +119,7 @@ describe('EventList — sparkline', () => {
 
 describe('EventList — cells', () => {
   it('shows a dash, not a bare "/s", for an event with no stats yet', async () => {
-    mount({ '/api/events': { body: { events: [event('a:one', { stats: null })], total: 1 } } });
+    mount({ '/admin-api/events': { body: { events: [event('a:one', { stats: null })], total: 1 } } });
     const row = (await screen.findByText('a:one')).closest('tr')!;
     expect(within(row).getByText('—')).toBeInTheDocument();
     expect(within(row).queryByText('/s')).not.toBeInTheDocument();
@@ -128,7 +128,7 @@ describe('EventList — cells', () => {
 
   it('joins a multi-producer declaration rather than printing an array', async () => {
     mount({
-      '/api/events': {
+      '/admin-api/events': {
         body: { events: [event('a:one', { producer: ['platform-api', 'gateway'] })], total: 1 },
       },
     });
@@ -175,7 +175,7 @@ describe('EventList — filters and bulk actions', () => {
   it('sends only the selected names when a reason is given', async () => {
     const user = userEvent.setup();
     const { fn } = mount({
-      '/api/events/bulk/deprecate': { body: { deprecated: ['a:one'], notFound: [], total: 1 } },
+      '/admin-api/events/bulk/deprecate': { body: { deprecated: ['a:one'], notFound: [], total: 1 } },
     });
     await screen.findByText('a:one');
     await user.click(screen.getByRole('checkbox', { name: 'Select a:one' }));
@@ -196,7 +196,7 @@ describe('EventList — filters and bulk actions', () => {
 
   it('surfaces a failed bulk deprecate rather than implying it worked', async () => {
     const user = userEvent.setup();
-    mount({ '/api/events/bulk/deprecate': { status: 500, text: 'nope' } });
+    mount({ '/admin-api/events/bulk/deprecate': { status: 500, text: 'nope' } });
     await screen.findByText('a:one');
     await user.click(screen.getByRole('checkbox', { name: 'Select a:one' }));
     await user.type(screen.getByLabelText('Deprecation reason'), 'why not');
@@ -213,14 +213,14 @@ describe('EventList at full catalog scale, on a token-gated catalog', () => {
     const user = userEvent.setup();
     const { fn } = mockFetch({
       ...realRoutes,
-      '/api/events/bulk/deprecate': { status: 401, text: '{"error":"Unauthorized"}' },
+      '/admin-api/events/bulk/deprecate': { status: 401, text: '{"error":"Unauthorized"}' },
     });
     renderWithRouter(<EventList />);
 
     const first = realEvents[0]!.name;
     await screen.findByText(first);
     // The read succeeded — all 229 are on screen. Only the write is gated.
-    expect(fn.mock.calls.some(([url]) => String(url).startsWith('/api/events'))).toBe(true);
+    expect(fn.mock.calls.some(([url]) => String(url).startsWith('/admin-api/events'))).toBe(true);
 
     await user.click(screen.getByRole('checkbox', { name: `Select ${first}` }));
     await user.type(screen.getByLabelText('Deprecation reason'), 'retiring');

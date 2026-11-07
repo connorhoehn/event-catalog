@@ -25,7 +25,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('useAuditTap — connection', () => {
   it('opens /api/audit with no query string when unfiltered', () => {
     renderHook(() => useAuditTap({}));
-    expect(MockEventSource.latest.url).toBe('/api/audit');
+    expect(MockEventSource.latest.url).toBe('/admin-api/audit');
   });
 
   it('passes every filter through to the server', () => {

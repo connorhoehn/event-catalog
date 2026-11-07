@@ -1,13 +1,9 @@
 // The UI's position on credentials, asserted rather than left in a comment.
 //
-// The decision (see the header of `auth.ts`) is that this UI holds no token:
-// the server's `EVENT_CATALOG_AUTH_TOKEN` is a deployment-wide shared secret
-// with no per-operator identity and no revocation, and every place a browser
-// could put it — localStorage, a URL, an in-memory field behind a paste box —
-// widens its blast radius without buying anything a proxy does not already
-// give. What we owe the operator instead is a legible failure. These tests
-// pin both halves: the latch that makes the failure app-wide, and the fact
-// that no storage API is ever touched.
+// The page never holds the token: the operator pastes it once into the
+// sign-in prompt, the server answers with an httpOnly cookie, and the data
+// calls go through `/admin-api`. These tests pin the latch that makes a 401
+// app-wide, what the operator is told, and that no storage API is touched.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -54,21 +50,20 @@ describe('what the operator is told', () => {
     expect(AUTH_REQUIRED_MESSAGE).toMatch(/requires an API token/i);
     expect(AUTH_REQUIRED_MESSAGE).toMatch(/401/);
     // The thing a bare `API 401: {"error":"Unauthorized"}` never said.
-    expect(AUTH_REQUIRED_MESSAGE).toMatch(/holds no credentials/i);
+    expect(AUTH_REQUIRED_MESSAGE).toMatch(/sign in/i);
   });
 
   it('tells the operator which actions are dead and which are not', () => {
     expect(AUTH_BANNER_TITLE).toMatch(/requires an API token/i);
-    expect(AUTH_BANNER_BODY).toMatch(/Reads and changes are both refused/i);
+    expect(AUTH_BANNER_BODY).toMatch(/refused until you sign in/i);
     for (const action of ['declare', 'deprecate', 'subscriber', 'replay']) {
       expect(AUTH_BANNER_BODY.toLowerCase()).toContain(action);
     }
   });
 
-  it('gives two ways out, and neither is "paste it here"', () => {
-    expect(AUTH_BANNER_BODY).toMatch(/proxy/i);
+  it('says where the token goes and that the page does not keep it', () => {
     expect(AUTH_BANNER_BODY).toMatch(/EVENT_CATALOG_AUTH_TOKEN/);
-    expect(AUTH_BANNER_BODY).toMatch(/Authorization: Bearer/);
+    expect(AUTH_BANNER_BODY).toMatch(/never stored in the page/i);
   });
 });
 

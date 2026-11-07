@@ -24,6 +24,7 @@ import { startAuditLog } from './audit-log.js';
 import { RedisManifestStore } from './manifest-store.js';
 import { createRoutes } from './routes.js';
 import { QUEUE_SECRET_ENV_VAR, resolveAuthMiddleware } from './auth.js';
+import { createAdminSessions } from './admin-session.js';
 import { createBundleRoutes } from './bundle-routes.js';
 import {
   Router,
@@ -496,6 +497,10 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     requestHeaders: resolved.config.messageQueueAuthSecret ? createServiceRequestHeaders({
       secret: resolved.config.messageQueueAuthSecret, serviceId: 'event-catalog', audience: 'message-queue',
     }) : undefined });
+  // Browser sign-in for the admin UI: only meaningful when a token exists.
+  const adminSessions = resolved.config.authToken !== undefined
+    ? createAdminSessions({ token: resolved.config.authToken })
+    : undefined;
   const startedAt = Date.now();
 
   // Connect transports
@@ -760,6 +765,18 @@ export async function startServer(config: ServerConfig = {}): Promise<{
         ares.json(400, { error: 'InvalidJson' });
         return;
       }
+    }
+
+    if (adminSessions) {
+      if (adminSessions.handleAuthRoute(nodeReq, nodeRes, body)) return;
+      // `/admin-api/*` becomes `/api/*`, with the bearer attached only for a
+      // signed-in session; the rewritten request then meets the same gate.
+      adminSessions.prepareProxy(nodeReq);
+    } else if ((nodeReq.url ?? '').startsWith('/admin-api')) {
+      // No token configured: the API is open (or guarded by an injected
+      // middleware), so the alias is a plain path rewrite.
+      const rest = (nodeReq.url ?? '').slice('/admin-api'.length);
+      if (rest === '' || rest[0] === '/' || rest[0] === '?') nodeReq.url = `/api${rest}`;
     }
 
     const req = makeRouteRequest(nodeReq, body);

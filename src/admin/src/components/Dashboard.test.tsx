@@ -25,10 +25,10 @@ const health = (redis: string, mq: string) => ({
 
 function mount(routes: RouteTable = {}) {
   const mock = mockFetch({
-    '/api/events': { body: { events: [event('a:one')], total: 1 } },
-    '/api/health': { body: health('connected', 'connected') },
-    '/api/health/registry': { status: 404, text: 'no' },
-    '/api/events/poisoned': { body: { count: 0, items: [] } },
+    '/admin-api/events': { body: { events: [event('a:one')], total: 1 } },
+    '/admin-api/health': { body: health('connected', 'connected') },
+    '/admin-api/health/registry': { status: 404, text: 'no' },
+    '/admin-api/events/poisoned': { body: { count: 0, items: [] } },
     ...routes,
   });
   renderWithRouter(<Dashboard />);
@@ -53,7 +53,7 @@ describe('Dashboard — loading / error tri-state', () => {
   it('renders an error state with the heading intact, not zeroed-out stats', async () => {
     // Zeros for "registered events" and "total publishes" on a failed fetch
     // read as a catalog with nothing in it.
-    mount({ '/api/events': { status: 500, text: 'registry down' } });
+    mount({ '/admin-api/events': { status: 500, text: 'registry down' } });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Error loading the dashboard');
     expect(alert).toHaveTextContent('registry down');
@@ -66,7 +66,7 @@ describe('Dashboard — loading / error tri-state', () => {
     const user = userEvent.setup();
     let failing = true;
     mount({
-      '/api/events': () =>
+      '/admin-api/events': () =>
         failing ? { status: 500, text: 'down' } : { body: { events: [event('a:one')], total: 1 } },
     });
     await screen.findByRole('alert');
@@ -97,7 +97,7 @@ describe('Dashboard — transport status', () => {
     // body to a thrown request meant the dashboard reported "the catalog API
     // did not answer" at exactly the moment the catalog was answering with
     // the diagnosis.
-    mount({ '/api/health': { status: 503, body: health('connected', 'disconnected') } });
+    mount({ '/admin-api/health': { status: 503, body: health('connected', 'disconnected') } });
     await screen.findByRole('heading', { name: 'Transport Status' });
     expect(within(statusRow('Message Queue (Durable)')).getByText('disconnected')).toBeInTheDocument();
     expect(statusRow('Message Queue (Durable)').querySelector('.status-dot')).toHaveClass('red');
@@ -106,7 +106,7 @@ describe('Dashboard — transport status', () => {
   });
 
   it('does not paint a degraded transport green', async () => {
-    mount({ '/api/health': { body: health('degraded', 'connected') } });
+    mount({ '/admin-api/health': { body: health('degraded', 'connected') } });
     await screen.findByRole('heading', { name: 'Transport Status' });
     expect(statusRow('Redis (Signal)').querySelector('.status-dot')).toHaveClass('red');
     expect(within(statusRow('Redis (Signal)')).getByText('degraded')).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe('Dashboard — transport status', () => {
 describe('Dashboard — rollups', () => {
   it('counts signal and durable events separately', async () => {
     mount({
-      '/api/events': {
+      '/admin-api/events': {
         body: {
           events: [event('a', { transport: 'signal' }), event('b', { transport: 'durable' }), event('c', { transport: 'durable' })],
           total: 3,
@@ -142,7 +142,7 @@ describe('Dashboard — rollups', () => {
 
   it('flags orphans, never-published and deprecated events when present', async () => {
     mount({
-      '/api/events': {
+      '/admin-api/events': {
         body: {
           events: [
             event('orphan', { subscribers: [] }),
@@ -168,13 +168,13 @@ describe('Dashboard — rollups', () => {
   it('lists poisoned events and lets one be dismissed', async () => {
     const user = userEvent.setup();
     mount({
-      '/api/events/poisoned': {
+      '/admin-api/events/poisoned': {
         body: {
           count: 1,
           items: [{ eventName: 'a:one', failuresInWindow: 12, poisonedAt: 'x', threshold: 10, windowMs: 300000 }],
         },
       },
-      '/api/events/a%3Aone/poison': { body: { cleared: 'a:one', wasPoison: true } },
+      '/admin-api/events/a%3Aone/poison': { body: { cleared: 'a:one', wasPoison: true } },
     });
     expect(await screen.findByText(/1 Poisoned Event/)).toBeInTheDocument();
     expect(screen.getByText(/12 failures in 5m/)).toBeInTheDocument();

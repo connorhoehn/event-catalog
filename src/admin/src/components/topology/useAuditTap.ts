@@ -112,7 +112,7 @@ export function useAuditTap(filters: AuditFilters, initiallyLive = true): AuditT
     if (filters.eventName) qs.set('eventName', filters.eventName);
     if (filters.namespace) qs.set('namespace', filters.namespace);
     if (filters.serviceName) qs.set('serviceName', filters.serviceName);
-    const url = `/api/audit${qs.toString() ? `?${qs}` : ''}`;
+    const url = `/admin-api/audit${qs.toString() ? `?${qs}` : ''}`;
     const es = new EventSource(url);
     sourceRef.current = es;
     setError(null);

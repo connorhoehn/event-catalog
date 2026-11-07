@@ -302,9 +302,9 @@ export const realBundleMemberNames: string[] = [
 
 /** The route table every view needs to render the full catalog. */
 export const realRoutes = {
-  '/api/events': { body: realEventsResponse },
-  '/api/metrics/history': { body: realMetricsHistory },
-  '/api/topology': { body: realTopology },
-  '/api/namespaces/summary': { body: realNamespaceSummary },
-  '/api/feature-bundles': { body: realBundlesResponse },
+  '/admin-api/events': { body: realEventsResponse },
+  '/admin-api/metrics/history': { body: realMetricsHistory },
+  '/admin-api/topology': { body: realTopology },
+  '/admin-api/namespaces/summary': { body: realNamespaceSummary },
+  '/admin-api/feature-bundles': { body: realBundlesResponse },
 };

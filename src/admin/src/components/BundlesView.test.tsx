@@ -7,7 +7,7 @@ import { BundlesView } from './BundlesView';
 import { mockFetch, renderWithRouter, type RouteTable } from '../test/helpers';
 import { REAL_BUNDLE_COUNT, realBundles, realBundlesResponse } from '../test/fixtures/registry';
 
-const OK: RouteTable = { '/api/feature-bundles': { body: realBundlesResponse } };
+const OK: RouteTable = { '/admin-api/feature-bundles': { body: realBundlesResponse } };
 
 function mount(routes: RouteTable = OK) {
   const mock = mockFetch(routes);
@@ -29,7 +29,7 @@ describe('BundlesView — loading / empty / error tri-state', () => {
   });
 
   it('renders an error, not an empty inventory, on a 500', async () => {
-    mount({ '/api/feature-bundles': { status: 500, text: 'bundle registry down' } });
+    mount({ '/admin-api/feature-bundles': { status: 500, text: 'bundle registry down' } });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Error loading bundles');
     expect(alert).toHaveTextContent('bundle registry down');
@@ -43,7 +43,7 @@ describe('BundlesView — loading / empty / error tri-state', () => {
     const user = userEvent.setup();
     let failing = true;
     mount({
-      '/api/feature-bundles': () =>
+      '/admin-api/feature-bundles': () =>
         failing ? { status: 503, text: 'starting up' } : { body: realBundlesResponse },
     });
     await screen.findByRole('alert');
@@ -53,7 +53,7 @@ describe('BundlesView — loading / empty / error tri-state', () => {
   });
 
   it('explains an empty registry instead of leaving a blank page', async () => {
-    mount({ '/api/feature-bundles': { body: { bundles: [], total: 0 } } });
+    mount({ '/admin-api/feature-bundles': { body: { bundles: [], total: 0 } } });
     expect(await screen.findByText('No bundles registered')).toBeInTheDocument();
     expect(screen.getByText(/declared in src\/declarations\/bundles/)).toBeInTheDocument();
   });

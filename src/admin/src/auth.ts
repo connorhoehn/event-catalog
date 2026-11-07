@@ -8,77 +8,43 @@
 // token set, reached without a proxy that adds it, loads its shell and then
 // answers every data call with a bare 401.
 //
-// ─── The decision: this UI holds no token ───────────────────────────────────
+// ─── The decision: the page never holds the token ───────────────────────────
 //
-// It would be a handful of lines to add a "paste your token" field. We do not,
-// for four reasons, in descending order of how much they matter:
+// The token is a deployment-wide shared secret, and nowhere in a page is a
+// safe place for it: localStorage is readable by any script on the origin
+// (the admin renders schemas and DLQ errors other services wrote), a URL
+// lands in history and logs, and an EventSource cannot set headers at all.
 //
-//  1. **It is a deployment-wide shared secret, not a user credential.** There
-//     is no login, no per-operator identity, no scope and no rotation story —
-//     `resolveAuthToken` validates one string and `secretsMatch` compares
-//     against it. Anyone holding it can delete every declaration and clear the
-//     DLQ. Asking an operator to paste that into a browser field multiplies
-//     the number of places it exists: clipboard history, password-manager
-//     autofill, a screen share, a devtools Network panel, a browser extension
-//     with host permissions.
-//
-//  2. **Nowhere to put it is actually safe.** `localStorage` survives the tab
-//     and is readable by any script that ever executes on this origin — the
-//     admin renders event names, producers, schemas and DLQ error strings that
-//     come from other services, so an XSS here is not hypothetical. In-memory
-//     state avoids the disk but is lost on every refresh, which makes it
-//     useless in the one workflow (a long DLQ redrive session) that would want
-//     it. A URL or query parameter is worse still: it lands in browser
-//     history, in the Referer header of every outbound link, and in the
-//     access log of anything in front of us.
-//
-//  3. **The server already names the right answer.** The 401 carries
-//     `WWW-Authenticate: Bearer`, and the token is meant for machine callers —
-//     the producers that POST their declarations at boot via
-//     `syncToRemoteRegistry`. A human operating the admin UI belongs behind an
-//     authenticating reverse proxy that terminates SSO and injects
-//     `Authorization: Bearer $EVENT_CATALOG_AUTH_TOKEN` upstream. That gives
-//     per-person identity and revocation, which a pasted shared secret cannot.
-//
-//  4. **The proxy is the only place it scales.** Reads and writes are both
-//     challenged, so a token in the page would have to ride on every fetch
-//     and every EventSource (which cannot set headers at all); a proxy adds
-//     it to all of them in one place.
-//
-// What we owe the operator instead is that the failure is legible: the exact
-// action that was refused, why, and what to do about it — never a bare
-// "API 401: {"error":"Unauthorized"}".
+// So the operator pastes it ONCE into the sign-in prompt (`AuthNotice`). The
+// server compares it in constant time and answers with an httpOnly,
+// SameSite=Strict session cookie (12 hours, kept in server memory), and this
+// UI calls `/admin-api/*`, which the server forwards to `/api/*` with the
+// bearer attached server-side only for a request carrying that cookie
+// (src/server/admin-session.ts). After the POST the token is gone from the
+// page; nothing here stores or can read it. A deployment that prefers an
+// authenticating reverse proxy in front still works: it injects the header
+// itself and the prompt never appears.
 
 import { useSyncExternalStore } from 'react';
 
 /**
- * What a mutating call's rejection says in the place the component already
- * renders `err.message`. One sentence: the components put it in an inline
- * error next to the control that failed, and the banner below carries the
- * long form.
+ * What a rejected call says in the place the component already renders
+ * `err.message`. One sentence; the sign-in prompt above carries the rest.
  */
 export const AUTH_REQUIRED_MESSAGE =
   'This catalog requires an API token — the server refused this action with '
-  + '401 Unauthorized. The admin UI holds no credentials by design; reach it '
-  + 'through a proxy that adds the Authorization header.';
+  + '401 Unauthorized. Sign in with the token using the prompt at the top of the page.';
 
-/** Heading for the app-wide banner. */
+/** Heading for the app-wide sign-in prompt. */
 export const AUTH_BANNER_TITLE = 'This catalog requires an API token.';
 
-/**
- * The long form, shown once at the top of the app rather than repeated at
- * every control. Kept as data so a test can assert the operator is told the
- * three things they need: what still works, what does not, and the fix.
- */
+/** The prompt's explanation: what is blocked, and what signing in does. */
 export const AUTH_BANNER_BODY =
-  'Reads and changes are both refused — browsing, topology, the live flow, '
-  + 'the dead-letter list and every change (declare, deprecate, subscriber '
-  + 'add/remove, DLQ replay and clear) will keep failing with 401 until the request carries '
-  + '`Authorization: Bearer <token>`. This UI deliberately stores no token: '
-  + 'the value in EVENT_CATALOG_AUTH_TOKEN is a deployment-wide shared secret '
-  + 'with no per-operator identity or revocation, so it belongs in an '
-  + 'authenticating proxy in front of the catalog, not in a browser. Only a '
-  + 'local development catalog runs without EVENT_CATALOG_AUTH_TOKEN.';
+  'Reads and changes are refused until you sign in: browsing, topology, the '
+  + 'live flow, the dead-letter list and every change (declare, deprecate, '
+  + 'subscriber add/remove, DLQ replay and clear). Paste the value of '
+  + 'EVENT_CATALOG_AUTH_TOKEN once; the server keeps it and gives this browser '
+  + 'a 12 hour session cookie, so the token is never stored in the page.';
 
 /**
  * Latched, app-wide "the server is challenging our writes" flag.

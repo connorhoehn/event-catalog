@@ -31,8 +31,8 @@ const stats = (rate: number) => ({
 
 function mount(routes: RouteTable = {}) {
   const mock = mockFetch({
-    '/api/events': { body: EVENTS },
-    '/api/metrics': { body: { 'call:caption:line': stats(2.5) } },
+    '/admin-api/events': { body: EVENTS },
+    '/admin-api/metrics': { body: { 'call:caption:line': stats(2.5) } },
     ...routes,
   });
   renderWithRouter(<LiveInspector />);
@@ -69,7 +69,7 @@ describe('LiveInspector — loading / empty / error tri-state for the pickers', 
   it('reports a failed event list rather than rendering two empty pickers', async () => {
     // This was `.catch(() => {})`: a registry that was down looked exactly
     // like a registry with nothing in it.
-    mount({ '/api/events': { status: 500, text: 'registry down' } });
+    mount({ '/admin-api/events': { status: 500, text: 'registry down' } });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Error loading the event list');
     expect(alert).toHaveTextContent('registry down');
@@ -78,7 +78,7 @@ describe('LiveInspector — loading / empty / error tri-state for the pickers', 
   });
 
   it('says which picker is empty when the catalog really has nothing of that kind', async () => {
-    mount({ '/api/events': { body: { events: [event('a:one', 'signal')], total: 1 } } });
+    mount({ '/admin-api/events': { body: { events: [event('a:one', 'signal')], total: 1 } } });
     expect(await screen.findByText('No durable events registered')).toBeInTheDocument();
     expect(screen.queryByText('No signal events registered')).not.toBeInTheDocument();
   });
@@ -104,7 +104,7 @@ describe('LiveInspector — the message stream', () => {
   it('tails the selected event and renders its payload', async () => {
     const user = setup();
     mount({
-      '/api/events/call%3Acaption%3Aline/history': {
+      '/admin-api/events/call%3Acaption%3Aline/history': {
         body: { messages: [{ text: 'hello world' }], transport: 'signal' },
       },
     });
@@ -122,7 +122,7 @@ describe('LiveInspector — the message stream', () => {
     // actually flowing.
     const user = setup();
     mount({
-      '/api/events/call%3Acaption%3Aline/history': {
+      '/admin-api/events/call%3Acaption%3Aline/history': {
         body: { messages: [{ seq: 1 }, { seq: 2 }], transport: 'signal' },
       },
     });
@@ -135,7 +135,7 @@ describe('LiveInspector — the message stream', () => {
     const user = setup();
     let page = [{ seq: 1 }];
     mount({
-      '/api/events/call%3Acaption%3Aline/history': () => ({
+      '/admin-api/events/call%3Acaption%3Aline/history': () => ({
         body: { messages: page, transport: 'signal' },
       }),
     });
@@ -150,7 +150,7 @@ describe('LiveInspector — the message stream', () => {
     const user = setup();
     let page: Array<{ seq: number }> = [{ seq: 1 }];
     mount({
-      '/api/events/call%3Acaption%3Aline/history': () => ({
+      '/admin-api/events/call%3Acaption%3Aline/history': () => ({
         body: { messages: page, transport: 'signal' },
       }),
     });
@@ -168,7 +168,7 @@ describe('LiveInspector — the message stream', () => {
   it('empties the pane on Clear', async () => {
     const user = setup();
     mount({
-      '/api/events/call%3Acaption%3Aline/history': {
+      '/admin-api/events/call%3Acaption%3Aline/history': {
         body: { messages: [{ seq: 1 }], transport: 'signal' },
       },
     });
@@ -181,7 +181,7 @@ describe('LiveInspector — the message stream', () => {
   it('names what it is watching', async () => {
     const user = setup();
     mount({
-      '/api/events/call%3Acaption%3Aline/history': { body: { messages: [], transport: 'signal' } },
+      '/admin-api/events/call%3Acaption%3Aline/history': { body: { messages: [], transport: 'signal' } },
     });
     await user.click(await screen.findByLabelText('call:caption:line'));
     expect(screen.getByRole('status')).toHaveTextContent('Watching: call:caption:line');
@@ -191,7 +191,7 @@ describe('LiveInspector — the message stream', () => {
     const user = setup();
     let failing = false;
     mount({
-      '/api/events/call%3Acaption%3Aline/history': () =>
+      '/admin-api/events/call%3Acaption%3Aline/history': () =>
         failing ? { status: 500, text: 'gone' } : { body: { messages: [{ seq: 1 }], transport: 'signal' } },
     });
     await user.click(await screen.findByLabelText('call:caption:line'));
@@ -204,7 +204,7 @@ describe('LiveInspector — the message stream', () => {
   it('re-shows an event history after it is deselected and picked again', async () => {
     const user = setup();
     mount({
-      '/api/events/call%3Acaption%3Aline/history': {
+      '/admin-api/events/call%3Acaption%3Aline/history': {
         body: { messages: [{ seq: 1 }], transport: 'signal' },
       },
     });
@@ -223,7 +223,7 @@ describe('LiveInspector — live publish rates', () => {
   it('annotates a selected event with its publish rate', async () => {
     const user = setup();
     mount({
-      '/api/events/call%3Acaption%3Aline/history': { body: { messages: [], transport: 'signal' } },
+      '/admin-api/events/call%3Acaption%3Aline/history': { body: { messages: [], transport: 'signal' } },
     });
     await user.click(await screen.findByLabelText('call:caption:line'));
     await poll();

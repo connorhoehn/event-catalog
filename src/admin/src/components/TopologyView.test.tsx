@@ -44,7 +44,7 @@ const CALL_ONLY = {
   edges: [{ from: 'platform-api', to: 'call:caption:line', relation: 'publishes' }],
 };
 
-function mount(routes: RouteTable = { '/api/topology': { body: FULL } }) {
+function mount(routes: RouteTable = { '/admin-api/topology': { body: FULL } }) {
   const mock = mockFetch(routes);
   renderWithRouter(<TopologyView />);
   return mock;
@@ -66,7 +66,7 @@ describe('TopologyView — loading / empty / error tri-state', () => {
   });
 
   it('renders an error, not an empty graph, when /api/topology fails', async () => {
-    mount({ '/api/topology': { status: 500, text: 'registry unreachable' } });
+    mount({ '/admin-api/topology': { status: 500, text: 'registry unreachable' } });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Error loading the topology');
     expect(alert).toHaveTextContent('registry unreachable');
@@ -76,12 +76,12 @@ describe('TopologyView — loading / empty / error tri-state', () => {
   });
 
   it('surfaces a network failure rather than rendering forever', async () => {
-    mount({ '/api/topology': { networkError: 'Failed to fetch' } });
+    mount({ '/admin-api/topology': { networkError: 'Failed to fetch' } });
     expect(await screen.findByRole('alert')).toHaveTextContent('Failed to fetch');
   });
 
   it('distinguishes an empty catalog from a failed one', async () => {
-    mount({ '/api/topology': { body: { nodes: [], edges: [] } } });
+    mount({ '/admin-api/topology': { body: { nodes: [], edges: [] } } });
     expect(await screen.findByText('No events registered yet')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
@@ -128,7 +128,7 @@ describe('TopologyView — the graph itself', () => {
   it('survives a node whose metadata carries no namespace or transport', async () => {
     // The namespace field went missing from /api/topology once already.
     mount({
-      '/api/topology': {
+      '/admin-api/topology': {
         body: {
           nodes: [{ id: 'orphan:event', type: 'event', metadata: {} }],
           edges: [],
@@ -153,15 +153,15 @@ describe('TopologyView — the namespace filter', () => {
   it('refetches the topology scoped to the chosen namespace', async () => {
     const user = userEvent.setup();
     const { calls } = mount({
-      '/api/topology?namespace=call': { body: CALL_ONLY },
-      '/api/topology': { body: FULL },
+      '/admin-api/topology?namespace=call': { body: CALL_ONLY },
+      '/admin-api/topology': { body: FULL },
     });
     await screen.findByText('pipeline:step:started');
     await chooseOption(user, namespaceSelect(), 'call');
     await waitFor(() =>
       expect(screen.queryByText('pipeline:step:started')).not.toBeInTheDocument(),
     );
-    expect(calls).toContain('/api/topology?namespace=call');
+    expect(calls).toContain('/admin-api/topology?namespace=call');
   });
 
   it('KEEPS the other namespaces selectable after filtering to one', async () => {
@@ -171,8 +171,8 @@ describe('TopologyView — the namespace filter', () => {
     // to choose it. The only route back to another namespace was via "all".
     const user = userEvent.setup();
     mount({
-      '/api/topology?namespace=call': { body: CALL_ONLY },
-      '/api/topology': { body: FULL },
+      '/admin-api/topology?namespace=call': { body: CALL_ONLY },
+      '/admin-api/topology': { body: FULL },
     });
     await screen.findByText('pipeline:step:started');
     await chooseOption(user, namespaceSelect(), 'call');
@@ -185,8 +185,8 @@ describe('TopologyView — the namespace filter', () => {
   it('says the namespace is empty, not that the catalog is', async () => {
     const user = userEvent.setup();
     mount({
-      '/api/topology?namespace=call': { body: { nodes: [], edges: [] } },
-      '/api/topology': { body: FULL },
+      '/admin-api/topology?namespace=call': { body: { nodes: [], edges: [] } },
+      '/admin-api/topology': { body: FULL },
     });
     await screen.findByText('pipeline:step:started');
     await chooseOption(user, namespaceSelect(), 'call');
@@ -203,7 +203,7 @@ describe('TopologyView — the namespace filter', () => {
     const user = userEvent.setup();
     let failing = true;
     mount({
-      '/api/topology': () => (failing ? { status: 500, text: 'boom' } : { body: FULL }),
+      '/admin-api/topology': () => (failing ? { status: 500, text: 'boom' } : { body: FULL }),
     });
     expect(await screen.findByRole('alert')).toHaveTextContent('boom');
     failing = false;

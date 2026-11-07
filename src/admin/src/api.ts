@@ -1,6 +1,11 @@
 import { AUTH_REQUIRED_MESSAGE, noteResponseStatus } from './auth';
 
-const BASE = '/api';
+/**
+ * Same-origin proxy prefix. The server rewrites `/admin-api/*` to `/api/*` and
+ * adds the catalog token only for a browser that signed in through
+ * `signIn` below, so this page never holds the token itself.
+ */
+const BASE = '/admin-api';
 
 /**
  * A failed API call, carrying the status so a caller can branch on it without
@@ -515,7 +520,7 @@ export const api = {
   /** wave26-f — returns the URL for a bulk JSON export (use as href or fetch). */
   bulkExportUrl(names: string[]): string {
     const qs = names.length > 0 ? `?names=${names.map(encodeURIComponent).join(',')}` : '';
-    return `/api/events/bulk/export${qs}`;
+    return `${BASE}/events/bulk/export${qs}`;
   },
 
   /** wave26-e — list all events that exceeded the failure threshold. */
@@ -594,4 +599,23 @@ export interface DLQEntry {
   error: string;
   attempts: number;
   deadAt: string | number;
+}
+
+/**
+ * Exchange the catalog token for an httpOnly session cookie (`POST
+ * /admin/login`). The token is sent once and not kept: nothing here stores it,
+ * and the browser never gets to read the cookie that replaces it.
+ */
+export async function signIn(token: string): Promise<boolean> {
+  const res = await fetch('/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  return res.ok;
+}
+
+/** End the session (`POST /admin/logout`). */
+export async function signOut(): Promise<void> {
+  await fetch('/admin/logout', { method: 'POST' });
 }

@@ -15,7 +15,7 @@ const health = (redis: string, mq: string, extra: Record<string, unknown> = {}) 
 
 /**
  * A root-`/health` body (service-runtime shape) whose coordinator check is in
- * the given state. This is a DIFFERENT endpoint from `/api/health` with a
+ * the given state. This is a DIFFERENT endpoint from `/admin-api/health` with a
  * different vocabulary, and it is the only place the registry replication
  * state is reported.
  */
@@ -34,9 +34,9 @@ const serviceHealth = (coordinator: 'healthy' | 'degraded' | 'unhealthy', detail
 
 function mount(routes: Record<string, RouteResponse | (() => RouteResponse)> = {}) {
   const table = {
-    '/api/health': { body: health('connected', 'connected') },
-    '/api/transports/signal/channels': { body: { channels: [], total: 0 } },
-    '/api/transports/durable/queues': { body: { queues: [], total: 0 } },
+    '/admin-api/health': { body: health('connected', 'connected') },
+    '/admin-api/transports/signal/channels': { body: { channels: [], total: 0 } },
+    '/admin-api/transports/durable/queues': { body: { queues: [], total: 0 } },
     '/health': { body: serviceHealth('healthy') },
     ...routes,
   };
@@ -65,7 +65,7 @@ describe('TransportHealth — status vocabulary', () => {
   });
 
   it('shows a disconnected transport as down while the other stays up', async () => {
-    mount({ '/api/health': { status: 503, body: health('connected', 'disconnected') } });
+    mount({ '/admin-api/health': { status: 503, body: health('connected', 'disconnected') } });
     await screen.findByRole('heading', { name: 'Redis (Signal Transport)' });
     expect(card('Redis (Signal Transport)')).toHaveClass('healthy');
     expect(card('Message Queue (Durable Transport)')).toHaveClass('unhealthy');
@@ -76,14 +76,14 @@ describe('TransportHealth — status vocabulary', () => {
     // A 503 here means "a transport is down", not "the catalog is down". The
     // page must show which one — replacing it with a generic error state
     // hides the only fact the operator needs.
-    mount({ '/api/health': { status: 503, body: health('disconnected', 'disconnected') } });
+    mount({ '/admin-api/health': { status: 503, body: health('disconnected', 'disconnected') } });
     expect(await screen.findByRole('heading', { name: 'Transport Health' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getAllByText('disconnected')).toHaveLength(2);
   });
 
   it('reports a degraded transport as degraded, distinct from both up and down', async () => {
-    mount({ '/api/health': { body: health('degraded', 'connected') } });
+    mount({ '/admin-api/health': { body: health('degraded', 'connected') } });
     await screen.findByRole('heading', { name: 'Redis (Signal Transport)' });
     expect(within(card('Redis (Signal Transport)')).getByText('degraded')).toBeInTheDocument();
     // Degraded is still not "up" — the dot must not read green.
@@ -91,7 +91,7 @@ describe('TransportHealth — status vocabulary', () => {
   });
 
   it('announces the exact status words for both transports', async () => {
-    mount({ '/api/health': { body: health('connected', 'degraded') } });
+    mount({ '/admin-api/health': { body: health('connected', 'degraded') } });
     await waitFor(() =>
       expect(
         screen.getByText('Transports: signal connected, durable degraded.'),
@@ -111,7 +111,7 @@ describe('TransportHealth — loading / empty / error tri-state', () => {
   });
 
   it('renders an error state — not an empty one — when the first load fails', async () => {
-    mount({ '/api/health': { status: 500, text: 'redis exploded' } });
+    mount({ '/admin-api/health': { status: 500, text: 'redis exploded' } });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/Error loading transport health/);
     // The lie we are guarding against: a failed fetch reading as "everything
@@ -130,7 +130,7 @@ describe('TransportHealth — loading / empty / error tri-state', () => {
   it('keeps the last good reading when a later poll fails, and says so', async () => {
     let calls = 0;
     mount({
-      '/api/health': () => {
+      '/admin-api/health': () => {
         calls += 1;
         return calls === 1 ? { body: health('connected', 'connected') } : { status: 500, text: 'gone' };
       },
@@ -147,7 +147,7 @@ describe('TransportHealth — loading / empty / error tri-state', () => {
 describe('TransportHealth — tables', () => {
   it('lists signal channels with their publish counts', async () => {
     mount({
-      '/api/transports/signal/channels': {
+      '/admin-api/transports/signal/channels': {
         body: {
           channels: [
             { channel: 'call:caption:line', publishCount: 12345, lastPublishedAt: null, subscriberCount: 3 },
@@ -163,7 +163,7 @@ describe('TransportHealth — tables', () => {
 
   it('sums totals across queues', async () => {
     mount({
-      '/api/transports/durable/queues': {
+      '/admin-api/transports/durable/queues': {
         body: {
           queues: [
             { queue: 'a', sent: 1000, received: 900, failed: 0, inFlight: 2 },

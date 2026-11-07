@@ -21,7 +21,7 @@ const event = (name: string, over: Record<string, unknown> = {}) => ({
 
 const LIST = { events: [event('call:caption:line'), event('pipeline:step:started', { transport: 'durable' })], total: 2 };
 
-function mount(routes: RouteTable = { '/api/events': { body: LIST } }) {
+function mount(routes: RouteTable = { '/admin-api/events': { body: LIST } }) {
   const mock = mockFetch(routes);
   renderWithRouter(<DeclarationViewer />);
   return mock;
@@ -41,7 +41,7 @@ describe('DeclarationViewer — loading / empty / error tri-state', () => {
     // The regression this guards: a 500 rendered the error banner AND the
     // empty state under it, so a broken registry and an empty one looked the
     // same below the fold.
-    mount({ '/api/events': { status: 500, text: 'registry exploded' } });
+    mount({ '/admin-api/events': { status: 500, text: 'registry exploded' } });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent("Couldn't load declarations");
     expect(alert).toHaveTextContent('registry exploded');
@@ -52,7 +52,7 @@ describe('DeclarationViewer — loading / empty / error tri-state', () => {
   it('recovers on Retry', async () => {
     const user = userEvent.setup();
     let failing = true;
-    mount({ '/api/events': () => (failing ? { status: 500, text: 'x' } : { body: LIST }) });
+    mount({ '/admin-api/events': () => (failing ? { status: 500, text: 'x' } : { body: LIST }) });
     await screen.findByRole('alert');
     failing = false;
     await user.click(screen.getByRole('button', { name: 'Retry' }));
@@ -61,7 +61,7 @@ describe('DeclarationViewer — loading / empty / error tri-state', () => {
   });
 
   it('reports an empty registry as empty', async () => {
-    mount({ '/api/events': { body: { events: [], total: 0 } } });
+    mount({ '/admin-api/events': { body: { events: [], total: 0 } } });
     expect(await screen.findByText('No event declarations')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
@@ -140,7 +140,7 @@ describe('DeclarationViewer — version history', () => {
   it('lists prior schemas newest-first', async () => {
     const user = userEvent.setup();
     mount({
-      '/api/events': {
+      '/admin-api/events': {
         body: {
           events: [
             event('call:caption:line', {
@@ -168,7 +168,7 @@ describe('DeclarationViewer — version history', () => {
 
   it('defaults a declaration with no version to v1 rather than "vundefined"', async () => {
     const user = userEvent.setup();
-    mount({ '/api/events': { body: { events: [event('a:one', { version: undefined })], total: 1 } } });
+    mount({ '/admin-api/events': { body: { events: [event('a:one', { version: undefined })], total: 1 } } });
     await user.click(await screen.findByRole('button', { name: /a:one/ }));
     expect(screen.getByText('v1')).toBeInTheDocument();
     expect(screen.queryByText(/vundefined/)).not.toBeInTheDocument();

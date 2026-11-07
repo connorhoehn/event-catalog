@@ -12,6 +12,10 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.10.2] - 2026-11-07
+
+- Admin UI sign-in: with `EVENT_CATALOG_AUTH_TOKEN` set the UI shows a one-time token prompt on 401. `POST /admin/login` checks the token (timing-safe) and sets an httpOnly, SameSite=Strict, 12 hour session cookie (id signed, kept in memory); `POST /admin/logout` clears it. The UI now calls `/admin-api/*`, which the server forwards to `/api/*` with the bearer attached server-side only for a request carrying that cookie.
+
 ## [0.10.1] - 2026-11-07
 
 - Security: with `EVENT_CATALOG_AUTH_TOKEN` set every `/api` request needs the bearer, reads included (health exempt); the server will not boot with `MQ_SERVICE_AUTH_SECRET` and no token; DLQ replay re-validates payloads and refuses invalid ones (422); the validating publisher defaults to `strict`.

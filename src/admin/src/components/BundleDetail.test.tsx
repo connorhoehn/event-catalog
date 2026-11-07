@@ -36,7 +36,7 @@ function mount(name: string, routes: RouteTable, query = '') {
 }
 
 const routeFor = (b: typeof liveBundle): RouteTable => ({
-  [`/api/feature-bundles/${b.name}`]: { body: b },
+  [`/admin-api/feature-bundles/${b.name}`]: { body: b },
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -54,7 +54,7 @@ describe('BundleDetail — loading / error / loaded', () => {
   });
 
   it('renders a 404 as an error naming the bundle, with a way back', async () => {
-    mount('nope', { '/api/feature-bundles/nope': { status: 404, text: 'Bundle "nope" not found' } });
+    mount('nope', { '/admin-api/feature-bundles/nope': { status: 404, text: 'Bundle "nope" not found' } });
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Error loading this bundle');
     expect(alert).toHaveTextContent('not found');
@@ -66,7 +66,7 @@ describe('BundleDetail — loading / error / loaded', () => {
     const user = userEvent.setup();
     let failing = true;
     mount(liveBundle.name, {
-      [`/api/feature-bundles/${liveBundle.name}`]: () =>
+      [`/admin-api/feature-bundles/${liveBundle.name}`]: () =>
         failing ? { status: 500, text: 'registry down' } : { body: liveBundle },
     });
     await screen.findByRole('alert');
@@ -78,11 +78,11 @@ describe('BundleDetail — loading / error / loaded', () => {
   it('asks for the pinned version when the URL carries one', async () => {
     const { calls } = mount(
       liveBundle.name,
-      { [`/api/feature-bundles/${liveBundle.name}/${liveBundle.version}`]: { body: liveBundle } },
+      { [`/admin-api/feature-bundles/${liveBundle.name}/${liveBundle.version}`]: { body: liveBundle } },
       `?version=${liveBundle.version}`,
     );
     await screen.findByRole('heading', { name: liveBundle.name });
-    expect(calls[0]).toContain(`/api/feature-bundles/${liveBundle.name}/${liveBundle.version}`);
+    expect(calls[0]).toContain(`/admin-api/feature-bundles/${liveBundle.name}/${liveBundle.version}`);
   });
 });
 
