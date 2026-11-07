@@ -34,9 +34,8 @@ describe('the auth-required latch', () => {
     expect(isAuthRequired()).toBe(false);
     noteResponseStatus(401);
     expect(isAuthRequired()).toBe(true);
-    // A later successful GET must NOT clear it: reads are never challenged,
-    // so a 200 from `/api/events` says nothing at all about whether the next
-    // write will be refused.
+    // A later 200 must NOT clear it: a 200 from the open health route says
+    // nothing about whether the next data call will be refused.
     noteResponseStatus(200);
     expect(isAuthRequired()).toBe(true);
   });
@@ -60,7 +59,7 @@ describe('what the operator is told', () => {
 
   it('tells the operator which actions are dead and which are not', () => {
     expect(AUTH_BANNER_TITLE).toMatch(/requires an API token/i);
-    expect(AUTH_BANNER_BODY).toMatch(/Reads are unaffected/i);
+    expect(AUTH_BANNER_BODY).toMatch(/Reads and changes are both refused/i);
     for (const action of ['declare', 'deprecate', 'subscriber', 'replay']) {
       expect(AUTH_BANNER_BODY.toLowerCase()).toContain(action);
     }

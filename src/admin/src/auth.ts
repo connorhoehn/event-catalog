@@ -1,11 +1,12 @@
 // The admin UI's whole position on credentials.
 //
-// The server gained an optional shared-secret bearer gate
-// (`EVENT_CATALOG_AUTH_TOKEN`, src/server/auth.ts). It is off by default and
-// it challenges *mutating* requests only — every GET, every SSE stream and
-// the static bundle stay open. So a catalog with the token set renders
-// perfectly and then answers `declare`, `deprecate`, `subscriber add/remove`,
-// `DLQ replay` and `DLQ clear` with a bare 401.
+// The server has a shared-secret bearer gate (`EVENT_CATALOG_AUTH_TOKEN`,
+// src/server/auth.ts). It is required in production and whenever the
+// message-queue secret is set, and when it is on it challenges every `/api`
+// request — reads, the SSE streams and the dead-letter list included; only
+// the health route and the static bundle stay open. So a catalog with the
+// token set, reached without a proxy that adds it, loads its shell and then
+// answers every data call with a bare 401.
 //
 // ─── The decision: this UI holds no token ───────────────────────────────────
 //
@@ -39,9 +40,10 @@
 //     `Authorization: Bearer $EVENT_CATALOG_AUTH_TOKEN` upstream. That gives
 //     per-person identity and revocation, which a pasted shared secret cannot.
 //
-//  4. **A token field would be a lie about what it protects.** GETs are never
-//     challenged, so the field could not gate reading anything; it would only
-//     re-enable writes for whoever already has the secret.
+//  4. **The proxy is the only place it scales.** Reads and writes are both
+//     challenged, so a token in the page would have to ride on every fetch
+//     and every EventSource (which cannot set headers at all); a proxy adds
+//     it to all of them in one place.
 //
 // What we owe the operator instead is that the failure is legible: the exact
 // action that was refused, why, and what to do about it — never a bare
@@ -69,14 +71,14 @@ export const AUTH_BANNER_TITLE = 'This catalog requires an API token.';
  * three things they need: what still works, what does not, and the fix.
  */
 export const AUTH_BANNER_BODY =
-  'Reads are unaffected — browsing, topology and the live flow are never '
-  + 'challenged. Every change (declare, deprecate, subscriber add/remove, DLQ '
-  + 'replay and clear) will keep failing with 401 until the request carries '
+  'Reads and changes are both refused — browsing, topology, the live flow, '
+  + 'the dead-letter list and every change (declare, deprecate, subscriber '
+  + 'add/remove, DLQ replay and clear) will keep failing with 401 until the request carries '
   + '`Authorization: Bearer <token>`. This UI deliberately stores no token: '
   + 'the value in EVENT_CATALOG_AUTH_TOKEN is a deployment-wide shared secret '
   + 'with no per-operator identity or revocation, so it belongs in an '
-  + 'authenticating proxy in front of the catalog, not in a browser. Unset '
-  + 'EVENT_CATALOG_AUTH_TOKEN to run the catalog unauthenticated.';
+  + 'authenticating proxy in front of the catalog, not in a browser. Only a '
+  + 'local development catalog runs without EVENT_CATALOG_AUTH_TOKEN.';
 
 /**
  * Latched, app-wide "the server is challenging our writes" flag.

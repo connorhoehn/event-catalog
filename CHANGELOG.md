@@ -12,6 +12,10 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/)
 and this project follows semantic-versioning intent (`MAJOR.MINOR.PATCH`),
 though pre-1.0 minor bumps may carry breaking changes.
 
+## [0.10.1] - 2026-11-07
+
+- Security: with `EVENT_CATALOG_AUTH_TOKEN` set every `/api` request needs the bearer, reads included (health exempt); the server will not boot with `MQ_SERVICE_AUTH_SECRET` and no token; DLQ replay re-validates payloads and refuses invalid ones (422); the validating publisher defaults to `strict`.
+
 ## [0.10.0] - 2026-10-26
 
 - Adopt message-queue 0.5.0 (`316c35f3`), installed through its Git prepare build. The lock integrity equals the locally packed and verified MQ artifact; the earlier script-disabled install lacked `dist/client` and is replaced.

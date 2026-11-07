@@ -24,7 +24,7 @@ describe('AuthNotice', () => {
     act(() => noteResponseStatus(401));
     const notice = screen.getByTestId('auth-notice');
     expect(notice).toHaveTextContent(/requires an API token/i);
-    expect(notice).toHaveTextContent(/Reads are unaffected/i);
+    expect(notice).toHaveTextContent(/Reads and changes are both refused/i);
     expect(notice).toHaveTextContent(/proxy/i);
     // Announced, not just drawn: an operator who was refused a DLQ replay is
     // most likely looking at the row, not the top of the page.
