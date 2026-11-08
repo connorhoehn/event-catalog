@@ -37,7 +37,7 @@ Install it as a git dependency. The package's own dependencies are private, so
 npm needs an SSH key in your agent:
 
 ```bash
-npm install github:connorhoehnslalom/event-catalog#<tag-or-commit>
+npm install github:connorhoehn/event-catalog#<tag-or-commit>
 ```
 
 Developing in this repo:
@@ -87,9 +87,9 @@ Other useful scripts: `npm run generate-types` (payload types),
 
 - [`connorhoehn/service-runtime`](https://github.com/connorhoehn/service-runtime) -
   shared service helpers, used here for signed service-to-service requests.
-- [`connorhoehnslalom/message-queue`](https://github.com/connorhoehnslalom/message-queue) -
+- [`connorhoehn/message-queue`](https://github.com/connorhoehn/message-queue) -
   the broker behind durable events.
-- [`connorhoehnslalom/ui-components`](https://github.com/connorhoehnslalom/ui-components) -
+- [`connorhoehn/ui-components`](https://github.com/connorhoehn/ui-components) -
   the component library the admin UI is built on.
 
 Consumers of the catalog include
