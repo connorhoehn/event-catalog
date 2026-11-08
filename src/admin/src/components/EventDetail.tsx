@@ -16,7 +16,7 @@ import {
   StatStrip,
   type BreadcrumbItem,
   type KeyValueItem,
-} from '@connorhoehnslalom/ui-components/shared';
+} from '@connorhoehn/ui-components/shared';
 import { api, type EventEntry, type EventStats } from '../api';
 import { FingerprintChip } from './FingerprintChip';
 import { SchemaDiffToggle } from './SchemaDiff';

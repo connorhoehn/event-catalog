@@ -28,7 +28,7 @@ import {
   PageFrame,
   ProgressBar,
   toneVar,
-} from '@connorhoehnslalom/ui-components/shared';
+} from '@connorhoehn/ui-components/shared';
 import { api, type EventEntry, type FeatureBundleEntry } from '../api';
 import {
   computeCoverage,

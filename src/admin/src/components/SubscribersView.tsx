@@ -17,7 +17,7 @@ import {
   Button,
   Inline,
   type DataTableColumn,
-} from '@connorhoehnslalom/ui-components/shared';
+} from '@connorhoehn/ui-components/shared';
 import { api } from '../api';
 
 type Filter = 'all' | 'fresh' | 'stale';

@@ -6,7 +6,7 @@
 // correctness is `tsc`'s job (`npm run typecheck`), so no type-aware or
 // stylistic rule sets are layered on top.
 import tseslint from 'typescript-eslint';
-import uiComponents from '@connorhoehnslalom/ui-components/eslint-plugin';
+import uiComponents from '@connorhoehn/ui-components/eslint-plugin';
 
 export default [
   { ignores: ['dist/**', 'node_modules/**', 'vendor/**'] },

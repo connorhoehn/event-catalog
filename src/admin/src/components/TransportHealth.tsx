@@ -11,7 +11,7 @@ import {
   PageSection,
   SkeletonCard,
   Stack,
-} from '@connorhoehnslalom/ui-components/shared';
+} from '@connorhoehn/ui-components/shared';
 import {
   api,
   coordinatorExplanation,

@@ -1,7 +1,7 @@
 import type {
   HttpMessageQueue,
   QueueMessage,
-} from '@connorhoehnslalom/message-queue/client';
+} from '@connorhoehn/message-queue/client';
 
 export interface DurableHandlerContext {
   /** Aborted on lease loss or drain expiry. Business writes still need idempotency. */

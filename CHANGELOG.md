@@ -10,6 +10,10 @@
 
 - Adopt the one-flag dev convention (service-runtime 0.7.3). `startServer` refuses to boot without auth unless `INSECURE_DEV_MODE=true` and NODE_ENV is not production (new `insecure` option overrides); it announces the mode at start-up and `/health` reports `insecureDevMode: true`. `HOST` and the CLI default are now `127.0.0.1` (the Docker image keeps `0.0.0.0`). Local compose and `dev:stack` set the flag.
 
+## 0.10.6 — 2026-11-07
+
+- Consumers renamed: `@connorhoehn/message-queue` 0.7.0 (`f89c7c3`) replaces `@connorhoehnslalom/message-queue`, and the admin consumes `@connorhoehn/ui-components` 2.509.0. No API change.
+
 ## Unreleased — durable document protocol
 
 - Declare correlated CRDT durable commit/error receipts and idempotent canvas seed request/receipt, with generated TypeScript and AsyncAPI contracts.

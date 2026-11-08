@@ -7,7 +7,7 @@
 // 'context' for the renderer to color.
 
 import { useId, useMemo, useState } from 'react';
-import { Button } from '@connorhoehnslalom/ui-components/shared';
+import { Button } from '@connorhoehn/ui-components/shared';
 
 interface SchemaDiffProps {
   before: Record<string, unknown>;

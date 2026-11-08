@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Chip, Checkbox, EmptyState, ErrorState, LoadingState, Button, Inline, PageFrame, Select } from '@connorhoehnslalom/ui-components/shared';
+import { Chip, Checkbox, EmptyState, ErrorState, LoadingState, Button, Inline, PageFrame, Select } from '@connorhoehn/ui-components/shared';
 import { api, type EventEntry, type EventStats } from '../api';
 
 interface LiveMessage {

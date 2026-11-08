@@ -11,7 +11,7 @@
 
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Chip, Banner, LiveRegion, Button, FormField, Inline, PageFrame, Select } from '@connorhoehnslalom/ui-components/shared';
+import { Chip, Banner, LiveRegion, Button, FormField, Inline, PageFrame, Select } from '@connorhoehn/ui-components/shared';
 import { useAuditTap, type AuditEvent, type AuditEventKind } from './topology/useAuditTap';
 
 const kindMeta: Record<AuditEventKind, { label: string; tone: 'success' | 'danger' | 'info' | 'neutral'; verb: string }> = {

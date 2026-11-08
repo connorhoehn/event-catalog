@@ -23,8 +23,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Chip, ErrorState, LoadingState, LiveRegion, Button, FormField, Inline, NumberInput, PageFrame, Select } from '@connorhoehnslalom/ui-components/shared';
-import { AnimatedEdge } from '@connorhoehnslalom/ui-components/pipelines';
+import { Chip, ErrorState, LoadingState, LiveRegion, Button, FormField, Inline, NumberInput, PageFrame, Select } from '@connorhoehn/ui-components/shared';
+import { AnimatedEdge } from '@connorhoehn/ui-components/pipelines';
 
 import { api, type TopologyGraph } from '../api';
 import EventNode from './topology/EventNode';

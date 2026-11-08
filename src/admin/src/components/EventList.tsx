@@ -14,7 +14,7 @@ import {
   Sparkline,
   Stack,
   type DataTableColumn,
-} from '@connorhoehnslalom/ui-components/shared';
+} from '@connorhoehn/ui-components/shared';
 import { api, type EventEntry } from '../api';
 
 /** 60s publish-rate trend. Delegates the SVG to the shared Sparkline; the

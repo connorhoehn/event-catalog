@@ -1,6 +1,6 @@
 // Phase E8.2 — Topology view rebuilt on @xyflow/react with custom
 // EventNode + ServiceNode types, dagre auto-layout, and AnimatedEdge
-// from `@connorhoehnslalom/ui-components/pipelines` so the
+// from `@connorhoehn/ui-components/pipelines` so the
 // visual style matches the gateway's pipeline-replay view.
 //
 // Lives in event-catalog/src/admin. Data shape comes from the
@@ -21,8 +21,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Chip, EmptyState, ErrorState, LoadingState, Button, FormField, Inline, PageFrame, Select } from '@connorhoehnslalom/ui-components/shared';
-import { AnimatedEdge } from '@connorhoehnslalom/ui-components/pipelines';
+import { Chip, EmptyState, ErrorState, LoadingState, Button, FormField, Inline, PageFrame, Select } from '@connorhoehn/ui-components/shared';
+import { AnimatedEdge } from '@connorhoehn/ui-components/pipelines';
 
 import { api, type TopologyGraph } from '../api';
 import EventNode from './topology/EventNode';

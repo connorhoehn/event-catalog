@@ -15,7 +15,7 @@ import {
   Stack,
   StatCard,
   Text,
-} from '@connorhoehnslalom/ui-components/shared';
+} from '@connorhoehn/ui-components/shared';
 import { api, isTransportUp, transportTone, type EventEntry, type HealthStatus } from '../api';
 
 type RegistryHealth = Awaited<ReturnType<typeof api.getRegistryHealth>>;

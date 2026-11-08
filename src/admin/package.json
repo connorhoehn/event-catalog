@@ -13,7 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@connorhoehnslalom/ui-components": "file:vendor/connorhoehnslalom-ui-components-2.505.0.tgz",
+    "@connorhoehn/ui-components": "file:vendor/connorhoehn-ui-components-2.509.0.tgz",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@xyflow/react": "^12.10.2",

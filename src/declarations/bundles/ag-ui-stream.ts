@@ -3,7 +3,7 @@
 // "ag-ui-stream" FeatureBundle — the AG-UI v0.1.x agent streaming protocol.
 //
 // AG-UI is the wire protocol between an agent backend and the browser
-// (@connorhoehnslalom/ui-components/agents). A deployment either speaks it
+// (@connorhoehn/ui-components/agents). A deployment either speaks it
 // or does not; there is no partial adoption of the run/step/text/tool-call
 // core, which is why the whole taxonomy is one bundle rather than seven.
 //

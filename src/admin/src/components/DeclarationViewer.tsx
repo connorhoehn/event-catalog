@@ -12,7 +12,7 @@ import {
   RailNavList,
   SkeletonCard,
   Stack,
-} from '@connorhoehnslalom/ui-components/shared';
+} from '@connorhoehn/ui-components/shared';
 import { api, type EventEntry } from '../api';
 
 /**

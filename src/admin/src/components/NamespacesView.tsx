@@ -22,7 +22,7 @@ import {
   Inline,
   Input,
   LoadingState,
-} from '@connorhoehnslalom/ui-components/shared';
+} from '@connorhoehn/ui-components/shared';
 import { api } from '../api';
 
 interface NamespaceRow {

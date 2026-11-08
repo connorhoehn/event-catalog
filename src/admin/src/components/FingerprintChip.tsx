@@ -5,7 +5,7 @@
 // naturally next to a version chip in the EventDetail header.
 
 import { useId, useState } from 'react';
-import { Button } from '@connorhoehnslalom/ui-components/shared';
+import { Button } from '@connorhoehn/ui-components/shared';
 
 interface FingerprintChipProps {
   fingerprint: string | undefined;

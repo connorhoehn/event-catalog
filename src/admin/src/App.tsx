@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, type AnchorHTMLAttributes } from 'react';
 import { Routes, Route, NavLink, useLocation } from 'react-router';
-import { AppShell, NavRail, SkeletonCard, SkipLink, Inline, LiveRegion, Stack, Text, type NavRailItem } from '@connorhoehnslalom/ui-components/shared';
+import { AppShell, NavRail, SkeletonCard, SkipLink, Inline, LiveRegion, Stack, Text, type NavRailItem } from '@connorhoehn/ui-components/shared';
 import { Dashboard } from './components/Dashboard';
 import { AuthNotice } from './components/AuthNotice';
 

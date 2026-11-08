@@ -10,7 +10,7 @@ import {
   DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
 import { createServiceRequestHeaders } from '@connorhoehn/service-runtime';
-import { HttpMessageQueue } from '@connorhoehnslalom/message-queue/client';
+import { HttpMessageQueue } from '@connorhoehn/message-queue/client';
 import {
   afterAll,
   afterEach,
@@ -28,7 +28,7 @@ import {
 
 // Executes the installed, SHA-pinned broker package, never a sibling source tree.
 const broker = createRequire(import.meta.url).resolve(
-  '@connorhoehnslalom/message-queue/dist/server/index.js',
+  '@connorhoehn/message-queue/dist/server/index.js',
 );
 const live = process.env.EC_DDB_INTEGRATION === '1' ? describe : describe.skip;
 live(

@@ -13,7 +13,7 @@ import {
   Inline,
   Stack,
   type DataTableColumn,
-} from '@connorhoehnslalom/ui-components/shared';
+} from '@connorhoehn/ui-components/shared';
 import { api, type DLQEntry } from '../api';
 
 export function DLQBrowser() {

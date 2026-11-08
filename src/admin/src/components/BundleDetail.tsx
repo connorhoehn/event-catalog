@@ -25,7 +25,7 @@ import {
   SkeletonCard,
   Stack,
   type BreadcrumbItem,
-} from '@connorhoehnslalom/ui-components/shared';
+} from '@connorhoehn/ui-components/shared';
 import { api, isRequired, type FeatureBundleEntry, type BundleEventRef } from '../api';
 import { FingerprintChip } from './FingerprintChip';
 import { transportTone } from './BundlesView';

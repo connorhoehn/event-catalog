@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Banner, Button, FormField, Input, Inline } from '@connorhoehnslalom/ui-components/shared';
+import { Banner, Button, FormField, Input, Inline } from '@connorhoehn/ui-components/shared';
 import { signIn } from '../api';
 import { AUTH_BANNER_BODY, AUTH_BANNER_TITLE, resetAuthState, useAuthRequired } from '../auth';
 
