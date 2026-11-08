@@ -50,6 +50,8 @@ npm run lint         # type-check without emitting
 npm run test:e2e     # end-to-end tests (playwright)
 ```
 
+CI: `.github/workflows/ci.yml` runs typecheck and tests on push; it has not run yet (no GitHub access from the machine that wrote it).
+
 To run the service, `REDIS_URL` is required:
 
 ```bash
