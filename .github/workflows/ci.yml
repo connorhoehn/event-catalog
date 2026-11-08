@@ -47,6 +47,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # tests/admin-api-surface.test.ts imports the admin app's source, which needs its own node_modules.
+      - run: npm ci --prefix src/admin
       - name: Typecheck
         run: npx tsc --noEmit
       - name: Test
