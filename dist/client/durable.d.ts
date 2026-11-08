@@ -1,5 +1,5 @@
-import { type SendOptions, type RequestOptions, type SubscriptionHandle } from '@connorhoehnslalom/message-queue/client';
-export type { SubscriptionHandle } from '@connorhoehnslalom/message-queue/client';
+import { type SendOptions, type RequestOptions, type SubscriptionHandle } from '@connorhoehn/message-queue/client';
+export type { SubscriptionHandle } from '@connorhoehn/message-queue/client';
 import { type DurableHandlerContext } from './durable-lease';
 export type { DurableHandlerContext } from './durable-lease';
 import type { EventEnvelope } from '../types/index';

@@ -3,7 +3,7 @@
 //
 // AG-UI v0.1.x protocol event taxonomy — 29 event types across 7 categories.
 //
-// AG-UI is the streaming protocol used by @connorhoehnslalom/ui-components/agents
+// AG-UI is the streaming protocol used by @connorhoehn/ui-components/agents
 // to communicate agent lifecycle, text streaming, tool calls, state snapshots,
 // activity updates, reasoning traces, and extensions between an agent backend
 // and the browser frontend. All events are signal transport (ephemeral SSE/WS).

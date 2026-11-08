@@ -4,7 +4,7 @@ exports.DurableTransport = exports.DurableSubscriptionUnavailableError = void 0;
 exports.parseSubscriptionHandle = parseSubscriptionHandle;
 const distributed_core_1 = require("distributed-core");
 const node_crypto_1 = require("node:crypto");
-const client_1 = require("@connorhoehnslalom/message-queue/client");
+const client_1 = require("@connorhoehn/message-queue/client");
 const durable_lease_1 = require("./durable-lease");
 const bounded_1 = require("../utils/bounded");
 const logger_1 = require("../utils/logger");
