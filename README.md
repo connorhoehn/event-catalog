@@ -53,10 +53,15 @@ npm run test:e2e     # end-to-end tests (playwright)
 To run the service, `REDIS_URL` is required:
 
 ```bash
-REDIS_URL=redis://localhost:6379 npm run dev   # service on :3010
+INSECURE_DEV_MODE=true REDIS_URL=redis://localhost:6379 npm run dev   # service on :3010
 npm run dev:stack                              # redis, message-queue and this service
 docker compose up --build                      # the same stack in containers
 ```
+
+Without `EVENT_CATALOG_AUTH_TOKEN` (or an injected auth middleware) the server
+refuses to boot unless `INSECURE_DEV_MODE=true` is set and `NODE_ENV` is not
+`production`; an unset `NODE_ENV` counts as production. `HOST` defaults to
+`127.0.0.1`; the Docker image sets `0.0.0.0`.
 
 To work on the admin UI:
 

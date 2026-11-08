@@ -47,6 +47,7 @@ export interface HealthBody {
   version: string;
   status: HealthStatus;
   checks: HealthCheckReport[];
+  insecureDevMode?: true;
   timestamp: string;
 }
 
@@ -54,6 +55,8 @@ export interface MakeHealthHandlerOptions {
   service: string;
   version: string;
   checks: HealthCheck[];
+  /** Reported as `insecureDevMode: true` when the host runs in dev mode. */
+  insecureDevMode?: boolean;
   /** Per-check timeout in ms. Default 5000. */
   timeoutMs?: number;
 }
@@ -115,6 +118,7 @@ export function makeHealthHandler(
       checks: reports,
       timestamp: new Date().toISOString(),
     };
+    if (opts.insecureDevMode) body.insecureDevMode = true;
     res.status(httpCode).json(body);
   };
 }

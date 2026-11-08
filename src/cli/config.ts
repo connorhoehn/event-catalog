@@ -86,7 +86,7 @@ export interface ServerFlagOverrides {
 }
 
 export const DEFAULT_PORT = 3010;
-export const DEFAULT_HOSTNAME = '0.0.0.0';
+export const DEFAULT_HOSTNAME = '127.0.0.1';
 export const DEFAULT_MESSAGE_QUEUE_URL = 'http://localhost:3004';
 export const DEFAULT_DLQ_TABLE_NAME = 'event-catalog-dlq';
 export const DEFAULT_SUBSCRIBER_TTL_SECONDS = 1800;

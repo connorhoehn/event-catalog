@@ -53,7 +53,7 @@ pids+=($!)
 
 # 4. event-catalog
 echo "[dev] starting event-catalog on :$EC_PORT  (logs: $LOG_DIR/event-catalog.log)"
-(cd "$EC_DIR" && PORT="$EC_PORT" REDIS_URL="$REDIS_URL" \
+(cd "$EC_DIR" && INSECURE_DEV_MODE=true PORT="$EC_PORT" REDIS_URL="$REDIS_URL" \
   MESSAGE_QUEUE_URL="http://localhost:$MQ_PORT" npm run dev) \
   > "$LOG_DIR/event-catalog.log" 2>&1 &
 pids+=($!)

@@ -51,7 +51,7 @@ SERVER OPTIONS
 SERVER ENVIRONMENT
   REDIS_URL                    required; redis:// or rediss://
   PORT                         default 3010
-  HOST                         default 0.0.0.0
+  HOST                         default 127.0.0.1
   MESSAGE_QUEUE_URL            default http://localhost:3004
   DLQ_TABLE_NAME               default event-catalog-dlq
   SUBSCRIBER_TTL_SECONDS       default 1800 (0 disables the sweeper)

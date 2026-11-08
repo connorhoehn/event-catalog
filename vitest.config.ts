@@ -14,6 +14,9 @@ export default defineConfig({
     // fixes; it is a setup file rather than a per-suite import so the ~30
     // supertest-using files need no changes.
     setupFiles: ['./tests/helpers/shared-http-server.ts'],
+    // Suites boot servers without auth; the explicit dev flag (NODE_ENV is
+    // 'test', not production) is what permits that.
+    env: { INSECURE_DEV_MODE: 'true' },
     maxWorkers,
     minWorkers: 1,
   },

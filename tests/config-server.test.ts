@@ -49,7 +49,7 @@ describe('resolveServerConfig() — defaults', () => {
     const { config, warnings } = expectOk(resolveServerConfig(baseEnv()));
     expect(config).toMatchObject({
       port: DEFAULT_PORT,
-      hostname: '0.0.0.0',
+      hostname: '127.0.0.1',
       redisUrl: REDIS,
       messageQueueUrl: DEFAULT_MESSAGE_QUEUE_URL,
       dlqTableName: DEFAULT_DLQ_TABLE_NAME,
@@ -61,16 +61,16 @@ describe('resolveServerConfig() — defaults', () => {
     expect(warnings.join('\n')).toContain('MESSAGE_QUEUE_URL');
   });
 
-  it('binds 0.0.0.0 by default so a container is reachable', () => {
-    expect(expectOk(resolveServerConfig(baseEnv())).config.hostname).toBe('0.0.0.0');
-    expect(expectOk(resolveServerConfig(baseEnv({ HOST: '127.0.0.1' }))).config.hostname)
-      .toBe('127.0.0.1');
+  it('binds loopback by default; HOST=0.0.0.0 opens it for a container', () => {
+    expect(expectOk(resolveServerConfig(baseEnv())).config.hostname).toBe('127.0.0.1');
+    expect(expectOk(resolveServerConfig(baseEnv({ HOST: '0.0.0.0' }))).config.hostname)
+      .toBe('0.0.0.0');
   });
 
   it('treats an empty env var as unset rather than as a value', () => {
     const { config } = expectOk(resolveServerConfig(baseEnv({ PORT: '   ', HOST: '' })));
     expect(config.port).toBe(DEFAULT_PORT);
-    expect(config.hostname).toBe('0.0.0.0');
+    expect(config.hostname).toBe('127.0.0.1');
   });
 });
 

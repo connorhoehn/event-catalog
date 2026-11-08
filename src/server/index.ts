@@ -1,4 +1,4 @@
-import { createServiceRequestHeaders } from '@connorhoehn/service-runtime';
+import { createServiceRequestHeaders, announceInsecureDevMode } from '@connorhoehn/service-runtime';
 import {
   AdmissionHttpServer,
   serveStatic,
@@ -292,6 +292,12 @@ export interface ServerConfig {
    */
   authMiddleware?: Middleware;
   /**
+   * Allow an unauthenticated `/api`. Defaults to the host's one-flag answer
+   * (`INSECURE_DEV_MODE=true` with NODE_ENV not production). Without it the
+   * server refuses to boot when no auth middleware is configured.
+   */
+  insecure?: boolean;
+  /**
    * How long `shutdown()` waits for in-flight requests before closing
    * the remaining sockets. Defaults to
    * `EVENT_CATALOG_SHUTDOWN_DRAIN_MS`, else {@link SHUTDOWN_DRAIN_MS}.
@@ -419,8 +425,12 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     resolved.config.authToken,
     config.logger,
   );
-  if (process.env.NODE_ENV === 'production' && !authMiddleware) {
-    throw new Error('EVENT_CATALOG_AUTH_TOKEN or an injected auth middleware is required in production');
+  const insecure = config.insecure ?? announceInsecureDevMode();
+  if (!authMiddleware && !insecure) {
+    throw new Error(
+      'EVENT_CATALOG_AUTH_TOKEN or an injected auth middleware is required '
+      + '(set INSECURE_DEV_MODE=true for local development only)',
+    );
   }
   if (resolved.config.messageQueueAuthSecret && !authMiddleware) {
     throw new Error(
@@ -595,6 +605,7 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   rootRouter.get('/health', makeHealthHandler({
     service: 'event-catalog',
     version: serviceVersion,
+    insecureDevMode: insecure,
     checks: [
       {
         id: 'redis',
@@ -941,9 +952,9 @@ export async function startServer(config: ServerConfig = {}): Promise<{
   const requestErrors = new LogThrottle({ keyIntervalMs: 60_000, maxPerWindow: 10, maxKeys: 64 });
   const admission = new AdmissionHttpServer({
     port,
-    // Bind all interfaces (AdmissionHttpServer defaults to 127.0.0.1,
-    // which would break the Docker deployment).
-    hostname: process.env.HOST ?? '0.0.0.0',
+    // Loopback unless HOST says otherwise (the Dockerfile and compose set
+    // HOST=0.0.0.0 for the container deployment).
+    hostname: process.env.HOST ?? '127.0.0.1',
     bodyLimits: REQUEST_BODY_LIMITS,
     onRequest,
     onError: err => {
