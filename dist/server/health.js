@@ -55,6 +55,8 @@ function makeHealthHandler(opts) {
             checks: reports,
             timestamp: new Date().toISOString(),
         };
+        if (opts.insecureDevMode)
+            body.insecureDevMode = true;
         res.status(httpCode).json(body);
     };
 }

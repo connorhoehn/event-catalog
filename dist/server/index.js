@@ -21,11 +21,13 @@ const metrics_js_1 = require("./metrics.js");
 const metrics_observer_js_1 = require("./metrics-observer.js");
 const alerting_js_1 = require("./alerting.js");
 const dlq_store_js_1 = require("./dlq-store.js");
+const metrics_endpoint_js_1 = require("./metrics-endpoint.js");
 const dynamo_setup_js_1 = require("./dynamo-setup.js");
 const audit_log_js_1 = require("./audit-log.js");
 const manifest_store_js_1 = require("./manifest-store.js");
 const routes_js_1 = require("./routes.js");
 const auth_js_1 = require("./auth.js");
+const admin_session_js_1 = require("./admin-session.js");
 const bundle_routes_js_1 = require("./bundle-routes.js");
 const http_router_js_1 = require("./http-router.js");
 const FeatureBundle_js_1 = require("../bundles/FeatureBundle.js");
@@ -277,8 +279,10 @@ async function startServer(config = {}) {
     // signs dead-letter replays as itself, so an open API would publish
     // under the catalog's identity for anyone.
     const authMiddleware = (0, auth_js_1.resolveAuthMiddleware)(config.authMiddleware, resolved.config.authToken, config.logger);
-    if (process.env.NODE_ENV === 'production' && !authMiddleware) {
-        throw new Error('EVENT_CATALOG_AUTH_TOKEN or an injected auth middleware is required in production');
+    const insecure = config.insecure ?? (0, service_runtime_1.announceInsecureDevMode)();
+    if (!authMiddleware && !insecure) {
+        throw new Error('EVENT_CATALOG_AUTH_TOKEN or an injected auth middleware is required '
+            + '(set INSECURE_DEV_MODE=true for local development only)');
     }
     if (resolved.config.messageQueueAuthSecret && !authMiddleware) {
         throw new Error(`EVENT_CATALOG_AUTH_TOKEN or an injected auth middleware is required when ${auth_js_1.QUEUE_SECRET_ENV_VAR} is set`);
@@ -329,6 +333,10 @@ async function startServer(config = {}) {
         requestHeaders: resolved.config.messageQueueAuthSecret ? (0, service_runtime_1.createServiceRequestHeaders)({
             secret: resolved.config.messageQueueAuthSecret, serviceId: 'event-catalog', audience: 'message-queue',
         }) : undefined });
+    // Browser sign-in for the admin UI: only meaningful when a token exists.
+    const adminSessions = resolved.config.authToken !== undefined
+        ? (0, admin_session_js_1.createAdminSessions)({ token: resolved.config.authToken })
+        : undefined;
     const startedAt = Date.now();
     // Connect transports
     await signal.connect().catch(err => {
@@ -390,6 +398,7 @@ async function startServer(config = {}) {
     rootRouter.get('/health', (0, health_js_1.makeHealthHandler)({
         service: 'event-catalog',
         version: serviceVersion,
+        insecureDevMode: insecure,
         checks: [
             {
                 id: 'redis',
@@ -435,42 +444,10 @@ async function startServer(config = {}) {
             },
         ],
     }));
-    // Prometheus-formatted /metrics endpoint at root
-    rootRouter.get('/metrics', async (_req, res) => {
-        // Unauthenticated, and the most expensive GET on the surface that is
-        // not a static asset: a DynamoDB query for up to 1000 DLQ rows,
-        // followed by a full render of every registered series. The DDB call
-        // costs real money as well as latency, so it is worth not making for
-        // a scraper that has already timed out and hung up.
-        if (res.destroyed)
-            return;
-        try {
-            // Refresh DLQ gauges by scanning the DLQ store. Best-effort —
-            // if DDB is down we still want /metrics to respond.
-            // No `.catch(() => [])` here: an empty list from a DynamoDB outage would
-            // publish "DLQ is empty" during exactly the incident where its depth
-            // matters. Let it throw to the catch below, which leaves the last known
-            // gauges in place instead.
-            const dlqEntries = await dlqStore.list({ limit: 1000 });
-            const counts = new Map();
-            for (const entry of dlqEntries) {
-                counts.set(entry.eventName, (counts.get(entry.eventName) ?? 0) + 1);
-            }
-            // syncDLQEntries, not a setDLQEntries loop: a drained queue has no entry
-            // to iterate, so per-event sets left stale non-zero depths forever.
-            promMetrics.syncDLQEntries(counts);
-        }
-        catch {
-            // swallow; gauges may be stale but text rendering still works
-        }
-        // Re-checked: the DLQ query above is an await, so the peer may have
-        // gone during it. renderProm() walks every series and builds the whole
-        // exposition text as one string before send() ever sees it.
-        if (res.destroyed)
-            return;
-        res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
-        res.send(promMetrics.renderProm());
-    });
+    // Prometheus-formatted /metrics endpoint at root. Unauthenticated, and
+    // the DLQ depth gauges need a DynamoDB query, so the counts are cached
+    // (30 s, one refresh in flight) and the endpoint is rate limited (429).
+    rootRouter.get('/metrics', (0, metrics_endpoint_js_1.createMetricsHandler)({ dlqStore, promMetrics }));
     // wave23-a — persistent audit log. Capped Redis list keyed at
     // `event-catalog:audit-log` so audit events survive replicas
     // restarts and SSE clients get history-on-connect via ?replay=N.
@@ -551,6 +528,20 @@ async function startServer(config = {}) {
                 ares.json(400, { error: 'InvalidJson' });
                 return;
             }
+        }
+        if (adminSessions) {
+            if (adminSessions.handleAuthRoute(nodeReq, nodeRes, body))
+                return;
+            // `/admin-api/*` becomes `/api/*`, with the bearer attached only for a
+            // signed-in session; the rewritten request then meets the same gate.
+            adminSessions.prepareProxy(nodeReq);
+        }
+        else if ((nodeReq.url ?? '').startsWith('/admin-api')) {
+            // No token configured: the API is open (or guarded by an injected
+            // middleware), so the alias is a plain path rewrite.
+            const rest = (nodeReq.url ?? '').slice('/admin-api'.length);
+            if (rest === '' || rest[0] === '/' || rest[0] === '?')
+                nodeReq.url = `/api${rest}`;
         }
         const req = (0, http_router_js_1.makeRouteRequest)(nodeReq, body);
         // Content coding is negotiated per request from its Accept-Encoding —
@@ -684,9 +675,9 @@ async function startServer(config = {}) {
     const requestErrors = new bounded_js_1.LogThrottle({ keyIntervalMs: 60_000, maxPerWindow: 10, maxKeys: 64 });
     const admission = new server_1.AdmissionHttpServer({
         port,
-        // Bind all interfaces (AdmissionHttpServer defaults to 127.0.0.1,
-        // which would break the Docker deployment).
-        hostname: process.env.HOST ?? '0.0.0.0',
+        // Loopback unless HOST says otherwise (the Dockerfile and compose set
+        // HOST=0.0.0.0 for the container deployment).
+        hostname: process.env.HOST ?? '127.0.0.1',
         bodyLimits: exports.REQUEST_BODY_LIMITS,
         onRequest,
         onError: err => {

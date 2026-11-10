@@ -143,6 +143,12 @@ export interface ServerConfig {
      */
     authMiddleware?: Middleware;
     /**
+     * Allow an unauthenticated `/api`. Defaults to the host's one-flag answer
+     * (`INSECURE_DEV_MODE=true` with NODE_ENV not production). Without it the
+     * server refuses to boot when no auth middleware is configured.
+     */
+    insecure?: boolean;
+    /**
      * How long `shutdown()` waits for in-flight requests before closing
      * the remaining sockets. Defaults to
      * `EVENT_CATALOG_SHUTDOWN_DRAIN_MS`, else {@link SHUTDOWN_DRAIN_MS}.

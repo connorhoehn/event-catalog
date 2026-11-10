@@ -19,6 +19,7 @@ import { MetricsCollector } from './metrics.js';
 import { MetricsObserver } from './metrics-observer.js';
 import { AlertManager } from './alerting.js';
 import { DLQStore } from './dlq-store.js';
+import { createMetricsHandler } from './metrics-endpoint.js';
 import { ensureTable } from './dynamo-setup.js';
 import { startAuditLog } from './audit-log.js';
 import { RedisManifestStore } from './manifest-store.js';
@@ -652,39 +653,10 @@ export async function startServer(config: ServerConfig = {}): Promise<{
     ],
   }));
 
-  // Prometheus-formatted /metrics endpoint at root
-  rootRouter.get('/metrics', async (_req, res) => {
-    // Unauthenticated, and the most expensive GET on the surface that is
-    // not a static asset: a DynamoDB query for up to 1000 DLQ rows,
-    // followed by a full render of every registered series. The DDB call
-    // costs real money as well as latency, so it is worth not making for
-    // a scraper that has already timed out and hung up.
-    if (res.destroyed) return;
-    try {
-      // Refresh DLQ gauges by scanning the DLQ store. Best-effort —
-      // if DDB is down we still want /metrics to respond.
-      // No `.catch(() => [])` here: an empty list from a DynamoDB outage would
-      // publish "DLQ is empty" during exactly the incident where its depth
-      // matters. Let it throw to the catch below, which leaves the last known
-      // gauges in place instead.
-      const dlqEntries = await dlqStore.list({ limit: 1000 });
-      const counts = new Map<string, number>();
-      for (const entry of dlqEntries) {
-        counts.set(entry.eventName, (counts.get(entry.eventName) ?? 0) + 1);
-      }
-      // syncDLQEntries, not a setDLQEntries loop: a drained queue has no entry
-      // to iterate, so per-event sets left stale non-zero depths forever.
-      promMetrics.syncDLQEntries(counts);
-    } catch {
-      // swallow; gauges may be stale but text rendering still works
-    }
-    // Re-checked: the DLQ query above is an await, so the peer may have
-    // gone during it. renderProm() walks every series and builds the whole
-    // exposition text as one string before send() ever sees it.
-    if (res.destroyed) return;
-    res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
-    res.send(promMetrics.renderProm());
-  });
+  // Prometheus-formatted /metrics endpoint at root. Unauthenticated, and
+  // the DLQ depth gauges need a DynamoDB query, so the counts are cached
+  // (30 s, one refresh in flight) and the endpoint is rate limited (429).
+  rootRouter.get('/metrics', createMetricsHandler({ dlqStore, promMetrics }));
 
   // wave23-a — persistent audit log. Capped Redis list keyed at
   // `event-catalog:audit-log` so audit events survive replicas

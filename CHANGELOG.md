@@ -10,6 +10,12 @@
 
 - Adopt the one-flag dev convention (service-runtime 0.7.3). `startServer` refuses to boot without auth unless `INSECURE_DEV_MODE=true` and NODE_ENV is not production (new `insecure` option overrides); it announces the mode at start-up and `/health` reports `insecureDevMode: true`. `HOST` and the CLI default are now `127.0.0.1` (the Docker image keeps `0.0.0.0`). Local compose and `dev:stack` set the flag.
 
+## 0.10.8 — 2026-11-10
+
+- Security: the unauthenticated root `/metrics` endpoint no longer runs a DynamoDB query per request. The per-event DLQ counts are cached for 30 s with one refresh in flight (concurrent requests share it; a failed refresh is not cached, the gauges keep their last known values and the next request retries), and the endpoint has a global token bucket (burst 20, 5 per second) that answers 429 with `Retry-After` when empty. New module `src/server/metrics-endpoint.ts`.
+- CI: the token-bearing URL rewrites are removed from the global git config right after `npm ci`, so later steps cannot read the dependency token.
+- Rebuilt `dist/` with `build:cli` (which compiles `src/server`): the committed `dist/server` and `dist/cli` lagged the source and lacked `admin-session.js`. `contracts/asyncapi.registry.yaml` info.version follows the package version.
+
 ## 0.10.7 — 2026-11-08
 
 - Rebuilt `dist/`: 0.10.6 shipped the pre-rename build, whose `client/durable.js` required `@connorhoehnslalom/message-queue/client` and crashed every consumer that loaded the durable client. No source change.

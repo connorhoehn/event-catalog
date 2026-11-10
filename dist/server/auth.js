@@ -23,8 +23,10 @@
 // than per route, so a route added tomorrow under src/server/routes/ is
 // covered the moment it is mounted.
 //
-// The admin UI holds no token; an operator reaches it through an
-// authenticating reverse proxy that injects the bearer header.
+// The admin UI holds no token: the operator signs in once and the server
+// attaches the bearer to `/admin-api/*` requests that carry a session cookie
+// (src/server/admin-session.ts). An authenticating reverse proxy that injects
+// the header itself works too.
 //
 // COMPARISON
 //
